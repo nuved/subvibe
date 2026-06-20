@@ -1,0 +1,107 @@
+{
+  "manifest_version": 3,
+  "name": "SubVibe - AI Subtitle Translator",
+  "version": "1330.0.0",
+  "version_name": "1330",
+  "description": "AI subtitles translating streaming video into your language: in sync, pre-translated ahead, cached free on replay.",
+  "homepage_url": "https://nimanou.com",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "permissions": [
+    "storage",
+    "unlimitedStorage"
+  ],
+  "host_permissions": [
+    "https://api.openai.com/*",
+    "https://*.youtube.com/*",
+    "https://*.netflix.com/*",
+    "https://*.dw.com/*",
+    "https://*.zdf.de/*",
+    "https://www.amazon.de/gp/video/*",
+    "https://www.primevideo.com/*"
+  ],
+  "background": { "service_worker": "background.js" },
+  "options_ui": { "page": "library.html", "open_in_tab": true },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; base-uri 'none'"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "SubVibe",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://*.youtube.com/*"],
+      "js": [
+        "content/adapters/youtube.js",
+        "content/common.js"
+      ],
+      "css": ["styles/overlay.css"],
+      "run_at": "document_idle",
+      "all_frames": false
+    },
+    {
+      "matches": ["https://*.netflix.com/*"],
+      "js": [
+        "content/adapters/netflix.js",
+        "content/common.js"
+      ],
+      "css": ["styles/overlay.css"],
+      "run_at": "document_idle",
+      "all_frames": false
+    },
+    {
+      "matches": ["https://*.zdf.de/*"],
+      "js": [
+        "content/adapters/zdf.js",
+        "content/common.js"
+      ],
+      "css": ["styles/overlay.css"],
+      "run_at": "document_idle",
+      "all_frames": false
+    },
+    {
+      "matches": ["https://*.dw.com/*"],
+      "js": [
+        "content/adapters/dw.js",
+        "content/common.js"
+      ],
+      "css": ["styles/overlay.css"],
+      "run_at": "document_idle",
+      "all_frames": false
+    },
+    {
+      "matches": ["https://www.amazon.de/gp/video/*", "https://www.primevideo.com/*"],
+      "js": [
+        "content/adapters/prime.js",
+        "content/common.js"
+      ],
+      "css": ["styles/overlay.css"],
+      "run_at": "document_idle",
+      "all_frames": false
+    },
+    {
+      "matches": ["https://*.zdf.de/*", "https://*.dw.com/*", "https://*.youtube.com/*", "https://*.netflix.com/*", "https://www.amazon.de/gp/video/*", "https://www.primevideo.com/*"],
+      "js": ["shared/tribute.js", "content/subs-intercept.js"],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": false
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["fonts/*"],
+      "matches": ["https://*.youtube.com/*", "https://*.netflix.com/*", "https://*.zdf.de/*", "https://*.dw.com/*", "https://www.amazon.de/*", "https://www.primevideo.com/*"]
+    }
+  ]
+}

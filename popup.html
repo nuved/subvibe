@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0d12; --panel: #11151c; --panel2: #161c26; --border: #28303d;
+      --text: #e7ecf3; --muted: #8b95a6; --accent: #4f8cff; --accent2: #3f7af0;
+      --green: #7fe0b0; --red: #ff9a9a; --amber: #ffcf8f;
+    }
+    * { box-sizing: border-box; }
+    body { width: 340px; margin: 0; padding: 0 0 14px; background: var(--bg); color: var(--text);
+      font: 13px/1.45 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; }
+    .pad { padding: 0 14px; }
+
+    header { display: flex; align-items: center; gap: 10px; padding: 13px 14px 11px; }
+    header img { width: 30px; height: 30px; border-radius: 8px; }
+    header h1 { font-size: 15px; margin: 0; letter-spacing: .2px; }
+    header .tag { color: var(--muted); font-size: 10.5px; margin: 1px 0 0; }
+    header .spacer { flex: 1; }
+
+    /* toggle switch */
+    .switch { position: relative; display: inline-block; width: 38px; height: 22px; flex: none; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider { position: absolute; inset: 0; cursor: pointer; background: #2a3340; border-radius: 22px; transition: .15s; }
+    .slider::before { content: ""; position: absolute; height: 16px; width: 16px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: .15s; }
+    .switch input:checked + .slider { background: var(--accent); }
+    .switch input:checked + .slider::before { transform: translateX(16px); }
+
+    section { padding: 12px 14px; border-top: 1px solid #161b24; }
+    .lbl { display: flex; align-items: baseline; justify-content: space-between; font-weight: 600; margin: 0 0 7px; }
+    .lbl a { color: var(--accent); font-weight: 500; font-size: 11px; text-decoration: none; }
+    .lbl a:hover { text-decoration: underline; }
+    .hint { color: var(--muted); font-weight: 400; font-size: 11px; }
+
+    input[type="password"], input[type="text"], select {
+      width: 100%; padding: 8px 9px; border-radius: 8px; border: 1px solid var(--border);
+      background: var(--panel); color: var(--text); font-size: 13px; }
+    input:focus, select:focus { outline: none; border-color: var(--accent); }
+
+    .keyrow { display: flex; gap: 7px; }
+    .keyrow input { flex: 1; }
+    button { border: 0; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 12.5px; }
+    .btn { padding: 8px 12px; background: var(--accent); color: #fff; }
+    .btn:hover { background: var(--accent2); }
+    .btn.ghost { background: var(--panel2); color: #cdd6e3; border: 1px solid var(--border); }
+    .btn.ghost:hover { background: #1b2330; }
+    #keyStatus { font-size: 11px; margin-top: 6px; min-height: 14px; color: var(--muted); }
+    #keyStatus.ok { color: var(--green); } #keyStatus.err { color: var(--red); } #keyStatus.warn { color: var(--amber); }
+
+    /* language chips + autocomplete */
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+    .chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 6px 3px 8px;
+      background: var(--panel2); border: 1px solid var(--border); border-radius: 20px; font-size: 12px; }
+    .chip .fl { font-size: 13px; }
+    .chip.primary { border-color: #2f5fb0; background: #14233c; }
+    .chip .star { color: var(--accent); font-size: 10px; }
+    .chip button { background: transparent; color: var(--muted); font-size: 14px; line-height: 1; padding: 0 2px; }
+    .chip button:hover { color: var(--red); }
+    .chips:empty::after { content: "No language yet — add one below"; color: var(--muted); font-size: 11px; }
+
+    .ac { position: relative; }
+    .menu { position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 5; max-height: 196px; overflow-y: auto;
+      background: var(--panel); border: 1px solid var(--border); border-radius: 9px; box-shadow: 0 10px 30px rgba(0,0,0,.5);
+      display: none; padding: 4px; }
+    .menu.show { display: block; }
+    .opt { display: flex; align-items: center; gap: 9px; padding: 7px 8px; border-radius: 7px; cursor: pointer; }
+    .opt .fl { font-size: 15px; }
+    .opt .code { margin-left: auto; color: var(--muted); font-size: 10.5px; text-transform: uppercase; }
+    .opt:hover, .opt.active { background: var(--panel2); }
+    .menu .none { padding: 8px; color: var(--muted); font-size: 12px; }
+
+    .row { display: flex; align-items: center; gap: 9px; margin: 9px 0 0; }
+    .row label { font-weight: 500; }
+
+    /* segmented size control */
+    .seg { display: flex; gap: 6px; }
+    .seg button { flex: 1; padding: 7px 0; background: var(--panel); border: 1px solid var(--border); color: #cdd6e3; }
+    .seg button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+    .sync { display: flex; align-items: center; gap: 10px; }
+    .sync button { padding: 7px 11px; background: var(--panel2); color: #cdd6e3; border: 1px solid var(--border); }
+    .sync .val { min-width: 56px; text-align: center; font-weight: 700; }
+
+    details { border-top: 1px solid #161b24; }
+    summary { padding: 12px 14px; cursor: pointer; font-weight: 600; color: #cdd6e3; list-style: none; }
+    summary::-webkit-details-marker { display: none; }
+    summary::after { content: "▸"; float: right; color: var(--muted); }
+    details[open] summary::after { content: "▾"; }
+
+    /* this-video cache + library entry */
+    .linkbtn { background: transparent; color: var(--muted); font-weight: 600; font-size: 11px; padding: 2px 4px; }
+    .linkbtn:hover { color: var(--red); }
+    .clipcache { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+    .clipcache.muted { color: var(--muted); font-size: 12px; }
+    .clang { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; }
+    .clang .fl { font-size: 14px; line-height: 1; }
+    .clang .dot { font-size: 10px; }
+    .dot.full { color: var(--green); }
+    .dot.partial { color: var(--amber); }
+
+    .libbtn { display: flex; align-items: center; gap: 11px; width: 100%; text-align: left;
+      padding: 11px 12px; background: var(--panel); border: 1px solid var(--border); color: var(--text); }
+    .libbtn:hover { background: var(--panel2); border-color: #2f5fb0; }
+    .libbtn .libico { font-size: 18px; }
+    .libbtn .libtxt { display: flex; flex-direction: column; line-height: 1.25; flex: 1; }
+    .libbtn .libtxt b { font-size: 13px; }
+    .libbtn .libsub { color: var(--muted); font-size: 11px; font-weight: 500; }
+    .libbtn .libgo { color: var(--accent); font-weight: 700; font-size: 12px; }
+
+    footer { display: flex; align-items: center; gap: 10px; padding: 12px 14px 0; }
+    #status { font-size: 11px; color: var(--green); min-height: 14px; flex: 1; }
+    .saved { color: var(--green); font-size: 11px; opacity: 0; transition: opacity .2s; }
+    .saved.show { opacity: 1; }
+
+    /* per-clip scope bar */
+    .scopebar { display: flex; align-items: center; gap: 8px; padding: 7px 14px;
+      background: var(--panel2); border-bottom: 1px solid #161b24; font-size: 11px; color: var(--muted); }
+    .scopebar .spacer { flex: 1; }
+    .scopebar #scopeText { font-weight: 600; color: #cdd6e3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .scopebar #scopeText .badge { color: var(--accent); }
+    .scopelink { background: transparent; color: var(--accent); font-weight: 600; font-size: 11px; padding: 2px 4px; white-space: nowrap; }
+    .scopelink:hover { text-decoration: underline; }
+    .scopelink.muted { color: var(--muted); }
+
+    /* hidden tribute card — revealed by tapping the logo three times */
+    .memcard { position: fixed; inset: 0; z-index: 50; background: #0b0d12; display: flex;
+      flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 16px; }
+    .memcard[hidden] { display: none; }
+    .memart { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 4px; line-height: 1.04;
+      color: #cdd6e3; white-space: pre; margin: 0; letter-spacing: 0; max-width: 100%; overflow: hidden; }
+    .memname { color: #e7ecf3; font-weight: 700; font-size: 13px; letter-spacing: .3px; }
+    .memded { color: var(--green); font-size: 11px; text-align: center; line-height: 1.55; max-width: 290px; }
+    .memclose { position: absolute; top: 8px; right: 11px; background: transparent; color: var(--muted); font-size: 20px; line-height: 1; }
+    .memclose:hover { color: var(--text); }
+  </style>
+</head>
+<body>
+  <header>
+    <img src="icons/icon-48.png" alt="" />
+    <div>
+      <h1>SubVibe</h1>
+      <p class="tag">AI subtitles · in sync · cached free</p>
+    </div>
+    <span class="spacer"></span>
+    <label class="switch" title="Turn SubVibe on/off">
+      <input type="checkbox" id="enabled" /><span class="slider"></span>
+    </label>
+  </header>
+
+  <!-- Scope: which video the language/appearance/timing settings below apply to -->
+  <div id="scopeBar" class="scopebar">
+    <span id="scopeText">Editing your defaults</span>
+    <span class="spacer"></span>
+    <button id="setDefault" class="scopelink" hidden title="Apply this video's languages, position, size and timing to every NEW video">Save as default</button>
+    <button id="resetClip" class="scopelink muted" hidden title="Revert this video to your defaults">Reset</button>
+  </div>
+
+  <!-- API key -->
+  <section>
+    <div class="lbl">OpenAI API key <a id="getKey" href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">Get a key →</a></div>
+    <div class="keyrow">
+      <input type="password" id="apiKey" placeholder="sk-…" autocomplete="off" spellcheck="false" />
+      <button class="btn ghost" id="verify">Verify</button>
+    </div>
+    <div id="keyStatus">Stored only on this device · a few cents per hour · cached replays are free.</div>
+  </section>
+
+  <!-- Languages -->
+  <section>
+    <div class="lbl">Translate to <span class="hint">first = primary</span></div>
+    <div class="chips" id="chips"></div>
+    <div class="ac">
+      <input type="text" id="langSearch" placeholder="🔍  Add a language…" autocomplete="off" />
+      <div class="menu" id="langMenu"></div>
+    </div>
+    <div class="row">
+      <label class="switch"><input type="checkbox" id="showOriginal" /><span class="slider"></span></label>
+      <label for="showOriginal">Also show the original line <span class="hint">(dual subtitles)</span></label>
+    </div>
+    <div class="row" style="margin-top:11px;">
+      <label class="switch"><input type="checkbox" id="keepNames" /><span class="slider"></span></label>
+      <label for="keepNames">Keep names &amp; brands in the original language <span class="hint">(don't transliterate — e.g. MySQL stays MySQL)</span></label>
+    </div>
+    <input type="text" id="keepTerms" placeholder="Extra specific terms (optional): Skyler, Wharton…" autocomplete="off" spellcheck="false" style="margin-top:8px;" />
+  </section>
+
+  <!-- Appearance -->
+  <section>
+    <div class="lbl">Appearance</div>
+    <div class="seg" id="sizeSeg">
+      <button data-size="sm">S</button><button data-size="md">M</button>
+      <button data-size="lg">L</button><button data-size="xl">XL</button>
+    </div>
+    <div class="row" style="margin-top:10px;">
+      <span style="min-width:58px; color:var(--muted);">Position</span>
+      <select id="position" style="flex:1;">
+        <option value="bottom">Bottom</option>
+        <option value="top">Top</option>
+        <option value="auto">Auto (opposite the original)</option>
+        <option value="custom">Custom (dragged)</option>
+      </select>
+    </div>
+    <div class="hint" style="margin-top:7px;">Tip: drag each subtitle line on the video to place it — the original and translation can sit apart.</div>
+    <div class="row">
+      <label class="switch"><input type="checkbox" id="hideNative" /><span class="slider"></span></label>
+      <label for="hideNative">Hide the site's own captions <span class="hint">(avoid doubles)</span></label>
+    </div>
+  </section>
+
+  <!-- Timing -->
+  <section>
+    <div class="lbl">Subtitle timing <span class="hint">shift if out of sync</span></div>
+    <div class="sync">
+      <button id="syncBack">−0.25s</button>
+      <span class="val" id="syncVal">0.00s</span>
+      <button id="syncFwd">+0.25s</button>
+      <span class="hint" style="flex:1;">+ earlier · − later</span>
+    </div>
+  </section>
+
+  <!-- This video -->
+  <section>
+    <div class="lbl">This video <button class="linkbtn" id="clearClip" hidden>Clear cache</button></div>
+    <div id="clipCache" class="clipcache muted">Loading…</div>
+  </section>
+
+  <!-- Library -->
+  <section>
+    <button class="libbtn" id="openLibrary">
+      <span class="libico">📚</span>
+      <span class="libtxt"><b>Library</b><span class="libsub" id="libCount">…</span></span>
+      <span class="libgo">Open →</span>
+    </button>
+  </section>
+
+  <footer>
+    <span id="status"></span>
+    <span class="saved" id="saved">Saved ✓</span>
+  </footer>
+
+  <!-- Hidden tribute — revealed by tapping the logo three times. -->
+  <div id="memoryCard" class="memcard" hidden>
+    <button id="memClose" class="memclose" title="Close">×</button>
+    <pre id="memArt" class="memart"></pre>
+    <div id="memName" class="memname"></div>
+    <div id="memDed" class="memded"></div>
+  </div>
+
+  <script src="shared/langs.js"></script>
+  <script src="shared/tribute.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

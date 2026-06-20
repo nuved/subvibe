@@ -1,0 +1,155 @@
+/* Copilot Subtitles overlay. Lives inside the player container so it survives
+   native fullscreen. pointer-events:none so it never blocks the player's
+   controls. Multiple lines stack (dual / multi subtitles). */
+
+/* Vazirmatn (Persian) @font-face is injected from common.js with absolute
+   chrome-extension:// URLs — a relative url() here resolves against the page
+   (e.g. www.zdf.de/.../fonts/…) and 404s. */
+
+#copilot-subs {
+  position: absolute;
+  inset: 0;
+  z-index: 2147483000;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+}
+
+#copilot-subs .copilot-subs__stack {
+  width: 100%;
+  box-sizing: border-box;
+  padding-bottom: 9%; /* clear the control bar */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25em;
+}
+
+#copilot-subs .copilot-subs__line {
+  display: none;
+  /* Wrap into a readable caption-width column instead of spanning the whole
+     video: the em cap (~a line of subtitle text) wins on wide players, the %
+     keeps it sane on small ones. */
+  max-width: min(86%, 24em);
+  margin: 0 auto;
+  padding: 0.12em 0.5em;
+  background: rgba(8, 10, 14, 0.78);
+  color: #fff;
+  /* Sized by JS (sizeOverlay) relative to the VIDEO height; the clamp is only a
+     fallback before JS runs. The old per-size vw rules below are removed. */
+  font-size: var(--cs-font, clamp(16px, 2.4vw, 40px));
+  font-weight: 600;
+  line-height: 1.32;
+  text-align: center;
+  border-radius: 7px;
+  white-space: pre-wrap;
+  /* Render the line in its own bidi context: a Latin name kept in the original
+     (e.g. "MySQL") inside RTL text shows correctly, and dir is honored per line. */
+  unicode-bidi: isolate;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.9);
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+/* The first stacked line (the original, when shown) reads as secondary. */
+#copilot-subs .copilot-subs__line:first-child {
+  opacity: 0.9;
+  font-weight: 500;
+}
+
+/* Draggable: only the text pills are grab handles (the rest of the overlay stays
+   click-through), so the user can drop the subtitles anywhere on the video. */
+#copilot-subs .copilot-subs__line { pointer-events: auto; cursor: grab; touch-action: none; }
+#copilot-subs.copilot-dragging .copilot-subs__line { cursor: grabbing; user-select: none; }
+
+/* Custom mode: each line is positioned independently (drag any line to its own
+   spot). The stack just fills the player so lines anchor to the video rect; JS
+   sets each line's left/top as a percentage. */
+#copilot-subs.copilot-pos-custom .copilot-subs__stack {
+  position: absolute;
+  inset: 0;
+  display: block;
+  padding: 0;
+  gap: 0;
+}
+#copilot-subs.copilot-pos-custom .copilot-subs__line {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  max-width: min(84%, 24em);
+  margin: 0;
+}
+
+#copilot-subs .copilot-subs__status {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 80%;
+  display: none;
+  padding: 4px 10px;
+  background: rgba(8, 10, 14, 0.82);
+  color: #8fb6ff;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 12px;
+  pointer-events: none;
+}
+#copilot-subs .copilot-subs__status.show { display: block; }
+#copilot-subs.copilot-error .copilot-subs__status { color: #ff9a9a; }
+
+#copilot-subs .copilot-subs__debug {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  max-width: 70%;
+  display: none;
+  padding: 3px 8px;
+  background: rgba(0, 0, 0, 0.85);
+  color: #ffd479;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 8px;
+  pointer-events: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#copilot-subs .copilot-subs__debug.show { display: block; }
+
+/* Position */
+#copilot-subs.copilot-pos-top { justify-content: flex-start; }
+#copilot-subs.copilot-pos-top .copilot-subs__stack { padding-top: 7%; padding-bottom: 0; }
+#copilot-subs.copilot-pos-bottom { justify-content: flex-end; }
+#copilot-subs.copilot-pos-bottom .copilot-subs__stack { padding-bottom: 9%; padding-top: 0; }
+
+/* Text size is set by JS (sizeOverlay) via --cs-font, scaled to the video height
+   so it tracks the player — not the browser window — across all sites. */
+
+/* Persian / Arabic text uses Vazirmatn */
+#copilot-subs .copilot-subs__line[dir="rtl"] {
+  font-family: "Vazirmatn", "Vazir", Tahoma, sans-serif;
+  font-weight: 700; /* Vazirmatn Bold, injected with an absolute URL from JS */
+  line-height: 1.5;
+}
+
+/* Opt-in button shown only when a video has no captions (clickable). */
+#copilot-subs .copilot-subs__cta {
+  position: absolute;
+  left: 50%;
+  bottom: 14%;
+  transform: translateX(-50%);
+  display: none;
+  pointer-events: auto;
+  cursor: pointer;
+  padding: 9px 16px;
+  border: 0;
+  border-radius: 10px;
+  background: #4f8cff;
+  color: #fff;
+  font: 600 14px/1 -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5);
+}
+#copilot-subs .copilot-subs__cta:hover { background: #3f7af0; }

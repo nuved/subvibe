@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SubVibe — ASCII Portrait (private &amp; local)</title>
+<style>
+  body { background:#0b0d12; color:#e7ecf3; font:14px/1.5 -apple-system,"Segoe UI",Roboto,Arial,sans-serif; margin:0; padding:24px; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  .sub { color:#8b95a6; font-size:12px; margin:0 0 18px; max-width:680px; }
+  .sub b { color:#7fe0b0; }
+  .wrap { display:flex; gap:20px; flex-wrap:wrap; align-items:flex-start; }
+  .panel { background:#11151c; border:1px solid #28303d; border-radius:12px; padding:16px; }
+  .controls { width:300px; }
+  h2 { font-size:12px; text-transform:uppercase; letter-spacing:.5px; color:#8b95a6; margin:18px 0 2px; }
+  h2:first-of-type { margin-top:6px; }
+  label { display:block; margin:11px 0 4px; color:#cdd6e3; font-weight:600; font-size:12px; }
+  input[type=range] { width:100%; }
+  select, button { background:#161c26; color:#e7ecf3; border:1px solid #28303d; border-radius:8px; padding:7px 9px; font-size:13px; }
+  button { cursor:pointer; font-weight:600; }
+  button.go { background:#4f8cff; border-color:#4f8cff; color:#fff; }
+  #drop { border:2px dashed #2f5fb0; border-radius:10px; padding:20px; text-align:center; color:#8b95a6; cursor:pointer; transition:.15s; }
+  #drop.over { background:#14233c; color:#cdd6e3; }
+  pre#out { background:#000; color:#cfe3ff; border:1px solid #28303d; border-radius:10px; padding:14px;
+    overflow:auto; max-height:74vh; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:8px; line-height:1; white-space:pre; }
+  .row { display:flex; gap:8px; margin-top:14px; flex-wrap:wrap; }
+  .hint { color:#8b95a6; font-size:11px; margin-top:10px; }
+  .val { color:#7fe0b0; font-weight:700; }
+  .chk { display:flex; align-items:center; gap:7px; font-weight:500; font-size:12px; margin-top:9px; }
+  #enh { width:100%; image-rendering:auto; border:1px solid #28303d; border-radius:8px; background:#000; margin-top:8px; }
+  .twocol { display:flex; gap:8px; } .twocol > div { flex:1; }
+</style>
+</head>
+<body>
+  <h1>SubVibe — ASCII Portrait</h1>
+  <p class="sub">Turn a photo into ASCII art. <b>100% local</b> — the picture is processed in your browser and never uploaded. Tune the <b>enhance</b> sliders (watch the cleaned-up preview), then copy the ASCII. Edges + dithering are what make a face recognizable.</p>
+  <div class="wrap">
+    <div class="panel controls">
+      <div id="drop">Drop a photo here<br />— or click to choose —</div>
+      <input type="file" id="file" accept="image/*" hidden />
+
+      <h2>1 · Enhance the photo</h2>
+      <label class="chk"><input type="checkbox" id="auto" checked /> Auto-contrast (stretch levels)</label>
+      <label>Gamma (mid-tones) — <span class="val" id="gv">1.00</span></label>
+      <input type="range" id="gamma" min="0.4" max="2.4" step="0.05" value="1" />
+      <div class="twocol">
+        <div><label>Brightness — <span class="val" id="bv">0</span></label><input type="range" id="bright" min="-120" max="120" value="0" /></div>
+        <div><label>Contrast — <span class="val" id="cv">1.00</span></label><input type="range" id="contrast" min="0.4" max="2.6" step="0.05" value="1" /></div>
+      </div>
+      <label>Denoise — <span class="val" id="dv">1</span></label>
+      <input type="range" id="denoise" min="0" max="3" step="1" value="1" />
+      <label>Sharpen (unsharp) — <span class="val" id="sv">0.8</span></label>
+      <input type="range" id="sharp" min="0" max="2.5" step="0.1" value="0.8" />
+      <label>Edge-darken (trace contours) — <span class="val" id="ev">0.5</span></label>
+      <input type="range" id="edgedark" min="0" max="1.5" step="0.05" value="0.5" />
+
+      <h2>2 · ASCII output</h2>
+      <label>Width — <span class="val" id="wv">90</span> characters</label>
+      <input type="range" id="width" min="40" max="180" value="90" />
+      <label>Character set</label>
+      <select id="ramp">
+        <option value="standard">Standard</option>
+        <option value="detailed">Detailed (finest)</option>
+        <option value="soft">Soft</option>
+        <option value="blocks">Blocks</option>
+      </select>
+      <label class="chk"><input type="checkbox" id="invert" checked /> Invert (for dark backgrounds)</label>
+      <label class="chk"><input type="checkbox" id="dither" checked /> Dither (smoother tones)</label>
+      <label class="chk"><input type="checkbox" id="edges" checked /> Edge characters ( | / \ - on contours )</label>
+      <label class="chk"><input type="checkbox" id="swap" /> Swap diagonal edges (/ ↔ \)</label>
+      <label>Edge strength — <span class="val" id="etv">28</span></label>
+      <input type="range" id="ethr" min="6" max="80" value="28" />
+
+      <div class="row">
+        <button class="go" id="copy">Copy ASCII</button>
+        <button id="copyjs">Copy as JS</button>
+        <button id="dl">Download .txt</button>
+      </div>
+      <p class="hint">Enhanced preview (what the ASCII is built from):</p>
+      <canvas id="enh"></canvas>
+      <p class="hint">If features blur: raise Sharpen + Edge-strength, lower Width a touch. Very dark photo: raise Gamma. Noisy/old scan: raise Denoise.</p>
+    </div>
+
+    <div class="panel" style="flex:1; min-width:320px;">
+      <pre id="out">…drop a photo to begin…</pre>
+    </div>
+  </div>
+  <canvas id="work" hidden></canvas>
+  <canvas id="cell" hidden></canvas>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  // Character ramps, DARK→LIGHT (ramp[0] = densest ink). In JS so tricky characters
+  // never need HTML-escaping inside an <option value>.
+  const RAMPS = {
+    standard: "@%#*+=-:. ",
+    detailed: "$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;:,\"^`'. ",
+    soft:     "MWN8O0xkdolc:,. ",
+    blocks:   "█▓▒░ ",
+  };
+  const PROC_W = 720;   // process at a fixed working width (upscales small photos so sampling is smooth)
+  let img = null;
+
+  // ── tiny image-processing kit (operates on Float32 luminance, 0..255) ─────────
+  function toGray(data, w, h) {
+    const g = new Float32Array(w * h);
+    for (let i = 0, p = 0; i < g.length; i++, p += 4) g[i] = 0.299 * data[p] + 0.587 * data[p + 1] + 0.114 * data[p + 2];
+    return g;
+  }
+  function autoLevels(g, lowPct, highPct) {
+    const hist = new Uint32Array(256);
+    for (let i = 0; i < g.length; i++) hist[Math.max(0, Math.min(255, g[i] | 0))]++;
+    const total = g.length; let lo = 0, hi = 255, acc = 0;
+    for (let v = 0; v < 256; v++) { acc += hist[v]; if (acc >= total * lowPct) { lo = v; break; } }
+    acc = 0; for (let v = 255; v >= 0; v--) { acc += hist[v]; if (acc >= total * highPct) { hi = v; break; } }
+    if (hi <= lo) return; const s = 255 / (hi - lo);
+    for (let i = 0; i < g.length; i++) g[i] = Math.max(0, Math.min(255, (g[i] - lo) * s));
+  }
+  function gammaCorrect(g, gamma) {
+    if (Math.abs(gamma - 1) < 1e-3) return; const inv = 1 / gamma;
+    for (let i = 0; i < g.length; i++) g[i] = 255 * Math.pow(g[i] / 255, inv);
+  }
+  function levels(g, contrast, bright) {
+    for (let i = 0; i < g.length; i++) g[i] = Math.max(0, Math.min(255, (g[i] - 128) * contrast + 128 + bright));
+  }
+  function boxBlur(g, w, h, r) {
+    if (r <= 0) return g.slice();
+    const tmp = new Float32Array(g.length), out = new Float32Array(g.length), d = 2 * r + 1;
+    for (let y = 0; y < h; y++) { let s = 0; const o = y * w;
+      for (let x = -r; x <= r; x++) s += g[o + Math.max(0, Math.min(w - 1, x))];
+      for (let x = 0; x < w; x++) { tmp[o + x] = s / d; s += g[o + Math.min(w - 1, x + r + 1)] - g[o + Math.max(0, x - r)]; } }
+    for (let x = 0; x < w; x++) { let s = 0;
+      for (let y = -r; y <= r; y++) s += tmp[x + w * Math.max(0, Math.min(h - 1, y))];
+      for (let y = 0; y < h; y++) { out[x + y * w] = s / d; s += tmp[x + w * Math.min(h - 1, y + r + 1)] - tmp[x + w * Math.max(0, y - r)]; } }
+    return out;
+  }
+  function unsharp(g, w, h, amount) {
+    if (amount <= 0) return; const blur = boxBlur(g, w, h, 1);
+    for (let i = 0; i < g.length; i++) g[i] = Math.max(0, Math.min(255, g[i] + amount * (g[i] - blur[i])));
+  }
+  // Sobel → gradient magnitude + components. Returns {mag, gx, gy}.
+  function sobel(g, w, h) {
+    const mag = new Float32Array(w * h), GX = new Float32Array(w * h), GY = new Float32Array(w * h);
+    const at = (x, y) => g[Math.max(0, Math.min(h - 1, y)) * w + Math.max(0, Math.min(w - 1, x))];
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const gx = (at(x + 1, y - 1) + 2 * at(x + 1, y) + at(x + 1, y + 1)) - (at(x - 1, y - 1) + 2 * at(x - 1, y) + at(x - 1, y + 1));
+      const gy = (at(x - 1, y + 1) + 2 * at(x, y + 1) + at(x + 1, y + 1)) - (at(x - 1, y - 1) + 2 * at(x, y - 1) + at(x + 1, y - 1));
+      const i = y * w + x; GX[i] = gx; GY[i] = gy; mag[i] = Math.hypot(gx, gy);
+    }
+    return { mag, gx: GX, gy: GY };
+  }
+
+  // ── main render ───────────────────────────────────────────────────────────────
+  function render() {
+    if (!img) return;
+    for (const [id, v] of [["gv", (+$("gamma").value).toFixed(2)], ["bv", $("bright").value], ["cv", (+$("contrast").value).toFixed(2)],
+      ["dv", $("denoise").value], ["sv", (+$("sharp").value).toFixed(1)], ["ev", (+$("edgedark").value).toFixed(2)],
+      ["wv", $("width").value], ["etv", $("ethr").value]]) $(id).textContent = v;
+
+    // 1) draw to the working canvas at a fixed width (upscales tiny inputs smoothly).
+    const P = PROC_W, Ph = Math.max(1, Math.round(P * img.height / img.width));
+    const wc = $("work"); wc.width = P; wc.height = Ph;
+    const wx = wc.getContext("2d"); wx.imageSmoothingEnabled = true; wx.imageSmoothingQuality = "high";
+    wx.drawImage(img, 0, 0, P, Ph);
+    let g = toGray(wx.getImageData(0, 0, P, Ph).data, P, Ph);
+
+    // 2) enhance pipeline.
+    if ($("auto").checked) autoLevels(g, 0.01, 0.01);
+    gammaCorrect(g, +$("gamma").value);
+    levels(g, +$("contrast").value, +$("bright").value);
+    const dn = +$("denoise").value; if (dn > 0) g = boxBlur(g, P, Ph, dn);
+    unsharp(g, P, Ph, +$("sharp").value);
+    const edgeDark = +$("edgedark").value;
+    if (edgeDark > 0) { const e = sobel(g, P, Ph); for (let i = 0; i < g.length; i++) g[i] = Math.max(0, Math.min(255, g[i] - edgeDark * e.mag[i])); }
+
+    // enhanced preview.
+    const enh = $("enh"); enh.width = P; enh.height = Ph; const ex = enh.getContext("2d");
+    const prev = ex.createImageData(P, Ph);
+    for (let i = 0, p = 0; i < g.length; i++, p += 4) { const v = g[i]; prev.data[p] = prev.data[p + 1] = prev.data[p + 2] = v; prev.data[p + 3] = 255; }
+    ex.putImageData(prev, 0, 0);
+
+    // 3) downsample the PROCESSED image to the character grid (area-averaged via canvas).
+    const W = +$("width").value, aspect = 0.5;
+    const H = Math.max(1, Math.round(W * (Ph / P) * aspect));
+    const cc = $("cell"); cc.width = W; cc.height = H; const cx = cc.getContext("2d");
+    cx.imageSmoothingEnabled = true; cx.imageSmoothingQuality = "high"; cx.drawImage(enh, 0, 0, W, H);
+    const cell = toGray(cx.getImageData(0, 0, W, H).data, W, H);
+
+    // 4) map to characters: Floyd–Steinberg over the ramp, with edge characters on top.
+    const chars = RAMPS[$("ramp").value] || RAMPS.standard, n = chars.length - 1;
+    const invert = $("invert").checked, dither = $("dither").checked;
+    const useEdges = $("edges").checked, swap = $("swap").checked, ethr = +$("ethr").value;
+    const eg = useEdges ? sobel(cell, W, H) : null;
+
+    // continuous target index q (0=dense/dark .. n=light) per cell.
+    const q = new Float32Array(W * H);
+    for (let i = 0; i < cell.length; i++) { let t = cell[i] / 255; if (invert) t = 1 - t; q[i] = t * n; }
+
+    const lines = [];
+    for (let y = 0; y < H; y++) {
+      let line = "";
+      for (let x = 0; x < W; x++) {
+        const i = y * W + x;
+        let ch;
+        if (useEdges && eg.mag[i] > ethr) {
+          const ax = Math.abs(eg.gx[i]), ay = Math.abs(eg.gy[i]);
+          if (ax > 2.4 * ay) ch = "|"; else if (ay > 2.4 * ax) ch = "-";
+          else { const same = (eg.gx[i] > 0) === (eg.gy[i] > 0); ch = (same !== swap) ? "\\" : "/"; }
+        } else {
+          let v = q[i];
+          const k = Math.max(0, Math.min(n, Math.round(v)));
+          if (dither) { const err = v - k; // push error right & down (Floyd–Steinberg)
+            if (x + 1 < W) q[i + 1] += err * 7 / 16;
+            if (y + 1 < H) { if (x > 0) q[i + W - 1] += err * 3 / 16; q[i + W] += err * 5 / 16; if (x + 1 < W) q[i + W + 1] += err * 1 / 16; } }
+          ch = chars[k];
+        }
+        line += ch;
+      }
+      lines.push(line.replace(/\s+$/, ""));
+    }
+    $("out")._lines = lines;
+    $("out").textContent = lines.join("\n");
+  }
+
+  function load(file) {
+    if (!file) return;
+    const r = new FileReader();
+    r.onload = () => { const im = new Image(); im.onload = () => { img = im; render(); }; im.src = r.result; };
+    r.readAsDataURL(file);
+  }
+  $("file").addEventListener("change", (e) => load(e.target.files[0]));
+  $("drop").addEventListener("click", () => $("file").click());
+  ["dragover", "dragenter"].forEach((ev) => $("drop").addEventListener(ev, (e) => { e.preventDefault(); $("drop").classList.add("over"); }));
+  ["dragleave", "drop"].forEach((ev) => $("drop").addEventListener(ev, (e) => { e.preventDefault(); $("drop").classList.remove("over"); }));
+  $("drop").addEventListener("drop", (e) => load(e.dataTransfer.files[0]));
+  ["auto","gamma","bright","contrast","denoise","sharp","edgedark","width","ramp","invert","dither","edges","swap","ethr"]
+    .forEach((id) => $(id).addEventListener("input", render));
+
+  $("copy").addEventListener("click", () => {
+    navigator.clipboard.writeText(($("out")._lines || []).join("\n"));
+    $("copy").textContent = "Copied ✓"; setTimeout(() => ($("copy").textContent = "Copy ASCII"), 1200);
+  });
+  $("copyjs").addEventListener("click", () => {
+    const lines = $("out")._lines || [];
+    const js = "const PORTRAIT = [\n" + lines.map((l) => "  " + JSON.stringify(l)).join(",\n") + "\n].join(\"\\n\");";
+    navigator.clipboard.writeText(js);
+    $("copyjs").textContent = "Copied JS ✓"; setTimeout(() => ($("copyjs").textContent = "Copy as JS"), 1200);
+  });
+  $("dl").addEventListener("click", () => {
+    const blob = new Blob([($("out")._lines || []).join("\n")], { type: "text/plain" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "portrait.txt"; a.click();
+  });
+</script>
+</body>
+</html>

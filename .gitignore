@@ -1,0 +1,26 @@
+# SubVibe — files to keep OUT of the repo.
+# (Photos live in the sibling photo-restore/, which is outside this repo entirely.)
+
+# Build artifacts / packages
+*.zip
+dist/
+build/
+
+# Secrets (defensive — there should never be any)
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.secret
+
+# Node (none today; defensive)
+node_modules/
+
+# OS / editor junk
+.DS_Store
+**/.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

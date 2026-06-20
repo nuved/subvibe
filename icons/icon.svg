@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0.8" y2="1">
+      <stop offset="0" stop-color="#5b9bff"/>
+      <stop offset="1" stop-color="#1d3a8f"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.20"/>
+      <stop offset="0.55" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect x="6" y="6" width="116" height="116" rx="30" fill="url(#bg)"/>
+  <rect x="6" y="6" width="116" height="116" rx="30" fill="url(#sheen)"/>
+  <!-- caption box (the subtitle background), bottom-weighted like real subs -->
+  <rect x="24" y="46" width="80" height="50" rx="13" fill="#0a0e1a" fill-opacity="0.82"/>
+  <!-- original line (light) + translated line (green accent) -->
+  <rect x="36" y="59" width="56" height="9" rx="4.5" fill="#eaf1ff"/>
+  <rect x="36" y="76" width="38" height="9" rx="4.5" fill="#36d399"/>
+</svg>

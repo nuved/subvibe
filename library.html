@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SubVibe Library</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0d12; --panel: #11151c; --panel2: #161c26; --border: #28303d;
+      --text: #e7ecf3; --muted: #8b95a6; --accent: #4f8cff; --accent2: #3f7af0;
+      --green: #7fe0b0; --red: #ff9a9a; --amber: #ffcf8f;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text);
+      font: 14px/1.5 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; }
+    a { color: inherit; }
+    .wrap { max-width: 980px; margin: 0 auto; padding: 0 22px 60px; }
+
+    header { display: flex; align-items: center; gap: 13px; padding: 26px 0 18px; }
+    header img { width: 38px; height: 38px; border-radius: 9px; }
+    header h1 { font-size: 21px; margin: 0; letter-spacing: .2px; }
+    header .tag { color: var(--muted); font-size: 12.5px; margin: 2px 0 0; }
+    header .spacer { flex: 1; }
+    .btn { border: 0; border-radius: 9px; cursor: pointer; font-weight: 600; font-size: 13px;
+      padding: 9px 14px; background: var(--accent); color: #fff; }
+    .btn:hover { background: var(--accent2); }
+    .btn.ghost { background: var(--panel2); color: #cdd6e3; border: 1px solid var(--border); }
+    .btn.ghost:hover { background: #1b2330; }
+    .btn.danger:hover { background: #3a1d22; color: var(--red); border-color: #5a2a30; }
+
+    /* toolbar */
+    .toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+      padding: 12px 0 22px; border-bottom: 1px solid #161b24; }
+    .search { flex: 1; min-width: 220px; position: relative; }
+    .search input { width: 100%; padding: 10px 12px 10px 34px; border-radius: 10px;
+      border: 1px solid var(--border); background: var(--panel); color: var(--text); font-size: 14px; }
+    .search input:focus { outline: none; border-color: var(--accent); }
+    .search::before { content: "🔍"; position: absolute; left: 11px; top: 9px; opacity: .7; font-size: 13px; }
+    .seg { display: inline-flex; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+    .seg button { border: 0; background: transparent; color: #cdd6e3; padding: 9px 15px; cursor: pointer; font-weight: 600; font-size: 13px; }
+    .seg button.on { background: var(--accent); color: #fff; }
+    .seg .lbl { color: var(--muted); padding: 9px 4px 9px 12px; font-size: 12px; }
+
+    /* category groups */
+    .group { margin-top: 30px; }
+    .group:first-of-type { margin-top: 10px; }
+    .ghead { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; }
+    .badge { display: inline-flex; align-items: center; justify-content: center; min-width: 30px; height: 24px;
+      padding: 0 7px; border-radius: 7px; font-size: 11.5px; font-weight: 800; color: #fff; letter-spacing: .3px; }
+    .ghead h2 { font-size: 15px; margin: 0; }
+    .ghead .cnt { color: var(--muted); font-size: 12.5px; }
+    .ghead .rule { flex: 1; height: 1px; background: #161b24; }
+
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 13px; }
+
+    .card { background: var(--panel); border: 1px solid var(--border); border-radius: 13px; padding: 14px; display: flex; flex-direction: column; gap: 9px; }
+    .card .top { display: flex; align-items: flex-start; gap: 9px; }
+    .card .sdot { flex: none; width: 9px; height: 9px; border-radius: 50%; margin-top: 6px; }
+    .card .ttl { flex: 1; min-width: 0; font-weight: 650; font-size: 14px; cursor: pointer;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .card .ttl:hover { color: var(--accent); }
+    .card .url { color: var(--muted); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+    .card .url:hover { color: #9fb4d6; text-decoration: underline; }
+    .card .langs { display: flex; flex-wrap: wrap; gap: 5px 12px; margin-top: 2px; }
+    .clang { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; }
+    .clang .fl { font-size: 14px; line-height: 1; }
+    .clang .dot { font-size: 10px; }
+    .dot.full { color: var(--green); } .dot.partial { color: var(--amber); }
+    .clang .ct { color: var(--muted); font-size: 11px; }
+    .card .foot { display: flex; align-items: center; gap: 8px; margin-top: 3px; padding-top: 10px; border-top: 1px solid #151a23; }
+    .card .when { color: var(--muted); font-size: 11.5px; flex: 1; }
+    .card .mini { border: 0; border-radius: 7px; cursor: pointer; font-weight: 600; font-size: 12px; padding: 6px 11px;
+      background: var(--panel2); color: #cdd6e3; border: 1px solid var(--border); }
+    .card .mini.open:hover { background: #15263f; color: #cfe0ff; border-color: #2f5fb0; }
+    .card .mini.del:hover { background: #3a1d22; color: var(--red); border-color: #5a2a30; }
+
+    .empty { text-align: center; color: var(--muted); padding: 80px 20px; }
+    .empty .big { font-size: 40px; margin-bottom: 10px; opacity: .8; }
+    .empty p { margin: 6px 0 0; }
+    .note { color: var(--muted); font-size: 12px; margin: 18px 0 0; }
+
+    /* tabs */
+    .tabs { display: flex; gap: 4px; margin: 4px 0 18px; border-bottom: 1px solid #161b24; }
+    .tabs button { border: 0; background: transparent; color: var(--muted); padding: 10px 16px; cursor: pointer;
+      font-weight: 700; font-size: 14px; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+    .tabs button.on { color: var(--text); border-bottom-color: var(--accent); }
+
+    /* activity: stat cards */
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }
+    .stat { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 13px 15px; }
+    .stat .k { color: var(--muted); font-size: 11.5px; margin-bottom: 5px; }
+    .stat .v { font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; }
+    .stat .v small { font-size: 12px; font-weight: 600; color: var(--muted); }
+    .stat.cost .v { color: var(--green); }
+
+    .actnote { color: var(--muted); font-size: 12px; background: var(--panel); border: 1px solid var(--border);
+      border-radius: 10px; padding: 10px 13px; margin: 0; }
+    .actnote b { color: #cfe0ff; }
+    .acthead { display: flex; align-items: center; justify-content: space-between; margin: 22px 0 8px; font-weight: 700; }
+
+    #actList:empty::after { content: "No calls yet — play a video and the requests will show up here."; color: var(--muted); font-size: 12px; }
+    .callrow { display: grid; grid-template-columns: 116px 1fr 60px 92px 60px 20px; gap: 10px; align-items: center;
+      padding: 9px 6px; border-bottom: 1px solid #151a23; font-size: 12.5px; }
+    .callrow .ct, .callrow .ctok, .callrow .cms { color: var(--muted); font-variant-numeric: tabular-nums; }
+    .callrow .cs { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .callrow .cms { text-align: right; }
+    .callrow .cok { text-align: center; font-weight: 800; }
+    .callrow .ok { color: var(--green); } .callrow .err { color: var(--red); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <img src="icons/icon-48.png" alt="" />
+      <div>
+        <h1>SubVibe Library</h1>
+        <p class="tag">Every video you've translated — reopen any to replay its subtitles instantly, free, no API cost.</p>
+      </div>
+      <span class="spacer"></span>
+      <button class="btn ghost danger" id="clearAll">Clear all</button>
+    </header>
+
+    <nav class="tabs">
+      <button id="tabVideos" class="on">Videos</button>
+      <button id="tabActivity">Activity</button>
+    </nav>
+
+    <div id="viewVideos">
+      <div class="toolbar">
+        <label class="search"><input type="text" id="search" placeholder="Search title, URL or language…" autocomplete="off" /></label>
+        <span class="seg" role="group" aria-label="Group by">
+          <span class="lbl">Group by</span>
+          <button id="bySite" class="on">Site</button>
+          <button id="byDate">Date</button>
+        </span>
+      </div>
+
+      <div id="content"></div>
+      <p class="note" id="note"></p>
+    </div>
+
+    <div id="viewActivity" hidden>
+      <div class="stats" id="actStats"></div>
+      <p class="actnote">Every request goes to <b>api.openai.com</b> with your key — nothing is sent to us, and this log lives only on this device. Cost is estimated from token usage (gpt‑4o‑mini); your OpenAI dashboard is the source of truth for billing.</p>
+      <div class="acthead"><span>Recent calls</span><button class="btn ghost danger" id="clearLog">Clear log</button></div>
+      <div id="actList"></div>
+    </div>
+  </div>
+
+  <script src="shared/langs.js"></script>
+  <script src="library.js"></script>
+</body>
+</html>
