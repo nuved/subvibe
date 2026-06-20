@@ -23,10 +23,15 @@ jobs:
       - name: Build the package (no build step — just zips the source)
         run: bash build.sh
 
-      - name: Create the GitHub Release with the package attached
+      - name: Publish (or refresh) the GitHub Release with the package
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" subvibe-*.zip \
-            --title "SubVibe $GITHUB_REF_NAME" \
-            --notes "Reproducible package, built from this tag by \`build.sh\`. SubVibe has no build step — the files in this zip are exactly the source at \`$GITHUB_REF_NAME\`. Verify against the published extension per the README."
+          NOTES="Reproducible package, built from this tag by \`build.sh\`. SubVibe has no build step — the files in this zip are exactly the source at \`$GITHUB_REF_NAME\`. Verify against the published extension per the README."
+          # Idempotent: works whether or not a release for this tag already exists
+          # (so re-pushing a tag — e.g. to sign it — won't fail the workflow).
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" subvibe-*.zip --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" subvibe-*.zip --title "SubVibe $GITHUB_REF_NAME" --notes "$NOTES"
+          fi
