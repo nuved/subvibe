@@ -1,0 +1,32 @@
+name: Release
+
+# When a version tag (v1330.0.0, v1330.1.0, …) is pushed, build the extension
+# package and attach it to a GitHub Release. SubVibe has NO build step, so this
+# zip is exactly the source at that tag — anyone can download it and verify it
+# against the published Chrome Web Store extension (see README ▸ verifiable builds).
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write        # required to create the release
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the tagged source
+        uses: actions/checkout@v4
+
+      - name: Build the package (no build step — just zips the source)
+        run: bash build.sh
+
+      - name: Create the GitHub Release with the package attached
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" subvibe-*.zip \
+            --title "SubVibe $GITHUB_REF_NAME" \
+            --notes "Reproducible package, built from this tag by \`build.sh\`. SubVibe has no build step — the files in this zip are exactly the source at \`$GITHUB_REF_NAME\`. Verify against the published extension per the README."

@@ -23,6 +23,7 @@ zip -r -X "$OUT" . \
   -x "*.md" \
   -x ".gitignore" \
   -x ".git/*" \
+  -x ".github/*" \
   -x "build.sh" \
   -x "icons/icon.svg" \
   -x "*.zip" \
