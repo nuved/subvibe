@@ -14,6 +14,9 @@ build/
 *.p12
 *.secret
 
+# Internal store-listing prep notes — not part of the product, kept local only.
+STORE_LISTING.md
+
 # Node (none today; defensive)
 node_modules/
 
