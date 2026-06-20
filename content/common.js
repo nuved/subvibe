@@ -278,8 +278,18 @@
         const el = els[i]; seen++;
         if (el.shadowRoot) scan(el.shadowRoot);
         if (hit) break;
-        if (el.childElementCount || (ov && ov.contains(el))) continue;
-        const n = normCue(el.textContent);
+        if (ov && ov.contains(el)) continue;
+        // Read leaf elements AND elements whose only children are <br> — a player's
+        // caption is often ONE element with its lines split by <br> (Prime does this),
+        // which the old childElementCount check skipped, so live auto-sync never matched.
+        let txt = "", isLeaf = true;
+        for (const nd of el.childNodes) {
+          if (nd.nodeType === 3) txt += nd.nodeValue;        // text node
+          else if (nd.nodeName === "BR") txt += " ";         // <br> → a space, so two-line captions still match
+          else { isLeaf = false; break; }                    // a real child element ⇒ a container, skip it
+        }
+        if (!isLeaf) continue;
+        const n = normCue(txt);
         if (n.length < 14) continue;
         for (let k = 0; k < cand.length; k++) {
           const cn = cand[k][0];
@@ -1502,6 +1512,11 @@
       en: settings.enabled, v: vid,
       t: settings.targets, o: settings.showOriginal, h: settings.hideNative,
       p: settings.position, s: settings.size,
+      // Whether this clip's FULL cue list has been intercepted yet. Without this,
+      // a stream site (Netflix) that fell back to reactive scraping never upgrades
+      // to look-ahead when its subtitle file arrives late — the key looked
+      // "unchanged" so start() early-returned, leaving the counter stuck at 0.
+      cl: !!(ad && ad.stream && interceptedCues && interceptedCues.length && interceptedClipId === currentClipId()),
     });
     if (runKey === currentRunKey && document.getElementById("copilot-subs")) return;
     currentRunKey = runKey;
