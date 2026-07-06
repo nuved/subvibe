@@ -1,4 +1,4 @@
-# SubVibe — Privacy Policy
+ # SubVibe — Privacy Policy
 
 _Last updated: 13 June 2026_
 

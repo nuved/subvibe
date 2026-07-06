@@ -22,7 +22,9 @@
     "https://*.dw.com/*",
     "https://*.zdf.de/*",
     "https://www.amazon.de/gp/video/*",
-    "https://www.primevideo.com/*"
+    "https://www.primevideo.com/*",
+    "https://*.udemy.com/*",
+    "https://*.udemycdn.com/*"
   ],
   "background": { "service_worker": "background.js" },
   "options_ui": { "page": "library.html", "open_in_tab": true },
@@ -91,7 +93,17 @@
       "all_frames": false
     },
     {
-      "matches": ["https://*.zdf.de/*", "https://*.dw.com/*", "https://*.youtube.com/*", "https://*.netflix.com/*", "https://www.amazon.de/gp/video/*", "https://www.primevideo.com/*"],
+      "matches": ["https://*.udemy.com/*"],
+      "js": [
+        "content/adapters/udemy.js",
+        "content/common.js"
+      ],
+      "css": ["styles/overlay.css"],
+      "run_at": "document_idle",
+      "all_frames": false
+    },
+    {
+      "matches": ["https://*.zdf.de/*", "https://*.dw.com/*", "https://*.youtube.com/*", "https://*.netflix.com/*", "https://www.amazon.de/gp/video/*", "https://www.primevideo.com/*", "https://*.udemy.com/*"],
       "js": ["shared/tribute.js", "content/subs-intercept.js"],
       "run_at": "document_start",
       "world": "MAIN",
@@ -101,7 +113,7 @@
   "web_accessible_resources": [
     {
       "resources": ["fonts/*"],
-      "matches": ["https://*.youtube.com/*", "https://*.netflix.com/*", "https://*.zdf.de/*", "https://*.dw.com/*", "https://www.amazon.de/*", "https://www.primevideo.com/*"]
+      "matches": ["https://*.youtube.com/*", "https://*.netflix.com/*", "https://*.zdf.de/*", "https://*.dw.com/*", "https://www.amazon.de/*", "https://www.primevideo.com/*", "https://*.udemy.com/*"]
     }
   ]
 }

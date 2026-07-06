@@ -397,6 +397,11 @@
         // STABLE atvwebplayersdk-captions- prefix instead, and only the -overlay/-text
         // RENDER nodes (not the player's caption MENU buttons).
         "[class*='atvwebplayersdk-captions-overlay'],[class*='atvwebplayersdk-captions-text']{opacity:0 !important;visibility:hidden !important;} " +
+        // Udemy: the rendered caption is div[data-purpose="captions-cue-text"]
+        // (class captions-display-module--captions-cue-text--<hash>). Match the stable
+        // data-purpose + class prefix; opacity:0 (not visibility:hidden) so the live
+        // scrape can still read it before the .vtt file is intercepted.
+        "[data-purpose='captions-cue-text'],[class*='captions-display-module--captions-cue-text'],[class*='captions-cue-text']{opacity:0 !important;} " +
         "video::-webkit-media-text-track-container{opacity:0 !important;}";
       document.documentElement.appendChild(st);
     } else if (!on && st) {
@@ -999,11 +1004,21 @@
     }
     if (/^﻿?WEBVTT/.test(text.trim())) {
       const cues = [];
+      // WebVTT timestamps come in BOTH HH:MM:SS.mmm and the short MM:SS.mmm form
+      // (the spec allows omitting hours). Udemy's caption files use MM:SS.mmm, so a
+      // pattern that hard-required the hours field matched nothing → 0 cues.
+      const TS = "(?:\\d{1,2}:)?\\d{1,2}:\\d{2}[.,]\\d{3}";
+      const cueRe = new RegExp(`(${TS})\\s*-->\\s*(${TS})([\\s\\S]*)`);
+      // Thumbnail/storyboard preview tracks are ALSO served as .vtt, but each cue's
+      // "text" is an image-sprite reference (e.g. thumb-sprites.jpg#xywh=0,0,160,90),
+      // not dialogue. Drop those so a storyboard file can't be adopted as captions
+      // (a pure-storyboard file then yields 0 cues and is rejected upstream).
+      const isThumb = (t) => /#xywh=|\.(?:jpe?g|png|webp|gif|avif)(?:[?#]|$)/i.test(t);
       for (const block of text.replace(/\r/g, "").split("\n\n")) {
-        const m = block.match(/(\d{1,2}:\d{2}:\d{2}[.,]\d{3})\s*-->\s*(\d{1,2}:\d{2}:\d{2}[.,]\d{3})([\s\S]*)/);
+        const m = block.match(cueRe);
         if (!m) continue;
         const txt = m[3].split("\n").slice(1).join(" ").replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
-        if (txt) cues.push({ startMs: subTimeToMs(m[1]), endMs: subTimeToMs(m[2]), text: txt });
+        if (txt && !isThumb(txt)) cues.push({ startMs: subTimeToMs(m[1]), endMs: subTimeToMs(m[2]), text: txt });
       }
       return cues;
     }
@@ -1513,10 +1528,12 @@
       t: settings.targets, o: settings.showOriginal, h: settings.hideNative,
       p: settings.position, s: settings.size,
       // Whether this clip's FULL cue list has been intercepted yet. Without this,
-      // a stream site (Netflix) that fell back to reactive scraping never upgrades
-      // to look-ahead when its subtitle file arrives late — the key looked
-      // "unchanged" so start() early-returned, leaving the counter stuck at 0.
-      cl: !!(ad && ad.stream && interceptedCues && interceptedCues.length && interceptedClipId === currentClipId()),
+      // when the subtitle file arrives LATE the run key looks "unchanged" so start()
+      // early-returns, leaving the engine in its reactive fallback and the counter
+      // stuck at 0 — only a lucky-timing reload "fixes" it. Applies to ALL adapters:
+      // Netflix (TTML fetch-hook) AND YouTube (the pot-token timedtext intercept,
+      // which routinely lands after the first start()), plus ZDF/DW/Prime.
+      cl: !!(interceptedCues && interceptedCues.length && interceptedClipId === currentClipId()),
     });
     if (runKey === currentRunKey && document.getElementById("copilot-subs")) return;
     currentRunKey = runKey;

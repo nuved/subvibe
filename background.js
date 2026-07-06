@@ -9,6 +9,23 @@
 const OPENAI_CHAT = "https://api.openai.com/v1/chat/completions";
 const TRANSLATE_MODEL = "gpt-4o-mini";
 const BATCH = 60; // cues per translation request — keeps JSON responses reliable
+
+// Structured Outputs schema (strict) — the OpenAI-recommended replacement for
+// JSON mode: the model is GUARANTEED to return {"t": [ ...strings ]}, so a
+// missing key / malformed-JSON response can't happen. Supported on gpt-4o-mini
+// and later. (Strict mode can't constrain array LENGTH, so we still ask for
+// EXACTLY N in the prompt and back-fill any short array per-line.)
+// Ref: https://developers.openai.com/api/docs/guides/structured-outputs
+const TRANSLATE_SCHEMA = {
+  name: "subtitle_translation",
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    properties: { t: { type: "array", items: { type: "string" } } },
+    required: ["t"],
+  },
+};
 // HTTP statuses worth retrying: OpenAI/Cloudflare blips (520/52x), gateway errors,
 // and rate limits are transient — a short backoff usually clears them.
 const TRANSIENT_HTTP = new Set([429, 500, 502, 503, 504, 520, 521, 522, 523, 524, 529]);
@@ -182,7 +199,7 @@ async function translateChunk(lines, source, target, apiKey, context, keepTerms,
   const body = {
     model: TRANSLATE_MODEL,
     temperature: 0,
-    response_format: { type: "json_object" },
+    response_format: { type: "json_schema", json_schema: TRANSLATE_SCHEMA },
     messages: [
       { role: "system", content: systemPrompt(source, target, lines.length, keepTerms, keepNames) },
       { role: "user", content: JSON.stringify(userPayload) },
