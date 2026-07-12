@@ -7,7 +7,7 @@
 const FA_FLAG = window.SV_FA_FLAG;
 const LANGS = window.SV_LANGS;
 
-const DEFAULTS = { enabled: true, targets: ["en"], showOriginal: true, hideNative: true, apiKey: "", keepNames: true, keepTerms: "", position: "bottom", size: "md", syncOffset: 0 };
+const DEFAULTS = { enabled: true, targets: ["en"], showOriginal: true, hideNative: true, apiKey: "", keepNames: true, keepTerms: "", position: "bottom", size: "md", stylePreset: "classic", styleCustom: {}, syncOffset: 0 };
 const el = (id) => document.getElementById(id);
 const fmtSync = (v) => (v > 0 ? "+" : "") + v.toFixed(2) + "s";
 const langMeta = (code) => LANGS.find((l) => l[0] === code) || [code, code.toUpperCase(), "🏳️"];
@@ -117,12 +117,114 @@ el("hideNative").addEventListener("change", () => persist({ hideNative: el("hide
 el("position").addEventListener("change", () => saveSetting({ position: el("position").value }));
 el("keepNames").addEventListener("change", () => persist({ keepNames: el("keepNames").checked }));
 
-function setSize(size, save) {
-  state.size = size;
-  [...el("sizeSeg").children].forEach((b) => b.classList.toggle("on", b.dataset.size === size));
-  if (save) saveSetting({ size });
+// ── size slider ───────────────────────────────────────────────────────────────
+// The stored size is a FRACTION of the video height (slider 12–50 → 0.012–0.050).
+// Legacy "sm|md|lg|xl" values from existing users map onto the same scale and
+// keep working — the content script interprets both, nothing is migrated.
+const SIZE_TIER = { sm: 24, md: 30, lg: 38, xl: 48 };
+const sliderFromSize = (s) => (typeof s === "number" && isFinite(s) ? Math.round(s * 1000) : SIZE_TIER[s] || SIZE_TIER.md);
+function setSizeUI(size) {
+  const v = Math.max(12, Math.min(50, sliderFromSize(size)));
+  el("sizeRange").value = v;
+  el("sizeVal").textContent = (v / 10).toFixed(1) + "%";
 }
-el("sizeSeg").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) setSize(b.dataset.size, true); });
+let sizeT;
+el("sizeRange").addEventListener("input", () => {
+  const v = +el("sizeRange").value;
+  el("sizeVal").textContent = (v / 10).toFixed(1) + "%";
+  clearTimeout(sizeT);
+  sizeT = setTimeout(() => saveSetting({ size: v / 1000 }), 120); // live via the storage watcher
+});
+
+// ── style preset + custom tweaks (GLOBAL — taste follows the user, not the video) ──
+const PRESETS = window.SV_PRESETS;
+const FONT_STACKS = window.SV_FONT_STACKS;
+const resolveStyle = window.SV_RESOLVE_STYLE;
+
+function paintStyled(elm, r) {
+  const v = r.vars;
+  elm.style.fontFamily = v["--cs-font-family"];
+  elm.style.fontWeight = v["--cs-weight"];
+  elm.style.color = v["--cs-color"];
+  elm.style.background = v["--cs-bg"];
+  elm.style.borderRadius = v["--cs-radius"];
+  elm.style.padding = v["--cs-pad"];
+  elm.style.textShadow = v["--cs-shadow"];
+  // banner (Snap) spans the full strip; boxSizing so the padding stays inside
+  elm.style.width = r.banner ? "100%" : "";
+  elm.style.boxSizing = r.banner ? "border-box" : "";
+  elm.style.textAlign = r.banner ? "center" : "";
+}
+function buildPresetRow() {
+  const row = el("presetRow");
+  row.innerHTML = "";
+  for (const key of Object.keys(PRESETS)) {
+    const b = document.createElement("button");
+    b.dataset.preset = key;
+    b.title = PRESETS[key].label + " subtitle style";
+    const abc = document.createElement("span");
+    abc.className = "abc";
+    abc.textContent = "Abc";
+    paintStyled(abc, resolveStyle({ stylePreset: key }));
+    const name = document.createElement("span");
+    name.className = "pname";
+    name.textContent = PRESETS[key].label;
+    b.append(abc, name);
+    b.addEventListener("click", () => {
+      // Switching presets drops the custom tweaks — they were relative to the old one.
+      state.stylePreset = key;
+      state.styleCustom = {};
+      persist({ stylePreset: key, styleCustom: {} });
+      updateStyleUI();
+    });
+    row.appendChild(b);
+  }
+  const fontSel = el("styleFont");
+  fontSel.innerHTML = '<option value="">Preset default</option>';
+  for (const [k, f] of Object.entries(FONT_STACKS)) {
+    const o = document.createElement("option");
+    o.value = k;
+    o.textContent = f.label;
+    fontSel.appendChild(o);
+  }
+}
+// Merge a tweak into styleCustom (null/"" clears that key back to the preset).
+function setCustom(patch) {
+  const c = { ...(state.styleCustom || {}) };
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === undefined || v === null || v === "") delete c[k];
+    else c[k] = v;
+  }
+  state.styleCustom = c;
+  persist({ styleCustom: c });
+  updateStyleUI();
+}
+function updateStyleUI() {
+  [...el("presetRow").children].forEach((b) => b.classList.toggle("on", b.dataset.preset === state.stylePreset));
+  const c = state.styleCustom || {};
+  const r = resolveStyle(state);
+  paintStyled(el("stylePrevText"), r);
+  el("styleFont").value = c.font && FONT_STACKS[c.font] ? c.font : "";
+  const col = window.SV_PARSE_COLOR(r.vars["--cs-color"]);
+  el("styleColor").value = col ? col.hex : "#ffffff";
+  el("styleEdge").value = c.edge || "";
+  // Background controls mirror the EFFECTIVE bg (preset + tweaks), so e.g. the
+  // Pill preset shows a white swatch at 96 % — not the classic dark defaults.
+  const bg = window.SV_PARSE_COLOR(r.vars["--cs-bg"]);
+  el("styleBg").checked = !!bg;
+  el("styleBgColor").value = bg ? bg.hex : "#080a0e";
+  el("styleBgOpacity").value = Math.round((bg ? bg.a : 0.78) * 100);
+  el("styleBgColor").disabled = el("styleBgOpacity").disabled = !bg;
+}
+let colT;
+el("styleColor").addEventListener("input", () => { clearTimeout(colT); colT = setTimeout(() => setCustom({ color: el("styleColor").value }), 120); });
+el("styleEdge").addEventListener("change", () => setCustom({ edge: el("styleEdge").value }));
+el("styleBg").addEventListener("change", () => setCustom({ bg: el("styleBg").checked }));
+let bgT;
+el("styleBgColor").addEventListener("input", () => { clearTimeout(bgT); bgT = setTimeout(() => setCustom({ bg: true, bgColor: el("styleBgColor").value }), 120); });
+el("styleBgOpacity").addEventListener("input", () => { clearTimeout(bgT); bgT = setTimeout(() => setCustom({ bg: true, bgOpacity: +el("styleBgOpacity").value / 100 }), 120); });
+el("styleFont").addEventListener("change", () => setCustom({ font: el("styleFont").value }));
+el("styleReset").addEventListener("click", () => { state.styleCustom = {}; persist({ styleCustom: {} }); updateStyleUI(); });
 
 // Sync nudge — writes instantly so the overlay shifts without a reload.
 function nudgeSync(delta) {
@@ -252,7 +354,8 @@ async function load() {
   el("hideNative").checked = state.hideNative;
   el("position").value = state.position || "bottom";
   el("syncVal").textContent = fmtSync(state.syncOffset || 0);
-  setSize(state.size || "md", false);
+  setSizeUI(state.size || "md");
+  updateStyleUI();
   renderChips();
   keyHint();
   updateScope();
@@ -282,4 +385,5 @@ async function load() {
   if (close) close.addEventListener("click", () => (el("memoryCard").hidden = true));
 })();
 
+buildPresetRow();
 load();

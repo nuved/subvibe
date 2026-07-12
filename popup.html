@@ -75,10 +75,31 @@
     .row { display: flex; align-items: center; gap: 9px; margin: 9px 0 0; }
     .row label { font-weight: 500; }
 
-    /* segmented size control */
-    .seg { display: flex; gap: 6px; }
-    .seg button { flex: 1; padding: 7px 0; background: var(--panel); border: 1px solid var(--border); color: #cdd6e3; }
-    .seg button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+    /* appearance: preview strip + style preset tiles + size slider */
+    /* Baloo 2 for the preview/tiles — a relative url() is fine here (extension
+       page origin); the content script injects it with absolute URLs instead. */
+    @font-face { font-family: "Baloo 2"; font-weight: 800; font-display: swap;
+      src: url("fonts/Baloo2-ExtraBold-latin.woff2") format("woff2"); }
+    .prevwrap { height: 48px; border-radius: 9px; border: 1px solid var(--border); overflow: hidden;
+      display: flex; align-items: center; justify-content: center; margin-bottom: 8px;
+      background: linear-gradient(135deg, #232c3d 0%, #0e1420 55%, #1b2436 100%); }
+    .prevtext { font-size: 14px; white-space: nowrap; }
+    .presets { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 3px; scrollbar-width: thin; }
+    .presets button { flex: none; width: 62px; padding: 7px 0 5px; background: var(--panel);
+      border: 1px solid var(--border); display: flex; flex-direction: column; align-items: center; gap: 4px; }
+    .presets button .abc { font-size: 13px; line-height: 1.25; padding: 1px 6px; border-radius: 4px; }
+    .presets button .pname { font-size: 9.5px; color: var(--muted); font-weight: 500; }
+    .presets button.on { border-color: var(--accent); background: #14233c; }
+    .presets button.on .pname { color: var(--accent); }
+    input[type="range"] { accent-color: var(--accent); margin: 0; }
+    input[type="color"] { width: 32px; height: 26px; padding: 2px; border: 1px solid var(--border);
+      border-radius: 6px; background: var(--panel); flex: none; }
+    .sizeval { min-width: 38px; text-align: right; color: var(--muted); font-weight: 600; font-size: 11.5px; }
+    details.customize { border-top: 0; margin-top: 10px; }
+    details.customize summary { padding: 2px 0; font-size: 12px; color: var(--muted); }
+    details.customize summary::after { float: none; margin-left: 6px; }
+    .resetstyle { background: transparent; color: var(--muted); font-weight: 600; font-size: 11px; padding: 2px 0; }
+    .resetstyle:hover { color: var(--accent); }
 
     .sync { display: flex; align-items: center; gap: 10px; }
     .sync button { padding: 7px 11px; background: var(--panel2); color: #cdd6e3; border: 1px solid var(--border); }
@@ -190,10 +211,38 @@
   <!-- Appearance -->
   <section>
     <div class="lbl">Appearance</div>
-    <div class="seg" id="sizeSeg">
-      <button data-size="sm">S</button><button data-size="md">M</button>
-      <button data-size="lg">L</button><button data-size="xl">XL</button>
+    <div class="prevwrap"><span class="prevtext" id="stylePrevText">Subtitles look like this</span></div>
+    <div class="presets" id="presetRow"></div>
+    <div class="row" style="margin-top:10px;">
+      <span style="min-width:58px; color:var(--muted);">Size</span>
+      <input type="range" id="sizeRange" min="12" max="50" step="1" style="flex:1;" />
+      <span class="sizeval" id="sizeVal"></span>
     </div>
+    <details class="customize">
+      <summary>Customize <span class="hint">font · color · background · outline</span></summary>
+      <div class="row">
+        <span style="min-width:58px; color:var(--muted);">Font</span>
+        <select id="styleFont" style="flex:1;"></select>
+      </div>
+      <div class="row">
+        <span style="min-width:58px; color:var(--muted);">Text</span>
+        <input type="color" id="styleColor" value="#ffffff" title="Text color" />
+        <span style="color:var(--muted); margin-left:4px;">Edge</span>
+        <select id="styleEdge" style="flex:1;" title="Outline / shadow around the letters">
+          <option value="">Preset default</option>
+          <option value="shadow">Soft shadow</option>
+          <option value="outline">Outline</option>
+          <option value="none">None</option>
+        </select>
+      </div>
+      <div class="row">
+        <label class="switch"><input type="checkbox" id="styleBg" /><span class="slider"></span></label>
+        <label for="styleBg">Background</label>
+        <input type="color" id="styleBgColor" value="#080a0e" title="Background color" />
+        <input type="range" id="styleBgOpacity" min="0" max="100" step="1" style="flex:1;" title="Background opacity" />
+      </div>
+      <div class="row"><button class="resetstyle" id="styleReset">↺ Reset tweaks to the preset</button></div>
+    </details>
     <div class="row" style="margin-top:10px;">
       <span style="min-width:58px; color:var(--muted);">Position</span>
       <select id="position" style="flex:1;">
@@ -250,6 +299,7 @@
   </div>
 
   <script src="shared/langs.js"></script>
+  <script src="shared/presets.js"></script>
   <script src="shared/tribute.js"></script>
   <script src="popup.js"></script>
 </body>

@@ -26,7 +26,9 @@
                          // (SubVibe re-renders the same line, so the native one is redundant)
     position: "bottom",  // bottom | top | auto | custom (user-dragged)
     linePositions: {},   // custom mode: slot key ("__orig"|lang) → {x,y} fraction (per-segment)
-    size: "md",          // sm | md | lg | xl
+    size: "md",          // fraction of video height (e.g. 0.03) — legacy "sm|md|lg|xl" names still accepted
+    stylePreset: "classic", // named look from shared/presets.js: classic | youtube | tiktok | pill | snapchat | cinema | minimal
+    styleCustom: {},        // sparse tweaks on top of the preset: { font, color, bg, bgColor, bgOpacity, edge }
     syncOffset: 0,       // seconds; + shows subtitles earlier, − later
     audioFallback: false, // transcribe audio ONLY when a video has no captions
     audioDeviceId: "",    // chosen input device (e.g. BlackHole)
@@ -108,7 +110,7 @@
   // layers this clip's own changes on top — so a tweak on one video (or live channel)
   // never bleeds onto another. sync defaults to 0 per clip.
   async function getSettings() {
-    const s = await chrome.storage.local.get(["enabled", "targets", "showOriginal", "hideNative", "position", "linePositions", "size", "syncOffset", "audioFallback", "audioDeviceId", "clipOverrides"]);
+    const s = await chrome.storage.local.get(["enabled", "targets", "showOriginal", "hideNative", "position", "linePositions", "size", "stylePreset", "styleCustom", "syncOffset", "audioFallback", "audioDeviceId", "clipOverrides"]);
     const { clipOverrides, ...flat } = s;
     const ov = (clipOverrides && clipOverrides[clipBaseId()]) || {};
     return { ...DEFAULTS, ...flat, ...ov };
@@ -320,21 +322,40 @@
   let audioRaf = 0;
   let audioCues = null, audioDefs = [], audioEls = {};
 
-  // Inject the Persian font with ABSOLUTE extension URLs. A relative url() in
+  // Inject bundled fonts with ABSOLUTE extension URLs. A relative url() in
   // overlay.css resolves against the page origin (e.g. www.zdf.de/.../fonts/…)
-  // and 404s, so Persian falls back to a system font. This fixes that.
-  function ensureFont() {
-    if (document.getElementById("copilot-font")) return;
-    try {
-      const reg = chrome.runtime.getURL("fonts/Vazirmatn-Regular.woff2");
-      const bold = chrome.runtime.getURL("fonts/Vazirmatn-Bold.woff2");
-      const st = document.createElement("style");
-      st.id = "copilot-font";
-      st.textContent =
-        `@font-face{font-family:'Vazirmatn';font-weight:400;font-display:swap;src:url('${reg}') format('woff2');}` +
-        `@font-face{font-family:'Vazirmatn';font-weight:700;font-display:swap;src:url('${bold}') format('woff2');}`;
-      (document.head || document.documentElement).appendChild(st);
-    } catch {}
+  // and 404s, so the text falls back to a system font. Vazirmatn (Persian/RTL)
+  // is ALWAYS injected; style fonts (Baloo 2 for the TikTok/Pill presets and the
+  // "Rounded" custom choice) are injected on demand by applyAppearance.
+  const FONT_FACES = {
+    vazirmatn: [
+      { family: "Vazirmatn", weight: 400, file: "fonts/Vazirmatn-Regular.woff2" },
+      { family: "Vazirmatn", weight: 700, file: "fonts/Vazirmatn-Bold.woff2" },
+    ],
+    // Subset per script with unicode-range (Google Fonts subsets), so e.g. a
+    // Polish translation doesn't mix Baloo glyphs with fallback-font diacritics.
+    baloo2: [
+      { family: "Baloo 2", weight: 800, file: "fonts/Baloo2-ExtraBold-latin.woff2",
+        range: "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD" },
+      { family: "Baloo 2", weight: 800, file: "fonts/Baloo2-ExtraBold-latin-ext.woff2",
+        range: "U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF" },
+    ],
+  };
+  function ensureFont(keys) {
+    for (const k of ["vazirmatn", ...(keys || [])]) {
+      const id = "copilot-font-" + k;
+      if (document.getElementById(id) || !FONT_FACES[k]) continue;
+      try {
+        const st = document.createElement("style");
+        st.id = id;
+        st.textContent = FONT_FACES[k].map((f) =>
+          `@font-face{font-family:'${f.family}';font-weight:${f.weight};font-display:swap;` +
+          `src:url('${chrome.runtime.getURL(f.file)}') format('woff2');` +
+          (f.range ? `unicode-range:${f.range};` : "") + "}"
+        ).join("");
+        (document.head || document.documentElement).appendChild(st);
+      } catch {}
+    }
   }
 
   function ensureOverlay() {
@@ -349,6 +370,21 @@
     const parent = adapter?.getPlayerContainer?.() || document.body;
     if (el.parentElement !== parent) parent.appendChild(el);
     return el;
+  }
+
+  // All caption text goes through here: the text lives in an inner span so pill
+  // styles can give each WRAPPED line its own box (see overlay.css). The row's
+  // textContent still reads the same text, so `el.textContent !== txt` guards
+  // at the call sites keep working unchanged.
+  function setLineText(row, txt) {
+    let span = row.firstElementChild;
+    if (!span || !span.classList.contains("copilot-subs__text")) {
+      row.textContent = "";
+      span = document.createElement("span");
+      span.className = "copilot-subs__text";
+      row.appendChild(span);
+    }
+    if (span.textContent !== txt) span.textContent = txt;
   }
 
   function setStatus(text, isError) {
@@ -461,6 +497,9 @@
   // Scale the subtitle font to the VIDEO's rendered height — NOT the viewport — so
   // it matches the player's own captions whether windowed, theater, or fullscreen.
   // (Viewport-relative vw made the text huge over a small windowed player.)
+  // size is a FRACTION of the video height (popup slider, e.g. 0.03); the named
+  // tiers are the legacy S/M/L/XL values still sitting in existing users'
+  // storage — interpreted on read, never migrated.
   const SIZE_FACTORS = { sm: 0.024, md: 0.030, lg: 0.038, xl: 0.048 };
   let appearanceSize = "md";
   function sizeOverlay() {
@@ -469,7 +508,10 @@
     const v = liveVideoEl(adapter && adapter.getVideoEl ? adapter.getVideoEl() : null);
     const h = (v && v.clientHeight) || el.clientHeight || 0;
     if (!h) return;
-    const px = Math.max(11, Math.min(50, Math.round(h * (SIZE_FACTORS[appearanceSize] || SIZE_FACTORS.md))));
+    const f = typeof appearanceSize === "number" && isFinite(appearanceSize)
+      ? appearanceSize
+      : (SIZE_FACTORS[appearanceSize] || SIZE_FACTORS.md);
+    const px = Math.max(9, Math.min(80, Math.round(h * f)));
     el.style.setProperty("--cs-font", px + "px");
   }
 
@@ -562,7 +604,18 @@
       el.querySelectorAll(".copilot-subs__line").forEach((ln) => { ln.style.left = ""; ln.style.top = ""; });
     }
     appearanceSize = settings.size || "md";
-    el.classList.add("copilot-size-" + appearanceSize);
+    // Legacy named tiers only — a numeric (slider) size has no class; sizing is
+    // all --cs-font anyway and an unremovable "copilot-size-0.03" would pile up.
+    if (SIZE_FACTORS[appearanceSize]) el.classList.add("copilot-size-" + appearanceSize);
+    // Visual style: preset + custom tweaks → CSS vars on the overlay (pure
+    // presentation — the storage watcher applies these live, no restart).
+    const style = window.SV_RESOLVE_STYLE ? window.SV_RESOLVE_STYLE(settings) : null;
+    if (style) {
+      for (const k in style.vars) el.style.setProperty(k, style.vars[k]);
+      el.classList.toggle("copilot-style-pill", style.pill);
+      el.classList.toggle("copilot-style-banner", style.banner);
+      ensureFont(style.fonts);
+    }
     sizeOverlay(); // size the font to the video now (a 1s timer keeps it in sync on resize/fullscreen)
     initDrag(el);  // make the subtitles grabbable (idempotent)
     if (autoPosEnabled) updateAutoPosition();
@@ -700,7 +753,7 @@
         if (i !== l.idx) {
           l.idx = i;
           const txt = i >= 0 ? l.cues[i].text : "";
-          l.el.textContent = txt;
+          setLineText(l.el, txt);
           l.el.style.display = txt ? "block" : "none";
           l.el.dir = isRTL(txt) ? "rtl" : "ltr";
         }
@@ -748,7 +801,7 @@
     const els = {};
     for (const d of defs) {
       const row = document.createElement("div");
-      row.className = "copilot-subs__line";
+      row.className = "copilot-subs__line" + (d.target ? "" : " copilot-subs__line--orig");
       row.dataset.lang = d.key;
       els[d.key] = row;
       stack.appendChild(row);
@@ -768,7 +821,7 @@
         const el = els[d.key];
         const txt = c ? (d.target ? c.t?.[d.target] || "" : c.original) : "";
         if (el.textContent !== txt) {
-          el.textContent = txt;
+          setLineText(el, txt);
           el.style.display = txt ? "block" : "none";
           el.dir = (d.target ? isRTLLang(d.target) : isRTL(txt)) ? "rtl" : "ltr";
         }
@@ -1193,7 +1246,7 @@
     for (const tg of settings.targets) defs.push({ key: tg, target: tg });
     if (!defs.length) defs.push({ key: "__orig", target: null });
     const els = {};
-    for (const d of defs) { const row = document.createElement("div"); row.className = "copilot-subs__line"; row.dataset.csKey = d.key; els[d.key] = row; stack.appendChild(row); }
+    for (const d of defs) { const row = document.createElement("div"); row.className = "copilot-subs__line" + (d.target ? "" : " copilot-subs__line--orig"); row.dataset.csKey = d.key; els[d.key] = row; stack.appendChild(row); }
     layoutCustomLines(); // if Position is "custom", anchor each line at its own saved spot
 
     cancelAnimationFrame(rafId);
@@ -1234,7 +1287,7 @@
       for (const d of defs) {
         const el = els[d.key];
         const txt = c ? (d.target ? c.t[d.target] || "" : (c.grp ? c.grp.orig : c.original)) : "";
-        if (el.textContent !== txt) { el.textContent = txt; el.style.display = txt ? "block" : "none"; el.dir = (d.target ? isRTLLang(d.target) : isRTL(txt)) ? "rtl" : "ltr"; }
+        if (el.textContent !== txt) { setLineText(el, txt); el.style.display = txt ? "block" : "none"; el.dir = (d.target ? isRTLLang(d.target) : isRTL(txt)) ? "rtl" : "ltr"; }
       }
       // ── live proof of the lookahead — read window.csDiag() in the console ──
       if (performance.now() - diagAt > 1000) {
@@ -1442,7 +1495,7 @@
     audioEls = {};
     for (const d of audioDefs) {
       const row = document.createElement("div");
-      row.className = "copilot-subs__line";
+      row.className = "copilot-subs__line" + (d.target ? "" : " copilot-subs__line--orig");
       audioEls[d.key] = row;
       stack.appendChild(row);
     }
@@ -1455,7 +1508,7 @@
         const el = audioEls[d.key];
         const txt = c ? (d.target ? c.t?.[d.target] || "" : c.original) : "";
         if (el.textContent !== txt) {
-          el.textContent = txt;
+          setLineText(el, txt);
           el.style.display = txt ? "block" : "none";
           el.dir = (d.target ? isRTLLang(d.target) : isRTL(txt)) ? "rtl" : "ltr";
         }
@@ -1615,10 +1668,10 @@
 
   const schedule = debounce(() => { start().catch((e) => console.warn("[CopilotSubs]", e)); }, 400);
 
-  // Appearance keys (position, drag coords, text size) and the sync nudge apply
-  // LIVE — re-style in place, no flicker. Anything else (languages, key, enabled…)
-  // restarts the engine.
-  const LIVE_KEYS = ["syncOffset", "position", "linePositions", "size"];
+  // Appearance keys (position, drag coords, text size, style preset/tweaks) and
+  // the sync nudge apply LIVE — re-style in place, no flicker. Anything else
+  // (languages, key, enabled…) restarts the engine.
+  const LIVE_KEYS = ["syncOffset", "position", "linePositions", "size", "stylePreset", "styleCustom"];
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
     const keys = Object.keys(changes);

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "SubVibe - AI Subtitle Translator",
-  "version": "1330.0.0",
-  "version_name": "1330",
+  "version": "1340.0.0",
+  "version_name": "1340",
   "description": "AI subtitles translating streaming video into your language: in sync, pre-translated ahead, cached free on replay.",
   "homepage_url": "https://nimanou.com",
   "icons": {
@@ -13,7 +13,8 @@
   },
   "permissions": [
     "storage",
-    "unlimitedStorage"
+    "unlimitedStorage",
+    "offscreen"
   ],
   "host_permissions": [
     "https://api.openai.com/*",
@@ -46,6 +47,7 @@
       "matches": ["https://*.youtube.com/*"],
       "js": [
         "content/adapters/youtube.js",
+        "shared/presets.js",
         "content/common.js"
       ],
       "css": ["styles/overlay.css"],
@@ -56,6 +58,7 @@
       "matches": ["https://*.netflix.com/*"],
       "js": [
         "content/adapters/netflix.js",
+        "shared/presets.js",
         "content/common.js"
       ],
       "css": ["styles/overlay.css"],
@@ -66,6 +69,7 @@
       "matches": ["https://*.zdf.de/*"],
       "js": [
         "content/adapters/zdf.js",
+        "shared/presets.js",
         "content/common.js"
       ],
       "css": ["styles/overlay.css"],
@@ -76,6 +80,7 @@
       "matches": ["https://*.dw.com/*"],
       "js": [
         "content/adapters/dw.js",
+        "shared/presets.js",
         "content/common.js"
       ],
       "css": ["styles/overlay.css"],
@@ -86,6 +91,7 @@
       "matches": ["https://www.amazon.de/gp/video/*", "https://www.primevideo.com/*"],
       "js": [
         "content/adapters/prime.js",
+        "shared/presets.js",
         "content/common.js"
       ],
       "css": ["styles/overlay.css"],
@@ -96,6 +102,7 @@
       "matches": ["https://*.udemy.com/*"],
       "js": [
         "content/adapters/udemy.js",
+        "shared/presets.js",
         "content/common.js"
       ],
       "css": ["styles/overlay.css"],

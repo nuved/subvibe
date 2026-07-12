@@ -20,8 +20,10 @@ jobs:
       - name: Check out the tagged source
         uses: actions/checkout@v4
 
-      - name: Build the package (no build step — just zips the source)
-        run: bash build.sh
+      - name: Build the packages (no build step — just zips the source)
+        run: |
+          bash build.sh
+          bash build.sh --firefox   # same source; manifest transformed for Firefox (see build.sh)
 
       - name: Publish (or refresh) the GitHub Release with the package
         env:

@@ -46,6 +46,13 @@ const langName = (c) => LANG_NAMES[c] || LANG_NAMES[(c || "").split("-")[0]] || 
 
 let audioTabId = null; // the tab whose overlay shows transcribed subtitles
 
+// chrome.offscreen is Chrome-only (needs the "offscreen" permission in the
+// manifest) — Firefox has no offscreen API (its event page is a real DOM page
+// and could capture audio directly; a later Firefox-specific path). Feature-
+// detect so the Firefox build degrades to a clear on-overlay message instead
+// of a TypeError.
+const hasOffscreen = !!(chrome.offscreen && chrome.offscreen.createDocument);
+
 async function ensureOffscreen() {
   if (await chrome.offscreen.hasDocument()) return;
   await chrome.offscreen.createDocument({
@@ -384,6 +391,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
         case "START_AUDIO":
           audioTabId = sender?.tab?.id ?? msg.tabId;
+          if (!hasOffscreen) {
+            // START_AUDIO is fire-and-forget in the content script, so an error
+            // response alone would vanish — surface it on the overlay via the
+            // existing AUDIO_ERROR → setStatus path.
+            if (audioTabId != null) chrome.tabs.sendMessage(audioTabId, { type: "AUDIO_ERROR", error: "live transcription isn't available in this browser yet" }).catch(() => {});
+            sendResponse({ error: "offscreen API unavailable" });
+            break;
+          }
           await ensureOffscreen();
           chrome.runtime.sendMessage({ type: "AUDIO_START", deviceId: msg.deviceId });
           sendResponse({ ok: true });
