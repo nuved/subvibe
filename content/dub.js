@@ -7,7 +7,7 @@
 
   let hooks = null;          // from common.js attach(): { base, target, getVideo, playhead, live, cues, site, persist }
   let dubOn = false;
-  let conf = { voice: "marin", multi: false, duck: 0.12 };
+  let conf = { voice: "marin", multi: false, duck: 0.12, pace: 1 };
   let ctx = null, master = null;
   let buffers = new Map();   // run startMs → decoded AudioBuffer (playback window only)
   let pending = new Set();   // run startMs with a speech request in flight
@@ -262,15 +262,18 @@
     const c = ensureCtx();
     if (c.state === "suspended") return false; // transport paused — don't queue silent sources
     const voice = run.voice;
-    // Rate: a small overrun (≤8%) plays at natural speed and simply trails past
-    // the cue's end rather than speeding up — only a bigger overrun gets sped up.
+    // Rate: fit/catch-up logic picks the speed needed to stay in sync with the
+    // cue, capped so it never chipmunks. conf.pace (user's speech-pace setting,
+    // 0.9-1.3, default 1) multiplies OUTSIDE that cap — a user-chosen pace is
+    // an intentional, uncapped choice, not something the catch-up logic should
+    // clamp.
     // R4 catch-up: starting > 1.5s late allows a higher cap (1.25, still below
     // chipmunk) so the lag shrinks over the next few lines; otherwise 1.1×.
     // (Was 2.5s — condensed dub scripts (Task 16) hold ratio ~1.0, so catch-up
     // now engages sooner to converge before lag can sawtooth.)
     const maxRate = lag > 1500 ? 1.25 : 1.1;
     const fit = (buf.duration * 1000) / spanMs(run);
-    const rate = (fit <= 1.08 ? 1.0 : Math.min(maxRate, fit)) * (v.playbackRate || 1);
+    const rate = Math.min(maxRate, Math.max(fit, 1)) * conf.pace * (v.playbackRate || 1);
     // Flow mode speaks the WHOLE line on a late start — that is the point of
     // voice-over scheduling, so offset stays 0 for every fresh/overdue start.
     // The only case that resumes mid-clip is a seek landing back inside a run
@@ -582,10 +585,11 @@
   function cancelGenerate() { if (genAll) genAll.cancelled = true; }
 
   // ── settings + messages ─────────────────────────────────────────────────
-  chrome.storage.local.get(["dubEnabled", "dubVoice", "dubMultiVoice", "dubDuckLevel"]).then((s) => {
+  chrome.storage.local.get(["dubEnabled", "dubVoice", "dubMultiVoice", "dubDuckLevel", "dubPace"]).then((s) => {
     conf.voice = s.dubVoice || conf.voice;
     conf.multi = !!s.dubMultiVoice;
     if (typeof s.dubDuckLevel === "number") conf.duck = s.dubDuckLevel;
+    if (typeof s.dubPace === "number") conf.pace = s.dubPace;
     if (s.dubEnabled) setDubOn(true);
   }).catch(() => {});
 
@@ -600,6 +604,9 @@
     if (ch.dubDuckLevel) {
       conf.duck = typeof ch.dubDuckLevel.newValue === "number" ? ch.dubDuckLevel.newValue : 0.12;
       if (ducked) duck(true);
+    }
+    if (ch.dubPace) {
+      conf.pace = typeof ch.dubPace.newValue === "number" ? ch.dubPace.newValue : 1;
     }
     if (ch.dubEnabled) setDubOn(!!ch.dubEnabled.newValue);
   });

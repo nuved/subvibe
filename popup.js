@@ -7,7 +7,7 @@
 const FA_FLAG = window.SV_FA_FLAG;
 const LANGS = window.SV_LANGS;
 
-const DEFAULTS = { enabled: true, targets: ["en"], showOriginal: true, hideNative: true, apiKey: "", keepNames: true, keepTerms: "", position: "bottom", size: "md", stylePreset: "classic", styleCustom: {}, syncOffset: 0, dubEnabled: false, dubVoice: "marin", dubMultiVoice: false, dubDuckLevel: 0.12 };
+const DEFAULTS = { enabled: true, targets: ["en"], showOriginal: true, hideNative: true, apiKey: "", keepNames: true, keepTerms: "", position: "bottom", size: "md", stylePreset: "classic", styleCustom: {}, syncOffset: 0, dubEnabled: false, dubVoice: "marin", dubMultiVoice: false, dubDuckLevel: 0.12, dubPace: 1 };
 const el = (id) => document.getElementById(id);
 const fmtSync = (v) => (v > 0 ? "+" : "") + v.toFixed(2) + "s";
 const langMeta = (code) => LANGS.find((l) => l[0] === code) || [code, code.toUpperCase(), "🏳️"];
@@ -155,6 +155,12 @@ el("dubDuck").addEventListener("input", () => {
   el("dubDuckVal").textContent = el("dubDuck").value + "%";
   clearTimeout(duckT);
   duckT = setTimeout(() => persist({ dubDuckLevel: +el("dubDuck").value / 100 }), 120);
+});
+let paceT;
+el("dubPace").addEventListener("input", () => {
+  el("dubPaceVal").textContent = (+el("dubPace").value / 100).toFixed(2) + "×";
+  clearTimeout(paceT);
+  paceT = setTimeout(() => persist({ dubPace: +el("dubPace").value / 100 }), 120);
 });
 
 // Poll the active tab's dub status while the popup is open (1.5s, best-effort).
@@ -431,6 +437,8 @@ async function load() {
   el("dubMultiVoice").checked = !!state.dubMultiVoice;
   el("dubDuck").value = Math.round((typeof state.dubDuckLevel === "number" ? state.dubDuckLevel : 0.12) * 100);
   el("dubDuckVal").textContent = el("dubDuck").value + "%";
+  el("dubPace").value = Math.round((typeof state.dubPace === "number" ? state.dubPace : 1) * 100);
+  el("dubPaceVal").textContent = (el("dubPace").value / 100).toFixed(2) + "×";
   pollDub();
   updateStyleUI();
   renderChips();
