@@ -19,6 +19,7 @@
   let lastSetVol = -1;       // last value WE wrote to volEl.volume, for self-write detection
   let genAll = null;         // { phase, total, done, cancelled } while generating everything
   let genErr = null;         // last generateAll() failure message, surfaced by the popup
+  let nowText = null;        // translated line of the clip currently playing, for the popup's now-playing line
 
   // ── consent-gated transport (session-local per attach, not persisted) ────
   // A fresh video must not spend a cent until the user clicks the on-player
@@ -70,7 +71,12 @@
     if (!ctx) {
       ctx = new AudioContext();
       master = ctx.createGain();
-      master.connect(ctx.destination);
+      master.gain.value = 0.9; // headroom: dub + ducked original must never sum past full scale
+      const comp = ctx.createDynamicsCompressor();
+      comp.threshold.value = -12; comp.knee.value = 20; comp.ratio.value = 6;
+      comp.attack.value = 0.003; comp.release.value = 0.25;
+      master.connect(comp);
+      comp.connect(ctx.destination);
     }
     if (ctx.state === "suspended") {
       // Autoplay policy: resume() needs a real page gesture. The transport
@@ -172,19 +178,19 @@
         p.src.stop(ctx.currentTime + fadeMs / 1000);
       } else p.src.stop();
     } catch {}
+    if (!playing.size) nowText = null;
   }
   function stopAll(fadeMs) { for (const [k, p] of [...playing]) stopOne(k, p, fadeMs); }
 
   function startClip(g, s, buf, t, v) {
     const c = ensureCtx();
     if (c.state === "suspended") return; // transport paused — don't queue silent sources
-    // Overlap must key on the VOICE, not the speaker id: in single-voice mode
-    // every speaker shares one voice, so speaker-keyed fading let the SAME voice
-    // play over itself (the "noisy" chaos live listening flagged). Fast-fade any
-    // playing clip whose voice matches this one; different voices may briefly
-    // overlap, like a real dub track.
+    // Strict no-overlap: starting any new clip fades out ALL currently playing
+    // clips, regardless of voice. Live listening showed even different voices
+    // briefly overlapping reads as "another person talks over" — chaos, not a
+    // real dub track. Keep the voice field on the record for now-playing/status.
     const voice = V().voiceForSpeaker(g.spk, conf.voice, conf.multi);
-    for (const [k, p] of [...playing]) if (p.voice === voice) stopOne(k, p, 150);
+    for (const [k, p] of [...playing]) stopOne(k, p, 120);
     // Rate: a small overrun (≤8%) plays at natural speed and simply trails past
     // the cue's end rather than speeding up — only a bigger overrun gets sped up,
     // and never past 1.1× (was 1.15×; live listening called that "chipmunky").
@@ -198,9 +204,17 @@
     const gain = c.createGain();
     src.connect(gain);
     gain.connect(master);
+    // Micro-fades: mp3 decode can open with a click, and a natural end can step —
+    // ramp in fast and taper the tail out just before it ends.
+    const now = c.currentTime;
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.linearRampToValueAtTime(1, now + 0.02);
+    const wallDur = (buf.duration - Math.max(0, offset)) / rate;
+    if (wallDur > 0.2) gain.gain.setTargetAtTime(0, now + wallDur - 0.06, 0.025);
     const p = { src, gain, voice };
     playing.set(s, p);
-    src.onended = () => { if (playing.get(s) === p) playing.delete(s); };
+    nowText = g.t[hooks.target];
+    src.onended = () => { if (playing.get(s) === p) { playing.delete(s); if (!playing.size) nowText = null; } };
     src.start(0, Math.max(0, offset));
   }
 
@@ -264,9 +278,9 @@
     if (!v) return;
     if (transportPaused) { duck(false); if (playing.size) stopAll(0); return; } // hard gate: no clip starts while paused
     duck(true); // re-assert each frame: element swaps, late loads
-    if (v.paused || v.ended) { if (playing.size) stopAll(0); lastT = hooks.playhead(); return; }
+    if (v.paused || v.ended) { if (playing.size) stopAll(50); lastT = hooks.playhead(); return; }
     const t = hooks.playhead();
-    if (lastT >= 0 && Math.abs(t - lastT) > 1500) stopAll(0); // seek — kill mid-air clips
+    if (lastT >= 0 && Math.abs(t - lastT) > 1500) stopAll(60); // seek — kill mid-air clips softly
     lastT = t;
     for (const g of elig) {
       const s = gStart(g);
@@ -343,6 +357,7 @@
       estRemainingUSD: V().dubEstimateUSD(Math.max(0, totalMs - cachedMs)),
       generating: genAll ? { phase: genAll.phase, total: genAll.total, done: genAll.done } : null,
       lastError: genErr,
+      nowText,
     };
   }
 

@@ -17,12 +17,12 @@ function openDb() {
 }
 async function audioRows(prefix) {
   const d = await openDb();
-  if (!d.objectStoreNames.contains("audio")) return [];
+  if (!d.objectStoreNames.contains("audio")) { d.close(); return []; }
   return new Promise((resolve) => {
     const out = [];
     d.transaction("audio").objectStore("audio").openCursor().onsuccess = (e) => {
       const c = e.target.result;
-      if (!c) return resolve(out);
+      if (!c) { d.close(); return resolve(out); }
       if (typeof c.key === "string" && c.key.startsWith(prefix)) out.push({ key: c.key, ...c.value });
       c.continue();
     };
@@ -32,8 +32,8 @@ async function trackCues(key) {
   const d = await openDb();
   return new Promise((resolve) => {
     const r = d.transaction("tracks").objectStore("tracks").get(key);
-    r.onsuccess = () => resolve((r.result && r.result.cues) || []);
-    r.onerror = () => resolve([]);
+    r.onsuccess = () => { d.close(); resolve((r.result && r.result.cues) || []); };
+    r.onerror = () => { d.close(); resolve([]); };
   });
 }
 function download(name, blobParts, mime) {

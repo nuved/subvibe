@@ -164,17 +164,22 @@ async function pollDub() {
   const tab = tabs && tabs[0];
   const st = tab ? await chrome.tabs.sendMessage(tab.id, { type: "DUB_STATUS" }).catch(() => null) : null;
   lastDubStatus = st;
-  const btn = el("dubGenAll"), s = el("dubStatus");
+  const btn = el("dubGenAll"), s = el("dubStatus"), prog = el("dubProg"), now = el("dubNow");
   if (!st || !st.attached) {
     btn.hidden = true;
     s.textContent = state.dubEnabled ? "Open a video with subtitles to dub it." : "";
+    prog.hidden = true;
+    now.textContent = "";
     return;
   }
-  if (st.live) { btn.hidden = true; s.textContent = "Live streams can't be dubbed."; return; }
+  if (st.live) { btn.hidden = true; s.textContent = "Live streams can't be dubbed."; prog.hidden = true; now.textContent = ""; return; }
   if (st.generating) {
     btn.hidden = false;
     btn.textContent = "Cancel";
     s.textContent = `Generating dub — ${st.generating.done}/${st.generating.total} (${st.generating.phase})`;
+    prog.hidden = !(st.cachedPct > 0 || st.generating);
+    el("dubProgFill").style.width = Math.round((st.cachedPct || 0) * 100) + "%";
+    now.textContent = st.nowText ? "🔊 " + st.nowText : ""; // textContent — the line is page-derived
     return;
   }
   btn.hidden = false;
@@ -186,6 +191,9 @@ async function pollDub() {
     : st.cachedPct > 0
     ? `${Math.round(st.cachedPct * 100)}% of this video's dub is cached — replays are free.`
     : "Dub is generated ~1 min ahead while you watch; you pay only for what you see.";
+  prog.hidden = !(st.cachedPct > 0 || st.generating);
+  el("dubProgFill").style.width = Math.round((st.cachedPct || 0) * 100) + "%";
+  now.textContent = st.nowText ? "🔊 " + st.nowText : ""; // textContent — the line is page-derived
 }
 setInterval(pollDub, 1500);
 
