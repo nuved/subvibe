@@ -113,11 +113,14 @@ DRM, adds nothing).
 
 ### Library
 - Per-track dub coverage indicator ("dubbed 84%").
-- **Export .srt** (translated cues) and **Export .mp3**: decode cached clips,
+- **Export .srt** (translated cues) and **Export audio**: decode cached clips,
   place each at its cue timestamp in an `OfflineAudioContext`, render, encode.
-  MP3 encoding via a vendored JS encoder — **verify its license is compatible
-  with this MIT repo at implementation time; if not, ship WAV export instead
-  and revisit.** Export with gaps warns and offers "generate the missing N%".
+  Format: **Ogg/Opus via the browser-native WebCodecs `AudioEncoder`** plus a
+  small hand-written Ogg muxer (vanilla JS), falling back to **WAV** where
+  `AudioEncoder` is unavailable. (An MP3 encoder would mean vendoring a
+  third-party library, which `tools/audit.mjs` check #5 — "zero third-party
+  libraries shipped" — hard-fails; this repo gates releases on that audit.)
+  Export with gaps warns and offers "generate the missing N%".
 - Delete dub audio for a clip (keeps the subtitle track).
 
 ## Cost, caching, transparency
