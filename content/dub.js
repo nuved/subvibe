@@ -14,8 +14,9 @@
   let playing = new Map();   // group startMs → { src, gain, spkId }
   let elig = [];             // eligible groups, refreshed 1×/s by the pump
   let raf = 0, pumpIv = 0;
-  let ducked = false, baseVol = 1, ourWrite = false, volEl = null;
+  let ducked = false, baseVol = 1, volEl = null;
   let lastT = -1;
+  let lastSetVol = -1;       // last value WE wrote to volEl.volume, for self-write detection
   let genAll = null;         // { phase, total, done, cancelled } while generating everything
   let ctaEl = null;
 
@@ -84,15 +85,21 @@
 
   // ── ducking (video.volume, site slider stays functional) ────────────────
   function setVol(v, x) {
-    ourWrite = true;
-    try { v.volume = Math.max(0, Math.min(1, x)); } catch {}
-    setTimeout(() => { ourWrite = false; }, 0);
+    const clamped = Math.max(0, Math.min(1, x));
+    lastSetVol = clamped;
+    try { v.volume = clamped; } catch {}
   }
   function onVolumeChange(e) {
-    if (ourWrite || !ducked) return;
+    // volumechange fires as an async task; its ordering vs a 0ms timer is not
+    // guaranteed, so a timing-based "was this our write" flag can read stale.
+    // Detect by value instead: if this echoes what we just wrote, ignore it.
+    if (Math.abs(e.target.volume - lastSetVol) < 0.001) return;
+    if (!ducked) return;
     // The user moved the SITE's slider while ducked: what they set IS the new
     // ducked level — re-derive the base so disabling restores what they expect.
-    baseVol = conf.duck > 0 ? Math.min(1, e.target.volume / conf.duck) : e.target.volume;
+    // At duck≈0 a user write can't be meaningfully inverted back to a base
+    // (division blows up / loses information), so keep the previous base.
+    baseVol = conf.duck > 0.01 ? Math.min(1, e.target.volume / conf.duck) : baseVol;
   }
   function bindVolEl(v) {
     if (v === volEl) return;
