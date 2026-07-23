@@ -27,6 +27,7 @@
   let genAll = null;         // { phase, total, done, cancelled } while generating everything
   let genErr = null;         // last generateAll() failure message, surfaced by the popup
   let nowText = null;        // translated line of the clip currently playing, for the popup's now-playing line
+  let decodeFails = 0;       // count of decodeAudioData rejections (diagnostics — a spike here means "TTS ok, playback silent")
 
   // ── consent-gated transport (session-local per attach, not persisted) ────
   // A fresh video must not spend a cent until the user clicks the on-player
@@ -175,7 +176,19 @@
       if (resp && resp.b64) {
         // decode=false (full pre-generate) only warms the worker's cache — a
         // whole film decoded to Float32 would be hundreds of MB of RAM.
-        if (decode && dubOn) buffers.set(k, await ensureCtx().decodeAudioData(bufFromB64(resp.b64)));
+        if (decode && dubOn) {
+          // Decode is split into its own try/catch: a rejection here (corrupt
+          // cache entry, undecodable audio) must not be lumped in with a fetch
+          // failure — it's the "TTS row shows ✓ but never plays" case, and the
+          // decodeFails counter + this message is how that gets diagnosed.
+          try {
+            buffers.set(k, await ensureCtx().decodeAudioData(bufFromB64(resp.b64)));
+            paintTransport(); // ahead-window % just changed
+          } catch (de) {
+            decodeFails++;
+            console.warn("[SubVibe dub] decode failed:", de && de.message, "run", k);
+          }
+        }
       } else if (resp && resp.error) console.warn("[SubVibe dub] speech:", resp.error);
     } catch (e) { console.warn("[SubVibe dub] speech:", e && e.message); }
     finally { pending.delete(k); }
@@ -186,7 +199,11 @@
     elig = eligibleGroups();
     rebuildRuns();
     pumpTicks++;
-    if (pumpTicks % 5 === 0) refreshCoverage().then(paintTransport);
+    if (pumpTicks % 5 === 0) refreshCoverage(); // paints internally, even on failure
+    // Cheap safety net: painting is a string assignment, so an unconditional
+    // 1 Hz repaint can never be the bottleneck — it catches any state change
+    // (buffers filling, aheadPct shifting) that a targeted call site missed.
+    paintTransport();
     if (transportPaused) return; // hard gate: no TTS requests until the user clicks
     const v = hooks.getVideo();
     if (!v || v.ended) return;
@@ -270,12 +287,25 @@
   // painting the button doesn't need a round trip through the popup).
   async function refreshCoverage() {
     if (!hooks) return;
-    const totalMs = elig.reduce((a, g) => a + gSpanMs(g), 0);
-    let cachedMs = 0;
-    const r = await send({ type: "AUDIO_KEYS", prefix: `${hooks.base}:dub:${vcfg()}#` });
-    if (r && r.keys) cachedMs = r.keys.reduce((a, k) => a + (k.ms || 0), 0);
-    lastPct = totalMs ? Math.min(1, cachedMs / totalMs) : 0;
-    lastRemainUSD = V().dubEstimateUSD(Math.max(0, totalMs - cachedMs));
+    // Bulletproof: an {error} reply, a missing/malformed `keys` array, or a
+    // throwing reduce must never leave lastPct/lastRemainUSD unset or leave
+    // this promise rejected — a swallowed failure here is how the button gets
+    // stuck forever (the "▶ Start dub (~$NaN)" report). Always repaint at the end.
+    try {
+      const totalMs = elig.reduce((a, g) => a + gSpanMs(g), 0);
+      let cachedMs = 0;
+      const r = await send({ type: "AUDIO_KEYS", prefix: `${hooks.base}:dub:${vcfg()}#` });
+      const keys = (r && r.keys) || [];
+      cachedMs = keys.reduce((a, k) => a + (k.ms || 0), 0);
+      lastPct = totalMs ? Math.min(1, cachedMs / totalMs) : 0;
+      lastRemainUSD = V().dubEstimateUSD(Math.max(0, totalMs - cachedMs));
+    } catch (e) {
+      console.warn("[SubVibe dub] refreshCoverage:", e && e.message);
+      // Leave last known-good lastPct/lastRemainUSD in place rather than
+      // resetting to 0/NaN — a transient failure shouldn't erase a real number.
+    } finally {
+      paintTransport();
+    }
   }
 
   function paintTransport() {
@@ -288,11 +318,14 @@
       dubctlEl.onclick = onTransportClick;
       overlay.appendChild(dubctlEl);
     }
-    const pct = Math.round(lastPct * 100);
+    // A number that isn't known yet (or came back non-finite) renders as
+    // "(~$…)", never "(~$NaN)".
+    const usd = Number.isFinite(lastRemainUSD) ? lastRemainUSD.toFixed(2) : "…";
+    const pct = Math.round((Number.isFinite(lastPct) ? lastPct : 0) * 100);
     let label;
-    if (!transportPaused) label = `⏸ dub · ${pct}%`;
-    else if (lastPct > 0) label = `▶ dub · ${pct}% ready (~$${lastRemainUSD.toFixed(2)} more)`;
-    else label = `▶ Start dub (~$${lastRemainUSD.toFixed(2)})`;
+    if (!transportPaused) label = `⏸ dub · ${Math.round(aheadPct() * 100)}% ready`;
+    else if (lastPct > 0) label = `▶ dub · ${pct}% cached (~$${usd} more)`;
+    else label = `▶ Start dub (~$${usd})`;
     dubctlEl.textContent = label;
   }
 
@@ -315,6 +348,22 @@
       if (s >= t - 500 && buffers.has(s)) n++;
     }
     return n;
+  }
+
+  // % of the NEXT 60s of speech that is already decoded — the "can I keep
+  // watching without gaps" number. Whole-video percent lives in the popup.
+  function aheadPct() {
+    if (!hooks || !dubOn) return 0;
+    const t = hooks.playhead();
+    let total = 0, ready = 0;
+    for (const r of [...runs.values()].sort((a, b) => a.start - b.start)) {
+      if (r.end < t) continue;
+      if (r.start > t + 60000) break;
+      const span = Math.min(r.end, t + 60000) - Math.max(r.start, t);
+      total += span;
+      if (buffers.has(r.start)) ready += span;
+    }
+    return total ? ready / total : (buffers.size ? 1 : 0);
   }
 
   function loop() {
@@ -409,6 +458,15 @@
       generating: genAll ? { phase: genAll.phase, total: genAll.total, done: genAll.done } : null,
       lastError: genErr,
       nowText,
+      // Playback diagnostics — surfaced so "generation healthy, playback silent"
+      // (TTS rows all ✓, ducking works, zero dub audio) is observable without a
+      // debugger: ctxState catches an autoplay-suspended context, buffersCount
+      // near 0 with decodeFails > 0 catches swallowed decode rejections,
+      // playingCount stuck at 0 while buffersCount > 0 catches a scheduling bug.
+      ctxState: ctx ? ctx.state : null,
+      playingCount: playing.size,
+      buffersCount: buffers.size,
+      decodeFails,
     };
   }
 
