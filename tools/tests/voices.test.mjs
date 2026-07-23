@@ -26,12 +26,16 @@ test("multi-voice: gender guess picks from the matching palette", () => {
   assert.ok(["coral", "shimmer"].includes(V.voiceForSpeaker({ id: 2, g: "f" }, "marin", true)));
 });
 
-test("instructions flag questions, shouting, asides, and Persian", () => {
-  assert.match(V.ttsInstructions("چطوری؟", "fa"), /question/i);
-  assert.match(V.ttsInstructions("چطوری؟", "fa"), /Persian/);
-  assert.match(V.ttsInstructions("RUN! NOW!", "en"), /energy/i);
-  assert.match(V.ttsInstructions("(whispering) come here", "en"), /softly/i);
-  assert.doesNotMatch(V.ttsInstructions("Hello there.", "de"), /question|energy|softly/i);
+test("non-speech captions are detected", () => {
+  for (const t of ["* bedrückende Musik *", "(applause)", "[music]", "♪ la la ♪", "  ", "* موسیقی غم‌انگیز *"])
+    assert.equal(V.isNonSpeechCaption(t), true, t);
+  for (const t of ["Hello there.", "چطوری؟", "He said (quietly) hello", "5 * 3 = 15"])
+    assert.equal(V.isNonSpeechCaption(t), false, t);
+});
+test("instructions are constant per language (prosodic continuity)", () => {
+  assert.equal(V.ttsInstructions("RUN! NOW!", "en"), V.ttsInstructions("Hello there.", "en"));
+  assert.match(V.ttsInstructions("Hello.", "en"), /natural, unhurried pace/i);
+  assert.match(V.ttsInstructions("سلام", "fa"), /Persian/);
 });
 
 test("estimate: 20 minutes of speech ≈ $0.30", () => {

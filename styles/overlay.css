@@ -186,3 +186,9 @@
   box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5);
 }
 #copilot-subs .copilot-subs__cta:hover { background: #3f7af0; }
+
+/* Dub Mode's consent-gated transport: shows cost/percent, toggles play↔pause. */
+.copilot-subs__dubctl { position: absolute; top: 8px; right: 8px; z-index: 5; padding: 4px 10px;
+  border: 0; border-radius: 14px; background: rgba(8,10,14,.72); color: #e7ecf3; font: 600 12px/1.4 system-ui, sans-serif;
+  cursor: pointer; opacity: .55; transition: opacity .15s; pointer-events: auto; }
+.copilot-subs__dubctl:hover { opacity: 1; }

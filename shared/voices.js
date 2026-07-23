@@ -30,16 +30,24 @@
     return pool[(spk.id - 2) % pool.length];
   }
 
-  // Compact tone hint for the TTS "instructions" param, derived from the
-  // line's own punctuation/markup. Persian gets a fixed register hint.
+  // Sound-effect/music captions must be SKIPPED by the dub, not spoken.
+  function isNonSpeechCaption(t) {
+    t = String(t || "").trim();
+    if (!t) return true;
+    if (/[♪♫]/.test(t)) return true;
+    if (/^\*[^*]*\*$/.test(t)) return true;
+    if (/^\([^)]*\)$/.test(t) || /^\[[^\]]*\]$/.test(t)) return true;
+    return false;
+  }
+
+  // TTS "instructions" param — CONSTANT per language. Per-line hints (question?
+  // shouting? aside?) made consecutive dub lines sound disjoint in live listening;
+  // a fixed register per language keeps prosody continuous across cuts. The
+  // `text` param stays in the signature (call sites pass it) but is not inspected.
   function ttsInstructions(text, lang) {
-    const t = String(text || "");
-    const hints = ["Dub a film line naturally, matching the writing's emotion."];
-    if (/[?؟]\s*$/.test(t.trim())) hints.push("It is a question.");
-    if (/!\s*$/.test(t.trim()) || /\p{Lu}{4,}/u.test(t)) hints.push("Speak with energy.");
-    if (/^\s*[([]/.test(t)) hints.push("Speak softly, as an aside.");
-    if ((lang || "").split("-")[0] === "fa") hints.push("Natural conversational Persian (Farsi) pronunciation.");
-    return hints.join(" ");
+    let p = "Dub a film line naturally, matching the writing's emotion. Speak at a natural, unhurried pace with clear diction.";
+    if ((lang || "").split("-")[0] === "fa") p += " Natural conversational Persian (Farsi) pronunciation.";
+    return p;
   }
 
   // gpt-4o-mini-tts: audio-out dominates ≈ $0.015 per generated minute.
@@ -47,5 +55,5 @@
     return (totalSpeechMs / 60000) * 0.015;
   }
 
-  g.SV_VOICES = { VOICE_LABELS, DEFAULT_VOICE, voiceForSpeaker, ttsInstructions, dubEstimateUSD };
+  g.SV_VOICES = { VOICE_LABELS, DEFAULT_VOICE, voiceForSpeaker, isNonSpeechCaption, ttsInstructions, dubEstimateUSD };
 })(globalThis);

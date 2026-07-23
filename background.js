@@ -505,18 +505,22 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           const tabId = sender && sender.tab && sender.tab.id;
           if (tabId != null) {
             try {
+              // Dub Mode's readiness counter, appended (not restructuring the
+              // existing subtitle look-ahead title) to the free/counting titles
+              // whenever the content script sent it.
+              const dubSuffix = msg.dubReady != null ? ` · dub ${msg.dubReady} clips ready` : "";
               if (msg.off) {
                 await chrome.action.setBadgeText({ tabId, text: "" });
                 await chrome.action.setTitle({ tabId, title: "SubVibe" });
               } else if (msg.free) {
                 await chrome.action.setBadgeText({ tabId, text: "✓" });
                 await chrome.action.setBadgeBackgroundColor({ tabId, color: "#2e9e5b" });
-                await chrome.action.setTitle({ tabId, title: "SubVibe — caught up · replaying ready/cached lines · no API cost" });
+                await chrome.action.setTitle({ tabId, title: "SubVibe — caught up · replaying ready/cached lines · no API cost" + dubSuffix });
               } else {
                 const n = Math.max(0, msg.count | 0);
                 await chrome.action.setBadgeText({ tabId, text: n > 99 ? "99+" : String(n) });
                 await chrome.action.setBadgeBackgroundColor({ tabId, color: msg.state === "miss" ? "#c0392b" : "#c77f0a" });
-                await chrome.action.setTitle({ tabId, title: `SubVibe — translating ahead · ${n} line${n === 1 ? "" : "s"} ready` });
+                await chrome.action.setTitle({ tabId, title: `SubVibe — translating ahead · ${n} line${n === 1 ? "" : "s"} ready` + dubSuffix });
               }
             } catch {}
           }

@@ -7,11 +7,11 @@
 
   let hooks = null;          // from common.js attach(): { base, target, getVideo, playhead, live, cues, site, persist }
   let dubOn = false;
-  let conf = { voice: "marin", multi: false, duck: 0.25 };
+  let conf = { voice: "marin", multi: false, duck: 0.12 };
   let ctx = null, master = null;
   let buffers = new Map();   // group startMs → decoded AudioBuffer (playback window only)
   let pending = new Set();   // group startMs with a speech request in flight
-  let playing = new Map();   // group startMs → { src, gain, spkId }
+  let playing = new Map();   // group startMs → { src, gain, voice }
   let elig = [];             // eligible groups, refreshed 1×/s by the pump
   let raf = 0, pumpIv = 0;
   let ducked = false, baseVol = 1, volEl = null;
@@ -19,7 +19,15 @@
   let lastSetVol = -1;       // last value WE wrote to volEl.volume, for self-write detection
   let genAll = null;         // { phase, total, done, cancelled } while generating everything
   let genErr = null;         // last generateAll() failure message, surfaced by the popup
-  let ctaEl = null;
+
+  // ── consent-gated transport (session-local per attach, not persisted) ────
+  // A fresh video must not spend a cent until the user clicks the on-player
+  // button once; a video with any cached dub audio auto-starts (replay is
+  // free). transportPaused gates BOTH the pump (no TTS requests) and the loop
+  // (no clip starts); the duck releases while paused.
+  let transportPaused = true;
+  let lastPct = 0, lastRemainUSD = 0; // last coverage snapshot, painted on the button
+  let dubctlEl = null;
 
   const V = () => globalThis.SV_VOICES;
   const gStart = (g) => g.cues[0].startMs;
@@ -52,12 +60,12 @@
       const g = c.grp;
       if (!g || seen.has(g)) continue;
       seen.add(g);
-      if (g.closed && g.t[hooks.target]) out.push(g);
+      if (g.closed && g.t[hooks.target] && !V().isNonSpeechCaption(g.orig)) out.push(g);
     }
     return out; // cues are sorted by startMs, so groups come out sorted too
   }
 
-  // ── audio graph + autoplay CTA ──────────────────────────────────────────
+  // ── audio graph ──────────────────────────────────────────────────────────
   function ensureCtx() {
     if (!ctx) {
       ctx = new AudioContext();
@@ -65,24 +73,13 @@
       master.connect(ctx.destination);
     }
     if (ctx.state === "suspended") {
-      // Autoplay policy: the popup toggle is a gesture in the POPUP, not this
-      // page. resume() usually works (the user has interacted with the video);
-      // when it doesn't, one real click on the overlay CTA fixes it for good.
+      // Autoplay policy: resume() needs a real page gesture. The transport
+      // button's click IS that gesture — ensureCtx() is called from its onclick
+      // handler, so this resolves synchronously with the click most of the time.
       ctx.resume().catch(() => {});
-      setTimeout(() => { if (ctx && ctx.state === "suspended" && dubOn) showCta(); }, 300);
     }
     return ctx;
   }
-  function showCta() {
-    const overlay = document.getElementById("copilot-subs");
-    if (!overlay || ctaEl) return;
-    ctaEl = document.createElement("button");
-    ctaEl.className = "copilot-subs__cta";
-    ctaEl.textContent = "▶ Start dubbing";
-    ctaEl.onclick = () => { if (ctx) ctx.resume().catch(() => {}); hideCta(); };
-    overlay.appendChild(ctaEl);
-  }
-  function hideCta() { if (ctaEl) { ctaEl.remove(); ctaEl = null; } }
 
   // ── ducking (video.volume, site slider stays functional) ────────────────
   function setVol(v, x) {
@@ -143,9 +140,13 @@
     } catch (e) { console.warn("[SubVibe dub] speech:", e && e.message); }
     finally { pending.delete(k); }
   }
+  let pumpTicks = 0;
   function pump() {
     if (!dubOn || !hooks || (hooks.live && hooks.live())) return;
     elig = eligibleGroups();
+    pumpTicks++;
+    if (pumpTicks % 5 === 0) refreshCoverage().then(paintTransport);
+    if (transportPaused) return; // hard gate: no TTS requests until the user clicks
     const v = hooks.getVideo();
     if (!v || v.ended) return;
     if (v.paused && !(v.currentTime > 0.5)) return; // never spend on a video never started
@@ -176,13 +177,19 @@
 
   function startClip(g, s, buf, t, v) {
     const c = ensureCtx();
-    if (c.state === "suspended") return; // CTA showing — don't queue silent sources
-    // The same speaker can't talk over themselves: fast-fade their previous
-    // clip. Different speakers may briefly overlap, like a real dub track.
-    const spkId = (g.spk && g.spk.id) || 0;
-    for (const [k, p] of [...playing]) if (p.spkId === spkId) stopOne(k, p, 150);
-    const fit = Math.max(1, (buf.duration * 1000) / spanMs(g)); // squeeze overlong clips…
-    const rate = Math.min(1.15, fit) * (v.playbackRate || 1);   // …but never chipmunk past 1.15×
+    if (c.state === "suspended") return; // transport paused — don't queue silent sources
+    // Overlap must key on the VOICE, not the speaker id: in single-voice mode
+    // every speaker shares one voice, so speaker-keyed fading let the SAME voice
+    // play over itself (the "noisy" chaos live listening flagged). Fast-fade any
+    // playing clip whose voice matches this one; different voices may briefly
+    // overlap, like a real dub track.
+    const voice = V().voiceForSpeaker(g.spk, conf.voice, conf.multi);
+    for (const [k, p] of [...playing]) if (p.voice === voice) stopOne(k, p, 150);
+    // Rate: a small overrun (≤8%) plays at natural speed and simply trails past
+    // the cue's end rather than speeding up — only a bigger overrun gets sped up,
+    // and never past 1.1× (was 1.15×; live listening called that "chipmunky").
+    const fit = (buf.duration * 1000) / spanMs(g);
+    const rate = (fit <= 1.08 ? 1.0 : Math.min(1.1, fit)) * (v.playbackRate || 1);
     const offset = ((t - s) / 1000) * rate;                     // landing mid-line (seek) starts mid-clip
     if (offset >= buf.duration - 0.05) return;
     const src = c.createBufferSource();
@@ -191,17 +198,71 @@
     const gain = c.createGain();
     src.connect(gain);
     gain.connect(master);
-    const p = { src, gain, spkId };
+    const p = { src, gain, voice };
     playing.set(s, p);
     src.onended = () => { if (playing.get(s) === p) playing.delete(s); };
     src.start(0, Math.max(0, offset));
   }
 
+  // ── consent-gated transport button ──────────────────────────────────────
+  // Coverage snapshot (like status() computes for the popup, but kept local so
+  // painting the button doesn't need a round trip through the popup).
+  async function refreshCoverage() {
+    if (!hooks) return;
+    const totalMs = elig.reduce((a, g) => a + spanMs(g), 0);
+    let cachedMs = 0;
+    const r = await send({ type: "AUDIO_KEYS", prefix: `${hooks.base}:dub:${vcfg()}#` });
+    if (r && r.keys) cachedMs = r.keys.reduce((a, k) => a + (k.ms || 0), 0);
+    lastPct = totalMs ? Math.min(1, cachedMs / totalMs) : 0;
+    lastRemainUSD = V().dubEstimateUSD(Math.max(0, totalMs - cachedMs));
+  }
+
+  function paintTransport() {
+    const overlay = document.getElementById("copilot-subs");
+    if (!dubOn || !hooks) { if (dubctlEl) { dubctlEl.remove(); dubctlEl = null; } return; }
+    if (!overlay) return;
+    if (!dubctlEl) {
+      dubctlEl = document.createElement("button");
+      dubctlEl.className = "copilot-subs__dubctl";
+      dubctlEl.onclick = onTransportClick;
+      overlay.appendChild(dubctlEl);
+    }
+    const pct = Math.round(lastPct * 100);
+    let label;
+    if (!transportPaused) label = `⏸ dub · ${pct}%`;
+    else if (lastPct > 0) label = `▶ dub · ${pct}% ready (~$${lastRemainUSD.toFixed(2)} more)`;
+    else label = `▶ Start dub (~$${lastRemainUSD.toFixed(2)})`;
+    dubctlEl.textContent = label;
+  }
+
+  function onTransportClick() {
+    transportPaused = !transportPaused;
+    if (!transportPaused) { ensureCtx(); duck(true); }
+    else { stopAll(150); duck(false); }
+    paintTransport();
+  }
+
+  // How many upcoming clips (within the next ~60s window) are already decoded
+  // and ready to play right now — the badge's dub-readiness counter.
+  function readyAhead() {
+    if (!hooks || !dubOn) return 0;
+    const t = hooks.playhead();
+    let n = 0;
+    for (const g of elig) { const s = gStart(g); if (s > t + 60000) break; if (s >= t - 500 && buffers.has(s)) n++; }
+    return n;
+  }
+
   function loop() {
     raf = requestAnimationFrame(loop);
     if (!dubOn || !hooks) return;
+    // If the AudioContext is found suspended while we supposedly aren't paused,
+    // the resume silently failed (or never happened) — flip back to paused so
+    // the button honestly asks for the one click it needs, instead of quietly
+    // doing nothing forever.
+    if (ctx && ctx.state === "suspended" && !transportPaused) { transportPaused = true; paintTransport(); }
     const v = hooks.getVideo();
     if (!v) return;
+    if (transportPaused) { duck(false); if (playing.size) stopAll(0); return; } // hard gate: no clip starts while paused
     duck(true); // re-assert each frame: element swaps, late loads
     if (v.paused || v.ended) { if (playing.size) stopAll(0); lastT = hooks.playhead(); return; }
     const t = hooks.playhead();
@@ -221,13 +282,14 @@
   function setDubOn(on) {
     dubOn = !!on;
     if (dubOn) {
-      if (hooks) { ensureCtx(); duck(true); }
+      if (hooks && !transportPaused) { ensureCtx(); duck(true); }
       if (!pumpIv) pumpIv = setInterval(pump, 1000);
       if (!raf) raf = requestAnimationFrame(loop);
+      paintTransport();
     } else {
       stopAll(0);
       duck(false);
-      hideCta();
+      if (dubctlEl) { dubctlEl.remove(); dubctlEl = null; }
       clearInterval(pumpIv); pumpIv = 0;
       cancelAnimationFrame(raf); raf = 0;
       lastT = -1;
@@ -239,13 +301,28 @@
     buffers.clear(); pending.clear(); elig = [];
     stopAll(0);
     lastT = -1;
-    if (dubOn) { ensureCtx(); duck(true); if (!pumpIv) pumpIv = setInterval(pump, 1000); if (!raf) raf = requestAnimationFrame(loop); }
+    // A fresh video must not spend a cent until the user clicks the transport
+    // button; a video with any cached dub audio auto-starts (replay is free).
+    transportPaused = true;
+    elig = eligibleGroups();
+    paintTransport(); // show the paused button immediately; refreshed below once coverage is known
+    refreshCoverage().then(() => {
+      if (lastPct > 0) {
+        transportPaused = false;
+        if (dubOn) { ensureCtx(); duck(true); } // auto-start: create/resume the ctx now coverage is known
+      }
+      paintTransport();
+    });
+    if (dubOn) {
+      if (!pumpIv) pumpIv = setInterval(pump, 1000);
+      if (!raf) raf = requestAnimationFrame(loop);
+    }
   }
   function detach() {
     stopAll(0);
     if (ducked && volEl) { ducked = false; setVol(volEl, baseVol); }
     bindVolEl(null);
-    hideCta();
+    if (dubctlEl) { dubctlEl.remove(); dubctlEl = null; }
     hooks = null;
     buffers.clear(); pending.clear(); elig = [];
   }
@@ -330,7 +407,7 @@
       buffers.clear(); // a different voice config is a different cache namespace
     }
     if (ch.dubDuckLevel) {
-      conf.duck = typeof ch.dubDuckLevel.newValue === "number" ? ch.dubDuckLevel.newValue : 0.25;
+      conf.duck = typeof ch.dubDuckLevel.newValue === "number" ? ch.dubDuckLevel.newValue : 0.12;
       if (ducked) duck(true);
     }
     if (ch.dubEnabled) setDubOn(!!ch.dubEnabled.newValue);
@@ -343,5 +420,5 @@
     if (msg.type === "DUB_CANCEL") { cancelGenerate(); sendResponse({ ok: true }); return; }
   });
 
-  window.__svDub = { attach, detach, status, generateAll: () => generateAll(), cancelGenerate };
+  window.__svDub = { attach, detach, status, generateAll: () => generateAll(), cancelGenerate, readyAhead };
 })();

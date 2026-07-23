@@ -1320,9 +1320,12 @@
         // the buffered-ahead window during a pause). Idle only on a never-started
         // video ⇒ clear the badge so nothing shows before you press play.
         const active = video && !video.ended && (!video.paused || engaged);
-        if (!active) setBadge({ off: true });
-        else if (pending <= 0) setBadge({ free: true });
-        else setBadge({ count: done, state: behindMs < 3500 ? "miss" : "lag" });
+        // Dub Mode's own readiness counter (clips decoded and ready to play in
+        // the next ~60s) — ADDS a field to the existing payload, never restructures it.
+        const dub = window.__svDub && window.__svDub.readyAhead ? { dubReady: window.__svDub.readyAhead() } : {};
+        if (!active) setBadge({ off: true, ...dub });
+        else if (pending <= 0) setBadge({ free: true, ...dub });
+        else setBadge({ count: done, state: behindMs < 3500 ? "miss" : "lag", ...dub });
         try {
           document.documentElement.dataset.csDiag = JSON.stringify({
             play: +(t / 1000).toFixed(1), raw: +raw.toFixed(1), relayClk: mainClockMs != null ? +(mainClockMs / 1000).toFixed(1) : null,
