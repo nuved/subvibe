@@ -7,7 +7,7 @@
 const FA_FLAG = window.SV_FA_FLAG;
 const LANGS = window.SV_LANGS;
 
-const DEFAULTS = { enabled: true, targets: ["en"], showOriginal: true, hideNative: true, apiKey: "", keepNames: true, keepTerms: "", position: "bottom", size: "md", stylePreset: "classic", styleCustom: {}, syncOffset: 0 };
+const DEFAULTS = { enabled: true, targets: ["en"], showOriginal: true, hideNative: true, apiKey: "", keepNames: true, keepTerms: "", position: "bottom", size: "md", stylePreset: "classic", styleCustom: {}, syncOffset: 0, dubEnabled: false, dubVoice: "marin", dubMultiVoice: false, dubDuckLevel: 0.25 };
 const el = (id) => document.getElementById(id);
 const fmtSync = (v) => (v > 0 ? "+" : "") + v.toFixed(2) + "s";
 const langMeta = (code) => LANGS.find((l) => l[0] === code) || [code, code.toUpperCase(), "🏳️"];
@@ -135,6 +135,57 @@ el("sizeRange").addEventListener("input", () => {
   clearTimeout(sizeT);
   sizeT = setTimeout(() => saveSetting({ size: v / 1000 }), 120); // live via the storage watcher
 });
+
+// ── Dub controls (all global; dub.js applies changes live, no restart) ──────
+function buildVoiceSelect() {
+  const sel = el("dubVoice");
+  sel.innerHTML = "";
+  for (const [id, label] of window.SV_VOICES.VOICE_LABELS) {
+    const o = document.createElement("option");
+    o.value = id;
+    o.textContent = label;
+    sel.appendChild(o);
+  }
+}
+el("dubEnabled").addEventListener("change", () => { state.dubEnabled = el("dubEnabled").checked; persist({ dubEnabled: state.dubEnabled }); });
+el("dubVoice").addEventListener("change", () => persist({ dubVoice: el("dubVoice").value }));
+el("dubMultiVoice").addEventListener("change", () => persist({ dubMultiVoice: el("dubMultiVoice").checked }));
+let duckT;
+el("dubDuck").addEventListener("input", () => {
+  el("dubDuckVal").textContent = el("dubDuck").value + "%";
+  clearTimeout(duckT);
+  duckT = setTimeout(() => persist({ dubDuckLevel: +el("dubDuck").value / 100 }), 120);
+});
+
+// Poll the active tab's dub status while the popup is open (1.5s, best-effort).
+let lastDubStatus = null;
+async function pollDub() {
+  const tabs = await chrome.tabs.query({ active: true, currentWindow: true }).catch(() => []);
+  const tab = tabs && tabs[0];
+  const st = tab ? await chrome.tabs.sendMessage(tab.id, { type: "DUB_STATUS" }).catch(() => null) : null;
+  lastDubStatus = st;
+  const btn = el("dubGenAll"), s = el("dubStatus");
+  if (!st || !st.attached) {
+    btn.hidden = true;
+    s.textContent = state.dubEnabled ? "Open a video with subtitles to dub it." : "";
+    return;
+  }
+  if (st.live) { btn.hidden = true; s.textContent = "Live streams can't be dubbed."; return; }
+  if (st.generating) {
+    btn.hidden = false;
+    btn.textContent = "Cancel";
+    s.textContent = `Generating dub — ${st.generating.done}/${st.generating.total} (${st.generating.phase})`;
+    return;
+  }
+  btn.hidden = false;
+  btn.textContent = st.estRemainingUSD >= 0.005
+    ? `Generate full dub (~$${st.estRemainingUSD.toFixed(2)})`
+    : "Full dub cached ✓";
+  s.textContent = st.cachedPct > 0
+    ? `${Math.round(st.cachedPct * 100)}% of this video's dub is cached — replays are free.`
+    : "Dub is generated ~1 min ahead while you watch; you pay only for what you see.";
+}
+setInterval(pollDub, 1500);
 
 // ── style preset + custom tweaks (GLOBAL — taste follows the user, not the video) ──
 const PRESETS = window.SV_PRESETS;
@@ -355,6 +406,13 @@ async function load() {
   el("position").value = state.position || "bottom";
   el("syncVal").textContent = fmtSync(state.syncOffset || 0);
   setSizeUI(state.size || "md");
+  el("dubEnabled").checked = !!state.dubEnabled;
+  buildVoiceSelect();
+  el("dubVoice").value = state.dubVoice || "marin";
+  el("dubMultiVoice").checked = !!state.dubMultiVoice;
+  el("dubDuck").value = Math.round((typeof state.dubDuckLevel === "number" ? state.dubDuckLevel : 0.25) * 100);
+  el("dubDuckVal").textContent = el("dubDuck").value + "%";
+  pollDub();
   updateStyleUI();
   renderChips();
   keyHint();

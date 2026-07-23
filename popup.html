@@ -208,6 +208,30 @@
     <input type="text" id="keepTerms" placeholder="Extra specific terms (optional): Skyler, Wharton…" autocomplete="off" spellcheck="false" style="margin-top:8px;" />
   </section>
 
+  <!-- Dub — spoken translation -->
+  <section>
+    <div class="lbl">Dub <span class="hint">speak the translation · original stays quiet under it</span></div>
+    <div class="row" style="margin-top:0;">
+      <label class="switch"><input type="checkbox" id="dubEnabled" /><span class="slider"></span></label>
+      <label for="dubEnabled">Dub subtitles aloud</label>
+    </div>
+    <div class="row">
+      <span style="min-width:58px; color:var(--muted);">Voice</span>
+      <select id="dubVoice" style="flex:1;"></select>
+    </div>
+    <div class="row">
+      <label class="switch"><input type="checkbox" id="dubMultiVoice" /><span class="slider"></span></label>
+      <label for="dubMultiVoice">Multi-voice <span class="hint">(beta — a voice per speaker)</span></label>
+    </div>
+    <div class="row">
+      <span style="min-width:58px; color:var(--muted);">Original</span>
+      <input type="range" id="dubDuck" min="0" max="60" step="5" style="flex:1;" title="How loud the original soundtrack stays under the dub" />
+      <span class="sizeval" id="dubDuckVal"></span>
+    </div>
+    <button class="btn ghost" id="dubGenAll" style="width:100%; margin-top:9px;" hidden>Generate full dub</button>
+    <div id="dubStatus" class="hint" style="margin-top:6px; min-height:13px;"></div>
+  </section>
+
   <!-- Appearance -->
   <section>
     <div class="lbl">Appearance</div>
@@ -301,6 +325,7 @@
   <script src="shared/langs.js"></script>
   <script src="shared/presets.js"></script>
   <script src="shared/tribute.js"></script>
+  <script src="shared/voices.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>
