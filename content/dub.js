@@ -12,6 +12,8 @@
   let buffers = new Map();   // run startMs → decoded AudioBuffer (playback window only)
   let pending = new Set();   // run startMs with a speech request in flight
   let playing = new Map();   // run startMs → { src, gain, voice }
+  let spoken = new Set();    // run starts already played (or given up on) since the last seek/attach — each run plays at most once between seeks
+  let resumable = new Set(); // run starts stopped mid-clip by an interruption (seek/pause), not a natural end — the ONLY case that resumes with a nonzero offset
   let elig = [];             // eligible groups, refreshed 1×/s by the pump
   // A run = consecutive eligible groups, same assigned voice, gaps < 1.4s,
   // total span ≤ 12s, joined into ONE TTS call. Longer continuous synthesis
@@ -71,7 +73,7 @@
     }
     // Drop runs that scrolled far behind the playhead to bound memory.
     const t = hooks ? hooks.playhead() : 0;
-    for (const [k, r] of runs) if (r.end < t - 60000) { runs.delete(k); buffers.delete(k); }
+    for (const [k, r] of runs) if (r.end < t - 60000) { runs.delete(k); buffers.delete(k); spoken.delete(k); resumable.delete(k); }
   }
 
   function send(msg) {
@@ -231,6 +233,12 @@
   // ── playback ────────────────────────────────────────────────────────────
   function stopOne(k, p, fadeMs) {
     playing.delete(k);
+    // Every call site left here (after Step 2 removes the fade-on-next-start
+    // path) is an INTERRUPTION — seek, pause, transport toggle, disable — never
+    // a natural end (that's src.onended below). Mark the run as heard-but-cut-
+    // short so a seek landing back inside it resumes mid-clip instead of
+    // restarting from 0 (which would replay audio already heard).
+    resumable.add(k);
     try {
       if (fadeMs && ctx) {
         p.gain.gain.cancelScheduledValues(ctx.currentTime); // clear any pending micro-fade ramp first
@@ -242,25 +250,35 @@
   }
   function stopAll(fadeMs) { for (const [k, p] of [...playing]) stopOne(k, p, fadeMs); }
 
-  function startClip(run, s, buf, t, v) {
+  // Returns true iff a clip was actually started. R2 in loop() needs this: a
+  // rejected resume (seek landed past the buffer's own tail — a short, near-
+  // exhausted resumable clip) must still free up the candidate — mark it
+  // spoken and move on to the next run in the SAME frame — instead of retrying
+  // the identical, always-rejecting call every frame until R3's 5s staleness
+  // clock happens to catch up (a multi-second stall of the whole dub track).
+  function startClip(run, s, buf, t, lag, v) {
     const c = ensureCtx();
-    if (c.state === "suspended") return; // transport paused — don't queue silent sources
+    if (c.state === "suspended") return false; // transport paused — don't queue silent sources
     const voice = run.voice;
     // Rate: a small overrun (≤8%) plays at natural speed and simply trails past
-    // the cue's end rather than speeding up — only a bigger overrun gets sped up,
-    // and never past 1.1× (was 1.15×; live listening called that "chipmunky").
+    // the cue's end rather than speeding up — only a bigger overrun gets sped up.
+    // R4 catch-up: starting > 2.5s late allows a higher cap (1.25, still below
+    // chipmunk) so the lag shrinks over the next few lines; otherwise 1.1×.
+    const maxRate = lag > 2500 ? 1.25 : 1.1;
     const fit = (buf.duration * 1000) / spanMs(run);
-    const rate = (fit <= 1.08 ? 1.0 : Math.min(1.1, fit)) * (v.playbackRate || 1);
-    const offset = ((t - s) / 1000) * rate;                     // landing mid-line (seek) starts mid-clip
+    const rate = (fit <= 1.08 ? 1.0 : Math.min(maxRate, fit)) * (v.playbackRate || 1);
+    // Flow mode speaks the WHOLE line on a late start — that is the point of
+    // voice-over scheduling, so offset stays 0 for every fresh/overdue start.
+    // The only case that resumes mid-clip is a seek landing back inside a run
+    // that was already partially heard before the interruption (`resumable`);
+    // for a run never heard yet, offset math does not apply at all.
+    const offset = resumable.has(s) ? (t - s) / 1000 * rate : 0;
     // Reject FIRST: a rejected start (playhead already past the buffer's tail)
-    // must bail before touching any currently-playing clip. Fading everyone
-    // out and then starting nothing was an audible silence gap — see the
-    // ordering below, which now has nothing before the reject that depends on it.
-    if (offset >= buf.duration - 0.05) return;
-    // Strict no-overlap: starting any new clip fades out ALL currently playing
-    // clips, regardless of voice. Live listening showed even different voices
-    // briefly overlapping reads as "another person talks over" — chaos, not a
-    // real dub track. Keep the voice field on the record for now-playing/status.
+    // must bail before touching any currently-playing clip.
+    if (offset >= buf.duration - 0.05) return false;
+    // Flow mode only ever starts a clip when idle (playing.size === 0 is
+    // enforced by loop()'s caller) — this loop is a guarded safety net, not a
+    // live path: normal scheduling never reaches it with playing non-empty.
     for (const [k, p] of [...playing]) stopOne(k, p, 120);
     const src = c.createBufferSource();
     src.buffer = buf;
@@ -277,9 +295,12 @@
     if (wallDur > 0.2) gain.gain.setTargetAtTime(0, now + wallDur - 0.06, 0.025);
     const p = { src, gain, voice };
     playing.set(s, p);
+    spoken.add(s);        // this run is now underway — R2 must not pick it again this pass
+    resumable.delete(s);  // consumed: mid-clip resume was for this one start only
     nowText = run.text;
     src.onended = () => { if (playing.get(s) === p) { playing.delete(s); if (!playing.size) nowText = null; } };
     src.start(0, Math.max(0, offset));
+    return true;
   }
 
   // ── consent-gated transport button ──────────────────────────────────────
@@ -380,15 +401,48 @@
     duck(true); // re-assert each frame: element swaps, late loads
     if (v.paused || v.ended) { if (playing.size) stopAll(50); lastT = hooks.playhead(); return; }
     const t = hooks.playhead();
-    if (lastT >= 0 && Math.abs(t - lastT) > 1500) stopAll(60); // seek — kill mid-air clips softly
+    if (lastT >= 0 && Math.abs(t - lastT) > 1500) {
+      stopAll(60); // seek — kill mid-air clips softly
+      // Clear `spoken`/`resumable` for runs INSIDE the neighborhood the user
+      // just landed in — a run they seeked back INTO (or land right next to)
+      // must lose its "already spoken" flag so R2 can pick it again and it
+      // actually replays/resumes. Runs far outside the neighborhood are left
+      // alone: they're nowhere near the new playhead, so their old spoken
+      // state is moot until rebuildRuns()'s own >60s-behind eviction (or a
+      // later seek back near them) makes it relevant again.
+      const lo = t - 5000, hi = t + 90000;
+      for (const k of [...spoken]) if (k >= lo && k <= hi) spoken.delete(k);
+      for (const k of [...resumable]) if (k >= lo && k <= hi) resumable.delete(k);
+    }
     lastT = t;
-    for (const run of [...runs.values()].sort((a, b) => a.start - b.start)) {
-      const s = run.start;
-      if (s > t + 120) break;
-      if (t > s + spanMs(run) + 400) continue;
-      if (playing.has(s)) continue;
-      const buf = buffers.get(s);
-      if (buf) startClip(run, s, buf, t, v);
+    // Voice-over ("lektor") scheduling: speech flows continuously, slightly
+    // behind the subtitles, instead of being chained to timestamps.
+    //  R1 never cut a clip because the next is due — a clip ends naturally
+    //     (onended) or is stopped only by an interruption (seek/pause/toggle).
+    //  R2 when nothing is playing, start the earliest buffered, startable,
+    //     non-stale, not-yet-spoken-this-pass run — runs become startable at
+    //     run.start - 150ms.
+    //  R3 staleness: if the playhead has passed run.end AND we are > 5s late,
+    //     the moment is gone — mark it spoken (skip forever, until the next
+    //     seek) without playing it; the subtitle already showed the line.
+    //  R4 catch-up: startClip applies the >2.5s-late rate cap.
+    if (playing.size === 0) {
+      const candidates = [...runs.values()].sort((a, b) => a.start - b.start);
+      for (const run of candidates) {
+        const s = run.start;
+        if (spoken.has(s)) continue;
+        const stale = t > run.end && t - run.start > 5000;
+        if (stale) { spoken.add(s); continue; } // gone — try the next candidate, don't stop here
+        if (!(s - 150 <= t)) break;              // sorted by start: nothing earlier is startable either
+        if (!buffers.has(s)) continue;           // not buffered yet — wait for it, don't skip ahead
+        const buf = buffers.get(s);
+        const lag = Math.max(0, t - run.start);
+        if (startClip(run, s, buf, t, lag, v)) break; // one start per idle frame — playing.size is now > 0
+        // Rejected (offset already past the buffer's tail, e.g. a near-
+        // exhausted resumable clip): free the candidate and keep scanning
+        // instead of retrying the same doomed run every frame.
+        spoken.add(s);
+      }
     }
   }
 
@@ -414,6 +468,7 @@
     hooks = h;
     buffers.clear(); pending.clear(); elig = []; runs.clear();
     stopAll(0);
+    spoken.clear(); resumable.clear(); // fresh attach: no run has played yet, nothing is mid-clip
     lastT = -1;
     // A fresh video must not spend a cent until the user clicks the transport
     // button; a video with any cached dub audio auto-starts (replay is free).
@@ -439,6 +494,7 @@
     if (dubctlEl) { dubctlEl.remove(); dubctlEl = null; }
     hooks = null;
     buffers.clear(); pending.clear(); elig = []; runs.clear();
+    spoken.clear(); resumable.clear();
   }
 
   // ── status for the popup ────────────────────────────────────────────────
@@ -534,6 +590,7 @@
       if (ch.dubVoice) conf.voice = ch.dubVoice.newValue || "marin";
       if (ch.dubMultiVoice) conf.multi = !!ch.dubMultiVoice.newValue;
       buffers.clear(); runs.clear(); // a different voice config is a different cache namespace; old runs' baked-in voice is stale too
+      spoken.clear(); resumable.clear(); // runs.clear() means rebuildRuns() will recreate the same start-keys — don't let stale spoken/resumable block their replay
     }
     if (ch.dubDuckLevel) {
       conf.duck = typeof ch.dubDuckLevel.newValue === "number" ? ch.dubDuckLevel.newValue : 0.12;
