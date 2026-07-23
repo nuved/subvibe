@@ -9,10 +9,17 @@
   let dubOn = false;
   let conf = { voice: "marin", multi: false, duck: 0.12 };
   let ctx = null, master = null;
-  let buffers = new Map();   // group startMs → decoded AudioBuffer (playback window only)
-  let pending = new Set();   // group startMs with a speech request in flight
-  let playing = new Map();   // group startMs → { src, gain, voice }
+  let buffers = new Map();   // run startMs → decoded AudioBuffer (playback window only)
+  let pending = new Set();   // run startMs with a speech request in flight
+  let playing = new Map();   // run startMs → { src, gain, voice }
   let elig = [];             // eligible groups, refreshed 1×/s by the pump
+  // A run = consecutive eligible groups, same assigned voice, gaps < 1.4s,
+  // total span ≤ 12s, joined into ONE TTS call. Longer continuous synthesis
+  // holds one voice identity and natural prosody; short independent clips
+  // drift (gpt-4o-mini-tts loses the timbre across separate generations).
+  // Immutable once created: membership never changes after a run is built —
+  // only WHEN it gets fetched is still open (the frontier rule below).
+  let runs = new Map();      // run startMs → { start, end, text, voice, groups }
   let raf = 0, pumpIv = 0;
   let ducked = false, baseVol = 1, volEl = null;
   let lastT = -1;
@@ -32,12 +39,39 @@
 
   const V = () => globalThis.SV_VOICES;
   const gStart = (g) => g.cues[0].startMs;
-  const spanMs = (g) => {
-    const last = g.cues[g.cues.length - 1];
-    return Math.max(600, (last.endMs || last.startMs + 2500) - g.cues[0].startMs);
-  };
-  const vcfg = () => (conf.multi ? "mv" : "sv") + "-" + conf.voice;
-  const audioKey = (g) => `${hooks.base}:dub:${vcfg()}#${gStart(g)}`;
+  const gEnd = (g) => { const last = g.cues[g.cues.length - 1]; return last.endMs || last.startMs + 2500; };
+  const gSpanMs = (g) => Math.max(600, gEnd(g) - gStart(g)); // one group's own span (status/coverage UI only)
+  // -v2: a generation-version tag on the cache namespace so pre-run-merge /
+  // pre-identity-anchor clips (keyed without it) are never replayed — they die
+  // with their track via the existing prefix delete/evict, no migration needed.
+  const vcfg = () => (conf.multi ? "mv" : "sv") + "-" + conf.voice + "-v2";
+  const audioKey = (run) => `${hooks.base}:dub:${vcfg()}#${run.start}`;
+  const spanMs = (run) => Math.max(600, run.end - run.start);
+
+  // Merge adjacent eligible groups (same voice, small gap, bounded total span)
+  // into immutable runs, one TTS call per run. A run, once created, NEVER
+  // changes membership — only whether it's ELIGIBLE TO FETCH YET can change
+  // (see the frontier rule in pump()). A non-speech gap (already excluded
+  // from `elig`) simply ends the current run and starts a new one.
+  function rebuildRuns() {
+    const covered = new Set();
+    for (const r of runs.values()) for (const g of r.groups) covered.add(gStart(g));
+    let cur = null;
+    for (const g of elig) {
+      if (covered.has(gStart(g))) { cur = null; continue; } // never regroup an existing run
+      const v = V().voiceForSpeaker(g.spk, conf.voice, conf.multi);
+      const canJoin = cur && cur.voice === v && gStart(g) - cur.end < 1400 && (gEnd(g) - cur.start) <= 12000;
+      if (canJoin) {
+        cur.end = gEnd(g); cur.text += " " + g.t[hooks.target]; cur.groups.push(g);
+      } else {
+        cur = { start: gStart(g), end: gEnd(g), text: g.t[hooks.target], voice: v, groups: [g] };
+        runs.set(cur.start, cur);
+      }
+    }
+    // Drop runs that scrolled far behind the playhead to bound memory.
+    const t = hooks ? hooks.playhead() : 0;
+    for (const [k, r] of runs) if (r.end < t - 60000) { runs.delete(k); buffers.delete(k); }
+  }
 
   function send(msg) {
     return new Promise((resolve) => {
@@ -127,16 +161,16 @@
   }
 
   // ── look-ahead pump: speech for the next ~60s, 2 in flight, 1 Hz ────────
-  async function fetchOne(g, decode = true) {
-    const k = gStart(g);
+  async function fetchOne(run, decode = true) {
+    const k = run.start;
     pending.add(k);
     try {
-      const txt = g.t[hooks.target];
+      const txt = run.text;
       const resp = await send({
-        type: "TTS", key: audioKey(g), text: txt,
-        voice: V().voiceForSpeaker(g.spk, conf.voice, conf.multi),
+        type: "TTS", key: audioKey(run), text: txt,
+        voice: run.voice,
         instructions: V().ttsInstructions(txt, hooks.target),
-        durMs: spanMs(g), site: hooks.site, title: document.title, target: hooks.target,
+        durMs: spanMs(run), site: hooks.site, title: document.title, target: hooks.target,
       });
       if (resp && resp.b64) {
         // decode=false (full pre-generate) only warms the worker's cache — a
@@ -150,6 +184,7 @@
   function pump() {
     if (!dubOn || !hooks || (hooks.live && hooks.live())) return;
     elig = eligibleGroups();
+    rebuildRuns();
     pumpTicks++;
     if (pumpTicks % 5 === 0) refreshCoverage().then(paintTransport);
     if (transportPaused) return; // hard gate: no TTS requests until the user clicks
@@ -159,12 +194,19 @@
     const t = hooks.playhead();
     for (const k of buffers.keys()) if (k < t - 30000 || k > t + 90000) buffers.delete(k); // bound RAM
     if (pending.size >= 2) return;
-    for (const g of elig) {
-      const s = gStart(g);
+    const sortedRuns = [...runs.values()].sort((a, b) => a.start - b.start);
+    for (const run of sortedRuns) {
+      const s = run.start;
       if (s < t - 2000) continue;
       if (s > t + 60000) break;
       if (buffers.has(s) || pending.has(s)) continue;
-      fetchOne(g);
+      // Frontier stability: a run at the growing edge of `elig` may still gain
+      // more groups on a later pump tick — fetching it now would ship partial
+      // text. Only fetch once a later eligible group proves the run is closed,
+      // OR the run is due soon enough that waiting risks missing playback.
+      const hasLater = elig.some((g) => gStart(g) > run.end);
+      if (!hasLater && run.end >= t + 15000) continue;
+      fetchOne(run);
       if (pending.size >= 2) break;
     }
   }
@@ -174,6 +216,7 @@
     playing.delete(k);
     try {
       if (fadeMs && ctx) {
+        p.gain.gain.cancelScheduledValues(ctx.currentTime); // clear any pending micro-fade ramp first
         p.gain.gain.setTargetAtTime(0, ctx.currentTime, fadeMs / 3000);
         p.src.stop(ctx.currentTime + fadeMs / 1000);
       } else p.src.stop();
@@ -182,22 +225,26 @@
   }
   function stopAll(fadeMs) { for (const [k, p] of [...playing]) stopOne(k, p, fadeMs); }
 
-  function startClip(g, s, buf, t, v) {
+  function startClip(run, s, buf, t, v) {
     const c = ensureCtx();
     if (c.state === "suspended") return; // transport paused — don't queue silent sources
+    const voice = run.voice;
+    // Rate: a small overrun (≤8%) plays at natural speed and simply trails past
+    // the cue's end rather than speeding up — only a bigger overrun gets sped up,
+    // and never past 1.1× (was 1.15×; live listening called that "chipmunky").
+    const fit = (buf.duration * 1000) / spanMs(run);
+    const rate = (fit <= 1.08 ? 1.0 : Math.min(1.1, fit)) * (v.playbackRate || 1);
+    const offset = ((t - s) / 1000) * rate;                     // landing mid-line (seek) starts mid-clip
+    // Reject FIRST: a rejected start (playhead already past the buffer's tail)
+    // must bail before touching any currently-playing clip. Fading everyone
+    // out and then starting nothing was an audible silence gap — see the
+    // ordering below, which now has nothing before the reject that depends on it.
+    if (offset >= buf.duration - 0.05) return;
     // Strict no-overlap: starting any new clip fades out ALL currently playing
     // clips, regardless of voice. Live listening showed even different voices
     // briefly overlapping reads as "another person talks over" — chaos, not a
     // real dub track. Keep the voice field on the record for now-playing/status.
-    const voice = V().voiceForSpeaker(g.spk, conf.voice, conf.multi);
     for (const [k, p] of [...playing]) stopOne(k, p, 120);
-    // Rate: a small overrun (≤8%) plays at natural speed and simply trails past
-    // the cue's end rather than speeding up — only a bigger overrun gets sped up,
-    // and never past 1.1× (was 1.15×; live listening called that "chipmunky").
-    const fit = (buf.duration * 1000) / spanMs(g);
-    const rate = (fit <= 1.08 ? 1.0 : Math.min(1.1, fit)) * (v.playbackRate || 1);
-    const offset = ((t - s) / 1000) * rate;                     // landing mid-line (seek) starts mid-clip
-    if (offset >= buf.duration - 0.05) return;
     const src = c.createBufferSource();
     src.buffer = buf;
     src.playbackRate.value = rate;
@@ -213,7 +260,7 @@
     if (wallDur > 0.2) gain.gain.setTargetAtTime(0, now + wallDur - 0.06, 0.025);
     const p = { src, gain, voice };
     playing.set(s, p);
-    nowText = g.t[hooks.target];
+    nowText = run.text;
     src.onended = () => { if (playing.get(s) === p) { playing.delete(s); if (!playing.size) nowText = null; } };
     src.start(0, Math.max(0, offset));
   }
@@ -223,7 +270,7 @@
   // painting the button doesn't need a round trip through the popup).
   async function refreshCoverage() {
     if (!hooks) return;
-    const totalMs = elig.reduce((a, g) => a + spanMs(g), 0);
+    const totalMs = elig.reduce((a, g) => a + gSpanMs(g), 0);
     let cachedMs = 0;
     const r = await send({ type: "AUDIO_KEYS", prefix: `${hooks.base}:dub:${vcfg()}#` });
     if (r && r.keys) cachedMs = r.keys.reduce((a, k) => a + (k.ms || 0), 0);
@@ -262,7 +309,11 @@
     if (!hooks || !dubOn) return 0;
     const t = hooks.playhead();
     let n = 0;
-    for (const g of elig) { const s = gStart(g); if (s > t + 60000) break; if (s >= t - 500 && buffers.has(s)) n++; }
+    for (const run of [...runs.values()].sort((a, b) => a.start - b.start)) {
+      const s = run.start;
+      if (s > t + 60000) break;
+      if (s >= t - 500 && buffers.has(s)) n++;
+    }
     return n;
   }
 
@@ -282,13 +333,13 @@
     const t = hooks.playhead();
     if (lastT >= 0 && Math.abs(t - lastT) > 1500) stopAll(60); // seek — kill mid-air clips softly
     lastT = t;
-    for (const g of elig) {
-      const s = gStart(g);
+    for (const run of [...runs.values()].sort((a, b) => a.start - b.start)) {
+      const s = run.start;
       if (s > t + 120) break;
-      if (t > s + spanMs(g) + 400) continue;
+      if (t > s + spanMs(run) + 400) continue;
       if (playing.has(s)) continue;
       const buf = buffers.get(s);
-      if (buf) startClip(g, s, buf, t, v);
+      if (buf) startClip(run, s, buf, t, v);
     }
   }
 
@@ -312,7 +363,7 @@
 
   function attach(h) {
     hooks = h;
-    buffers.clear(); pending.clear(); elig = [];
+    buffers.clear(); pending.clear(); elig = []; runs.clear();
     stopAll(0);
     lastT = -1;
     // A fresh video must not spend a cent until the user clicks the transport
@@ -338,7 +389,7 @@
     bindVolEl(null);
     if (dubctlEl) { dubctlEl.remove(); dubctlEl = null; }
     hooks = null;
-    buffers.clear(); pending.clear(); elig = [];
+    buffers.clear(); pending.clear(); elig = []; runs.clear();
   }
 
   // ── status for the popup ────────────────────────────────────────────────
@@ -346,7 +397,7 @@
     if (!hooks) return { attached: false, enabled: dubOn };
     const live = !!(hooks.live && hooks.live());
     const groups = eligibleGroups();
-    const totalMs = groups.reduce((a, g) => a + spanMs(g), 0);
+    const totalMs = groups.reduce((a, g) => a + gSpanMs(g), 0);
     let cachedMs = 0;
     const r = await send({ type: "AUDIO_KEYS", prefix: `${hooks.base}:dub:${vcfg()}#` });
     if (r && r.keys) cachedMs = r.keys.reduce((a, k) => a + (k.ms || 0), 0);
@@ -395,11 +446,16 @@
         if (hooks.persist) hooks.persist();
       }
       if (genAll.cancelled) return;
-      const ready = all.filter((g) => g.t[hooks.target]);
+      // All groups are translated now, so rebuilding runs here is final — no
+      // group arrives later to reshape one of these runs (unlike the pump's
+      // incremental frontier, which must wait for that possibility).
+      elig = eligibleGroups();
+      rebuildRuns();
+      const ready = [...runs.values()].sort((a, b) => a.start - b.start);
       genAll = { phase: "speaking", total: ready.length, done: 0, cancelled: false };
-      for (const g of ready) {
+      for (const run of ready) {
         if (genAll.cancelled) break;
-        if (!buffers.has(gStart(g))) await fetchOne(g, false); // cached rows return instantly, free
+        if (!buffers.has(run.start)) await fetchOne(run, false); // cached rows return instantly, free
         genAll.done++;
       }
     } finally { genAll = null; }
@@ -419,7 +475,7 @@
     if (ch.dubVoice || ch.dubMultiVoice) {
       if (ch.dubVoice) conf.voice = ch.dubVoice.newValue || "marin";
       if (ch.dubMultiVoice) conf.multi = !!ch.dubMultiVoice.newValue;
-      buffers.clear(); // a different voice config is a different cache namespace
+      buffers.clear(); runs.clear(); // a different voice config is a different cache namespace; old runs' baked-in voice is stale too
     }
     if (ch.dubDuckLevel) {
       conf.duck = typeof ch.dubDuckLevel.newValue === "number" ? ch.dubDuckLevel.newValue : 0.12;

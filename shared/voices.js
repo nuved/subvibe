@@ -45,7 +45,7 @@
   // a fixed register per language keeps prosody continuous across cuts. The
   // `text` param stays in the signature (call sites pass it) but is not inspected.
   function ttsInstructions(text, lang) {
-    let p = "Dub a film line naturally, matching the writing's emotion. Speak at a natural, unhurried pace with clear diction.";
+    let p = "Dub a film line naturally, matching the writing's emotion. Speak at a natural, unhurried pace with clear diction. Keep the exact same single narrator voice throughout — consistent timbre, pitch, and gender; never change speakers.";
     if ((lang || "").split("-")[0] === "fa") p += " Natural conversational Persian (Farsi) pronunciation.";
     return p;
   }

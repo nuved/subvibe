@@ -36,6 +36,7 @@ test("instructions are constant per language (prosodic continuity)", () => {
   assert.equal(V.ttsInstructions("RUN! NOW!", "en"), V.ttsInstructions("Hello there.", "en"));
   assert.match(V.ttsInstructions("Hello.", "en"), /natural, unhurried pace/i);
   assert.match(V.ttsInstructions("سلام", "fa"), /Persian/);
+  assert.match(V.ttsInstructions("x", "en"), /same single narrator/i);
 });
 
 test("estimate: 20 minutes of speech ≈ $0.30", () => {
