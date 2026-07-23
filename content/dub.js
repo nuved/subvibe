@@ -273,7 +273,7 @@
     // now engages sooner to converge before lag can sawtooth.)
     const maxRate = lag > 1500 ? 1.25 : 1.1;
     const fit = (buf.duration * 1000) / spanMs(run);
-    const rate = Math.min(maxRate, Math.max(fit, 1)) * conf.pace * (v.playbackRate || 1);
+    const rate = (fit <= 1.08 ? 1 : Math.min(maxRate, fit)) * conf.pace * (v.playbackRate || 1);
     // Flow mode speaks the WHOLE line on a late start — that is the point of
     // voice-over scheduling, so offset stays 0 for every fresh/overdue start.
     // The only case that resumes mid-clip is a seek landing back inside a run
