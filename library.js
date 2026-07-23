@@ -6,6 +6,111 @@
 const el = (id) => document.getElementById(id);
 const langMeta = window.svLangMeta;
 
+// ── dub audio: read the worker's IndexedDB directly (same extension origin;
+// bulk audio through base64 messaging would be silly). Writes stay in the worker.
+function openDb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open("copilot-subs");
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function audioRows(prefix) {
+  const d = await openDb();
+  if (!d.objectStoreNames.contains("audio")) return [];
+  return new Promise((resolve) => {
+    const out = [];
+    d.transaction("audio").objectStore("audio").openCursor().onsuccess = (e) => {
+      const c = e.target.result;
+      if (!c) return resolve(out);
+      if (typeof c.key === "string" && c.key.startsWith(prefix)) out.push({ key: c.key, ...c.value });
+      c.continue();
+    };
+  });
+}
+async function trackCues(key) {
+  const d = await openDb();
+  return new Promise((resolve) => {
+    const r = d.transaction("tracks").objectStore("tracks").get(key);
+    r.onsuccess = () => resolve((r.result && r.result.cues) || []);
+    r.onerror = () => resolve([]);
+  });
+}
+function download(name, blobParts, mime) {
+  const url = URL.createObjectURL(new Blob(blobParts, { type: mime }));
+  const a = document.createElement("a");
+  a.href = url; a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
+}
+const safeName = (s) => (s || "subvibe").replace(/[\\/:*?"<>|]+/g, " ").trim().slice(0, 80);
+
+async function exportSrt(g, target) {
+  const cues = await trackCues(`${g.base}:auto:${target}`);
+  if (!cues.length) return alert("Nothing cached for this language yet.");
+  download(`${safeName(g.title)} — ${target}.srt`, [window.SV_SRT.cuesToSrt(cues)], "text/plain;charset=utf-8");
+}
+
+// Stitch every cached clip at its timestamp into ONE audio file.
+// Ogg/Opus via WebCodecs where available, else WAV (audit forbids an MP3 lib).
+async function exportAudio(g, target) {
+  const rows = await audioRows(`${g.base}:auto:${target}:dub:`);
+  if (!rows.length) return alert("No dub audio cached for this language yet.");
+  // Several voice configs may exist — export the one with the most clips.
+  const byCfg = new Map();
+  for (const r of rows) {
+    const cfg = r.key.slice(0, r.key.lastIndexOf("#"));
+    if (!byCfg.has(cfg)) byCfg.set(cfg, []);
+    byCfg.get(cfg).push(r);
+  }
+  const clips = [...byCfg.values()].sort((a, b) => b.length - a.length)[0];
+  const cues = await trackCues(`${g.base}:auto:${target}`);
+  // Spec: warn on gaps — an incomplete dub exports with silent holes.
+  const speechMs = clips.reduce((a, r) => a + (r.ms || 0), 0);
+  const trackMs = cues.length ? (cues[cues.length - 1].endMs || cues[cues.length - 1].startMs) : 0;
+  const pct = trackMs ? Math.min(100, Math.round((speechMs / trackMs) * 100)) : 100;
+  if (pct < 60 && !confirm(`Only ~${pct}% of this video has dub audio cached — the export will have silent gaps. ` +
+    `Tip: open the video and click "Generate full dub" in the popup first. Export anyway?`)) return;
+  const lastMs = Math.max(...clips.map((r) => +r.key.slice(r.key.lastIndexOf("#") + 1) + (r.ms || 3000)),
+    cues.length ? (cues[cues.length - 1].endMs || 0) : 0);
+  const haveEncoder = typeof AudioEncoder !== "undefined";
+  const rate = haveEncoder ? 48000 : 24000;
+  const decodeCtx = new AudioContext();
+  const off = new OfflineAudioContext(1, Math.ceil(((lastMs + 1000) / 1000) * rate), rate);
+  for (const r of clips) {
+    const startMs = +r.key.slice(r.key.lastIndexOf("#") + 1);
+    const bin = atob(r.b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    try {
+      const buf = await decodeCtx.decodeAudioData(bytes.buffer);
+      const src = off.createBufferSource();
+      src.buffer = buf;
+      src.connect(off.destination);
+      src.start(startMs / 1000);
+    } catch {} // one undecodable clip must not sink the export
+  }
+  decodeCtx.close();
+  const rendered = await off.startRendering();
+  const pcm = rendered.getChannelData(0);
+  const base = `${safeName(g.title)} — ${target} dub`;
+  if (!haveEncoder) return download(`${base}.wav`, [window.SV_AUDIO_EXPORT.wavFromPcm(pcm, rate)], "audio/wav");
+  const packets = [];
+  const enc = new AudioEncoder({
+    output: (chunk) => { const d = new Uint8Array(chunk.byteLength); chunk.copyTo(d); packets.push({ data: d, samples: 960 }); },
+    error: (e) => console.warn("[SubVibe] opus encode:", e),
+  });
+  enc.configure({ codec: "opus", sampleRate: 48000, numberOfChannels: 1, bitrate: 48000 });
+  const FRAME = 48000; // 1s of samples per AudioData; the encoder splits into 20ms packets
+  for (let i = 0; i < pcm.length; i += FRAME) {
+    const slice = pcm.subarray(i, Math.min(i + FRAME, pcm.length));
+    enc.encode(new AudioData({ format: "f32-planar", sampleRate: 48000, numberOfFrames: slice.length, numberOfChannels: 1, timestamp: Math.round((i / 48000) * 1e6), data: slice }));
+  }
+  await enc.flush();
+  enc.close();
+  download(`${base}.ogg`, window.SV_AUDIO_EXPORT.oggFromOpusPackets(packets, { preSkip: 312 }), "audio/ogg");
+}
+
 // Site → display chrome. Keys come from the adapter (adapter.site) or the cache
 // key prefix. Order here is the order categories appear on the page.
 const SITES = {
@@ -177,6 +282,38 @@ function card(g) {
   };
   foot.appendChild(del);
   c.appendChild(foot);
+
+  // Per-language export row: subtitles always; audio when dub clips exist.
+  const exp = document.createElement("div");
+  exp.className = "foot";
+  for (const [target] of g.langs) {
+    const srtBtn = document.createElement("button");
+    srtBtn.className = "mini";
+    srtBtn.textContent = "⬇ srt · " + target;
+    srtBtn.title = "Download the translated subtitles (.srt)";
+    srtBtn.onclick = () => exportSrt(g, target);
+    exp.appendChild(srtBtn);
+    audioRows(`${g.base}:auto:${target}:dub:`).then((rows) => {
+      if (!rows.length) return;
+      const ms = rows.reduce((a, r) => a + (r.ms || 0), 0);
+      const audBtn = document.createElement("button");
+      audBtn.className = "mini";
+      audBtn.textContent = "⬇ audio · " + target;
+      audBtn.title = `Download the dub as one audio file (~${Math.round(ms / 60000)} min of speech cached)`;
+      audBtn.onclick = () => exportAudio(g, target);
+      exp.appendChild(audBtn);
+      const rmBtn = document.createElement("button");
+      rmBtn.className = "mini del";
+      rmBtn.textContent = "✕ audio";
+      rmBtn.title = "Delete this language's dub audio (keeps the subtitles)";
+      rmBtn.onclick = async () => {
+        await chrome.runtime.sendMessage({ type: "AUDIO_DELETE", prefix: `${g.base}:auto:${target}:dub:` }).catch(() => null);
+        refresh();
+      };
+      exp.appendChild(rmBtn);
+    });
+  }
+  c.appendChild(exp);
   return c;
 }
 
@@ -298,7 +435,9 @@ el("clearAll").addEventListener("click", async () => {
 
 // ── Activity tab: a local, on-device log of every OpenAI call ──────────────────
 const PRICE_IN = 0.15 / 1e6, PRICE_OUT = 0.60 / 1e6; // gpt-4o-mini, USD per token
-const estCost = (i, o) => (i || 0) * PRICE_IN + (o || 0) * PRICE_OUT;
+const estCost = (c) => c && c.kind === "tts"
+  ? ((c.durMs || 0) / 60000) * 0.015
+  : ((c && c.inTok) || 0) * PRICE_IN + ((c && c.outTok) || 0) * PRICE_OUT;
 const fmtCost = (c) => (c >= 1 ? "$" + c.toFixed(2) : "$" + c.toFixed(4));
 function fmtTime(ts) {
   if (!ts) return "—";
@@ -316,12 +455,13 @@ function statCard(k, main, sub, cls) {
 async function loadActivity() {
   const res = await chrome.runtime.sendMessage({ type: "LOG_LIST" }).catch(() => null);
   const calls = (res && res.calls) || [];
-  let inTok = 0, outTok = 0, ms = 0, ok = 0, fail = 0, lines = 0, costToday = 0;
+  let inTok = 0, outTok = 0, ms = 0, ok = 0, fail = 0, lines = 0, costToday = 0, costAll = 0;
   const startToday = new Date(); startToday.setHours(0, 0, 0, 0); const t0 = startToday.getTime();
   for (const c of calls) {
     inTok += c.inTok || 0; outTok += c.outTok || 0; ms += c.ms || 0; lines += c.lines || 0;
     if (c.ok) ok++; else fail++;
-    if ((c.ts || 0) >= t0) costToday += estCost(c.inTok, c.outTok);
+    costAll += estCost(c);
+    if ((c.ts || 0) >= t0) costToday += estCost(c);
   }
   const avgMs = calls.length ? Math.round(ms / calls.length) : 0;
 
@@ -329,19 +469,19 @@ async function loadActivity() {
   stats.appendChild(statCard("Calls", String(calls.length), fail ? `· ${fail} failed` : ""));
   stats.appendChild(statCard("Lines translated", lines.toLocaleString()));
   stats.appendChild(statCard("Tokens (in · out)", inTok.toLocaleString() + " · " + outTok.toLocaleString()));
-  stats.appendChild(statCard("Est. cost · all-time", "~" + fmtCost(estCost(inTok, outTok)), "", "cost"));
+  stats.appendChild(statCard("Est. cost · all-time", "~" + fmtCost(costAll), "", "cost"));
   stats.appendChild(statCard("Est. cost · today", "~" + fmtCost(costToday), "", "cost"));
   stats.appendChild(statCard("Avg response", avgMs + " ms"));
 
   const list = el("actList"); list.innerHTML = "";
   for (const c of calls.slice().reverse().slice(0, 200)) {
     const row = document.createElement("div"); row.className = "callrow";
-    row.title = "≈ " + fmtCost(estCost(c.inTok, c.outTok)) + (c.err ? " · " + c.err : "");
+    row.title = "≈ " + fmtCost(estCost(c)) + (c.err ? " · " + c.err : "");
     const t = document.createElement("span"); t.className = "ct"; t.textContent = fmtTime(c.ts);
     const s = document.createElement("span"); s.className = "cs";
     s.textContent = (c.title || (c.site ? siteMeta(c.site).label : "—")) + (c.target ? " → " + langMeta(c.target)[1] : "");
     s.title = s.textContent;
-    const ln = document.createElement("span"); ln.textContent = (c.lines || 0) + " ln";
+    const ln = document.createElement("span"); ln.textContent = c.kind === "tts" ? "🎙 " + Math.round((c.durMs || 0) / 1000) + "s" : (c.lines || 0) + " ln";
     const tk = document.createElement("span"); tk.className = "ctok"; tk.textContent = (c.inTok || 0) + "→" + (c.outTok || 0);
     const mv = document.createElement("span"); mv.className = "cms"; mv.textContent = (c.ms || 0) + "ms";
     const st = document.createElement("span"); st.className = "cok " + (c.ok ? "ok" : "err"); st.textContent = c.ok ? "✓" : "✗";
