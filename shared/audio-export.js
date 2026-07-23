@@ -59,7 +59,7 @@
 
   // packets: [{data: Uint8Array, samples}] at 48 kHz mono (WebCodecs opus).
   function oggFromOpusPackets(packets, { preSkip = 312 } = {}) {
-    pageSeq = 0; serial = (Math.floor(performance.now ? performance.now() : 1) % 0xffff) + 1;
+    pageSeq = 0; serial = ((Date.now() ^ (Math.random() * 0xffffffff)) >>> 0) || 1;
     const head = new Uint8Array(19);
     head.set([0x4f, 0x70, 0x75, 0x73, 0x48, 0x65, 0x61, 0x64], 0); // "OpusHead"
     head[8] = 1;                                                   // version
@@ -74,7 +74,7 @@
     for (let i = 0; i < vendor.length; i++) tags[12 + i] = vendor.charCodeAt(i);
     // comment count 0 — already zeroed
 
-    const parts = [page(head, { bos: true }), page(tags)];
+    const parts = [page(head, { bos: true }), page(tags, { eos: packets.length === 0 })];
     let granule = BigInt(preSkip);
     packets.forEach((p, i) => {
       granule += BigInt(p.samples);
