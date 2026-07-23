@@ -68,8 +68,12 @@ let _dbPromise = null;
 function db() {
   if (!_dbPromise) {
     _dbPromise = new Promise((resolve, reject) => {
-      const req = indexedDB.open("copilot-subs", 1);
-      req.onupgradeneeded = () => req.result.createObjectStore("tracks");
+      const req = indexedDB.open("copilot-subs", 2);
+      req.onupgradeneeded = () => {
+        const d = req.result;
+        if (!d.objectStoreNames.contains("tracks")) d.createObjectStore("tracks");
+        if (!d.objectStoreNames.contains("audio")) d.createObjectStore("audio");
+      };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
@@ -92,6 +96,58 @@ async function idbPut(key, value) {
     const r = d.transaction("tracks", "readwrite").objectStore("tracks").put(value, key);
     r.onsuccess = () => resolve();
     r.onerror = () => reject(r.error);
+  });
+}
+
+// ─── audio store (dub clips; same DB, second object store) ──────────────────
+
+async function idbAudioGet(key) {
+  const d = await db();
+  return new Promise((resolve, reject) => {
+    const r = d.transaction("audio", "readonly").objectStore("audio").get(key);
+    r.onsuccess = () => resolve(r.result || null);
+    r.onerror = () => reject(r.error);
+  });
+}
+
+async function idbAudioPut(key, value) {
+  const d = await db();
+  return new Promise((resolve, reject) => {
+    const r = d.transaction("audio", "readwrite").objectStore("audio").put(value, key);
+    r.onsuccess = () => resolve();
+    r.onerror = () => reject(r.error);
+  });
+}
+
+// Keys (+ per-clip speech ms) under a prefix — coverage and estimates read this.
+async function idbAudioKeys(prefix) {
+  const d = await db();
+  return new Promise((resolve) => {
+    const store = d.transaction("audio", "readonly").objectStore("audio");
+    const out = [];
+    store.openCursor().onsuccess = (e) => {
+      const c = e.target.result;
+      if (!c) return resolve(out);
+      if (typeof c.key === "string" && c.key.startsWith(prefix)) out.push({ key: c.key, ms: (c.value && c.value.ms) || 0 });
+      c.continue();
+    };
+    store.transaction.onerror = () => resolve(out);
+  });
+}
+
+async function idbAudioDeletePrefix(prefix) {
+  if (!prefix) return 0;
+  const d = await db();
+  return new Promise((resolve) => {
+    const store = d.transaction("audio", "readwrite").objectStore("audio");
+    let n = 0;
+    store.openCursor().onsuccess = (e) => {
+      const c = e.target.result;
+      if (!c) return resolve(n);
+      if (typeof c.key === "string" && c.key.startsWith(prefix)) { c.delete(); n++; }
+      c.continue();
+    };
+    store.transaction.onerror = () => resolve(n);
   });
 }
 
@@ -121,7 +177,9 @@ async function idbList() {
 async function idbClear() {
   const d = await db();
   return new Promise((resolve, reject) => {
-    const r = d.transaction("tracks", "readwrite").objectStore("tracks").clear();
+    const tx = d.transaction(["tracks", "audio"], "readwrite");
+    tx.objectStore("audio").clear();
+    const r = tx.objectStore("tracks").clear();
     r.onsuccess = () => resolve();
     r.onerror = () => reject(r.error);
   });
@@ -131,6 +189,7 @@ async function idbClear() {
 // e.g. "youtube:…:auto:fa" / ":auto:de"). Returns how many were removed.
 async function idbDeletePrefix(prefix) {
   if (!prefix) return 0;
+  idbAudioDeletePrefix(prefix).catch(() => {});
   const d = await db();
   return new Promise((resolve) => {
     const store = d.transaction("tracks", "readwrite").objectStore("tracks");
@@ -161,7 +220,7 @@ async function idbEvictOldest() {
       store.openCursor().onsuccess = (e) => {
         const c = e.target.result;
         if (c) { items.push([c.key, (c.value && c.value.createdAt) || ""]); c.continue(); }
-        else { items.sort((a, b) => (a[1] < b[1] ? -1 : 1)); for (let i = 0; i < over; i++) store.delete(items[i][0]); resolve(); }
+        else { items.sort((a, b) => (a[1] < b[1] ? -1 : 1)); for (let i = 0; i < over; i++) { store.delete(items[i][0]); idbAudioDeletePrefix(String(items[i][0])).catch(() => {}); } resolve(); }
       };
     };
     cnt.onerror = () => resolve();
@@ -276,6 +335,43 @@ async function translateAll(lines, source, target, context) {
   return { out, inTok, outTok };
 }
 
+// ─── TTS (dub speech) ────────────────────────────────────────────────────────
+
+const OPENAI_TTS = "https://api.openai.com/v1/audio/speech";
+const TTS_MODEL = "gpt-4o-mini-tts";
+
+// ArrayBuffer → base64. chrome.runtime messages are JSON-serialized, so audio
+// can only cross to the content script as a string.
+function b64FromBuf(buf) {
+  const bytes = new Uint8Array(buf);
+  let bin = "";
+  const CH = 0x8000;
+  for (let i = 0; i < bytes.length; i += CH) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
+  return btoa(bin);
+}
+
+async function ttsChunk(text, voice, instructions, apiKey) {
+  const body = { model: TTS_MODEL, voice: voice || "alloy", input: text, response_format: "mp3" };
+  if (instructions) body.instructions = instructions;
+  let lastStatus = 0, lastBody = "";
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt) await new Promise((r) => setTimeout(r, 700 * attempt));
+    const res = await fetch(OPENAI_TTS, {
+      method: "POST",
+      headers: { Authorization: "Bearer " + apiKey, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (res.ok) return b64FromBuf(await res.arrayBuffer());
+    lastStatus = res.status;
+    lastBody = await res.text();
+    if (!TRANSIENT_HTTP.has(res.status)) break;
+  }
+  const detail = lastStatus >= 500 ? "OpenAI is temporarily unavailable — retrying"
+    : lastStatus === 429 ? "rate limited by OpenAI"
+    : (lastBody || "").replace(/\s+/g, " ").slice(0, 140);
+  throw new Error(`OpenAI TTS ${lastStatus}: ${detail}`);
+}
+
 // ─── Provider call log (local-only transparency) ─────────────────────────────
 // Every OpenAI call is recorded ON-DEVICE: when, which site, #lines, tokens in/
 // out (→ estimated cost), latency, ok/error. Surfaced in the Library's Activity
@@ -344,6 +440,31 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           }
           break;
         }
+        case "TTS": {
+          // Cache-through: a cached clip is returned instantly, free, unlogged.
+          const cached = await idbAudioGet(msg.key);
+          if (cached && cached.b64) { sendResponse({ b64: cached.b64, cached: true }); break; }
+          const { apiKey } = await chrome.storage.local.get("apiKey");
+          if (!apiKey) { sendResponse({ error: "No OpenAI API key yet — open the SubVibe popup and paste your key." }); break; }
+          const started = Date.now();
+          const meta = { ts: started, site: msg.site, title: msg.title, target: msg.target, kind: "tts", chars: (msg.text || "").length, durMs: msg.durMs || 0 };
+          try {
+            const b64 = await ttsChunk(msg.text, msg.voice, msg.instructions, apiKey);
+            await idbAudioPut(msg.key, { b64, voice: msg.voice, ms: msg.durMs || 0, chars: meta.chars, createdAt: new Date().toISOString() });
+            await logCall({ ...meta, ms: Date.now() - started, ok: true });
+            sendResponse({ b64 });
+          } catch (e) {
+            await logCall({ ...meta, ms: Date.now() - started, ok: false, err: String((e && e.message) || e) });
+            throw e; // outer catch sends {error}
+          }
+          break;
+        }
+        case "AUDIO_KEYS":
+          sendResponse({ keys: await idbAudioKeys(msg.prefix || "") });
+          break;
+        case "AUDIO_DELETE":
+          sendResponse({ ok: true, removed: await idbAudioDeletePrefix(msg.prefix || "") });
+          break;
         case "LOG_LIST":
           sendResponse({ calls: (await chrome.storage.local.get(CALL_LOG_KEY))[CALL_LOG_KEY] || [] });
           break;
