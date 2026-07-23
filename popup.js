@@ -187,6 +187,15 @@ async function pollDub() {
 }
 setInterval(pollDub, 1500);
 
+el("dubGenAll").addEventListener("click", async () => {
+  const tabs = await chrome.tabs.query({ active: true, currentWindow: true }).catch(() => []);
+  const tab = tabs && tabs[0];
+  if (!tab) return;
+  const type = lastDubStatus && lastDubStatus.generating ? "DUB_CANCEL" : "DUB_GENERATE_ALL";
+  await chrome.tabs.sendMessage(tab.id, { type }).catch(() => null);
+  pollDub();
+});
+
 // ── style preset + custom tweaks (GLOBAL — taste follows the user, not the video) ──
 const PRESETS = window.SV_PRESETS;
 const FONT_STACKS = window.SV_FONT_STACKS;

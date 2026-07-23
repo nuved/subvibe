@@ -267,8 +267,44 @@
     };
   }
 
-  // Filled in by the "generate full dub" task.
-  function generateAll() {}
+  // Generate the WHOLE video's dub up front (the popup shows the estimate and
+  // the user explicitly clicked): first translate every still-untranslated
+  // sentence group, then request speech for every group. Speech requests use
+  // decode=false — they warm the worker's cache; playback decodes on demand.
+  async function generateAll() {
+    if (!hooks || genAll || (hooks.live && hooks.live())) return;
+    const all = [];
+    const seen = new Set();
+    for (const c of hooks.cues) {
+      const g = c.grp;
+      if (g && g.closed && !seen.has(g)) { seen.add(g); all.push(g); }
+    }
+    const untranslated = all.filter((g) => !g.t[hooks.target]);
+    genAll = { phase: "translating", total: untranslated.length, done: 0, cancelled: false };
+    try {
+      for (let i = 0; i < untranslated.length && !genAll.cancelled; i += 40) {
+        const batch = untranslated.slice(i, i + 40);
+        const resp = await send({ type: "TRANSLATE", cues: batch.map((g) => g.orig), source: "auto", target: hooks.target, site: hooks.site, title: document.title });
+        if (!resp || resp.error || !resp.lines) return; // status() stops reporting "generating"; the pump keeps working incrementally
+        batch.forEach((g, k) => {
+          if (!resp.lines[k]) return;
+          g.t[hooks.target] = resp.lines[k];
+          g.spk = { id: (resp.spk && resp.spk[k]) || 0, g: (resp.gen && resp.gen[k]) || "?" };
+          for (const cc of g.cues) { cc.t[hooks.target] = resp.lines[k]; cc.spk = g.spk; }
+        });
+        genAll.done += batch.length;
+        if (hooks.persist) hooks.persist();
+      }
+      if (genAll.cancelled) return;
+      const ready = all.filter((g) => g.t[hooks.target]);
+      genAll = { phase: "speaking", total: ready.length, done: 0, cancelled: false };
+      for (const g of ready) {
+        if (genAll.cancelled) break;
+        if (!buffers.has(gStart(g))) await fetchOne(g, false); // cached rows return instantly, free
+        genAll.done++;
+      }
+    } finally { genAll = null; }
+  }
   function cancelGenerate() { if (genAll) genAll.cancelled = true; }
 
   // ── settings + messages ─────────────────────────────────────────────────
