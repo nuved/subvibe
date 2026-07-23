@@ -26,8 +26,9 @@ const TRANSLATE_SCHEMA = {
       t: { type: "array", items: { type: "string" } },
       s: { type: "array", items: { type: "integer" } },
       g: { type: "array", items: { type: "string", enum: ["m", "f", "?"] } },
+      d: { type: "array", items: { type: "string" } },
     },
-    required: ["t", "s", "g"],
+    required: ["t", "s", "g", "d"],
   },
 };
 // HTTP statuses worth retrying: OpenAI/Cloudflare blips (520/52x), gateway errors,
@@ -260,10 +261,13 @@ function systemPrompt(source, target, n, keepTerms, keepNames) {
   if (keepTerms && keepTerms.trim()) {
     p += `Also keep these exact terms unchanged: ${keepTerms.trim()}.\n`;
   }
-  p += `\nReturn STRICT JSON: {"t":[…],"s":[…],"g":[…]} — each array EXACTLY ${n} entries, in the same order as "lines". ` +
+  p += `\nReturn STRICT JSON: {"t":[…],"s":[…],"g":[…],"d":[…]} — each array EXACTLY ${n} entries, in the same order as "lines". ` +
     `"t" = the translations. "s" = a speaker index per line, inferred from the dialogue: the first speaker is 1, ` +
     `each new speaker gets the next number, the same speaker always keeps the same number (use 1 when unsure or narration). ` +
-    `"g" = that speaker's gender guess: "m", "f", or "?" when unclear.`;
+    `"g" = that speaker's gender guess: "m", "f", or "?" when unclear. ` +
+    `"d" = a CONDENSED spoken rendition of each translation for dubbing: same meaning and tone, but ≈one-third ` +
+    `shorter — the words a dubbing actor would say to fit the original line's duration. Same language as "t". ` +
+    `When a line is already short, "d" may equal "t".`;
   return p;
 }
 
@@ -299,6 +303,7 @@ async function translateChunk(lines, source, target, apiKey, context, keepTerms,
         lines: Array.isArray(arr) ? arr : [],
         spk: Array.isArray(parsed.s) ? parsed.s : [],
         gen: Array.isArray(parsed.g) ? parsed.g : [],
+        dub: Array.isArray(parsed.d) ? parsed.d : [],
         usage: data.usage || null,
       };
     }
@@ -318,7 +323,7 @@ async function translateAll(lines, source, target, context) {
   const { apiKey, keepTerms, keepNames } = await chrome.storage.local.get(["apiKey", "keepTerms", "keepNames"]);
   if (!apiKey) throw new Error("No OpenAI API key yet — open the SubVibe popup and paste your key.");
   const keepN = keepNames !== false; // default ON
-  const out = new Array(lines.length), spk = new Array(lines.length), gen = new Array(lines.length);
+  const out = new Array(lines.length), spk = new Array(lines.length), gen = new Array(lines.length), dub = new Array(lines.length);
   let lastErr = null, failedBatches = 0, totalBatches = 0, inTok = 0, outTok = 0;
   for (let i = 0; i < lines.length; i += BATCH) {
     const chunk = lines.slice(i, i + BATCH);
@@ -336,16 +341,20 @@ async function translateAll(lines, source, target, context) {
     if (!translated) {
       failedBatches++;
       console.warn("[CopilotSubs bg] translate batch failed:", lastErr && lastErr.message);
-      for (let j = 0; j < chunk.length; j++) out[i + j] = chunk[j]; // fall back to original text
+      for (let j = 0; j < chunk.length; j++) { out[i + j] = chunk[j]; dub[i + j] = ""; } // fall back to original text
     } else {
       for (let j = 0; j < chunk.length; j++) out[i + j] = translated[j] ?? chunk[j];
-      for (let j = 0; j < chunk.length; j++) { spk[i + j] = (r.spk && r.spk[j]) || 0; gen[i + j] = (r.gen && r.gen[j]) || "?"; }
+      for (let j = 0; j < chunk.length; j++) {
+        spk[i + j] = (r.spk && r.spk[j]) || 0;
+        gen[i + j] = (r.gen && r.gen[j]) || "?";
+        dub[i + j] = (r.dub && r.dub[j]) || "";
+      }
     }
   }
   // If EVERY batch failed, surface the real reason instead of silently handing
   // back untranslated text (which used to look like "nothing happened").
   if (failedBatches === totalBatches && lastErr) throw new Error(lastErr.message);
-  return { out, spk, gen, inTok, outTok };
+  return { out, spk, gen, dub, inTok, outTok };
 }
 
 // ─── TTS (dub speech) ────────────────────────────────────────────────────────
@@ -446,7 +455,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           try {
             const r = await translateAll(msg.cues, msg.source, msg.target, msg.context);
             await logCall({ ...meta, ms: Date.now() - started, inTok: r.inTok, outTok: r.outTok, ok: true });
-            sendResponse({ lines: r.out, spk: r.spk, gen: r.gen });
+            sendResponse({ lines: r.out, spk: r.spk, gen: r.gen, dub: r.dub });
           } catch (e) {
             await logCall({ ...meta, ms: Date.now() - started, inTok: 0, outTok: 0, ok: false, err: String((e && e.message) || e) });
             throw e; // let the outer catch send the {error} response

@@ -1190,6 +1190,7 @@
         if (!v) continue;
         cue.t[tg] = v.text;
         if (v.sid != null && !cue.spk) cue.spk = { id: v.sid, g: v.sg || "?" };
+        if (v.dt != null && cue.dt === undefined) cue.dt = v.dt; // cached condensed dub text (old caches: undefined → g.d null in buildGroups)
       }
     };
 
@@ -1238,6 +1239,7 @@
         const grp = { orig: txt.replace(/\s+/g, " ").trim(), cues: list.slice(start, i + 1), t: {}, closed };
         grp.spk = (grp.cues.find((c) => c.spk) || {}).spk;
         for (const tg of settings.targets) if (grp.cues.every((c) => c.t[tg])) grp.t[tg] = grp.cues[0].t[tg];
+        grp.d = grp.cues[0].dt || null; // restored from cache (old caches: no dt → null → dub.js falls back to full text)
         for (const c of grp.cues) c.grp = grp;
         i++;
       }
@@ -1347,7 +1349,8 @@
         send({ type: "CACHE_PUT", key: `${base}:auto:${tg}`,
           track: { site: adapter?.site, videoId, source: "auto", target: tg, model: "gpt-4o-mini", createdAt: new Date().toISOString(),
             title: document.title, url: location.href, totalCues: cues.length,
-            cues: cues.filter((c) => c.t[tg]).map((c) => ({ startMs: c.startMs, endMs: c.endMs, text: c.t[tg], sid: c.spk && c.spk.id, sg: c.spk && c.spk.g })) } });
+            cues: cues.filter((c) => c.t[tg]).map((c) => ({ startMs: c.startMs, endMs: c.endMs, text: c.t[tg], sid: c.spk && c.spk.id, sg: c.spk && c.spk.g,
+              dt: c.grp && c === c.grp.cues[0] ? (c.grp.d || undefined) : undefined })) } });
       }
     }, 3000);
     rafId = requestAnimationFrame(tick);
@@ -1438,6 +1441,7 @@
           if (tg === settings.targets[0]) {                      // tag once, from the primary target's pass
             g.spk = { id: (resp.spk && resp.spk[k]) || 0, g: (resp.gen && resp.gen[k]) || "?" };
             for (const cc of g.cues) cc.spk = g.spk;
+            g.d = (resp.dub && resp.dub[k]) || null;             // condensed dub rendition (dub.js falls back to g.t when null)
           }
         });
         persist();

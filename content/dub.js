@@ -44,10 +44,12 @@
   const gStart = (g) => g.cues[0].startMs;
   const gEnd = (g) => { const last = g.cues[g.cues.length - 1]; return last.endMs || last.startMs + 2500; };
   const gSpanMs = (g) => Math.max(600, gEnd(g) - gStart(g)); // one group's own span (status/coverage UI only)
-  // -v2: a generation-version tag on the cache namespace so pre-run-merge /
+  // -v3: a generation-version tag on the cache namespace so pre-run-merge /
   // pre-identity-anchor clips (keyed without it) are never replayed — they die
   // with their track via the existing prefix delete/evict, no migration needed.
-  const vcfg = () => (conf.multi ? "mv" : "sv") + "-" + conf.voice + "-v2";
+  // Bumped from -v2 for condensed dub scripts (Task 16): the spoken text itself
+  // changed generation, so old clips (full-text renditions) must not mix in.
+  const vcfg = () => (conf.multi ? "mv" : "sv") + "-" + conf.voice + "-v3";
   const audioKey = (run) => `${hooks.base}:dub:${vcfg()}#${run.start}`;
   const spanMs = (run) => Math.max(600, run.end - run.start);
 
@@ -65,9 +67,9 @@
       const v = V().voiceForSpeaker(g.spk, conf.voice, conf.multi);
       const canJoin = cur && cur.voice === v && gStart(g) - cur.end < 1400 && (gEnd(g) - cur.start) <= 12000;
       if (canJoin) {
-        cur.end = gEnd(g); cur.text += " " + g.t[hooks.target]; cur.groups.push(g);
+        cur.end = gEnd(g); cur.text += " " + (g.d || g.t[hooks.target]); cur.groups.push(g);
       } else {
-        cur = { start: gStart(g), end: gEnd(g), text: g.t[hooks.target], voice: v, groups: [g] };
+        cur = { start: gStart(g), end: gEnd(g), text: (g.d || g.t[hooks.target]), voice: v, groups: [g] };
         runs.set(cur.start, cur);
       }
     }
@@ -262,9 +264,11 @@
     const voice = run.voice;
     // Rate: a small overrun (≤8%) plays at natural speed and simply trails past
     // the cue's end rather than speeding up — only a bigger overrun gets sped up.
-    // R4 catch-up: starting > 2.5s late allows a higher cap (1.25, still below
+    // R4 catch-up: starting > 1.5s late allows a higher cap (1.25, still below
     // chipmunk) so the lag shrinks over the next few lines; otherwise 1.1×.
-    const maxRate = lag > 2500 ? 1.25 : 1.1;
+    // (Was 2.5s — condensed dub scripts (Task 16) hold ratio ~1.0, so catch-up
+    // now engages sooner to converge before lag can sawtooth.)
+    const maxRate = lag > 1500 ? 1.25 : 1.1;
     const fit = (buf.duration * 1000) / spanMs(run);
     const rate = (fit <= 1.08 ? 1.0 : Math.min(maxRate, fit)) * (v.playbackRate || 1);
     // Flow mode speaks the WHOLE line on a late start — that is the point of
@@ -425,7 +429,7 @@
     //  R3 staleness: if the playhead has passed run.end AND we are > 5s late,
     //     the moment is gone — mark it spoken (skip forever, until the next
     //     seek) without playing it; the subtitle already showed the line.
-    //  R4 catch-up: startClip applies the >2.5s-late rate cap.
+    //  R4 catch-up: startClip applies the >1.5s-late rate cap.
     if (playing.size === 0) {
       const candidates = [...runs.values()].sort((a, b) => a.start - b.start);
       for (const run of candidates) {
@@ -554,6 +558,7 @@
           if (!resp.lines[k]) return;
           g.t[hooks.target] = resp.lines[k];
           g.spk = { id: (resp.spk && resp.spk[k]) || 0, g: (resp.gen && resp.gen[k]) || "?" };
+          g.d = (resp.dub && resp.dub[k]) || null; // condensed dub rendition (rebuildRuns falls back to g.t when null)
           for (const cc of g.cues) { cc.t[hooks.target] = resp.lines[k]; cc.spk = g.spk; }
         });
         genAll.done += batch.length;
