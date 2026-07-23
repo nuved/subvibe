@@ -181,7 +181,9 @@ async function pollDub() {
   btn.textContent = st.estRemainingUSD >= 0.005
     ? `Generate full dub (~$${st.estRemainingUSD.toFixed(2)})`
     : "Full dub cached ✓";
-  s.textContent = st.cachedPct > 0
+  s.textContent = st.lastError
+    ? `Full-dub run stopped: ${st.lastError}`
+    : st.cachedPct > 0
     ? `${Math.round(st.cachedPct * 100)}% of this video's dub is cached — replays are free.`
     : "Dub is generated ~1 min ahead while you watch; you pay only for what you see.";
 }

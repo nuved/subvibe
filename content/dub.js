@@ -18,6 +18,7 @@
   let lastT = -1;
   let lastSetVol = -1;       // last value WE wrote to volEl.volume, for self-write detection
   let genAll = null;         // { phase, total, done, cancelled } while generating everything
+  let genErr = null;         // last generateAll() failure message, surfaced by the popup
   let ctaEl = null;
 
   const V = () => globalThis.SV_VOICES;
@@ -264,6 +265,7 @@
       cachedPct: totalMs ? Math.min(1, cachedMs / totalMs) : 0,
       estRemainingUSD: V().dubEstimateUSD(Math.max(0, totalMs - cachedMs)),
       generating: genAll ? { phase: genAll.phase, total: genAll.total, done: genAll.done } : null,
+      lastError: genErr,
     };
   }
 
@@ -281,11 +283,16 @@
     }
     const untranslated = all.filter((g) => !g.t[hooks.target]);
     genAll = { phase: "translating", total: untranslated.length, done: 0, cancelled: false };
+    genErr = null;
     try {
       for (let i = 0; i < untranslated.length && !genAll.cancelled; i += 40) {
         const batch = untranslated.slice(i, i + 40);
         const resp = await send({ type: "TRANSLATE", cues: batch.map((g) => g.orig), source: "auto", target: hooks.target, site: hooks.site, title: document.title });
-        if (!resp || resp.error || !resp.lines) return; // status() stops reporting "generating"; the pump keeps working incrementally
+        if (!resp || resp.error || !resp.lines) {
+          genErr = (resp && resp.error) || "translation failed";
+          console.warn("[SubVibe dub] generate:", genErr);
+          return; // status() stops reporting "generating"; the pump keeps working incrementally
+        }
         batch.forEach((g, k) => {
           if (!resp.lines[k]) return;
           g.t[hooks.target] = resp.lines[k];
