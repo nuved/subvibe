@@ -17,7 +17,7 @@ const warn = (n, d) => { warns++; console.log(`  ${C.yel}⚠ ${n}${C.rst}${d ? "
 
 function walk(dir, out = []) {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (["tools", "node_modules", ".git", "icons", "fonts"].includes(e.name)) continue;
+    if (e.name.startsWith(".") || ["tools", "node_modules", "icons", "fonts"].includes(e.name)) continue; // dot-dirs (.git, MCP/session scratch) are never shipped
     const p = path.join(dir, e.name);
     if (e.isDirectory()) walk(p, out); else out.push(p);
   }
