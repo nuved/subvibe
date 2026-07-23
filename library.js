@@ -97,7 +97,7 @@ async function exportAudio(g, target) {
   if (!haveEncoder) return download(`${base}.wav`, [window.SV_AUDIO_EXPORT.wavFromPcm(pcm, rate)], "audio/wav");
   const packets = [];
   const enc = new AudioEncoder({
-    output: (chunk) => { const d = new Uint8Array(chunk.byteLength); chunk.copyTo(d); packets.push({ data: d, samples: 960 }); },
+    output: (chunk) => { const d = new Uint8Array(chunk.byteLength); chunk.copyTo(d); packets.push({ data: d, samples: chunk.duration ? Math.round((chunk.duration / 1e6) * 48000) : 960 }); },
     error: (e) => console.warn("[SubVibe] opus encode:", e),
   });
   enc.configure({ codec: "opus", sampleRate: 48000, numberOfChannels: 1, bitrate: 48000 });
