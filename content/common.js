@@ -1180,10 +1180,15 @@
     const cacheMaps = {};
     for (const tg of settings.targets) {
       const cached = (await send({ type: "CACHE_GET", key: `${base}:auto:${tg}` }))?.track;
-      cacheMaps[tg] = new Map((cached?.cues || []).map((c) => [c.startMs, c.text]));
+      cacheMaps[tg] = new Map((cached?.cues || []).map((c) => [c.startMs, c]));
     }
     const applyCache = (cue) => {
-      for (const tg of settings.targets) { const v = cacheMaps[tg].get(cue.startMs); if (v) cue.t[tg] = v; }
+      for (const tg of settings.targets) {
+        const v = cacheMaps[tg].get(cue.startMs);
+        if (!v) continue;
+        cue.t[tg] = v.text;
+        if (v.sid != null && !cue.spk) cue.spk = { id: v.sid, g: v.sg || "?" };
+      }
     };
 
     // ZDF streams subtitle cues in as you play, so ingest is incremental.
@@ -1229,6 +1234,7 @@
         // a sentence, so it closes too.
         const closed = brokeBy !== "end" || SENT_END.test((list[i].original || "").trim());
         const grp = { orig: txt.replace(/\s+/g, " ").trim(), cues: list.slice(start, i + 1), t: {}, closed };
+        grp.spk = (grp.cues.find((c) => c.spk) || {}).spk;
         for (const tg of settings.targets) if (grp.cues.every((c) => c.t[tg])) grp.t[tg] = grp.cues[0].t[tg];
         for (const c of grp.cues) c.grp = grp;
         i++;
@@ -1346,7 +1352,7 @@
         send({ type: "CACHE_PUT", key: `${base}:auto:${tg}`,
           track: { site: adapter?.site, videoId, source: "auto", target: tg, model: "gpt-4o-mini", createdAt: new Date().toISOString(),
             title: document.title, url: location.href, totalCues: cues.length,
-            cues: cues.filter((c) => c.t[tg]).map((c) => ({ startMs: c.startMs, endMs: c.endMs, text: c.t[tg] })) } });
+            cues: cues.filter((c) => c.t[tg]).map((c) => ({ startMs: c.startMs, endMs: c.endMs, text: c.t[tg], sid: c.spk && c.spk.id, sg: c.spk && c.spk.g })) } });
       }
     }, 3000);
 
@@ -1411,7 +1417,15 @@
           setStatus(transient ? `${langLabel(tg)}: OpenAI busy — retrying…` : `Translation failed (${langLabel(tg)}): ${resp.error}`, !transient);
           return;
         }
-        if (resp?.lines) groups.forEach((g, k) => { if (resp.lines[k]) { g.t[tg] = resp.lines[k]; for (const cc of g.cues) cc.t[tg] = resp.lines[k]; } });
+        if (resp?.lines) groups.forEach((g, k) => {
+          if (!resp.lines[k]) return;
+          g.t[tg] = resp.lines[k];
+          for (const cc of g.cues) cc.t[tg] = resp.lines[k];
+          if (tg === settings.targets[0]) {                      // tag once, from the primary target's pass
+            g.spk = { id: (resp.spk && resp.spk[k]) || 0, g: (resp.gen && resp.gen[k]) || "?" };
+            for (const cc of g.cues) cc.spk = g.spk;
+          }
+        });
         persist();
         return; // one batch per tick
       }
