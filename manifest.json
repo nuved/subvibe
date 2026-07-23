@@ -48,6 +48,8 @@
       "js": [
         "content/adapters/youtube.js",
         "shared/presets.js",
+        "shared/voices.js",
+        "content/dub.js",
         "content/common.js"
       ],
       "css": ["styles/overlay.css"],
@@ -59,6 +61,8 @@
       "js": [
         "content/adapters/netflix.js",
         "shared/presets.js",
+        "shared/voices.js",
+        "content/dub.js",
         "content/common.js"
       ],
       "css": ["styles/overlay.css"],
@@ -70,6 +74,8 @@
       "js": [
         "content/adapters/zdf.js",
         "shared/presets.js",
+        "shared/voices.js",
+        "content/dub.js",
         "content/common.js"
       ],
       "css": ["styles/overlay.css"],
@@ -81,6 +87,8 @@
       "js": [
         "content/adapters/dw.js",
         "shared/presets.js",
+        "shared/voices.js",
+        "content/dub.js",
         "content/common.js"
       ],
       "css": ["styles/overlay.css"],
@@ -92,6 +100,8 @@
       "js": [
         "content/adapters/prime.js",
         "shared/presets.js",
+        "shared/voices.js",
+        "content/dub.js",
         "content/common.js"
       ],
       "css": ["styles/overlay.css"],
@@ -103,6 +113,8 @@
       "js": [
         "content/adapters/udemy.js",
         "shared/presets.js",
+        "shared/voices.js",
+        "content/dub.js",
         "content/common.js"
       ],
       "css": ["styles/overlay.css"],

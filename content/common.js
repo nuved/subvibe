@@ -63,6 +63,7 @@
   // spamming "Translation failed" on every pump tick.
   let contextDead = false;
   function haltOrphaned() {
+    if (window.__svDub) try { window.__svDub.detach(); } catch {}
     if (streamCleanup) { try { streamCleanup(); } catch {} streamCleanup = null; }
     try { cancelAnimationFrame(rafId); } catch {}
     try { cancelAnimationFrame(audioRaf); } catch {}
@@ -672,6 +673,7 @@
     audioCues = null;
     if (streamCleanup) { try { streamCleanup(); } catch {} streamCleanup = null; }
     setBadge({ off: true }); // clear the toolbar look-ahead counter
+    if (window.__svDub) try { window.__svDub.detach(); } catch {}
     const el = document.getElementById("copilot-subs");
     if (el) el.remove();
   }
@@ -1334,16 +1336,6 @@
       }
       rafId = requestAnimationFrame(tick);
     };
-    rafId = requestAnimationFrame(tick);
-    ensureAudioStopped();
-    applyHideNative(settings.hideNative);
-    // If this clip's translations are already cached (a re-watch), say so — it's
-    // free and instant, which is SubVibe's whole replay story.
-    const tgs0 = settings.targets || [];
-    const cachedReady = tgs0.length && cues.length ? cues.filter((c) => tgs0.every((g) => c.t[g])).length / cues.length : 0;
-    setStatus(cachedReady > 0.9 ? "Replaying from cache — free, no API cost ✓" : "Subtitles ready — pre-translating ahead.");
-    console.info(`[CopilotSubs] perfect-sync ON — ${cues.length} cues`);
-
     const persist = debounce(() => {
       // Don't cache LIVE: it's not replayable, and all live channels share the same
       // clip key (/gp/video/livetv) so caching would mix channels and pollute the Library.
@@ -1355,6 +1347,25 @@
             cues: cues.filter((c) => c.t[tg]).map((c) => ({ startMs: c.startMs, endMs: c.endMs, text: c.t[tg], sid: c.spk && c.spk.id, sg: c.spk && c.spk.g })) } });
       }
     }, 3000);
+    rafId = requestAnimationFrame(tick);
+    if (window.__svDub) window.__svDub.attach({
+      base: `${base}:auto:${settings.targets[0] || "en"}`,
+      target: settings.targets[0] || null,
+      getVideo: () => liveVideoEl(video),
+      playhead: () => playheadMs(liveVideoEl(video)) + (isLiveStream ? (liveOffsetMs + liveAutoOffsetMs) : 0),
+      live: () => isLiveStream,
+      cues,
+      site: adapter && adapter.site,
+      persist,
+    });
+    ensureAudioStopped();
+    applyHideNative(settings.hideNative);
+    // If this clip's translations are already cached (a re-watch), say so — it's
+    // free and instant, which is SubVibe's whole replay story.
+    const tgs0 = settings.targets || [];
+    const cachedReady = tgs0.length && cues.length ? cues.filter((c) => tgs0.every((g) => c.t[g])).length / cues.length : 0;
+    setStatus(cachedReady > 0.9 ? "Replaying from cache — free, no API cost ✓" : "Subtitles ready — pre-translating ahead.");
+    console.info(`[CopilotSubs] perfect-sync ON — ${cues.length} cues`);
 
     // Translate the next ~30s ahead of the playhead, one batch at a time.
     // Keep ingesting cues as ZDF streams more of them in during playback.
@@ -1685,7 +1696,7 @@
   // Appearance keys (position, drag coords, text size, style preset/tweaks) and
   // the sync nudge apply LIVE — re-style in place, no flicker. Anything else
   // (languages, key, enabled…) restarts the engine.
-  const LIVE_KEYS = ["syncOffset", "position", "linePositions", "size", "stylePreset", "styleCustom"];
+  const LIVE_KEYS = ["syncOffset", "position", "linePositions", "size", "stylePreset", "styleCustom", "dubEnabled", "dubVoice", "dubMultiVoice", "dubDuckLevel"];
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
     const keys = Object.keys(changes);
