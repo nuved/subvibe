@@ -141,6 +141,8 @@
     </div>
 
     <div id="viewActivity" hidden>
+      <input type="text" id="actFilter" placeholder="🔍  Filter by video title, site, or language…" autocomplete="off"
+        style="width:100%; margin-bottom:10px;" />
       <div class="stats" id="actStats"></div>
       <p class="actnote">Every request goes to <b>api.openai.com</b> with your key — nothing is sent to us, and this log lives only on this device. Cost is estimated from token usage (gpt‑4o‑mini); your OpenAI dashboard is the source of truth for billing.</p>
       <div class="acthead"><span>Recent calls</span><button class="btn ghost danger" id="clearLog">Clear log</button></div>

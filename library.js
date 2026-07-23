@@ -435,6 +435,7 @@ el("clearAll").addEventListener("click", async () => {
 
 // ── Activity tab: a local, on-device log of every OpenAI call ──────────────────
 const PRICE_IN = 0.15 / 1e6, PRICE_OUT = 0.60 / 1e6; // gpt-4o-mini, USD per token
+let actQuery = "";
 const estCost = (c) => c && c.kind === "tts"
   ? ((c.durMs || 0) / 60000) * 0.015
   : ((c && c.inTok) || 0) * PRICE_IN + ((c && c.outTok) || 0) * PRICE_OUT;
@@ -455,18 +456,23 @@ function statCard(k, main, sub, cls) {
 async function loadActivity() {
   const res = await chrome.runtime.sendMessage({ type: "LOG_LIST" }).catch(() => null);
   const calls = (res && res.calls) || [];
+  const q = actQuery;
+  const shown = !q ? calls : calls.filter((c) =>
+    ((c.title || "") + " " + (c.site || "") + " " + (c.target || "")).toLowerCase().includes(q) ||
+    (langMeta(c.target || "")[1] || "").toLowerCase().includes(q));
   let inTok = 0, outTok = 0, ms = 0, ok = 0, fail = 0, lines = 0, costToday = 0, costAll = 0;
   const startToday = new Date(); startToday.setHours(0, 0, 0, 0); const t0 = startToday.getTime();
-  for (const c of calls) {
+  for (const c of shown) {
     inTok += c.inTok || 0; outTok += c.outTok || 0; ms += c.ms || 0; lines += c.lines || 0;
     if (c.ok) ok++; else fail++;
     costAll += estCost(c);
     if ((c.ts || 0) >= t0) costToday += estCost(c);
   }
-  const avgMs = calls.length ? Math.round(ms / calls.length) : 0;
+  const avgMs = shown.length ? Math.round(ms / shown.length) : 0;
 
   const stats = el("actStats"); stats.innerHTML = "";
-  stats.appendChild(statCard("Calls", String(calls.length), fail ? `· ${fail} failed` : ""));
+  stats.appendChild(statCard("Calls", String(shown.length), fail ? `· ${fail} failed` : ""));
+  if (q) stats.appendChild(statCard("Filtered", shown.length + "/" + calls.length + " calls"));
   stats.appendChild(statCard("Lines translated", lines.toLocaleString()));
   stats.appendChild(statCard("Tokens (in · out)", inTok.toLocaleString() + " · " + outTok.toLocaleString()));
   stats.appendChild(statCard("Est. cost · all-time", "~" + fmtCost(costAll), "", "cost"));
@@ -474,7 +480,7 @@ async function loadActivity() {
   stats.appendChild(statCard("Avg response", avgMs + " ms"));
 
   const list = el("actList"); list.innerHTML = "";
-  for (const c of calls.slice().reverse().slice(0, 200)) {
+  for (const c of shown.slice().reverse().slice(0, 200)) {
     const row = document.createElement("div"); row.className = "callrow";
     row.title = "≈ " + fmtCost(estCost(c)) + (c.err ? " · " + c.err : "");
     const t = document.createElement("span"); t.className = "ct"; t.textContent = fmtTime(c.ts);
@@ -489,6 +495,7 @@ async function loadActivity() {
     list.appendChild(row);
   }
 }
+el("actFilter").addEventListener("input", () => { actQuery = el("actFilter").value.trim().toLowerCase(); loadActivity(); });
 el("clearLog").addEventListener("click", async () => {
   if (!confirm("Clear the API activity log? (This does not affect cached subtitles.)")) return;
   await chrome.runtime.sendMessage({ type: "LOG_CLEAR" }).catch(() => null);
