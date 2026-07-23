@@ -19,6 +19,10 @@ locally** so re-watching costs nothing.
 - **Style presets & custom looks** — Classic, YouTube, TikTok, Pill, Snapchat, Cinema and
   Minimal (no background) presets, plus custom font, text color, background color/opacity,
   outline/shadow — and a free size slider (much smaller than before, if you like).
+- **Dub Mode** — speaks the translation over the quieted original (voice-over style): one steady
+  voice, a duration-fitted spoken script, per-speaker voices (beta), an on-player start/pause button
+  with the cost shown before a cent is spent, cached clips free on replay, and export as `.srt` +
+  a stitched audio track. ~$1/hour of watched video.
 - **Bring your own key (BYOK)** — uses *your* OpenAI key, stored only on your device. **No
   SubVibe servers, no accounts, no ads, no tracking.**
 
