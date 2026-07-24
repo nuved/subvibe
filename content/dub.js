@@ -52,6 +52,19 @@
   const vcfg = () => (conf.multi ? "mv" : "sv") + "-" + conf.voice + "-v3";
   const audioKey = (run) => `${hooks.base}:dub:${vcfg()}#${run.start}`;
   const spanMs = (run) => Math.max(600, run.end - run.start);
+  // Video-time silence between upcoming runs in [from, from+windowMs] —
+  // the room that can absorb dub lag without any speed-up or skip.
+  function slackAhead(from, windowMs = 45000) {
+    const sorted = [...runs.values()].sort((a, b) => a.start - b.start);
+    let slack = 0, cursor = from;
+    for (const r of sorted) {
+      if (r.end <= from) continue;
+      if (r.start > from + windowMs) break;
+      if (r.start > cursor) slack += r.start - cursor;
+      cursor = Math.max(cursor, r.end);
+    }
+    return slack;
+  }
 
   // Merge adjacent eligible groups (same voice, small gap, bounded total span)
   // into immutable runs, one TTS call per run. A run, once created, NEVER
@@ -271,7 +284,13 @@
     // chipmunk) so the lag shrinks over the next few lines; otherwise 1.1×.
     // (Was 2.5s — condensed dub scripts (Task 16) hold ratio ~1.0, so catch-up
     // now engages sooner to converge before lag can sawtooth.)
-    const maxRate = lag > 1500 ? 1.25 : 1.1;
+    // Gap-aware pacing (Task 19): if the silence between upcoming runs in the
+    // next 45s can swallow the current lag on its own (+1s grace), there is no
+    // need to speed up to chipmunk-adjacent 1.25× — natural-ish 1.1× plays out
+    // and the gap ahead absorbs the difference, official-interpreter style.
+    const slack = slackAhead(run.start);
+    const absorbable = lag <= slack + 1000;
+    const maxRate = absorbable ? 1.1 : (lag > 1500 ? 1.25 : 1.1);
     const fit = (buf.duration * 1000) / spanMs(run);
     const rate = (fit <= 1.08 ? 1 : Math.min(maxRate, fit)) * conf.pace * (v.playbackRate || 1);
     // Flow mode speaks the WHOLE line on a late start — that is the point of
@@ -429,17 +448,22 @@
     //  R2 when nothing is playing, start the earliest buffered, startable,
     //     non-stale, not-yet-spoken-this-pass run — runs become startable at
     //     run.start - 150ms.
-    //  R3 staleness: if the playhead has passed run.end AND we are > 5s late,
-    //     the moment is gone — mark it spoken (skip forever, until the next
-    //     seek) without playing it; the subtitle already showed the line.
+    //  R3 staleness (recovery-aware, Task 19): drop a line only when it is
+    //     unrecoverable — either outright >10s late, or the playhead is past
+    //     its end AND we are >5s late AND the gaps ahead can't claw the excess
+    //     back. Otherwise keep it queued; it still gets spoken late, at
+    //     catch-up pace — the official-interpreter rule: skip only as a last
+    //     resort, never as the default response to lag.
     //  R4 catch-up: startClip applies the >1.5s-late rate cap.
     if (playing.size === 0) {
       const candidates = [...runs.values()].sort((a, b) => a.start - b.start);
       for (const run of candidates) {
         const s = run.start;
         if (spoken.has(s)) continue;
-        const stale = t > run.end && t - run.start > 5000;
-        if (stale) { spoken.add(s); continue; } // gone — try the next candidate, don't stop here
+        const lagNow = t - run.start;
+        const unrecoverable = lagNow > 10000 ||
+          (t > run.end && lagNow > 5000 && slackAhead(run.start) < (lagNow - 5000));
+        if (unrecoverable) { spoken.add(s); continue; } // gone — try the next candidate, don't stop here
         if (!(s - 150 <= t)) break;              // sorted by start: nothing earlier is startable either
         if (!buffers.has(s)) continue;           // not buffered yet — wait for it, don't skip ahead
         const buf = buffers.get(s);
