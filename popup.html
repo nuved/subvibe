@@ -197,6 +197,14 @@
     <button id="resetClip" class="scopelink muted" hidden title="Revert this video to your defaults">Reset</button>
   </div>
 
+  <!-- This video -->
+  <section>
+    <div class="lbl">This video <button class="linkbtn" id="clearClip" hidden>Clear cache</button></div>
+    <div id="clipCache" class="clipcache muted">Loading…</div>
+    <div id="clipStats" class="hint" style="margin-top:6px; min-height:13px;"></div>
+    <div class="row" id="clipExports" style="flex-wrap:wrap; gap:6px;" hidden></div>
+  </section>
+
   <!-- Translation engine -->
   <section>
     <div class="lbl">Translation engine</div>
@@ -362,12 +370,6 @@
     </div>
   </section>
 
-  <!-- This video -->
-  <section>
-    <div class="lbl">This video <button class="linkbtn" id="clearClip" hidden>Clear cache</button></div>
-    <div id="clipCache" class="clipcache muted">Loading…</div>
-  </section>
-
   <!-- Library -->
   <section>
     <button class="libbtn" id="openLibrary">
@@ -396,6 +398,9 @@
   <script src="shared/tribute.js"></script>
   <script src="shared/voices.js"></script>
   <script src="shared/pricing.js"></script>
+  <script src="shared/srt.js"></script>
+  <script src="shared/audio-export.js"></script>
+  <script src="shared/export.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

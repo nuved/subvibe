@@ -21,6 +21,7 @@ let menuActive = -1;
 // the set we scope per-video — everything else (key, on/off, keep-names) stays global.
 let clipBase = null;
 let clipOverrides = {};
+let clipLoadSeq = 0; // guards loadThisVideo()'s async audioRows() fills against a stale re-run (e.g. Clear cache)
 const CLIP_FIELDS = ["targets", "showOriginal", "position", "size", "syncOffset", "linePositions"];
 
 let savedT;
@@ -402,16 +403,20 @@ async function refreshSpend() {
   const calls = (res && res.calls) || [];
   const estCost = window.SV_PRICING.estCost;
   const t0 = new Date().setHours(0, 0, 0, 0);
-  let today = 0, thisVideo = 0;
+  let today = 0, thisVideo = 0, clipCalls = 0;
   for (const c of calls) {
     if ((c.ts || 0) >= t0) today += estCost(c);
     // exact match on clip base for new rows; cleaned-title match for legacy rows
     const mine = c.base ? c.base === base : (title && window.SV_TITLE.clean(c.title || "") === title);
-    if (mine) thisVideo += estCost(c);
+    if (mine) { thisVideo += estCost(c); clipCalls++; }
   }
   spend.textContent = (base || title)
     ? `Today ~${fmtCost(today)} · this video ~${fmtCost(thisVideo)}`
     : `Today ~${fmtCost(today)}`;
+  const stats = el("clipStats");
+  if (stats) stats.textContent = (base || title) && clipCalls
+    ? `~${fmtCost(thisVideo)} · ${clipCalls} API call${clipCalls === 1 ? "" : "s"} (recent)`
+    : "";
 }
 el("dubSpend").addEventListener("click", openLibrary);
 
@@ -582,6 +587,7 @@ el("resetClip").addEventListener("click", () => {
 // Shows only the CURRENT clip's cached languages (the full categorized list lives
 // in the Library). Uses the clipBase already resolved by load().
 async function loadThisVideo() {
+  const seq = ++clipLoadSeq; // bump before any await — a stale run's async fills below check against this
   const box = el("clipCache");
   const res = await chrome.runtime.sendMessage({ type: "CACHE_LIST" }).catch(() => null);
   const tracks = (res && res.tracks) || [];
@@ -597,12 +603,14 @@ async function loadThisVideo() {
   if (!clipBase) {
     box.className = "clipcache muted";
     box.textContent = "Open a YouTube, Netflix, Prime Video, ZDF or DW video to translate it.";
+    el("clipExports").hidden = true;
     return;
   }
   const mine = tracks.filter((t) => t.key && t.key.startsWith(clipBase + ":auto:"));
   if (!mine.length) {
     box.className = "clipcache muted";
     box.textContent = "Not cached yet — press play and SubVibe translates ahead.";
+    el("clipExports").hidden = true;
     return;
   }
   box.className = "clipcache";
@@ -622,6 +630,36 @@ async function loadThisVideo() {
     box.appendChild(chip);
   }
   el("clearClip").hidden = false;
+
+  const exp = el("clipExports");
+  exp.innerHTML = "";
+  // title from the cached track rows (in scope here) — NOT from a GET_CLIP
+  // `info` variable, which loadThisVideo() does not have
+  const gr = { base: clipBase, title: window.SV_TITLE.clean((mine[0] && mine[0].title) || "") || "subvibe" };
+  let any = false;
+  for (const t of mine) {
+    const m = /^.*:auto:([^:]+)$/.exec(t.key);
+    if (!m) continue;
+    const target = m[1];
+    any = true;
+    const srtBtn = document.createElement("button");
+    srtBtn.className = "btn ghost";
+    srtBtn.textContent = `⬇ srt · ${target}`;
+    srtBtn.title = "Download the translated subtitles (.srt)";
+    srtBtn.onclick = () => window.SV_EXPORT.exportSrt(gr, target);
+    exp.appendChild(srtBtn);
+    window.SV_EXPORT.audioRows(`${clipBase}:auto:${target}:dub:`).then((rows) => {
+      if (seq !== clipLoadSeq) return; // a newer loadThisVideo() ran since — don't paint into its result
+      if (!rows.length) return;
+      const audBtn = document.createElement("button");
+      audBtn.className = "btn ghost";
+      audBtn.textContent = `⬇ dub · ${target}`;
+      audBtn.title = "Download the dub as one audio file";
+      audBtn.onclick = () => window.SV_EXPORT.exportAudio(gr, target);
+      exp.appendChild(audBtn);
+    });
+  }
+  exp.hidden = !any;
 }
 
 // ── load ─────────────────────────────────────────────────────────────────────
