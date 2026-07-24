@@ -927,6 +927,52 @@
     let audioStopped = false;
     const recentLines = []; // preceding dialogue, for translation context
 
+    // Claude bills the ~1k-token instruction prompt on EVERY request, so the
+    // per-line reactive path was ~90% prompt overhead — a live evening hit
+    // ~1.4M tokens/hour. With Claude, coalesce heard lines for a beat (4 lines
+    // or 1.8s) and translate them as ONE batch; OpenAI keeps the instant
+    // per-line path (prompt overhead is pennies there, latency wins).
+    const coalesce = settings.translationProvider === "claude";
+    let sq = [], sqTimer = 0, sqBusy = false;
+    async function flushStreamQ() {
+      sqTimer = 0;
+      if (!adapter || !adapter.matches()) { sq = []; return; } // navigated away — don't spend on dead cues
+      if (sqBusy || !sq.length) return;
+      sqBusy = true;
+      const batch = sq.splice(0);
+      try {
+        for (const tg of targets) {
+          const todo = batch.filter((b) => !(textCache.get(b.text) || {})[tg]);
+          if (!todo.length) continue;
+          const resp = await send({ type: "TRANSLATE", cues: todo.map((b) => b.text), source: "auto", target: tg,
+            context: todo[0].context, site: adapter?.site, title: SV_TITLE.clean(document.title), base: lastCacheBase || clipBaseId() });
+          if (resp?.dead) return; // extension reloaded — orphaned script, stop quietly
+          if (resp?.error) {
+            dbg("ERR " + tg + ": " + resp.error);
+            setStatus(`Translation failed (${langLabel(tg)}): ${resp.error}`, true);
+            continue;
+          }
+          todo.forEach((b, i) => {
+            const out = resp.lines && resp.lines[i];
+            if (!out) { dbg(tg + " — empty reply from model"); return; }
+            const k = textCache.get(b.text) || {};
+            k[tg] = out; textCache.set(b.text, k);
+            b.cue.t[tg] = out;
+            dbg(tg + " ✓ " + out.slice(0, 28));
+          });
+        }
+        persist();
+      } finally {
+        sqBusy = false;
+        if (sq.length && !sqTimer) sqTimer = setTimeout(flushStreamQ, 400); // lines arrived mid-flush
+      }
+    }
+    function queueStreamLine(cue, text, context) {
+      sq.push({ cue, text, context });
+      if (sq.length >= 4) { clearTimeout(sqTimer); flushStreamQ(); }
+      else if (!sqTimer) sqTimer = setTimeout(flushStreamQ, 1800);
+    }
+
     const poll = setInterval(async () => {
       if (!adapter || !adapter.matches()) return; // adapter can be nulled mid-flight on clip nav
       const text = (adapter.readNativeText ? adapter.readNativeText() : "").replace(/\s+/g, " ").trim();
@@ -950,9 +996,17 @@
 
       const known = textCache.get(text) || {};
       textCache.set(text, known);
+      if (coalesce) {
+        let need = false;
+        for (const tg of targets) { if (known[tg]) cue.t[tg] = known[tg]; else need = true; }
+        if (need) queueStreamLine(cue, text, context);
+        else persist();
+        return;
+      }
       for (const tg of targets) {
         if (known[tg]) { cue.t[tg] = known[tg]; continue; }
-        const resp = await send({ type: "TRANSLATE", cues: [text], source: "auto", target: tg, context });
+        const resp = await send({ type: "TRANSLATE", cues: [text], source: "auto", target: tg, context,
+          site: adapter?.site, title: SV_TITLE.clean(document.title), base: lastCacheBase || clipBaseId() }); // meta: the Activity log needs a name for the row
         if (resp?.dead) return; // extension reloaded — orphaned script, stop quietly
         if (resp?.error) {
           dbg("ERR " + tg + ": " + resp.error);
@@ -1530,6 +1584,9 @@
           if (groups.length >= 12) break;
         }
         if (!groups.length) continue;
+        // Live + Claude: a lone just-closed group would re-bill the full prompt
+        // for one line — give a second group ~4s to accumulate first.
+        if (claudeT && isLiveStream && groups.length === 1 && t - groups[0].cues[0].startMs < 4000) continue;
         busy = true;
         const guard = setTimeout(() => { busy = false; }, 20000); // backstop: a hung worker call must never wedge the pump (the 5→0-stuck bug)
         let resp;
@@ -1694,7 +1751,8 @@
 
     for (const tg of settings.targets) {
       const ctx = audioCues.slice(-5, -1).map((c) => c.original);
-      const resp = await send({ type: "TRANSLATE", cues: [text], source: "auto", target: tg, context: ctx });
+      const resp = await send({ type: "TRANSLATE", cues: [text], source: "auto", target: tg, context: ctx,
+        site: adapter?.site, title: SV_TITLE.clean(document.title), base: lastCacheBase || clipBaseId() }); // meta: the Activity log needs a name for the row
       if (resp?.error) { setStatus("Translation failed: " + resp.error, true); continue; }
       const out = resp && resp.lines && resp.lines[0];
       if (out) cue.t[tg] = out;

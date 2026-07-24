@@ -101,14 +101,36 @@
     .acthead { display: flex; align-items: center; justify-content: space-between; margin: 22px 0 8px; font-weight: 700; }
 
     #actList:empty::after { content: "No calls yet — play a video and the requests will show up here."; color: var(--muted); font-size: 12px; }
-    .callrow { display: grid; grid-template-columns: 116px 1fr 56px 60px 92px 60px 20px; gap: 10px; align-items: center;
+    .callrow, .callhead { display: grid; grid-template-columns: 116px 1fr 56px 64px 92px 60px 64px 20px; gap: 10px; align-items: center;
       padding: 9px 6px; border-bottom: 1px solid #151a23; font-size: 12.5px; }
-    .callrow .ct, .callrow .ctok, .callrow .cms, .callrow .cprov { color: var(--muted); font-variant-numeric: tabular-nums; }
+    .callhead { color: var(--muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; border-bottom-color: #1c2330; padding: 6px; }
+    .callrow .ct, .callrow .ctok, .callrow .cms, .callrow .cprov, .callrow .ccost { color: var(--muted); font-variant-numeric: tabular-nums; }
     .callrow .cs { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .callrow .cprov { text-align: center; font-size: 11px; }
-    .callrow .cms { text-align: right; }
+    .callrow .cms, .callrow .ccost, .callhead .cms, .callhead .ccost, .callhead .ctok { text-align: right; }
     .callrow .cok { text-align: center; font-weight: 800; }
     .callrow .ok { color: var(--green); } .callrow .err { color: var(--red); }
+    /* per-call failure reason, under its row */
+    .cerrline { color: var(--red); font-size: 11.5px; padding: 0 6px 8px 132px; border-bottom: 1px solid #151a23; }
+    .cerrline + .callrow { border-top: 0; }
+    /* one collapsible group per video */
+    .cgroup { border: 1px solid #151a23; border-radius: 10px; margin-bottom: 10px; background: rgba(255,255,255,0.012); }
+    .cgroup summary { display: flex; gap: 12px; align-items: baseline; padding: 11px 12px; cursor: pointer; list-style: none; }
+    .cgroup summary::-webkit-details-marker { display: none; }
+    .cgroup summary::before { content: "▸"; color: var(--muted); font-size: 11px; }
+    .cgroup[open] summary::before { content: "▾"; }
+    .cgroup .gt { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+    .cgroup .gs { color: var(--muted); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .cgroup .gcost { color: var(--green); }
+    .cgroup .gfail { color: var(--red); }
+    .cgroup .gbody { padding: 0 8px 6px; }
+    /* "showing one video" chip */
+    #actChip { display: none; margin: 0 0 10px; }
+    #actChip.on { display: inline-flex; align-items: center; gap: 8px; background: #17202e; border: 1px solid #263243;
+      border-radius: 999px; padding: 5px 11px; font-size: 12.5px; max-width: 100%; }
+    #actChip .x { cursor: pointer; color: var(--muted); font-weight: 800; }
+    #actChip .x:hover { color: #fff; }
+    #actMore { height: 1px; }
   </style>
 </head>
 <body>
@@ -145,10 +167,19 @@
     <div id="viewActivity" hidden>
       <input type="text" id="actFilter" placeholder="🔍  Filter by video title, site, or language…" autocomplete="off"
         style="width:100%; margin-bottom:10px;" />
+      <span id="actChip"><span id="actChipTitle"></span><span class="x" id="actChipClear" title="Show all videos">✕</span></span>
       <div class="stats" id="actStats"></div>
-      <p class="actnote">Every request goes to <b>api.openai.com</b> with your key — nothing is sent to us, and this log lives only on this device. Cost is estimated from token usage (gpt‑4o‑mini); your OpenAI dashboard is the source of truth for billing.</p>
-      <div class="acthead"><span>Recent calls</span><button class="btn ghost danger" id="clearLog">Clear log</button></div>
+      <p class="actnote">Every request goes <b>directly from this browser to the engine you selected</b> — <b>api.openai.com</b> (gpt-4o-mini · gpt-4o-mini-tts), <b>api.anthropic.com</b> (Claude Sonnet 4.6), or <b>generativelanguage.googleapis.com</b> (Gemini 2.5 Flash TTS) — using your own key. Nothing is sent to us, and this log lives only on this device. Costs are estimated from each provider's price list; your provider's billing dashboard is the source of truth.</p>
+      <div class="acthead">
+        <span id="actListTitle">Calls</span>
+        <span class="seg" role="group" aria-label="Activity view">
+          <button id="actByClip" class="on">By video</button>
+          <button id="actAll">All calls</button>
+        </span>
+        <button class="btn ghost danger" id="clearLog">Clear log</button>
+      </div>
       <div id="actList"></div>
+      <div id="actMore"></div>
     </div>
   </div>
 

@@ -6,6 +6,8 @@
 // permission and is exempt). Everything is request/response over
 // chrome.runtime messaging.
 
+importScripts("shared/pricing.js"); // SV_PRICING — one cost model shared with Library/popup
+
 const OPENAI_CHAT = "https://api.openai.com/v1/chat/completions";
 const TRANSLATE_MODEL = "gpt-4o-mini";
 const BATCH = 60; // cues per translation request — keeps JSON responses reliable
@@ -249,7 +251,13 @@ async function idbEvictOldest() {
 
 // Reused, condensed from scenarios/interview_helper.yaml's "PURE TRANSLATION
 // engine" prompt. Returns a JSON object so we can validate exact line counts.
-function systemPrompt(source, target, n, keepTerms, keepNames) {
+// CACHE-STABLE by design: nothing per-call (no counts, no video specifics) may
+// appear here. The prompt varies only by (source, target, keepTerms, keepNames)
+// — one stable prefix per session — so Anthropic's cache_control (and OpenAI's
+// automatic caching) can serve it at ~10% (Anthropic) / 50% (OpenAI) of the
+// input price instead of re-billing ~1k tokens on every batch. Per-call data
+// (count, context, lines) lives in the user message.
+function systemPrompt(source, target, keepTerms, keepNames) {
   let p =
     `You are an expert subtitle translator. Translate spoken dialogue from ${langName(source)} ` +
     `into natural, idiomatic ${langName(target)} — the way professional film and TV subtitles read.\n\n` +
@@ -262,10 +270,15 @@ function systemPrompt(source, target, n, keepTerms, keepNames) {
     `equivalent — never word-for-word.\n` +
     `4. Keep each line concise and readable as an on-screen caption. Preserve names, proper nouns and technical terms.\n` +
     `5. Never answer questions or add commentary. If a line is music or non-speech, return it unchanged.\n`;
-  if ((target || "").split("-")[0] === "fa") {
+  const fa = (target || "").split("-")[0] === "fa";
+  if (fa) {
     p +=
       `6. Persian: use natural spoken Persian for casual dialogue (e.g. «می‌کنی»، «بهت»، «بریم»), ` +
-      `Persian punctuation (؟ ،), and Latin digits. Avoid stiff/over-formal phrasing unless the speaker is formal.\n`;
+      `Persian punctuation (؟ ،), and Latin digits. Avoid stiff/over-formal phrasing unless the speaker is formal.\n` +
+      `7. Persian register details: informal verb endings for casual speech («می‌خوام» not «می‌خواهم»), ` +
+      `«تو» for friends/family and «شما» for strangers/formal scenes; keep the choice consistent per speaker pair. ` +
+      `Song lyrics stay lyrical and rhythmic, never literal. Exclamations map to natural Persian ones ` +
+      `(«وای»، «ای بابا»، «آخ»). Use ZWNJ correctly in compounds (می‌ + verb, ها plurals).\n`;
   }
   if (keepNames) {
     p += `\nIMPORTANT: Keep ALL proper nouns — people, places, companies, brands, and product/technical ` +
@@ -274,13 +287,28 @@ function systemPrompt(source, target, n, keepTerms, keepNames) {
   if (keepTerms && keepTerms.trim()) {
     p += `Also keep these exact terms unchanged: ${keepTerms.trim()}.\n`;
   }
-  p += `\nReturn STRICT JSON: {"t":[…],"s":[…],"g":[…],"d":[…]} — each array EXACTLY ${n} entries, in the same order as "lines". ` +
+  p += `\nReturn STRICT JSON: {"t":[…],"s":[…],"g":[…],"d":[…]} — each array has EXACTLY as many entries ` +
+    `as the "lines" array (the user message also carries that number as "count" — match it), in the same order as "lines". ` +
     `"t" = the translations. "s" = a speaker index per line, inferred from the dialogue: the first speaker is 1, ` +
     `each new speaker gets the next number, the same speaker always keeps the same number (use 1 when unsure or narration). ` +
     `"g" = that speaker's gender guess: "m", "f", or "?" when unclear. ` +
     `"d" = a CONDENSED spoken rendition of each translation for dubbing: same meaning and tone, but ≈one-third ` +
     `shorter — the words a dubbing actor would say to fit the original line's duration. Same language as "t". ` +
-    `When a line is already short, "d" may equal "t".`;
+    `When a line is already short, "d" may equal "t".\n`;
+  if (fa) {
+    p += `\nEXAMPLES (en → fa):\n` +
+      `user {"count":2,"lines":["You know what I mean?","[music]"]} → ` +
+      `{"t":["می‌دونی منظورم چیه؟","[music]"],"s":[1,1],"g":["m","m"],"d":["منظورم رو می‌گیری؟","[music]"]}\n` +
+      `user {"count":3,"lines":["Where were you last night?","I was at Sarah's place, I swear.","Don't lie to me!"]} → ` +
+      `{"t":["دیشب کجا بودی؟","به خدا خونه‌ی Sarah بودم.","به من دروغ نگو!"],"s":[1,2,1],"g":["m","f","m"],` +
+      `"d":["دیشب کجا بودی؟","خونه‌ی Sarah بودم.","دروغ نگو!"]}\n` +
+      `user {"count":2,"lines":["Night will become your morning.","All fears fall softly from my heart."]} → ` +
+      `{"t":["شب به صبحِ تو بدل می‌شه.","همه‌ی ترس‌ها آروم از دلم می‌رن."],"s":[1,1],"g":["f","f"],` +
+      `"d":["شب صبح تو می‌شه.","ترس‌ها از دلم می‌رن."]}`;
+  } else {
+    p += `\nEXAMPLE shape — user {"count":2,"lines":["You know what I mean?","[music]"]} → ` +
+      `{"t":["<the ${langName(target)} translation>","[music]"],"s":[1,1],"g":["m","m"],"d":["<shorter spoken ${langName(target)}>","[music]"]}`;
+  }
   return p;
 }
 
@@ -293,13 +321,13 @@ function retryAfterMs(res) {
 }
 
 async function translateChunk(lines, source, target, apiKey, context, keepTerms, keepNames) {
-  const userPayload = context && context.length ? { context, lines } : { lines };
+  const userPayload = context && context.length ? { count: lines.length, context, lines } : { count: lines.length, lines };
   const body = {
     model: TRANSLATE_MODEL,
     temperature: 0,
     response_format: { type: "json_schema", json_schema: TRANSLATE_SCHEMA },
     messages: [
-      { role: "system", content: systemPrompt(source, target, lines.length, keepTerms, keepNames) },
+      { role: "system", content: systemPrompt(source, target, keepTerms, keepNames) },
       { role: "user", content: JSON.stringify(userPayload) },
     ],
   };
@@ -346,11 +374,15 @@ async function translateChunk(lines, source, target, apiKey, context, keepTerms,
 // via output_config.format (verified shape, no beta header required — see
 // https://platform.claude.com/docs/en/build-with-claude/structured-outputs).
 async function translateChunkClaude(lines, source, target, apiKey, context, keepTerms, keepNames) {
-  const userPayload = context && context.length ? { context, lines } : { lines };
+  const userPayload = context && context.length ? { count: lines.length, context, lines } : { count: lines.length, lines };
   const body = {
     model: CLAUDE_MODEL,
     max_tokens: CLAUDE_MAX_TOKENS,
-    system: systemPrompt(source, target, lines.length, keepTerms, keepNames),
+    // cache_control: the system prompt is cache-stable (see systemPrompt) — on
+    // cache hits its tokens bill at ~10% instead of full price. Engages only
+    // once the prefix clears Anthropic's ~1024-token minimum (the Persian
+    // prompt with examples does; a shorter one is silently uncached, no harm).
+    system: [{ type: "text", text: systemPrompt(source, target, keepTerms, keepNames), cache_control: { type: "ephemeral" } }],
     messages: [{ role: "user", content: JSON.stringify(userPayload) }],
     output_config: { format: { type: "json_schema", schema: TRANSLATE_SCHEMA.schema } },
     // Structured translation is mechanical — thinking adds seconds per batch
@@ -385,7 +417,10 @@ async function translateChunkClaude(lines, source, target, apiKey, context, keep
         spk: Array.isArray(parsed.s) ? parsed.s : [],
         gen: Array.isArray(parsed.g) ? parsed.g : [],
         dub: Array.isArray(parsed.d) ? parsed.d : [],
-        usage: data.usage ? { prompt_tokens: data.usage.input_tokens || 0, completion_tokens: data.usage.output_tokens || 0 } : null,
+        // Anthropic's input_tokens EXCLUDES cached tokens — carry the cache
+        // read/write counts separately so cost accounting stays truthful.
+        usage: data.usage ? { prompt_tokens: data.usage.input_tokens || 0, completion_tokens: data.usage.output_tokens || 0,
+          cache_r: data.usage.cache_read_input_tokens || 0, cache_w: data.usage.cache_creation_input_tokens || 0 } : null,
       };
     }
     lastStatus = res.status; lastBody = txt;
@@ -412,7 +447,7 @@ async function translateAll(lines, source, target, context) {
   const model = provider === "claude" ? CLAUDE_MODEL : TRANSLATE_MODEL;
   const keepN = keepNames !== false; // default ON
   const out = new Array(lines.length), spk = new Array(lines.length), gen = new Array(lines.length), dub = new Array(lines.length);
-  let lastErr = null, failedBatches = 0, totalBatches = 0, inTok = 0, outTok = 0;
+  let lastErr = null, failedBatches = 0, totalBatches = 0, inTok = 0, outTok = 0, cacheR = 0, cacheW = 0;
   // A failing batch is retried at HALF SIZE (recursively, twice at most): a
   // max_tokens truncation fits after a split, and a rate-limited key gets
   // smaller requests. Halves lose the rolling context — pronouns may suffer on
@@ -436,6 +471,8 @@ async function translateAll(lines, source, target, context) {
         usage: {
           prompt_tokens: ((a.usage || {}).prompt_tokens || 0) + ((b.usage || {}).prompt_tokens || 0),
           completion_tokens: ((a.usage || {}).completion_tokens || 0) + ((b.usage || {}).completion_tokens || 0),
+          cache_r: ((a.usage || {}).cache_r || 0) + ((b.usage || {}).cache_r || 0),
+          cache_w: ((a.usage || {}).cache_w || 0) + ((b.usage || {}).cache_w || 0),
         },
       };
     }
@@ -446,7 +483,10 @@ async function translateAll(lines, source, target, context) {
     let r = null;
     try { r = await chunkSplit(chunk, context, 0); } // halves retry contextless — no extra outer round
     catch (e) { lastErr = e; r = null; }
-    if (r && r.usage) { inTok += r.usage.prompt_tokens || 0; outTok += r.usage.completion_tokens || 0; }
+    if (r && r.usage) {
+      inTok += r.usage.prompt_tokens || 0; outTok += r.usage.completion_tokens || 0;
+      cacheR += r.usage.cache_r || 0; cacheW += r.usage.cache_w || 0;
+    }
     const translated = r && r.lines;
     if (!translated) {
       failedBatches++;
@@ -464,7 +504,7 @@ async function translateAll(lines, source, target, context) {
   // If EVERY batch failed, surface the real reason instead of silently handing
   // back untranslated text (which used to look like "nothing happened").
   if (failedBatches === totalBatches && lastErr) throw new Error(lastErr.message);
-  return { out, spk, gen, dub, inTok, outTok, provider, model };
+  return { out, spk, gen, dub, inTok, outTok, cacheR, cacheW, provider, model };
 }
 
 // ─── TTS (dub speech) ────────────────────────────────────────────────────────
@@ -627,14 +667,34 @@ const ttsCooldownStreak = { openai: 0, gemini: 0 };
 // tab so the user can SEE exactly what was sent, how often, and what it costs.
 // Bounded ring buffer; nothing here ever leaves the device.
 const CALL_LOG_KEY = "callLog";
-const CALL_LOG_MAX = 300;
+// 2000, not 300: one heavy day of translating evicted the previous day's
+// Gemini/TTS rows, which read as "my Gemini activity disappeared". ~250 B/row
+// keeps even a full ring near 500 KB — far under the storage.local quota.
+const CALL_LOG_MAX = 2000;
+// Running spend per provider, independent of the ring buffer: eviction made
+// the Library's "all-time" read ~$1.20 while the provider console showed ~$14 —
+// a heavy day simply pushed most rows out. These totals only ever add.
+const SPEND_KEY = "spendTotals";
+const localDayKey = (ts) => {
+  const d = new Date(ts || Date.now());
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+};
 async function logCall(rec) {
   try {
-    const cur = (await chrome.storage.local.get(CALL_LOG_KEY))[CALL_LOG_KEY];
-    const arr = Array.isArray(cur) ? cur : [];
+    const cur = await chrome.storage.local.get([CALL_LOG_KEY, SPEND_KEY]);
+    const arr = Array.isArray(cur[CALL_LOG_KEY]) ? cur[CALL_LOG_KEY] : [];
     arr.push(rec);
     if (arr.length > CALL_LOG_MAX) arr.splice(0, arr.length - CALL_LOG_MAX);
-    await chrome.storage.local.set({ [CALL_LOG_KEY]: arr });
+    const totals = cur[SPEND_KEY] || {};
+    const p = rec.provider || "openai";
+    const t = totals[p] || (totals[p] = { all: 0, days: {} });
+    const usd = SV_PRICING.estCost(rec);
+    t.all += usd;
+    const day = localDayKey(rec.ts);
+    t.days[day] = (t.days[day] || 0) + usd;
+    const days = Object.keys(t.days).sort();
+    while (days.length > 90) delete t.days[days.shift()];
+    await chrome.storage.local.set({ [CALL_LOG_KEY]: arr, [SPEND_KEY]: totals });
   } catch {}
 }
 
@@ -681,7 +741,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           const meta = { ts: started, site: msg.site, title: msg.title, target: msg.target, lines: (msg.cues || []).length, base: msg.base };
           try {
             const r = await translateAll(msg.cues, msg.source, msg.target, msg.context);
-            await logCall({ ...meta, ms: Date.now() - started, inTok: r.inTok, outTok: r.outTok, ok: true, provider: r.provider, model: r.model });
+            await logCall({ ...meta, ms: Date.now() - started, inTok: r.inTok, outTok: r.outTok, cacheR: r.cacheR || 0, cacheW: r.cacheW || 0, ok: true, provider: r.provider, model: r.model });
             sendResponse({ lines: r.out, spk: r.spk, gen: r.gen, dub: r.dub });
           } catch (e) {
             const { translationProvider } = await chrome.storage.local.get("translationProvider");
@@ -765,9 +825,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse({ ok: true, repaired: n });
           break;
         }
-        case "LOG_LIST":
-          sendResponse({ calls: (await chrome.storage.local.get(CALL_LOG_KEY))[CALL_LOG_KEY] || [] });
+        case "LOG_LIST": {
+          const s = await chrome.storage.local.get([CALL_LOG_KEY, SPEND_KEY]);
+          sendResponse({ calls: s[CALL_LOG_KEY] || [], totals: s[SPEND_KEY] || {} });
           break;
+        }
         case "LOG_CLEAR":
           await chrome.storage.local.set({ [CALL_LOG_KEY]: [] });
           sendResponse({ ok: true });

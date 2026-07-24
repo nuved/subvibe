@@ -1,6 +1,6 @@
 // SubVibe — per-provider pricing constants + cost estimator (pure logic, node-testable).
-// Attached to globalThis so plain <script src> includes AND node:test share it.
-// Extension-page-only (Library/popup) — NOT loaded as a content script.
+// Attached to globalThis so plain <script src> includes, the worker's
+// importScripts, AND node:test all share it. NOT loaded as a content script.
 (function (g) {
   const PRICE_IN = 0.15 / 1e6, PRICE_OUT = 0.60 / 1e6; // gpt-4o-mini, USD per token
   // Claude Sonnet 4.6 — verified via WebFetch against
@@ -21,7 +21,13 @@
     }
     const isClaude = c && c.provider === "claude";
     const pin = isClaude ? CLAUDE_PRICE_IN : PRICE_IN, pout = isClaude ? CLAUDE_PRICE_OUT : PRICE_OUT;
-    return ((c && c.inTok) || 0) * pin + ((c && c.outTok) || 0) * pout;
+    let usd = ((c && c.inTok) || 0) * pin + ((c && c.outTok) || 0) * pout;
+    // Anthropic bills cached prompt reads at 10% and cache writes at 125% of the
+    // input price; those token counts arrive SEPARATE from input_tokens. (OpenAI
+    // folds cached tokens into prompt_tokens — its automatic 50% discount isn't
+    // modeled here, so OpenAI estimates read slightly high, never low.)
+    if (isClaude) usd += ((c && c.cacheR) || 0) * CLAUDE_PRICE_IN * 0.1 + ((c && c.cacheW) || 0) * CLAUDE_PRICE_IN * 1.25;
+    return usd;
   };
 
   g.SV_PRICING = {

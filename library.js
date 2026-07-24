@@ -112,6 +112,7 @@ function fmtWhen(iso) {
   return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 const fmtCost = (c) => (c >= 1 ? "$" + c.toFixed(2) : "$" + c.toFixed(4));
+const localDayKey = () => { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
 
 // ── rendering ───────────────────────────────────────────────────────────────────
 function flag(target) {
@@ -181,6 +182,18 @@ function card(g) {
   when.className = "when";
   when.textContent = fmtWhen(g.createdAt);
   foot.appendChild(when);
+  const act = document.createElement("button");
+  act.className = "mini";
+  act.textContent = "Activity";
+  act.title = "This video's API calls, tokens and cost";
+  act.onclick = () => {
+    actBase = g.base; actBaseTitle = g.title;
+    el("actFilter").value = ""; actQuery = "";
+    actMode = "clip"; // the point of the jump is this video's summary — always land grouped
+    el("actByClip").classList.add("on"); el("actAll").classList.remove("on");
+    setView("activity");
+  };
+  foot.appendChild(act);
   if (g.url) {
     const open = document.createElement("button");
     open.className = "mini open";
@@ -382,6 +395,7 @@ async function refresh() {
   }
   const res = await chrome.runtime.sendMessage({ type: "CACHE_LIST" }).catch(() => null);
   allGroups = groupTracks((res && res.tracks) || []);
+  titleByBase = new Map(allGroups.map((g) => [g.base, g.title])); // names Activity rows whose call lacked a title (streaming path, legacy)
   await loadLogAgg();
   const n = allGroups.length;
   el("note").textContent = n
@@ -411,7 +425,17 @@ el("clearAll").addEventListener("click", async () => {
 // with the popup's spend line so both compute identical totals from one source.
 const estCost = window.SV_PRICING.estCost;
 let actQuery = "";
+let actMode = "clip";     // "clip" (grouped per video) | "flat" (every call, scroll-loaded)
+let actBase = null, actBaseTitle = ""; // set by a card's Activity button — shows one video only
+let actObserver = null;   // flat mode's scroll autoloader
+let titleByBase = new Map();
 const providerLabel = (p) => (p === "claude" ? "Claude" : p === "gemini" ? "Gemini" : "OpenAI");
+// Best available name for a call row: its own title, else the cached video's
+// title via base (streaming-path rows carry no title), else site, else base.
+function rowName(c) {
+  return window.SV_TITLE.clean(c.title || "") || (c.base && titleByBase.get(c.base)) ||
+    (c.site ? siteMeta(c.site).label : "") || (c.base ? prettyBase(c.base) : "") || "—";
+}
 function fmtTime(ts) {
   if (!ts) return "—";
   const d = new Date(ts), now = new Date();
@@ -429,10 +453,13 @@ async function loadActivity() {
   const res = await chrome.runtime.sendMessage({ type: "LOG_LIST" }).catch(() => null);
   const calls = (res && res.calls) || [];
   const q = actQuery;
-  const shown = !q ? calls : calls.filter((c) =>
-    ((c.title || "") + " " + (c.site || "") + " " + (c.target || "") + " " + providerLabel(c.provider)).toLowerCase().includes(q) ||
+  let shown = !actBase ? calls : calls.filter((c) => c.base === actBase || (!c.base && rowName(c) === actBaseTitle));
+  if (q) shown = shown.filter((c) =>
+    (rowName(c) + " " + (c.site || "") + " " + (c.target || "") + " " + providerLabel(c.provider)).toLowerCase().includes(q) ||
     (langMeta(c.target || "")[1] || "").toLowerCase().includes(q));
-  let inTok = 0, outTok = 0, ms = 0, ok = 0, fail = 0, lines = 0;
+  el("actChip").classList.toggle("on", !!actBase);
+  if (actBase) el("actChipTitle").textContent = actBaseTitle || prettyBase(actBase);
+  let inTok = 0, outTok = 0, ms = 0, ok = 0, fail = 0, lines = 0, ttsMs = 0;
   // costByProvider tracks all-time/today split per provider so the stat cards can
   // show one "Est. cost" card normally, or several (OpenAI / Claude / Gemini)
   // once a user has called more than one — most people will only ever see one
@@ -444,6 +471,7 @@ async function loadActivity() {
   const startToday = new Date(); startToday.setHours(0, 0, 0, 0); const t0 = startToday.getTime();
   for (const c of shown) {
     inTok += c.inTok || 0; outTok += c.outTok || 0; ms += c.ms || 0; lines += c.lines || 0;
+    if (c.kind === "tts") ttsMs += c.durMs || 0;
     if (c.ok) ok++; else fail++;
     const p = costByProvider[c.provider] ? c.provider : "openai";
     const cost = estCost(c);
@@ -458,37 +486,140 @@ async function loadActivity() {
   stats.appendChild(statCard("Calls", String(shown.length), fail ? `· ${fail} failed` : ""));
   if (q) stats.appendChild(statCard("Filtered", shown.length + "/" + calls.length + " calls"));
   stats.appendChild(statCard("Lines translated", lines.toLocaleString()));
-  stats.appendChild(statCard("Tokens (in · out)", inTok.toLocaleString() + " · " + outTok.toLocaleString()));
-  if (bothPresent) {
+  if (ttsMs) stats.appendChild(statCard("Dub audio spoken", Math.round(ttsMs / 60000) + " min"));
+  stats.appendChild(statCard("Tokens (in · out)", inTok.toLocaleString() + " · " + outTok.toLocaleString(), "logged calls only"));
+  // Cost cards: the ring buffer forgets old rows, so summing visible rows once
+  // read "$1.20 all-time" while the provider console said ~$14. The worker now
+  // keeps RUNNING totals per provider (spendTotals) — use those for the
+  // unfiltered view; a filtered view honestly sums just the rows it shows.
+  const totals = (res && res.totals) || null;
+  const filteredView = !!q || !!actBase;
+  const totProvs = totals ? Object.keys(totals).filter((p) => totals[p] && totals[p].all > 0) : [];
+  if (!filteredView && totProvs.length) {
+    const dk = localDayKey();
+    if (totProvs.length > 1) {
+      for (const p of totProvs) {
+        stats.appendChild(statCard(`Est. cost · ${providerLabel(p)}`, "~" + fmtCost(totals[p].all), "all-time", "cost"));
+        stats.appendChild(statCard(`Est. cost · ${providerLabel(p)} today`, "~" + fmtCost((totals[p].days || {})[dk] || 0), "", "cost"));
+      }
+    } else {
+      const p = totProvs[0];
+      stats.appendChild(statCard("Est. cost · all-time", "~" + fmtCost(totals[p].all), providerLabel(p), "cost"));
+      stats.appendChild(statCard("Est. cost · today", "~" + fmtCost((totals[p].days || {})[dk] || 0), "", "cost"));
+    }
+  } else if (bothPresent) {
     for (const p of providersUsed) {
-      stats.appendChild(statCard(`Est. cost · ${providerLabel(p)}`, "~" + fmtCost(costByProvider[p].all), "all-time", "cost"));
+      stats.appendChild(statCard(`Est. cost · ${providerLabel(p)}`, "~" + fmtCost(costByProvider[p].all), filteredView ? "shown calls" : "logged calls", "cost"));
       stats.appendChild(statCard(`Est. cost · ${providerLabel(p)} today`, "~" + fmtCost(costByProvider[p].today), "", "cost"));
     }
   } else {
     const costAll = costByProvider.openai.all + costByProvider.claude.all + costByProvider.gemini.all;
     const costToday = costByProvider.openai.today + costByProvider.claude.today + costByProvider.gemini.today;
-    stats.appendChild(statCard("Est. cost · all-time", "~" + fmtCost(costAll), "", "cost"));
+    stats.appendChild(statCard("Est. cost", "~" + fmtCost(costAll), filteredView ? "shown calls" : "logged calls", "cost"));
     stats.appendChild(statCard("Est. cost · today", "~" + fmtCost(costToday), "", "cost"));
   }
   stats.appendChild(statCard("Avg response", avgMs + " ms"));
 
-  const list = el("actList"); list.innerHTML = "";
-  for (const c of shown.slice().reverse().slice(0, 200)) {
+  // One call = one row. In "By video" mode rows live inside a collapsible group
+  // per clip (rows are built lazily on first expand); "All calls" renders a flat
+  // list that autoloads more as you scroll — the whole ring buffer is reachable.
+  function rowEl(c) {
+    const frag = document.createDocumentFragment();
     const row = document.createElement("div"); row.className = "callrow";
-    row.title = "≈ " + fmtCost(estCost(c)) + (c.err ? " · " + c.err : "");
     const t = document.createElement("span"); t.className = "ct"; t.textContent = fmtTime(c.ts);
     const s = document.createElement("span"); s.className = "cs";
-    s.textContent = (window.SV_TITLE.clean(c.title || "") || (c.site ? siteMeta(c.site).label : "—")) + (c.target ? " → " + langMeta(c.target)[1] : "");
+    s.textContent = rowName(c) + (c.target ? " → " + langMeta(c.target)[1] : "");
     s.title = s.textContent;
     const pv = document.createElement("span"); pv.className = "cprov"; pv.textContent = providerLabel(c.provider);
     const ln = document.createElement("span"); ln.textContent = c.kind === "tts" ? "🎙 " + Math.round((c.durMs || 0) / 1000) + "s" : (c.lines || 0) + " ln";
-    const tk = document.createElement("span"); tk.className = "ctok"; tk.textContent = (c.inTok || 0) + "→" + (c.outTok || 0);
+    const tk = document.createElement("span"); tk.className = "ctok";
+    tk.textContent = c.kind === "tts" ? (c.chars || 0) + " ch" : (c.inTok || 0) + "→" + (c.outTok || 0);
     const mv = document.createElement("span"); mv.className = "cms"; mv.textContent = (c.ms || 0) + "ms";
+    const cost = document.createElement("span"); cost.className = "ccost"; cost.textContent = "~" + fmtCost(estCost(c));
     const st = document.createElement("span"); st.className = "cok " + (c.ok ? "ok" : "err"); st.textContent = c.ok ? "✓" : "✗";
-    [t, s, pv, ln, tk, mv, st].forEach((e) => row.appendChild(e));
-    list.appendChild(row);
+    [t, s, pv, ln, tk, mv, cost, st].forEach((e) => row.appendChild(e));
+    frag.appendChild(row);
+    if (!c.ok && c.err) { const e = document.createElement("div"); e.className = "cerrline"; e.textContent = c.err; frag.appendChild(e); }
+    return frag;
+  }
+  function headEl() {
+    const h = document.createElement("div"); h.className = "callhead";
+    const cols = [["Time"], ["Video → language"], ["Engine"], ["Work"], ["Tokens in→out", "ctok"], ["Took", "cms"], ["~Cost", "ccost"], [""]];
+    for (const [label, cls] of cols) { const s = document.createElement("span"); if (cls) s.className = cls; s.textContent = label; h.appendChild(s); }
+    return h;
+  }
+
+  const list = el("actList"); list.innerHTML = "";
+  if (actObserver) { actObserver.disconnect(); actObserver = null; }
+  const newestFirst = shown.slice().reverse();
+
+  if (actMode === "clip") {
+    // key by base; legacy/title-only rows join the base group with the same name
+    const nameKey = new Map();
+    for (const c of newestFirst) if (c.base && !nameKey.has(rowName(c))) nameKey.set(rowName(c), c.base);
+    const groups = new Map();
+    for (const c of newestFirst) {
+      const nm = rowName(c);
+      const key = c.base || nameKey.get(nm) || ("t:" + nm);
+      let g = groups.get(key);
+      if (!g) { g = { name: nm, rows: [], lines: 0, ttsMs: 0, cost: 0, fails: 0, last: 0 }; groups.set(key, g); }
+      if (g.name === "—" && nm !== "—") g.name = nm;
+      g.rows.push(c); g.lines += c.lines || 0; if (c.kind === "tts") g.ttsMs += c.durMs || 0;
+      g.cost += estCost(c); if (!c.ok) g.fails++; g.last = Math.max(g.last, c.ts || 0);
+    }
+    const ordered = [...groups.values()].sort((a, b) => b.last - a.last);
+    for (const g of ordered) {
+      const det = document.createElement("details"); det.className = "cgroup";
+      const sum = document.createElement("summary");
+      const gt = document.createElement("span"); gt.className = "gt"; gt.textContent = g.name; gt.title = g.name;
+      sum.appendChild(gt);
+      const add = (txt, cls) => { const s = document.createElement("span"); s.className = "gs" + (cls ? " " + cls : ""); s.textContent = txt; sum.appendChild(s); };
+      add(g.rows.length + " call" + (g.rows.length === 1 ? "" : "s"));
+      if (g.lines) add(g.lines + " ln");
+      if (g.ttsMs) add("🎙 " + Math.round(g.ttsMs / 1000) + "s");
+      if (g.fails) add(g.fails + " failed", "gfail");
+      add("~" + fmtCost(g.cost), "gcost");
+      add(fmtTime(g.last));
+      const body = document.createElement("div"); body.className = "gbody";
+      let filled = false;
+      det.addEventListener("toggle", () => {
+        if (!det.open || filled) return;
+        filled = true;
+        body.appendChild(headEl());
+        for (const c of g.rows) body.appendChild(rowEl(c));
+      });
+      det.appendChild(sum); det.appendChild(body);
+      list.appendChild(det);
+    }
+    if (ordered.length === 1) { const d = list.querySelector("details"); if (d) d.open = true; }
+    el("actListTitle").textContent = `Calls · ${ordered.length} video${ordered.length === 1 ? "" : "s"} · ${shown.length} call${shown.length === 1 ? "" : "s"}`;
+  } else {
+    list.appendChild(headEl());
+    let rendered = 0;
+    const STEP = 150;
+    const renderMore = () => {
+      const slice = newestFirst.slice(rendered, rendered + STEP);
+      for (const c of slice) list.appendChild(rowEl(c));
+      rendered += slice.length;
+      el("actListTitle").textContent = rendered < newestFirst.length
+        ? `Calls · showing ${rendered} of ${newestFirst.length} — scroll for more`
+        : `Calls · all ${newestFirst.length}`;
+      if (rendered >= newestFirst.length && actObserver) { actObserver.disconnect(); actObserver = null; }
+    };
+    renderMore();
+    if (rendered < newestFirst.length) {
+      actObserver = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) renderMore(); });
+      actObserver.observe(el("actMore"));
+    }
   }
 }
+el("actByClip").addEventListener("click", () => {
+  actMode = "clip"; el("actByClip").classList.add("on"); el("actAll").classList.remove("on"); loadActivity();
+});
+el("actAll").addEventListener("click", () => {
+  actMode = "flat"; el("actAll").classList.add("on"); el("actByClip").classList.remove("on"); loadActivity();
+});
+el("actChipClear").addEventListener("click", () => { actBase = null; actBaseTitle = ""; loadActivity(); });
 el("actFilter").addEventListener("input", () => { actQuery = el("actFilter").value.trim().toLowerCase(); loadActivity(); });
 el("clearLog").addEventListener("click", async () => {
   if (!confirm("Clear the API activity log? (This does not affect cached subtitles.)")) return;
