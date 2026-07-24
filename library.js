@@ -445,15 +445,25 @@ const PRICE_IN = 0.15 / 1e6, PRICE_OUT = 0.60 / 1e6; // gpt-4o-mini, USD per tok
 // https://platform.claude.com/docs/en/about-claude/pricing (checked 2026-07-23):
 // $3 / MTok input, $15 / MTok output.
 const CLAUDE_PRICE_IN = 3 / 1e6, CLAUDE_PRICE_OUT = 15 / 1e6;
+// gemini-2.5-flash-preview-tts — verified via WebFetch/curl against
+// https://ai.google.dev/gemini-api/docs/pricing (checked 2026-07-24, Standard
+// tier): $10.00 / 1M output (audio) tokens, 25 audio tokens/sec →
+// (25*60/1e6)*10.00 = $0.015/min, same shape as SV_VOICES.dubEstimateUSDGemini
+// in shared/voices.js (kept in sync there; duplicated here since library.js
+// doesn't load shared/voices.js).
+const GEMINI_TTS_USD_PER_MIN = 0.015;
 let actQuery = "";
 const estCost = (c) => {
-  if (c && c.kind === "tts") return ((c.durMs || 0) / 60000) * 0.015;
+  if (c && c.kind === "tts") {
+    const perMin = c.provider === "gemini" ? GEMINI_TTS_USD_PER_MIN : 0.015; // gpt-4o-mini-tts ≈ $0.015/min too
+    return ((c.durMs || 0) / 60000) * perMin;
+  }
   const isClaude = c && c.provider === "claude";
   const pin = isClaude ? CLAUDE_PRICE_IN : PRICE_IN, pout = isClaude ? CLAUDE_PRICE_OUT : PRICE_OUT;
   return ((c && c.inTok) || 0) * pin + ((c && c.outTok) || 0) * pout;
 };
 const fmtCost = (c) => (c >= 1 ? "$" + c.toFixed(2) : "$" + c.toFixed(4));
-const providerLabel = (p) => (p === "claude" ? "Claude" : "OpenAI");
+const providerLabel = (p) => (p === "claude" ? "Claude" : p === "gemini" ? "Gemini" : "OpenAI");
 function fmtTime(ts) {
   if (!ts) return "—";
   const d = new Date(ts), now = new Date();
@@ -476,14 +486,18 @@ async function loadActivity() {
     (langMeta(c.target || "")[1] || "").toLowerCase().includes(q));
   let inTok = 0, outTok = 0, ms = 0, ok = 0, fail = 0, lines = 0;
   // costByProvider tracks all-time/today split per provider so the stat cards can
-  // show one "Est. cost" card normally, or two ("OpenAI" / "Claude") once a user
-  // has called both providers — most people will only ever see one card.
-  const costByProvider = { openai: { all: 0, today: 0 }, claude: { all: 0, today: 0 } };
+  // show one "Est. cost" card normally, or several (OpenAI / Claude / Gemini)
+  // once a user has called more than one — most people will only ever see one
+  // card. Translation providers (openai/claude) and the TTS provider
+  // (openai/gemini) are independent axes — e.g. Claude translation + Gemini
+  // dub both log here, each under their own key, and OpenAI is shared as the
+  // default for BOTH axes so it nets out correctly either way.
+  const costByProvider = { openai: { all: 0, today: 0 }, claude: { all: 0, today: 0 }, gemini: { all: 0, today: 0 } };
   const startToday = new Date(); startToday.setHours(0, 0, 0, 0); const t0 = startToday.getTime();
   for (const c of shown) {
     inTok += c.inTok || 0; outTok += c.outTok || 0; ms += c.ms || 0; lines += c.lines || 0;
     if (c.ok) ok++; else fail++;
-    const p = c.provider === "claude" ? "claude" : "openai";
+    const p = costByProvider[c.provider] ? c.provider : "openai";
     const cost = estCost(c);
     costByProvider[p].all += cost;
     if ((c.ts || 0) >= t0) costByProvider[p].today += cost;
@@ -498,13 +512,13 @@ async function loadActivity() {
   stats.appendChild(statCard("Lines translated", lines.toLocaleString()));
   stats.appendChild(statCard("Tokens (in · out)", inTok.toLocaleString() + " · " + outTok.toLocaleString()));
   if (bothPresent) {
-    for (const p of ["openai", "claude"]) {
+    for (const p of providersUsed) {
       stats.appendChild(statCard(`Est. cost · ${providerLabel(p)}`, "~" + fmtCost(costByProvider[p].all), "all-time", "cost"));
       stats.appendChild(statCard(`Est. cost · ${providerLabel(p)} today`, "~" + fmtCost(costByProvider[p].today), "", "cost"));
     }
   } else {
-    const costAll = costByProvider.openai.all + costByProvider.claude.all;
-    const costToday = costByProvider.openai.today + costByProvider.claude.today;
+    const costAll = costByProvider.openai.all + costByProvider.claude.all + costByProvider.gemini.all;
+    const costToday = costByProvider.openai.today + costByProvider.claude.today + costByProvider.gemini.today;
     stats.appendChild(statCard("Est. cost · all-time", "~" + fmtCost(costAll), "", "cost"));
     stats.appendChild(statCard("Est. cost · today", "~" + fmtCost(costToday), "", "cost"));
   }

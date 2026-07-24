@@ -7,7 +7,7 @@
 const FA_FLAG = window.SV_FA_FLAG;
 const LANGS = window.SV_LANGS;
 
-const DEFAULTS = { enabled: true, targets: ["en"], showOriginal: true, hideNative: true, apiKey: "", translationProvider: "openai", anthropicKey: "", keepNames: true, keepTerms: "", position: "bottom", size: "md", stylePreset: "classic", styleCustom: {}, syncOffset: 0, dubEnabled: false, dubVoice: "marin", dubMultiVoice: false, dubDuckLevel: 0.12, dubPace: 1 };
+const DEFAULTS = { enabled: true, targets: ["en"], showOriginal: true, hideNative: true, apiKey: "", translationProvider: "openai", anthropicKey: "", keepNames: true, keepTerms: "", position: "bottom", size: "md", stylePreset: "classic", styleCustom: {}, syncOffset: 0, dubEnabled: false, ttsProvider: "openai", geminiKey: "", dubVoice: "marin", dubGeminiVoice: "Kore", dubMultiVoice: false, dubDuckLevel: 0.12, dubPace: 1 };
 const el = (id) => document.getElementById(id);
 const fmtSync = (v) => (v > 0 ? "+" : "") + v.toFixed(2) + "s";
 const langMeta = (code) => LANGS.find((l) => l[0] === code) || [code, code.toUpperCase(), "🏳️"];
@@ -138,6 +138,44 @@ el("translationProvider").addEventListener("change", () => {
   updateProviderUI();
 });
 
+// ── Gemini API key (TTS/dub provider) ────────────────────────────────────────
+function setGeminiKeyStatus(text, cls) { const s = el("geminiKeyStatus"); s.textContent = text; s.className = cls || ""; }
+function geminiKeyHint() {
+  if (!el("geminiKey").value.trim()) setGeminiKeyStatus("Paste your key above to start — it's stored only on this device.", "warn");
+  else setGeminiKeyStatus("Stored only on this device. Used only for text-to-speech (dub), never for translation.", "");
+}
+let geminiKeyT;
+el("geminiKey").addEventListener("input", () => {
+  clearTimeout(geminiKeyT); geminiKeyHint();
+  geminiKeyT = setTimeout(() => persist({ geminiKey: el("geminiKey").value.trim() }), 400);
+});
+el("verifyGemini").addEventListener("click", async () => {
+  const key = el("geminiKey").value.trim();
+  if (!key) return setGeminiKeyStatus("Paste your key first.", "warn");
+  setGeminiKeyStatus("Checking…", "");
+  const r = await chrome.runtime.sendMessage({ type: "VERIFY_GEMINI", apiKey: key }).catch(() => null);
+  if (r && r.ok) setGeminiKeyStatus("Key works ✓ — you're all set.", "ok");
+  else setGeminiKeyStatus("Key rejected" + (r && r.status ? " (HTTP " + r.status + ")" : "") + " — check it and try again.", "err");
+});
+
+// ── TTS engine select (dub voice provider) ───────────────────────────────────
+function updateTtsProviderUI() {
+  const isGemini = el("ttsProvider").value === "gemini";
+  el("geminiKeyRow").hidden = !isGemini;
+  el("dubVoice").hidden = isGemini;
+  el("dubGeminiVoice").hidden = !isGemini;
+  // Multi-voice is OpenAI-only in v1 — disable (not hide) under Gemini so the
+  // control stays visible/discoverable, with a hint explaining why it's off.
+  const multi = el("dubMultiVoice");
+  multi.disabled = isGemini;
+  multi.title = isGemini ? "OpenAI voices only for now" : "";
+  el("dubMultiVoiceRow").title = isGemini ? "OpenAI voices only for now" : "";
+}
+el("ttsProvider").addEventListener("change", () => {
+  persist({ ttsProvider: el("ttsProvider").value });
+  updateTtsProviderUI();
+});
+
 // ── simple toggles / selects (live) ──────────────────────────────────────────
 el("enabled").addEventListener("change", () => persist({ enabled: el("enabled").checked }));
 el("showOriginal").addEventListener("change", () => saveSetting({ showOriginal: el("showOriginal").checked }));
@@ -174,9 +212,18 @@ function buildVoiceSelect() {
     o.textContent = label;
     sel.appendChild(o);
   }
+  const gsel = el("dubGeminiVoice");
+  gsel.innerHTML = "";
+  for (const [id, label] of window.SV_VOICES.GEMINI_VOICE_LABELS) {
+    const o = document.createElement("option");
+    o.value = id;
+    o.textContent = label;
+    gsel.appendChild(o);
+  }
 }
 el("dubEnabled").addEventListener("change", () => { state.dubEnabled = el("dubEnabled").checked; persist({ dubEnabled: state.dubEnabled }); });
 el("dubVoice").addEventListener("change", () => persist({ dubVoice: el("dubVoice").value }));
+el("dubGeminiVoice").addEventListener("change", () => persist({ dubGeminiVoice: el("dubGeminiVoice").value }));
 el("dubMultiVoice").addEventListener("change", () => persist({ dubMultiVoice: el("dubMultiVoice").checked }));
 let duckT;
 el("dubDuck").addEventListener("input", () => {
@@ -464,8 +511,13 @@ async function load() {
   el("syncVal").textContent = fmtSync(state.syncOffset || 0);
   setSizeUI(state.size || "md");
   el("dubEnabled").checked = !!state.dubEnabled;
+  el("ttsProvider").value = state.ttsProvider === "gemini" ? "gemini" : "openai";
+  el("geminiKey").value = state.geminiKey || "";
+  updateTtsProviderUI();
+  geminiKeyHint();
   buildVoiceSelect();
   el("dubVoice").value = state.dubVoice || "marin";
+  el("dubGeminiVoice").value = state.dubGeminiVoice || "Kore";
   el("dubMultiVoice").checked = !!state.dubMultiVoice;
   el("dubDuck").value = Math.round((typeof state.dubDuckLevel === "number" ? state.dubDuckLevel : 0.12) * 100);
   el("dubDuckVal").textContent = el("dubDuck").value + "%";

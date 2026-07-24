@@ -19,6 +19,7 @@
   "host_permissions": [
     "https://api.openai.com/*",
     "https://api.anthropic.com/*",
+    "https://generativelanguage.googleapis.com/*",
     "https://*.youtube.com/*",
     "https://*.netflix.com/*",
     "https://*.dw.com/*",

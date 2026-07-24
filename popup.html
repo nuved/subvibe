@@ -47,10 +47,10 @@
     .btn:hover { background: var(--accent2); }
     .btn.ghost { background: var(--panel2); color: #cdd6e3; border: 1px solid var(--border); }
     .btn.ghost:hover { background: #1b2330; }
-    #keyStatus, #anthropicKeyStatus { font-size: 11px; margin-top: 6px; min-height: 14px; color: var(--muted); }
-    #keyStatus.ok, #anthropicKeyStatus.ok { color: var(--green); }
-    #keyStatus.err, #anthropicKeyStatus.err { color: var(--red); }
-    #keyStatus.warn, #anthropicKeyStatus.warn { color: var(--amber); }
+    #keyStatus, #anthropicKeyStatus, #geminiKeyStatus { font-size: 11px; margin-top: 6px; min-height: 14px; color: var(--muted); }
+    #keyStatus.ok, #anthropicKeyStatus.ok, #geminiKeyStatus.ok { color: var(--green); }
+    #keyStatus.err, #anthropicKeyStatus.err, #geminiKeyStatus.err { color: var(--red); }
+    #keyStatus.warn, #anthropicKeyStatus.warn, #geminiKeyStatus.warn { color: var(--amber); }
 
     /* language chips + autocomplete */
     .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
@@ -232,11 +232,24 @@
       <label class="switch"><input type="checkbox" id="dubEnabled" /><span class="slider"></span></label>
       <label for="dubEnabled">Dub subtitles aloud</label>
     </div>
+    <select id="ttsProvider" style="margin-top:9px;">
+      <option value="openai">OpenAI gpt-4o-mini-tts</option>
+      <option value="gemini">Gemini 2.5 Flash TTS (native Persian voices)</option>
+    </select>
+    <div id="geminiKeyRow" hidden style="margin-top:9px;">
+      <div class="lbl">Gemini API key <a id="getGeminiKey" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Get a key →</a></div>
+      <div class="keyrow">
+        <input type="password" id="geminiKey" placeholder="AIza…" autocomplete="off" spellcheck="false" />
+        <button class="btn ghost" id="verifyGemini">Verify</button>
+      </div>
+      <div id="geminiKeyStatus">Stored only on this device. Used only for text-to-speech (dub), never for translation.</div>
+    </div>
     <div class="row">
       <span style="min-width:58px; color:var(--muted);">Voice</span>
       <select id="dubVoice" style="flex:1;"></select>
+      <select id="dubGeminiVoice" style="flex:1;" hidden></select>
     </div>
-    <div class="row">
+    <div class="row" id="dubMultiVoiceRow">
       <label class="switch"><input type="checkbox" id="dubMultiVoice" /><span class="slider"></span></label>
       <label for="dubMultiVoice">Multi-voice <span class="hint">(beta — a voice per speaker)</span></label>
     </div>

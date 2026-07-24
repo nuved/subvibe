@@ -42,3 +42,12 @@ test("instructions are constant per language (prosodic continuity)", () => {
 test("estimate: 20 minutes of speech ≈ $0.30", () => {
   assert.ok(Math.abs(V.dubEstimateUSD(20 * 60000) - 0.30) < 1e-9);
 });
+
+test("Gemini voice list is populated with a valid default", () => {
+  assert.ok(Array.isArray(V.GEMINI_VOICE_LABELS) && V.GEMINI_VOICE_LABELS.length >= 8);
+  assert.ok(V.GEMINI_VOICE_LABELS.some(([id]) => id === V.GEMINI_DEFAULT_VOICE));
+});
+
+test("Gemini estimate: 20 minutes of speech ≈ $0.30 (25 tok/s * $10/1M output)", () => {
+  assert.ok(Math.abs(V.dubEstimateUSDGemini(20 * 60000) - 0.30) < 1e-9);
+});

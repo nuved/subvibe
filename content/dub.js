@@ -7,7 +7,7 @@
 
   let hooks = null;          // from common.js attach(): { base, target, getVideo, playhead, live, cues, site, persist }
   let dubOn = false;
-  let conf = { voice: "marin", multi: false, duck: 0.12, pace: 1 };
+  let conf = { voice: "marin", geminiVoice: "Kore", provider: "openai", multi: false, duck: 0.12, pace: 1 };
   let ctx = null, master = null;
   let buffers = new Map();   // run startMs → decoded AudioBuffer (playback window only)
   let pending = new Set();   // run startMs with a speech request in flight
@@ -41,6 +41,7 @@
   let dubctlEl = null;
 
   const V = () => globalThis.SV_VOICES;
+  const estUSD = (ms) => conf.provider === "gemini" ? V().dubEstimateUSDGemini(ms) : V().dubEstimateUSD(ms);
   const gStart = (g) => g.cues[0].startMs;
   const gEnd = (g) => { const last = g.cues[g.cues.length - 1]; return last.endMs || last.startMs + 2500; };
   const gSpanMs = (g) => Math.max(600, gEnd(g) - gStart(g)); // one group's own span (status/coverage UI only)
@@ -49,7 +50,14 @@
   // with their track via the existing prefix delete/evict, no migration needed.
   // Bumped from -v3 for the persona-anchor instructions + 20s run geometry
   // (Task 21): the old-regime clips must not mix in with the new ones.
-  const vcfg = () => (conf.multi ? "mv" : "sv") + "-" + conf.voice + "-v4";
+  // Gemini adds its own provider segment (e.g. "sv-gem-Kore-v4") so switching
+  // ttsProvider never replays/mixes the other provider's cached clips — Gemini
+  // is always single-voice (multi-voice stays OpenAI-only in v1), so its tag
+  // is unconditionally "sv".
+  const curVoice = () => (conf.provider === "gemini" ? conf.geminiVoice : conf.voice);
+  const vcfg = () => (conf.provider === "gemini"
+    ? "sv-gem-" + conf.geminiVoice + "-v4"
+    : (conf.multi ? "mv" : "sv") + "-" + conf.voice + "-v4");
   const audioKey = (run) => `${hooks.base}:dub:${vcfg()}#${run.start}`;
   const spanMs = (run) => Math.max(600, run.end - run.start);
   // Video-time silence between upcoming runs in [from, from+windowMs] —
@@ -77,7 +85,12 @@
     let cur = null;
     for (const g of elig) {
       if (covered.has(gStart(g))) { cur = null; continue; } // never regroup an existing run
-      const v = V().voiceForSpeaker(g.spk, conf.voice, conf.multi);
+      // Gemini v1 is single-voice only: voiceForSpeaker is called with
+      // multi=false so it always returns curVoice() regardless of g.spk —
+      // OpenAI's per-speaker palette logic is untouched for the "openai" path.
+      const v = conf.provider === "gemini"
+        ? curVoice()
+        : V().voiceForSpeaker(g.spk, conf.voice, conf.multi);
       const canJoin = cur && cur.voice === v && gStart(g) - cur.end < 1400 && (gEnd(g) - cur.start) <= 20000;
       if (canJoin) {
         cur.end = gEnd(g); cur.text += " " + (g.d || g.t[hooks.target]); cur.groups.push(g);
@@ -345,7 +358,7 @@
       const keys = (r && r.keys) || [];
       cachedMs = keys.reduce((a, k) => a + (k.ms || 0), 0);
       lastPct = totalMs ? Math.min(1, cachedMs / totalMs) : 0;
-      lastRemainUSD = V().dubEstimateUSD(Math.max(0, totalMs - cachedMs));
+      lastRemainUSD = estUSD(Math.max(0, totalMs - cachedMs));
     } catch (e) {
       console.warn("[SubVibe dub] refreshCoverage:", e && e.message);
       // Leave last known-good lastPct/lastRemainUSD in place rather than
@@ -541,7 +554,7 @@
       attached: true, enabled: dubOn, live,
       groups: groups.length, totalMs, cachedMs,
       cachedPct: totalMs ? Math.min(1, cachedMs / totalMs) : 0,
-      estRemainingUSD: V().dubEstimateUSD(Math.max(0, totalMs - cachedMs)),
+      estRemainingUSD: estUSD(Math.max(0, totalMs - cachedMs)),
       generating: genAll ? { phase: genAll.phase, total: genAll.total, done: genAll.done } : null,
       lastError: genErr,
       nowText,
@@ -609,8 +622,10 @@
   function cancelGenerate() { if (genAll) genAll.cancelled = true; }
 
   // ── settings + messages ─────────────────────────────────────────────────
-  chrome.storage.local.get(["dubEnabled", "dubVoice", "dubMultiVoice", "dubDuckLevel", "dubPace"]).then((s) => {
+  chrome.storage.local.get(["dubEnabled", "dubVoice", "dubGeminiVoice", "ttsProvider", "dubMultiVoice", "dubDuckLevel", "dubPace"]).then((s) => {
     conf.voice = s.dubVoice || conf.voice;
+    conf.geminiVoice = s.dubGeminiVoice || conf.geminiVoice;
+    conf.provider = s.ttsProvider === "gemini" ? "gemini" : "openai";
     conf.multi = !!s.dubMultiVoice;
     if (typeof s.dubDuckLevel === "number") conf.duck = s.dubDuckLevel;
     if (typeof s.dubPace === "number") conf.pace = s.dubPace;
@@ -619,8 +634,10 @@
 
   chrome.storage.onChanged.addListener((ch, area) => {
     if (area !== "local") return;
-    if (ch.dubVoice || ch.dubMultiVoice) {
+    if (ch.dubVoice || ch.dubGeminiVoice || ch.ttsProvider || ch.dubMultiVoice) {
       if (ch.dubVoice) conf.voice = ch.dubVoice.newValue || "marin";
+      if (ch.dubGeminiVoice) conf.geminiVoice = ch.dubGeminiVoice.newValue || "Kore";
+      if (ch.ttsProvider) conf.provider = ch.ttsProvider.newValue === "gemini" ? "gemini" : "openai";
       if (ch.dubMultiVoice) conf.multi = !!ch.dubMultiVoice.newValue;
       buffers.clear(); runs.clear(); // a different voice config is a different cache namespace; old runs' baked-in voice is stale too
       spoken.clear(); resumable.clear(); // runs.clear() means rebuildRuns() will recreate the same start-keys — don't let stale spoken/resumable block their replay

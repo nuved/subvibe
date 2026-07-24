@@ -428,6 +428,22 @@ async function translateAll(lines, source, target, context) {
 const OPENAI_TTS = "https://api.openai.com/v1/audio/speech";
 const TTS_MODEL = "gpt-4o-mini-tts";
 
+// Gemini TTS provider — an alternative BYOK engine with native Persian voices,
+// selected via ttsProvider in chrome.storage.local ("openai" default | "gemini").
+// Endpoint/model/response-shape verified via WebFetch+curl against
+// https://ai.google.dev/gemini-api/docs/generate-content/speech-generation
+// (checked 2026-07-24; this is the REST/generateContent surface — the newer
+// "Interactions API" the docs now recommend is SDK-oriented and not needed
+// here, since this worker always talks raw REST, same as the OpenAI/Claude
+// paths above).
+const GEMINI_TTS_MODEL = "gemini-2.5-flash-preview-tts";
+const GEMINI_GENERATE = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_TTS_MODEL}:generateContent`;
+const GEMINI_MODELS = "https://generativelanguage.googleapis.com/v1beta/models";
+// Gemini TTS returns RAW PCM (no container): 16-bit signed little-endian,
+// 24000 Hz, mono — verified in the same docs (the curl example pipes the
+// decoded base64 straight into `ffmpeg -f s16le -ar 24000 -ac 1`).
+const GEMINI_PCM_RATE = 24000;
+
 // ArrayBuffer → base64. chrome.runtime messages are JSON-serialized, so audio
 // can only cross to the content script as a string.
 function b64FromBuf(buf) {
@@ -436,6 +452,33 @@ function b64FromBuf(buf) {
   const CH = 0x8000;
   for (let i = 0; i < bytes.length; i += CH) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
   return btoa(bin);
+}
+function bufFromB64(b64) {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out.buffer;
+}
+
+// Wrap already-int16 PCM bytes (Gemini's raw output) in a 44-byte RIFF/WAVE
+// header — same byte layout as shared/audio-export.js's wavFromPcm, but that
+// helper takes Float32 samples (it re-quantizes); here the bytes are ALREADY
+// 16-bit PCM, so this just prepends the header around them unchanged. The
+// content script's decodeAudioData (content/dub.js) can decode a WAV exactly
+// like it decodes OpenAI's mp3 — the wrap happens here, worker-side, so the
+// cached/returned base64 is always something decodeAudioData understands.
+function wavFromPcm16(pcmBuf, sampleRate) {
+  const n = pcmBuf.byteLength; // already bytes, 2 per sample (mono, 16-bit)
+  const buf = new ArrayBuffer(44 + n);
+  const dv = new DataView(buf);
+  const w4 = (o, s) => { for (let i = 0; i < 4; i++) dv.setUint8(o + i, s.charCodeAt(i)); };
+  w4(0, "RIFF"); dv.setUint32(4, 36 + n, true); w4(8, "WAVE");
+  w4(12, "fmt "); dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+  dv.setUint32(24, sampleRate, true); dv.setUint32(28, sampleRate * 2, true);
+  dv.setUint16(32, 2, true); dv.setUint16(34, 16, true);
+  w4(36, "data"); dv.setUint32(40, n, true);
+  new Uint8Array(buf, 44).set(new Uint8Array(pcmBuf));
+  return buf;
 }
 
 async function ttsChunk(text, voice, instructions, apiKey) {
@@ -458,6 +501,49 @@ async function ttsChunk(text, voice, instructions, apiKey) {
     : lastStatus === 429 ? "rate limited by OpenAI"
     : (lastBody || "").replace(/\s+/g, " ").slice(0, 140);
   throw new Error(`OpenAI TTS ${lastStatus}: ${detail}`);
+}
+
+// Gemini TTS path — v1 is single-voice only (multi-voice stays OpenAI-only;
+// the popup disables that toggle when Gemini is selected). Style/tone is
+// passed as a natural-language prefix in the SAME text part (the docs' own
+// examples do this, e.g. "Say cheerfully: …") — ttsInstructions(...)'s output
+// is prepended, followed by ": ", then the line to speak. Returns a WAV-
+// wrapped base64 clip so content/dub.js's decodeAudioData path never has to
+// know Gemini returns raw PCM.
+async function ttsChunkGemini(text, voice, instructions, apiKey) {
+  const prompt = instructions ? `${instructions}: ${text}` : text;
+  const body = {
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: {
+      responseModalities: ["AUDIO"],
+      speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice || "Kore" } } },
+    },
+  };
+  let lastStatus = 0, lastBody = "";
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt) await new Promise((r) => setTimeout(r, 700 * attempt));
+    const res = await fetch(GEMINI_GENERATE, {
+      method: "POST",
+      headers: { "x-goog-api-key": apiKey, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const txt = await res.text();
+    if (res.ok) {
+      if (!txt) throw new Error("Gemini returned an empty response");
+      let data;
+      try { data = JSON.parse(txt); } catch { throw new Error("Gemini returned a non-JSON response"); }
+      const b64Pcm = data?.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+      if (!b64Pcm) throw new Error("Gemini response had no audio data");
+      const pcmBuf = bufFromB64(b64Pcm); // raw s16le mono 24kHz — see GEMINI_PCM_RATE
+      return b64FromBuf(wavFromPcm16(pcmBuf, GEMINI_PCM_RATE));
+    }
+    lastStatus = res.status; lastBody = txt;
+    if (!TRANSIENT_HTTP.has(res.status)) break;
+  }
+  const detail = lastStatus >= 500 ? "Gemini is temporarily unavailable — retrying"
+    : lastStatus === 429 ? "rate limited by Gemini"
+    : (lastBody || "").replace(/\s+/g, " ").slice(0, 140);
+  throw new Error(`Gemini TTS ${lastStatus}: ${detail}`);
 }
 
 // ─── Provider call log (local-only transparency) ─────────────────────────────
@@ -534,12 +620,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           // Cache-through: a cached clip is returned instantly, free, unlogged.
           const cached = await idbAudioGet(msg.key);
           if (cached && cached.b64) { sendResponse({ b64: cached.b64, cached: true }); break; }
-          const { apiKey } = await chrome.storage.local.get("apiKey");
-          if (!apiKey) { sendResponse({ error: "No OpenAI API key yet — open the SubVibe popup and paste your key." }); break; }
+          const { apiKey, geminiKey, ttsProvider } = await chrome.storage.local.get(["apiKey", "geminiKey", "ttsProvider"]);
+          const provider = ttsProvider === "gemini" ? "gemini" : "openai";
+          const key = provider === "gemini" ? geminiKey : apiKey;
+          if (!key) {
+            sendResponse({ error: provider === "gemini"
+              ? "No Gemini API key yet — open the SubVibe popup and paste your key."
+              : "No OpenAI API key yet — open the SubVibe popup and paste your key." });
+            break;
+          }
           const started = Date.now();
-          const meta = { ts: started, site: msg.site, title: msg.title, target: msg.target, kind: "tts", chars: (msg.text || "").length, durMs: msg.durMs || 0 };
+          const meta = { ts: started, site: msg.site, title: msg.title, target: msg.target, kind: "tts", chars: (msg.text || "").length, durMs: msg.durMs || 0, provider };
           try {
-            const b64 = await ttsChunk(msg.text, msg.voice, msg.instructions, apiKey);
+            const b64 = provider === "gemini"
+              ? await ttsChunkGemini(msg.text, msg.voice, msg.instructions, key)
+              : await ttsChunk(msg.text, msg.voice, msg.instructions, key);
             await idbAudioPut(msg.key, { b64, voice: msg.voice, ms: msg.durMs || 0, chars: meta.chars, createdAt: new Date().toISOString() });
             await logCall({ ...meta, ms: Date.now() - started, ok: true });
             sendResponse({ b64 });
@@ -607,6 +702,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             const r = await fetch("https://api.anthropic.com/v1/models", {
               headers: { "x-api-key": msg.apiKey || "", "anthropic-version": ANTHROPIC_VERSION },
             });
+            sendResponse({ ok: r.ok, status: r.status });
+          } catch (e) {
+            sendResponse({ ok: false, error: String((e && e.message) || e) });
+          }
+          break;
+        }
+        case "VERIFY_GEMINI": {
+          // Same idea as VERIFY_KEY but for the Gemini BYOK key: a cheap
+          // GET /v1beta/models with the x-goog-api-key header.
+          try {
+            const r = await fetch(GEMINI_MODELS, { headers: { "x-goog-api-key": msg.apiKey || "" } });
             sendResponse({ ok: r.ok, status: r.status });
           } catch (e) {
             sendResponse({ ok: false, error: String((e && e.message) || e) });
