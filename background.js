@@ -278,7 +278,15 @@ function systemPrompt(source, target, keepTerms, keepNames) {
       `7. Persian register details: informal verb endings for casual speech («می‌خوام» not «می‌خواهم»), ` +
       `«تو» for friends/family and «شما» for strangers/formal scenes; keep the choice consistent per speaker pair. ` +
       `Song lyrics stay lyrical and rhythmic, never literal. Exclamations map to natural Persian ones ` +
-      `(«وای»، «ای بابا»، «آخ»). Use ZWNJ correctly in compounds (می‌ + verb, ها plurals).\n`;
+      `(«وای»، «ای بابا»، «آخ»). Use ZWNJ correctly in compounds (می‌ + verb, ها plurals).\n` +
+      `8. Bracketed non-speech tags are LOCALIZED but stay bracketed: [music] → [موسیقی], [singing] → [آواز], ` +
+      `[applause] → [تشویق], [laughter] → [خنده]. A line that mixes a tag with lyrics keeps the tag inline at the same spot.\n` +
+      `9. Numbers stay in Latin digits; do not convert units (miles stay miles). Times of day read naturally ` +
+      `(«ساعت ۸» is wrong — write «ساعت 8»).\n` +
+      `10. Condensing "d" for dubbing: cut greetings-fillers («خب»، «راستش») first, then repetitions, then adjectives — ` +
+      `never names, numbers, negations, or the point of the sentence. Target roughly two-thirds of "t", in the same ` +
+      `register, with a natural spoken rhythm a voice actor can read in one breath. If "t" is one short clause, "d" = "t". ` +
+      `For songs, "d" keeps the lyric's imagery but may drop a repeated refrain word.\n`;
   }
   if (keepNames) {
     p += `\nIMPORTANT: Keep ALL proper nouns — people, places, companies, brands, and product/technical ` +
@@ -304,7 +312,13 @@ function systemPrompt(source, target, keepTerms, keepNames) {
       `"d":["دیشب کجا بودی؟","خونه‌ی Sarah بودم.","دروغ نگو!"]}\n` +
       `user {"count":2,"lines":["Night will become your morning.","All fears fall softly from my heart."]} → ` +
       `{"t":["شب به صبحِ تو بدل می‌شه.","همه‌ی ترس‌ها آروم از دلم می‌رن."],"s":[1,1],"g":["f","f"],` +
-      `"d":["شب صبح تو می‌شه.","ترس‌ها از دلم می‌رن."]}`;
+      `"d":["شب صبح تو می‌شه.","ترس‌ها از دلم می‌رن."]}\n` +
+      `user {"count":2,"lines":["Now [music] it settles in my blue.","[applause]"]} → ` +
+      `{"t":["حالا [موسیقی] توی غم آبیم آروم می‌گیره.","[تشویق]"],"s":[1,1],"g":["f","f"],` +
+      `"d":["حالا [موسیقی] تو غمم آروم می‌گیره.","[تشویق]"]}\n` +
+      `user {"count":2,"lines":["We migrated the whole backend to MySQL last spring.","Honestly, that saved us maybe forty hours a month."]} → ` +
+      `{"t":["بهار گذشته کل بک‌اند رو به MySQL منتقل کردیم.","راستش این کار ماهی شاید 40 ساعت برامون صرفه‌جویی کرد."],"s":[1,1],"g":["m","m"],` +
+      `"d":["بهار گذشته بک‌اند رو بردیم رو MySQL.","ماهی 40 ساعت صرفه‌جویی شد."]}`;
   } else {
     p += `\nEXAMPLE shape — user {"count":2,"lines":["You know what I mean?","[music]"]} → ` +
       `{"t":["<the ${langName(target)} translation>","[music]"],"s":[1,1],"g":["m","m"],"d":["<shorter spoken ${langName(target)}>","[music]"]}`;

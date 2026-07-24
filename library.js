@@ -526,6 +526,7 @@ async function loadActivity() {
   function rowEl(c) {
     const frag = document.createDocumentFragment();
     const row = document.createElement("div"); row.className = "callrow";
+    if (c.cacheR || c.cacheW) row.title = `prompt cache: ${(c.cacheR || 0).toLocaleString()} read (~10% price) · ${(c.cacheW || 0).toLocaleString()} written`;
     const t = document.createElement("span"); t.className = "ct"; t.textContent = fmtTime(c.ts);
     const s = document.createElement("span"); s.className = "cs";
     s.textContent = rowName(c) + (c.target ? " → " + langMeta(c.target)[1] : "");
