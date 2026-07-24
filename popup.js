@@ -7,7 +7,7 @@
 const FA_FLAG = window.SV_FA_FLAG;
 const LANGS = window.SV_LANGS;
 
-const DEFAULTS = { enabled: true, targets: ["en"], showOriginal: true, hideNative: true, apiKey: "", translationProvider: "openai", anthropicKey: "", keepNames: true, keepTerms: "", position: "bottom", size: "md", stylePreset: "classic", styleCustom: {}, syncOffset: 0, dubEnabled: false, ttsProvider: "openai", geminiKey: "", dubVoice: "marin", dubGeminiVoice: "Kore", dubMultiVoice: false, dubDuckLevel: 0.12, dubPace: 1 };
+const DEFAULTS = { enabled: true, targets: ["en"], showOriginal: true, hideNative: true, karaokeHl: true, apiKey: "", translationProvider: "openai", anthropicKey: "", keepNames: true, keepTerms: "", position: "bottom", size: "md", stylePreset: "classic", styleCustom: {}, syncOffset: 0, dubEnabled: false, ttsProvider: "openai", geminiKey: "", dubVoice: "marin", dubGeminiVoice: "Kore", dubMultiVoice: false, dubDuckLevel: 0.12, dubPace: 1 };
 const el = (id) => document.getElementById(id);
 const fmtSync = (v) => (v > 0 ? "+" : "") + v.toFixed(2) + "s";
 const langMeta = (code) => LANGS.find((l) => l[0] === code) || [code, code.toUpperCase(), "🏳️"];
@@ -164,6 +164,7 @@ function updateFoldSummaries() {
   const gem = el("ttsProvider").value === "gemini";
   txt("voiceVal", sel(gem ? "dubGeminiVoice" : "dubVoice") || sel("ttsProvider"));
   txt("subsVal", [el("showOriginal").checked ? "dual" : "translation only",
+                  el("karaokeHl").checked ? "karaoke" : "",
                   el("keepNames").checked ? "keep names" : ""].filter(Boolean).join(" · "));
   txt("lookVal", `${el("sizeRange").value}px`);
   txt("timeVal", el("syncVal").textContent);
@@ -312,6 +313,7 @@ el("ttsProvider").addEventListener("change", () => {
 el("enabled").addEventListener("change", () => persist({ enabled: el("enabled").checked }));
 el("showOriginal").addEventListener("change", () => saveSetting({ showOriginal: el("showOriginal").checked }));
 el("hideNative").addEventListener("change", () => persist({ hideNative: el("hideNative").checked }));
+el("karaokeHl").addEventListener("change", () => persist({ karaokeHl: el("karaokeHl").checked }));
 el("position").addEventListener("change", () => saveSetting({ position: el("position").value }));
 el("keepNames").addEventListener("change", () => persist({ keepNames: el("keepNames").checked }));
 
@@ -716,6 +718,7 @@ async function load() {
   el("keepTerms").value = state.keepTerms || "";
   el("showOriginal").checked = state.showOriginal;
   el("hideNative").checked = state.hideNative;
+  el("karaokeHl").checked = state.karaokeHl !== false;
   el("position").value = state.position || "bottom";
   el("syncVal").textContent = fmtSync(state.syncOffset || 0);
   setSizeUI(state.size || "md");

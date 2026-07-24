@@ -27,6 +27,7 @@
     fontFamily: SANS, weight: "600", color: "#ffffff",
     bg: "rgba(8, 10, 14, 0.78)", radius: "7px", pad: "0.12em 0.5em",
     shadow: SHADOW_CLASSIC, lh: "1.32", maxWidth: "min(86%, 24em)",
+    hl: "#ffd479", // karaoke fill — words already spoken (gold reads on dark bgs)
   };
 
   const PRESETS = {
@@ -41,7 +42,7 @@
     },
     pill: {
       label: "Pill", pill: true, fonts: ["baloo2"],
-      style: { fontFamily: ROUNDED, weight: "800", color: "#000000", bg: "rgba(255, 255, 255, 0.96)", radius: "0.35em", pad: "0.1em 0.45em", shadow: "none", lh: "1.5", maxWidth: "min(80%, 18em)" },
+      style: { fontFamily: ROUNDED, weight: "800", color: "#000000", bg: "rgba(255, 255, 255, 0.96)", radius: "0.35em", pad: "0.1em 0.45em", shadow: "none", lh: "1.5", maxWidth: "min(80%, 18em)", hl: "#c47500" }, // dark amber — gold vanishes on the white pill
     },
     snapchat: {
       // banner: the line stretches edge-to-edge (Snapchat's full-width strip) —
@@ -132,6 +133,7 @@
         "--cs-shadow": st.shadow,
         "--cs-lh": st.lh,
         "--cs-maxwidth": st.maxWidth,
+        "--cs-hl": st.hl,
       },
     };
   }

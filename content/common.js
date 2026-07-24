@@ -30,6 +30,8 @@
     stylePreset: "classic", // named look from shared/presets.js: classic | youtube | tiktok | pill | snapchat | cinema | minimal
     styleCustom: {},        // sparse tweaks on top of the preset: { font, color, bg, bgColor, bgOpacity, edge }
     syncOffset: 0,       // seconds; + shows subtitles earlier, − later
+    karaokeHl: true,     // karaoke fill: words already spoken light up in --cs-hl
+                         // (exact per-word times on YouTube ASR tracks, estimated elsewhere)
     audioFallback: false, // transcribe audio ONLY when a video has no captions
     audioDeviceId: "",    // chosen input device (e.g. BlackHole)
   };
@@ -111,7 +113,7 @@
   // layers this clip's own changes on top — so a tweak on one video (or live channel)
   // never bleeds onto another. sync defaults to 0 per clip.
   async function getSettings() {
-    const s = await chrome.storage.local.get(["enabled", "targets", "showOriginal", "hideNative", "position", "linePositions", "size", "stylePreset", "styleCustom", "syncOffset", "audioFallback", "audioDeviceId", "translationProvider", "clipOverrides"]);
+    const s = await chrome.storage.local.get(["enabled", "targets", "showOriginal", "hideNative", "position", "linePositions", "size", "stylePreset", "styleCustom", "syncOffset", "karaokeHl", "audioFallback", "audioDeviceId", "translationProvider", "clipOverrides"]);
     const { clipOverrides, ...flat } = s;
     const ov = (clipOverrides && clipOverrides[clipBaseId()]) || {};
     return { ...DEFAULTS, ...flat, ...ov };
@@ -377,7 +379,12 @@
   // styles can give each WRAPPED line its own box (see overlay.css). The row's
   // textContent still reads the same text, so `el.textContent !== txt` guards
   // at the call sites keep working unchanged.
-  function setLineText(row, txt) {
+  //
+  // Karaoke mode: `units` = [{s: absolute startMs, t: word}]. Each word gets its
+  // own span, separated by REAL space text nodes — so row.textContent === txt
+  // and the change-guards above stay valid. updateSung() then colors the words
+  // whose start time the playhead has passed.
+  function setLineText(row, txt, units) {
     let span = row.firstElementChild;
     if (!span || !span.classList.contains("copilot-subs__text")) {
       row.textContent = "";
@@ -385,7 +392,78 @@
       span.className = "copilot-subs__text";
       row.appendChild(span);
     }
-    if (span.textContent !== txt) span.textContent = txt;
+    if (units && units.length > 1) {
+      span.textContent = "";
+      const spans = [];
+      units.forEach((u, i) => {
+        if (i) span.appendChild(document.createTextNode(" "));
+        const w = document.createElement("span");
+        w.className = "copilot-subs__w";
+        w.textContent = u.t;
+        span.appendChild(w);
+        spans.push(w);
+      });
+      row.__svW = { units, spans, k: -1 };
+    } else {
+      if (span.textContent !== txt) span.textContent = txt;
+      row.__svW = null;
+    }
+  }
+
+  // No word timing in the file (manual subs, translations, dub audio): spread
+  // the words across [startMs,endMs], weighted by length + a per-word floor —
+  // the classic karaoke approximation. Joining the result with " " reproduces
+  // the input EXACTLY only when it's single-space normalized; lineUnits checks.
+  function estimateUnits(text, startMs, endMs) {
+    const words = (text || "").split(" ").filter(Boolean);
+    if (!words.length) return [];
+    const span = Math.max(300, (endMs || startMs) - startMs);
+    const wt = words.map((w) => w.length + 2);
+    const total = wt.reduce((a, b) => a + b, 0);
+    let acc = 0;
+    return words.map((w, i) => {
+      const s = startMs + (span * acc) / total;
+      acc += wt[i];
+      return { s, t: w };
+    });
+  }
+
+  // Word units for the line a row is about to show. Original lines show the
+  // whole sentence GROUP, so exact per-cue offsets (cue.w) and estimated cues
+  // mix into one absolute timeline; translated lines carry one shared text per
+  // group, estimated over the group's span. Returns null when units wouldn't
+  // reassemble into txt (odd spacing) — the line then renders plain, no churn.
+  function lineUnits(c, target, txt) {
+    if (!c || !txt) return null;
+    const cs = c.grp ? c.grp.cues : [c];
+    const endOf = (q) => q.endMs || q.startMs + 2500;
+    let units;
+    if (!target) {
+      units = [];
+      for (const q of cs) {
+        if (q.w && q.w.length > 1) for (const x of q.w) units.push({ s: q.startMs + (x.o || 0), t: x.t });
+        else units.push(...estimateUnits(q.original, q.startMs, endOf(q)));
+      }
+    } else {
+      units = estimateUnits(txt, cs[0].startMs, endOf(cs[cs.length - 1]));
+    }
+    if (units.length > 1 && units.map((u) => u.t).join(" ") === txt) return units;
+    // Exact offsets didn't reassemble (spacing/punct drift) — estimate from txt itself.
+    units = estimateUnits(txt, cs[0].startMs, endOf(cs[cs.length - 1]));
+    return units.length > 1 && units.map((u) => u.t).join(" ") === txt ? units : null;
+  }
+
+  // Sweep the fill: color spans 0..k-1 where k = words already started at t.
+  // DOM writes only when k changes (word boundaries), not per frame.
+  function updateSung(row, t) {
+    const W = row.__svW;
+    if (!W) return;
+    let k = 0;
+    while (k < W.units.length && W.units[k].s <= t) k++;
+    if (k !== W.k) {
+      for (let j = 0; j < W.spans.length; j++) W.spans[j].classList.toggle("sung", j < k);
+      W.k = k;
+    }
   }
 
   function setStatus(text, isError) {
@@ -1052,7 +1130,17 @@
           const t = ev.segs.map((s) => s.utf8 || "").join("").replace(/\s+/g, " ").trim();
           if (!t) continue;
           const startMs = ev.tStartMs || 0;
-          cues.push({ startMs, endMs: startMs + (ev.dDurationMs || 2500), text: t });
+          const cue = { startMs, endMs: startMs + (ev.dDurationMs || 2500), text: t };
+          // ASR tracks: one seg per word with its own offset — keep for karaoke.
+          // Multi-seg manual tracks (split at line breaks) have NO offsets;
+          // all-zero o would light the whole line at once, so require a real one.
+          const w = [];
+          for (const s of ev.segs) {
+            const wt = (s.utf8 || "").replace(/\s+/g, " ").trim();
+            if (wt) w.push({ o: s.tOffsetMs || 0, t: wt });
+          }
+          if (w.length > 1 && w.some((x) => x.o > 0)) cue.w = w;
+          cues.push(cue);
         }
         if (cues.length) return cues;
       } catch {}
@@ -1212,6 +1300,7 @@
           continue;
         }
         const cue = { startMs: f.startMs, endMs: f.endMs, original: f.text, t: {} };
+        if (f.w) cue.w = f.w; // per-word offsets (YouTube ASR) — feeds the karaoke highlight
         applyCache(cue);
         insertCue(cues, cue);
       }
@@ -1295,10 +1384,20 @@
         if (t > lastEnd && t - lastEnd < 20000) i = cues.length - 1;
       }
       const c = i >= 0 ? cues[i] : null;
+      const kar = settings.karaokeHl !== false;
       for (const d of defs) {
         const el = els[d.key];
         const txt = c ? (d.target ? c.t[d.target] || "" : (c.grp ? c.grp.orig : c.original)) : "";
-        if (el.textContent !== txt) { setLineText(el, txt); el.style.display = txt ? "block" : "none"; el.dir = (d.target ? isRTLLang(d.target) : isRTL(txt)) ? "rtl" : "ltr"; }
+        // Unit key: a REPEATED line (song refrain) keeps txt identical while the
+        // cue changes — the karaoke fill must still restart from the new times.
+        const uk = c && kar ? (c.grp ? c.grp.cues[0].startMs : c.startMs) + ":" + (d.target || "") : "";
+        if (el.textContent !== txt || (kar && el.__svUk !== uk)) {
+          setLineText(el, txt, kar ? lineUnits(c, d.target, txt) : null);
+          el.__svUk = uk;
+          el.style.display = txt ? "block" : "none";
+          el.dir = (d.target ? isRTLLang(d.target) : isRTL(txt)) ? "rtl" : "ltr";
+        }
+        if (kar) updateSung(el, t);
       }
       // ── live proof of the lookahead — read window.csDiag() in the console ──
       if (performance.now() - diagAt > 1000) {

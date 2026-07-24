@@ -76,6 +76,17 @@
   box-decoration-break: clone;
 }
 
+/* Karaoke fill: words already spoken (plus the current one) get the .sung class
+   from updateSung() in common.js and sweep into the accent color — following the
+   line's own direction, so Persian fills right-to-left. The transition smooths
+   both the sweep and the reset on a backward seek. */
+#copilot-subs .copilot-subs__w {
+  transition: color 0.15s ease;
+}
+#copilot-subs .copilot-subs__w.sung {
+  color: var(--cs-hl, #ffd479);
+}
+
 /* Banner (Snapchat): the line stretches edge-to-edge instead of hugging the
    text — the flex stack shrink-wraps items, so a max-width alone can't span. */
 #copilot-subs.copilot-style-banner .copilot-subs__line {
