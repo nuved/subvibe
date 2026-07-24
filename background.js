@@ -500,6 +500,15 @@ async function ttsChunk(text, voice, instructions, apiKey) {
     if (res.ok) return b64FromBuf(await res.arrayBuffer());
     lastStatus = res.status;
     lastBody = await res.text();
+    if (res.status === 429) {
+      // An RPM window will not clear in this loop's 0.7–1.4 s backoff — stop
+      // burning requests and surface how long OpenAI asked us to wait.
+      const err = new Error("OpenAI TTS 429: rate limited by OpenAI");
+      err.status = 429;
+      const ra = res.headers.get("retry-after");
+      if (ra && /^\d+(\.\d+)?$/.test(ra)) err.retryAfterMs = Math.round(+ra * 1000);
+      throw err;
+    }
     if (!TRANSIENT_HTTP.has(res.status)) break;
   }
   const detail = lastStatus >= 500 ? "OpenAI is temporarily unavailable — retrying"
@@ -543,6 +552,23 @@ async function ttsChunkGemini(text, voice, instructions, apiKey) {
       return b64FromBuf(wavFromPcm16(pcmBuf, GEMINI_PCM_RATE));
     }
     lastStatus = res.status; lastBody = txt;
+    if (res.status === 429) {
+      // An RPM window will not clear in this loop's 0.7–1.4 s backoff — stop
+      // burning requests and surface how long Google asked us to wait.
+      const err = new Error("Gemini TTS 429: rate limited by Gemini");
+      err.status = 429;
+      const ra = res.headers.get("retry-after");
+      if (ra && /^\d+(\.\d+)?$/.test(ra)) err.retryAfterMs = Math.round(+ra * 1000);
+      else {
+        try {
+          const j = JSON.parse(txt);
+          const ri = ((j.error && j.error.details) || []).find((d) => String(d["@type"] || "").endsWith("RetryInfo"));
+          const m = /^([\d.]+)s$/.exec((ri && ri.retryDelay) || "");
+          if (m) err.retryAfterMs = Math.round(+m[1] * 1000);
+        } catch {}
+      }
+      throw err;
+    }
     if (!TRANSIENT_HTTP.has(res.status)) break;
   }
   const detail = lastStatus >= 500 ? "Gemini is temporarily unavailable — retrying"
@@ -550,6 +576,11 @@ async function ttsChunkGemini(text, voice, instructions, apiKey) {
     : (lastBody || "").replace(/\s+/g, " ").slice(0, 140);
   throw new Error(`Gemini TTS ${lastStatus}: ${detail}`);
 }
+
+// TTS rate-limit cooldown, per provider. In-memory only: the worker dying
+// forgets it, and the next 429 simply re-arms — never worth persisting.
+const ttsCooldownUntil = { openai: 0, gemini: 0 };
+const ttsCooldownStreak = { openai: 0, gemini: 0 };
 
 // ─── Provider call log (local-only transparency) ─────────────────────────────
 // Every OpenAI call is recorded ON-DEVICE: when, which site, #lines, tokens in/
@@ -634,6 +665,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               : "No OpenAI API key yet — open the SubVibe popup and paste your key." });
             break;
           }
+          if (Date.now() < (ttsCooldownUntil[provider] || 0)) {
+            // Local, instant, unlogged — the whole point is zero network and
+            // zero log spam while the provider's window resets.
+            sendResponse({ error: "rate-limited — cooling down", cooldownUntil: ttsCooldownUntil[provider] });
+            break;
+          }
           const started = Date.now();
           const meta = { ts: started, site: msg.site, title: msg.title, target: msg.target, kind: "tts", chars: (msg.text || "").length, durMs: msg.durMs || 0, provider, base: msg.base };
           try {
@@ -642,10 +679,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               : await ttsChunk(msg.text, msg.voice, msg.instructions, key);
             await idbAudioPut(msg.key, { b64, voice: msg.voice, ms: msg.durMs || 0, chars: meta.chars, createdAt: new Date().toISOString() });
             await logCall({ ...meta, ms: Date.now() - started, ok: true });
+            ttsCooldownStreak[provider] = 0;
             sendResponse({ b64 });
           } catch (e) {
+            if (e && e.status === 429) {
+              const s = ++ttsCooldownStreak[provider];
+              const fallback = Math.min(300000, 30000 * 2 ** (s - 1)); // 30s → 60s → … → 5min
+              ttsCooldownUntil[provider] = Date.now() + (e.retryAfterMs || fallback);
+            }
             await logCall({ ...meta, ms: Date.now() - started, ok: false, err: String((e && e.message) || e) });
-            throw e; // outer catch sends {error}
+            sendResponse({ error: String((e && e.message) || e), cooldownUntil: ttsCooldownUntil[provider] > Date.now() ? ttsCooldownUntil[provider] : undefined });
+            break;
           }
           break;
         }
