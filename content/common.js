@@ -1177,6 +1177,7 @@
     // the SAME video under many entries, flooding the cache list with duplicates.
     const base = clipBaseId(); // "<site>:<clipId>" — shared by the cache AND per-clip settings
     lastCacheBase = base; // remember for "clear this video" from the popup
+    const pageTitle = document.title, pageUrl = location.href;
 
     // Cached translations (per target), applied to current AND future cues.
     const cacheMaps = {};
@@ -1348,7 +1349,7 @@
       for (const tg of settings.targets) {
         send({ type: "CACHE_PUT", key: `${base}:auto:${tg}`,
           track: { site: adapter?.site, videoId, source: "auto", target: tg, model: "gpt-4o-mini", createdAt: new Date().toISOString(),
-            title: document.title, url: location.href, totalCues: cues.length,
+            title: pageTitle, url: pageUrl, totalCues: cues.length,
             cues: cues.filter((c) => c.t[tg]).map((c) => ({ startMs: c.startMs, endMs: c.endMs, text: c.t[tg], sid: c.spk && c.spk.id, sg: c.spk && c.spk.g,
               dt: c.grp && c === c.grp.cues[0] ? (c.grp.d || undefined) : undefined })) } });
       }
