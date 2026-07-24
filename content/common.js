@@ -1714,7 +1714,7 @@
     const runKey = JSON.stringify({
       en: settings.enabled, v: vid,
       t: settings.targets, o: settings.showOriginal, h: settings.hideNative,
-      p: settings.position, s: settings.size,
+      p: settings.position, s: settings.size, k: settings.karaokeHl,
       // Whether this clip's FULL cue list has been intercepted yet. Without this,
       // when the subtitle file arrives LATE the run key looks "unchanged" so start()
       // early-returns, leaving the engine in its reactive fallback and the counter
