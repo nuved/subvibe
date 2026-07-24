@@ -346,7 +346,7 @@ async function translateChunkClaude(lines, source, target, apiKey, context, keep
     if (attempt) await new Promise((r) => setTimeout(r, 500 * attempt)); // brief backoff between retries
     const res = await fetch(ANTHROPIC_MESSAGES, {
       method: "POST",
-      headers: { "x-api-key": apiKey, "anthropic-version": ANTHROPIC_VERSION, "content-type": "application/json" },
+      headers: { "x-api-key": apiKey, "anthropic-version": ANTHROPIC_VERSION, "content-type": "application/json", "anthropic-dangerous-direct-browser-access": "true" },
       body: JSON.stringify(body),
     });
     const txt = await res.text();
@@ -702,7 +702,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           // GET /v1/models with the Anthropic auth headers.
           try {
             const r = await fetch("https://api.anthropic.com/v1/models", {
-              headers: { "x-api-key": msg.apiKey || "", "anthropic-version": ANTHROPIC_VERSION },
+              headers: { "x-api-key": msg.apiKey || "", "anthropic-version": ANTHROPIC_VERSION, "anthropic-dangerous-direct-browser-access": "true" },
             });
             sendResponse({ ok: r.ok, status: r.status });
           } catch (e) {
