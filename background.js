@@ -354,7 +354,9 @@ async function translateChunkClaude(lines, source, target, apiKey, context, keep
       if (!txt) throw new Error("Claude returned an empty response");
       let data;
       try { data = JSON.parse(txt); } catch { throw new Error("Claude returned a non-JSON response"); }
-      const content = data?.content?.[0]?.text || "{}";
+      if (data.stop_reason === "refusal") throw new Error("Claude declined this batch (refusal)");
+      const txtBlock = (data.content || []).find((b) => b && b.type === "text");
+      const content = (txtBlock && txtBlock.text) || "{}";
       let parsed;
       try { parsed = JSON.parse(content); } catch { throw new Error("the model returned malformed JSON"); }
       const arr = parsed.t || parsed.translations || parsed.lines || [];
