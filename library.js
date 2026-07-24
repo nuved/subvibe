@@ -246,22 +246,32 @@ function card(g) {
   return c;
 }
 
-// One preview at a time; pressing ▶ elsewhere stops the current one. The blob
-// is stitched fresh per press (a long video takes a few seconds — acceptable
-// v1; the button shows … while stitching).
+// One preview at a time; a sequence counter invalidates any in-flight stitch
+// when a new press (or a refresh) supersedes it, so a slow stitch can never
+// resurrect a stopped preview or leak its object URL. The blob is stitched
+// fresh per press (a long video takes a few seconds — acceptable v1; the
+// button shows … while stitching).
 let dubPreview = null; // { el, url, btn }
+let previewSeq = 0;    // bumped on every stop/press — stale stitches see a mismatch and bail
+
+function stopDubPreview() {
+  previewSeq++;
+  if (!dubPreview) return;
+  dubPreview.el.pause();
+  URL.revokeObjectURL(dubPreview.url);
+  dubPreview.btn.textContent = dubPreview.btn.textContent.replace("⏸", "▶");
+  dubPreview = null;
+}
+
 async function playDub(g, target, btn) {
-  if (dubPreview) {
-    const same = dubPreview.btn === btn;
-    dubPreview.el.pause();
-    URL.revokeObjectURL(dubPreview.url);
-    dubPreview.btn.textContent = dubPreview.btn.textContent.replace("⏸", "▶");
-    dubPreview = null;
-    if (same) return;
-  }
+  const wasMine = dubPreview && dubPreview.btn === btn;
+  stopDubPreview();
+  if (wasMine) return; // same button = toggle off
+  const seq = ++previewSeq;
   const old = btn.textContent;
   btn.textContent = "…";
   const out = await window.SV_EXPORT.stitchDubBlob(g, target, { interactive: false });
+  if (seq !== previewSeq) { btn.textContent = old; return; } // superseded while stitching — nothing was created yet
   if (!out) { btn.textContent = old; return alert("No dub audio cached for this language yet."); }
   const url = URL.createObjectURL(out.blob);
   const el = new Audio(url);
@@ -313,6 +323,7 @@ function badgeFor(site) {
 }
 
 function render() {
+  stopDubPreview();
   const content = el("content");
   content.innerHTML = "";
   const visible = allGroups.filter((g) => matches(g, query));
