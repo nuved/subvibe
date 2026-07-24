@@ -264,6 +264,7 @@ function stopDubPreview() {
 }
 
 async function playDub(g, target, btn) {
+  if (btn.textContent === "…") return; // already stitching this one — ignore the extra click
   const wasMine = dubPreview && dubPreview.btn === btn;
   stopDubPreview();
   if (wasMine) return; // same button = toggle off
