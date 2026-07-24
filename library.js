@@ -56,6 +56,26 @@ function groupTracks(tracks) {
   return [...groups.values()].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
 }
 
+// Per-clip cost/calls from the on-device call log. Exact via row.base for new
+// rows; cleaned-title match covers rows logged before base existed. The log is
+// a 300-row ring buffer, so these figures mean "recent activity", not lifetime.
+let logAgg = { byBase: new Map(), byTitle: new Map() };
+async function loadLogAgg() {
+  const res = await chrome.runtime.sendMessage({ type: "LOG_LIST" }).catch(() => null);
+  const byBase = new Map(), byTitle = new Map();
+  for (const c of ((res && res.calls) || [])) {
+    const cost = window.SV_PRICING.estCost(c);
+    const bump = (map, key) => {
+      if (!key) return;
+      const a = map.get(key) || { calls: 0, cost: 0 };
+      a.calls++; a.cost += cost; map.set(key, a);
+    };
+    bump(byBase, c.base);
+    bump(byTitle, window.SV_TITLE.clean(c.title || ""));
+  }
+  logAgg = { byBase, byTitle };
+}
+
 // ── filtering ──────────────────────────────────────────────────────────────────
 function matches(g, q) {
   if (!q) return true;
@@ -91,6 +111,7 @@ function fmtWhen(iso) {
   if (isNaN(d)) return "—";
   return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
+const fmtCost = (c) => (c >= 1 ? "$" + c.toFixed(2) : "$" + c.toFixed(4));
 
 // ── rendering ───────────────────────────────────────────────────────────────────
 function flag(target) {
@@ -116,18 +137,10 @@ function card(g) {
   const ttl = document.createElement("div");
   ttl.className = "ttl";
   ttl.textContent = g.title;       // XSS-safe: titles come from arbitrary pages
-  ttl.title = g.title;
+  ttl.title = g.url ? g.title + "\n" + g.url : g.title;
   if (g.url) ttl.onclick = () => chrome.tabs.create({ url: g.url });
   else ttl.style.cursor = "default";
   wrap.appendChild(ttl);
-  if (g.url) {
-    const url = document.createElement("div");
-    url.className = "url";
-    url.textContent = g.url;        // XSS-safe
-    url.title = g.url;
-    url.onclick = () => chrome.tabs.create({ url: g.url });
-    wrap.appendChild(url);
-  }
   top.appendChild(wrap);
   c.appendChild(top);
 
@@ -156,6 +169,12 @@ function card(g) {
   }
   c.appendChild(langs);
 
+  const agg = logAgg.byBase.get(g.base) || logAgg.byTitle.get(g.title);
+  const stats = document.createElement("div");
+  stats.className = "stats";
+  if (agg) stats.textContent = `~${fmtCost(agg.cost)} · ${agg.calls} call${agg.calls === 1 ? "" : "s"}`;
+  c.appendChild(stats);
+
   const foot = document.createElement("div");
   foot.className = "foot";
   const when = document.createElement("span");
@@ -170,49 +189,88 @@ function card(g) {
     open.onclick = () => chrome.tabs.create({ url: g.url });
     foot.appendChild(open);
   }
+  c.appendChild(foot);
+
+  // Per-language export row: srt always; ▶ preview + ⬇ audio when dub clips
+  // exist. Destructive actions (✕ audio, Delete) sit quiet in the far right
+  // corner, after a flex spacer, so the eye lands on Open ▶ first.
+  const exp = document.createElement("div");
+  exp.className = "foot";
+  const spacer = document.createElement("span");
+  spacer.style.flex = "1";
+  exp.appendChild(spacer);
   const del = document.createElement("button");
-  del.className = "mini del";
+  del.className = "mini quiet";
   del.textContent = "Delete";
   del.title = "Remove this video's cached subtitles";
   del.onclick = async () => {
     await chrome.runtime.sendMessage({ type: "CACHE_DELETE", prefix: g.base }).catch(() => null);
     refresh();
   };
-  foot.appendChild(del);
-  c.appendChild(foot);
-
-  // Per-language export row: subtitles always; audio when dub clips exist.
-  const exp = document.createElement("div");
-  exp.className = "foot";
+  exp.appendChild(del);
   for (const [target] of g.langs) {
     const srtBtn = document.createElement("button");
     srtBtn.className = "mini";
     srtBtn.textContent = "⬇ srt · " + target;
     srtBtn.title = "Download the translated subtitles (.srt)";
     srtBtn.onclick = () => exportSrt(g, target);
-    exp.appendChild(srtBtn);
+    exp.insertBefore(srtBtn, spacer);
     audioRows(`${g.base}:auto:${target}:dub:`).then((rows) => {
       if (!rows.length) return;
       const ms = rows.reduce((a, r) => a + (r.ms || 0), 0);
+      if (ms) stats.textContent += (stats.textContent ? " · " : "") + `${Math.round(ms / 60000)} min dub audio`;
+      const playBtn = document.createElement("button");
+      playBtn.className = "mini";
+      playBtn.textContent = `▶ ${target}`;
+      playBtn.title = `Play the stitched dub (~${Math.round(ms / 60000)} min cached)`;
+      playBtn.onclick = () => playDub(g, target, playBtn);
+      exp.insertBefore(playBtn, spacer);
       const audBtn = document.createElement("button");
       audBtn.className = "mini";
-      audBtn.textContent = "⬇ audio · " + target;
-      audBtn.title = `Download the dub as one audio file (~${Math.round(ms / 60000)} min of speech cached)`;
+      audBtn.textContent = "⬇";
+      audBtn.title = "Download the dub as one audio file";
       audBtn.onclick = () => exportAudio(g, target);
-      exp.appendChild(audBtn);
+      exp.insertBefore(audBtn, spacer);
       const rmBtn = document.createElement("button");
-      rmBtn.className = "mini del";
+      rmBtn.className = "mini quiet";
       rmBtn.textContent = "✕ audio";
       rmBtn.title = "Delete this language's dub audio (keeps the subtitles)";
       rmBtn.onclick = async () => {
         await chrome.runtime.sendMessage({ type: "AUDIO_DELETE", prefix: `${g.base}:auto:${target}:dub:` }).catch(() => null);
         refresh();
       };
-      exp.appendChild(rmBtn);
+      exp.insertBefore(rmBtn, del);
     });
   }
   c.appendChild(exp);
   return c;
+}
+
+// One preview at a time; pressing ▶ elsewhere stops the current one. The blob
+// is stitched fresh per press (a long video takes a few seconds — acceptable
+// v1; the button shows … while stitching).
+let dubPreview = null; // { el, url, btn }
+async function playDub(g, target, btn) {
+  if (dubPreview) {
+    const same = dubPreview.btn === btn;
+    dubPreview.el.pause();
+    URL.revokeObjectURL(dubPreview.url);
+    dubPreview.btn.textContent = dubPreview.btn.textContent.replace("⏸", "▶");
+    dubPreview = null;
+    if (same) return;
+  }
+  const old = btn.textContent;
+  btn.textContent = "…";
+  const out = await window.SV_EXPORT.stitchDubBlob(g, target, { interactive: false });
+  if (!out) { btn.textContent = old; return alert("No dub audio cached for this language yet."); }
+  const url = URL.createObjectURL(out.blob);
+  const el = new Audio(url);
+  dubPreview = { el, url, btn };
+  btn.textContent = old.replace("▶", "⏸");
+  el.onended = () => {
+    if (dubPreview && dubPreview.el === el) { URL.revokeObjectURL(url); btn.textContent = old; dubPreview = null; }
+  };
+  el.play();
 }
 
 function groupHead(badgeText, badgeColor, title, count) {
@@ -312,6 +370,7 @@ async function refresh() {
   }
   const res = await chrome.runtime.sendMessage({ type: "CACHE_LIST" }).catch(() => null);
   allGroups = groupTracks((res && res.tracks) || []);
+  await loadLogAgg();
   const n = allGroups.length;
   el("note").textContent = n
     ? `${n} video${n === 1 ? "" : "s"} cached · stored only on this device. Reopening any of them costs nothing.`
@@ -340,7 +399,6 @@ el("clearAll").addEventListener("click", async () => {
 // with the popup's spend line so both compute identical totals from one source.
 const estCost = window.SV_PRICING.estCost;
 let actQuery = "";
-const fmtCost = (c) => (c >= 1 ? "$" + c.toFixed(2) : "$" + c.toFixed(4));
 const providerLabel = (p) => (p === "claude" ? "Claude" : p === "gemini" ? "Gemini" : "OpenAI");
 function fmtTime(ts) {
   if (!ts) return "—";
