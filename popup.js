@@ -637,8 +637,6 @@ async function load() {
   el("translationProvider").value = state.translationProvider === "claude" ? "claude" : "openai";
   el("anthropicKey").value = state.anthropicKey || "";
   anthropicKeyHint();
-  refreshKeyDot();
-  refreshAnthropicKeyDot();
   el("keepNames").checked = state.keepNames !== false;
   el("keepTerms").value = state.keepTerms || "";
   el("showOriginal").checked = state.showOriginal;
@@ -651,6 +649,10 @@ async function load() {
   el("geminiKey").value = state.geminiKey || "";
   updateTtsProviderUI();
   geminiKeyHint();
+  // Refresh all key dots only AFTER every key input is hydrated — an earlier
+  // refresh saw the still-empty Google field and auto-opened the panel forever.
+  refreshKeyDot();
+  refreshAnthropicKeyDot();
   refreshGeminiKeyDot();
   updateProviderAvailability();
   buildVoiceSelect();
