@@ -207,12 +207,14 @@
 
   <!-- Translation engine -->
   <section>
-    <div class="lbl">Translation engine</div>
-    <select id="translationProvider">
-      <option value="openai">OpenAI GPT-4o-mini</option>
-      <option value="claude">Claude Sonnet 4.6</option>
-    </select>
-    <div id="translationProviderWarn" class="selwarn" hidden></div>
+    <details class="customize" id="engineFold">
+      <summary>Translation engine <span class="hint" id="engineVal"></span></summary>
+      <select id="translationProvider" style="margin-top:7px;">
+        <option value="openai">OpenAI GPT-4o-mini</option>
+        <option value="claude">Claude Sonnet 4.6</option>
+      </select>
+      <div id="translationProviderWarn" class="selwarn" hidden></div>
+    </details>
   </section>
 
   <!-- API keys — all providers always visible; engine dropdowns above/below reflect which are usable -->
@@ -257,15 +259,22 @@
       <input type="text" id="langSearch" placeholder="🔍  Add a language…" autocomplete="off" />
       <div class="menu" id="langMenu"></div>
     </div>
-    <div class="row">
-      <label class="switch"><input type="checkbox" id="showOriginal" /><span class="slider"></span></label>
-      <label for="showOriginal">Also show the original line <span class="hint">(dual subtitles)</span></label>
-    </div>
-    <div class="row" style="margin-top:11px;">
-      <label class="switch"><input type="checkbox" id="keepNames" /><span class="slider"></span></label>
-      <label for="keepNames">Keep names &amp; brands in the original language <span class="hint">(don't transliterate — e.g. MySQL stays MySQL)</span></label>
-    </div>
-    <input type="text" id="keepTerms" placeholder="Extra specific terms (optional): Skyler, Wharton…" autocomplete="off" spellcheck="false" style="margin-top:8px;" />
+  </section>
+
+  <!-- Subtitle options -->
+  <section>
+    <details class="customize" id="subsFold">
+      <summary>Subtitle options <span class="hint" id="subsVal"></span></summary>
+      <div class="row" style="margin-top:7px;">
+        <label class="switch"><input type="checkbox" id="showOriginal" /><span class="slider"></span></label>
+        <label for="showOriginal">Also show the original line <span class="hint">(dual subtitles)</span></label>
+      </div>
+      <div class="row" style="margin-top:11px;">
+        <label class="switch"><input type="checkbox" id="keepNames" /><span class="slider"></span></label>
+        <label for="keepNames">Keep names &amp; brands in the original language <span class="hint">(don't transliterate — e.g. MySQL stays MySQL)</span></label>
+      </div>
+      <input type="text" id="keepTerms" placeholder="Extra specific terms (optional): Skyler, Wharton…" autocomplete="off" spellcheck="false" style="margin-top:8px;" />
+    </details>
   </section>
 
   <!-- Dub — spoken translation -->
@@ -275,30 +284,33 @@
       <label class="switch"><input type="checkbox" id="dubEnabled" /><span class="slider"></span></label>
       <label for="dubEnabled">Dub subtitles aloud</label>
     </div>
-    <select id="ttsProvider" style="margin-top:9px;">
-      <option value="openai">OpenAI gpt-4o-mini-tts</option>
-      <option value="gemini">Gemini 2.5 Flash TTS (native Persian voices)</option>
-    </select>
-    <div id="ttsProviderWarn" class="selwarn" hidden></div>
-    <div class="row">
-      <span style="min-width:58px; color:var(--muted);">Voice</span>
-      <select id="dubVoice" style="flex:1;"></select>
-      <select id="dubGeminiVoice" style="flex:1;" hidden></select>
-    </div>
-    <div class="row" id="dubMultiVoiceRow">
-      <label class="switch"><input type="checkbox" id="dubMultiVoice" /><span class="slider"></span></label>
-      <label for="dubMultiVoice">Multi-voice <span class="hint">(beta — a voice per speaker)</span></label>
-    </div>
-    <div class="row">
-      <span style="min-width:58px; color:var(--muted);">Original</span>
-      <input type="range" id="dubDuck" min="0" max="60" step="5" style="flex:1;" title="How loud the original soundtrack stays under the dub" />
-      <span class="sizeval" id="dubDuckVal"></span>
-    </div>
-    <div class="row">
-      <span style="min-width:58px; color:var(--muted);">Pace</span>
-      <input type="range" id="dubPace" min="90" max="130" step="5" style="flex:1;" title="Speech pace of the dub voice" />
-      <span class="sizeval" id="dubPaceVal"></span>
-    </div>
+    <details class="customize" id="voiceFold">
+      <summary>Voice &amp; pace <span class="hint" id="voiceVal"></span></summary>
+      <select id="ttsProvider" style="margin-top:7px;">
+        <option value="openai">OpenAI gpt-4o-mini-tts</option>
+        <option value="gemini">Gemini 2.5 Flash TTS (native Persian voices)</option>
+      </select>
+      <div id="ttsProviderWarn" class="selwarn" hidden></div>
+      <div class="row">
+        <span style="min-width:58px; color:var(--muted);">Voice</span>
+        <select id="dubVoice" style="flex:1;"></select>
+        <select id="dubGeminiVoice" style="flex:1;" hidden></select>
+      </div>
+      <div class="row" id="dubMultiVoiceRow">
+        <label class="switch"><input type="checkbox" id="dubMultiVoice" /><span class="slider"></span></label>
+        <label for="dubMultiVoice">Multi-voice <span class="hint">(beta — a voice per speaker)</span></label>
+      </div>
+      <div class="row">
+        <span style="min-width:58px; color:var(--muted);">Original</span>
+        <input type="range" id="dubDuck" min="0" max="60" step="5" style="flex:1;" title="How loud the original soundtrack stays under the dub" />
+        <span class="sizeval" id="dubDuckVal"></span>
+      </div>
+      <div class="row">
+        <span style="min-width:58px; color:var(--muted);">Pace</span>
+        <input type="range" id="dubPace" min="90" max="130" step="5" style="flex:1;" title="Speech pace of the dub voice" />
+        <span class="sizeval" id="dubPaceVal"></span>
+      </div>
+    </details>
     <button class="btn ghost" id="dubGenAll" style="width:100%; margin-top:9px;" hidden>Generate full dub</button>
     <div id="dubStatus" class="hint" style="margin-top:6px; min-height:13px;"></div>
     <div id="dubProg" style="height:4px; border-radius:2px; background:var(--panel2); margin-top:6px; overflow:hidden;" hidden>
@@ -310,64 +322,68 @@
 
   <!-- Appearance -->
   <section>
-    <div class="lbl">Appearance</div>
-    <div class="prevwrap"><span class="prevtext" id="stylePrevText">Subtitles look like this</span></div>
-    <div class="presets" id="presetRow"></div>
-    <div class="row" style="margin-top:10px;">
-      <span style="min-width:58px; color:var(--muted);">Size</span>
-      <input type="range" id="sizeRange" min="12" max="50" step="1" style="flex:1;" />
-      <span class="sizeval" id="sizeVal"></span>
-    </div>
-    <details class="customize">
-      <summary>Customize <span class="hint">font · color · background · outline</span></summary>
-      <div class="row">
-        <span style="min-width:58px; color:var(--muted);">Font</span>
-        <select id="styleFont" style="flex:1;"></select>
+    <details class="customize" id="lookFold">
+      <summary>Appearance <span class="hint" id="lookVal"></span></summary>
+      <div class="prevwrap"><span class="prevtext" id="stylePrevText">Subtitles look like this</span></div>
+      <div class="presets" id="presetRow"></div>
+      <div class="row" style="margin-top:10px;">
+        <span style="min-width:58px; color:var(--muted);">Size</span>
+        <input type="range" id="sizeRange" min="12" max="50" step="1" style="flex:1;" />
+        <span class="sizeval" id="sizeVal"></span>
       </div>
-      <div class="row">
-        <span style="min-width:58px; color:var(--muted);">Text</span>
-        <input type="color" id="styleColor" value="#ffffff" title="Text color" />
-        <span style="color:var(--muted); margin-left:4px;">Edge</span>
-        <select id="styleEdge" style="flex:1;" title="Outline / shadow around the letters">
-          <option value="">Preset default</option>
-          <option value="shadow">Soft shadow</option>
-          <option value="outline">Outline</option>
-          <option value="none">None</option>
+      <details class="customize">
+        <summary>Customize <span class="hint">font · color · background · outline</span></summary>
+        <div class="row">
+          <span style="min-width:58px; color:var(--muted);">Font</span>
+          <select id="styleFont" style="flex:1;"></select>
+        </div>
+        <div class="row">
+          <span style="min-width:58px; color:var(--muted);">Text</span>
+          <input type="color" id="styleColor" value="#ffffff" title="Text color" />
+          <span style="color:var(--muted); margin-left:4px;">Edge</span>
+          <select id="styleEdge" style="flex:1;" title="Outline / shadow around the letters">
+            <option value="">Preset default</option>
+            <option value="shadow">Soft shadow</option>
+            <option value="outline">Outline</option>
+            <option value="none">None</option>
+          </select>
+        </div>
+        <div class="row">
+          <label class="switch"><input type="checkbox" id="styleBg" /><span class="slider"></span></label>
+          <label for="styleBg">Background</label>
+          <input type="color" id="styleBgColor" value="#080a0e" title="Background color" />
+          <input type="range" id="styleBgOpacity" min="0" max="100" step="1" style="flex:1;" title="Background opacity" />
+        </div>
+        <div class="row"><button class="resetstyle" id="styleReset">↺ Reset tweaks to the preset</button></div>
+      </details>
+      <div class="row" style="margin-top:10px;">
+        <span style="min-width:58px; color:var(--muted);">Position</span>
+        <select id="position" style="flex:1;">
+          <option value="bottom">Bottom</option>
+          <option value="top">Top</option>
+          <option value="auto">Auto (opposite the original)</option>
+          <option value="custom">Custom (dragged)</option>
         </select>
       </div>
+      <div class="hint" style="margin-top:7px;">Tip: drag each subtitle line on the video to place it — the original and translation can sit apart.</div>
       <div class="row">
-        <label class="switch"><input type="checkbox" id="styleBg" /><span class="slider"></span></label>
-        <label for="styleBg">Background</label>
-        <input type="color" id="styleBgColor" value="#080a0e" title="Background color" />
-        <input type="range" id="styleBgOpacity" min="0" max="100" step="1" style="flex:1;" title="Background opacity" />
+        <label class="switch"><input type="checkbox" id="hideNative" /><span class="slider"></span></label>
+        <label for="hideNative">Hide the site's own captions <span class="hint">(avoid doubles)</span></label>
       </div>
-      <div class="row"><button class="resetstyle" id="styleReset">↺ Reset tweaks to the preset</button></div>
     </details>
-    <div class="row" style="margin-top:10px;">
-      <span style="min-width:58px; color:var(--muted);">Position</span>
-      <select id="position" style="flex:1;">
-        <option value="bottom">Bottom</option>
-        <option value="top">Top</option>
-        <option value="auto">Auto (opposite the original)</option>
-        <option value="custom">Custom (dragged)</option>
-      </select>
-    </div>
-    <div class="hint" style="margin-top:7px;">Tip: drag each subtitle line on the video to place it — the original and translation can sit apart.</div>
-    <div class="row">
-      <label class="switch"><input type="checkbox" id="hideNative" /><span class="slider"></span></label>
-      <label for="hideNative">Hide the site's own captions <span class="hint">(avoid doubles)</span></label>
-    </div>
   </section>
 
   <!-- Timing -->
   <section>
-    <div class="lbl">Subtitle timing <span class="hint">shift if out of sync</span></div>
-    <div class="sync">
-      <button id="syncBack">−0.25s</button>
-      <span class="val" id="syncVal">0.00s</span>
-      <button id="syncFwd">+0.25s</button>
-      <span class="hint" style="flex:1;">+ earlier · − later</span>
-    </div>
+    <details class="customize" id="timeFold">
+      <summary>Subtitle timing <span class="hint" id="timeVal"></span></summary>
+      <div class="sync" style="margin-top:7px;">
+        <button id="syncBack">−0.25s</button>
+        <span class="val" id="syncVal">0.00s</span>
+        <button id="syncFwd">+0.25s</button>
+        <span class="hint" style="flex:1;">+ earlier · − later</span>
+      </div>
+    </details>
   </section>
 
   <!-- Library -->

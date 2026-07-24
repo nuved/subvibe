@@ -136,6 +136,39 @@ function refreshKeysSummary() {
   if (anyEmpty || anyFailed) el("keysDetails").open = true;
 }
 
+// ── Folded config remembers how you left it ─────────────────────────────────
+// The panel always reopens the way the user arranged it. Keys auto-open-on-attention
+// (hydrateKeys/refreshKeysSummary) still wins: it sets .open AFTER this runs, and that
+// programmatic toggle is saved too, which is fine — after fixing the key the user closes
+// it once.
+const FOLD_IDS = ["keysDetails", "engineFold", "voiceFold", "subsFold", "lookFold", "timeFold"];
+async function initFolds() {
+  const { uiFold } = await chrome.storage.local.get("uiFold");
+  const st = uiFold || {};
+  for (const id of FOLD_IDS) {
+    const d = el(id);
+    if (!d) continue;
+    if (typeof st[id] === "boolean") d.open = st[id];
+    d.addEventListener("toggle", () => {
+      const cur = {};
+      for (const i of FOLD_IDS) { const x = el(i); if (x) cur[i] = x.open; }
+      chrome.storage.local.set({ uiFold: cur });
+    });
+  }
+}
+
+function updateFoldSummaries() {
+  const txt = (id, v) => { const n = el(id); if (n) n.textContent = v; };
+  const sel = (id) => { const s = el(id); return (s && s.selectedOptions[0] && s.selectedOptions[0].textContent) || ""; };
+  txt("engineVal", sel("translationProvider"));
+  const gem = el("ttsProvider").value === "gemini";
+  txt("voiceVal", sel(gem ? "dubGeminiVoice" : "dubVoice") || sel("ttsProvider"));
+  txt("subsVal", [el("showOriginal").checked ? "dual" : "translation only",
+                  el("keepNames").checked ? "keep names" : ""].filter(Boolean).join(" · "));
+  txt("lookVal", `${el("sizeRange").value}px`);
+  txt("timeVal", el("syncVal").textContent);
+}
+
 let keyVerifyFailed = false;
 function refreshKeyDot() {
   setKeyDot("apiKeyDot", keyDotColor(el("apiKey").value, keyVerifyFailed));
@@ -351,6 +384,7 @@ async function pollDub() {
     prog.hidden = true;
     now.textContent = "";
     maybeRefreshSpend();
+    updateFoldSummaries();
     return;
   }
   if (st.live) { btn.hidden = true; s.textContent = "Live streams can't be dubbed."; prog.hidden = true; now.textContent = ""; return; }
@@ -362,6 +396,7 @@ async function pollDub() {
     el("dubProgFill").style.width = Math.round((st.cachedPct || 0) * 100) + "%";
     now.textContent = st.nowText ? "🔊 " + st.nowText : ""; // textContent — the line is page-derived
     maybeRefreshSpend();
+    updateFoldSummaries();
     return;
   }
   btn.hidden = false;
@@ -377,6 +412,7 @@ async function pollDub() {
   el("dubProgFill").style.width = Math.round((st.cachedPct || 0) * 100) + "%";
   now.textContent = st.nowText ? "🔊 " + st.nowText : ""; // textContent — the line is page-derived
   maybeRefreshSpend();
+  updateFoldSummaries();
 }
 setInterval(pollDub, 1500);
 
@@ -708,6 +744,7 @@ async function load() {
   keyHint();
   updateScope();
   loadThisVideo();
+  updateFoldSummaries();
 }
 
 // ── hidden tribute: tap the logo three times ──────────────────────────────────
@@ -735,3 +772,4 @@ async function load() {
 
 buildPresetRow();
 load();
+initFolds();
