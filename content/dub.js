@@ -16,7 +16,8 @@
   let resumable = new Set(); // run starts stopped mid-clip by an interruption (seek/pause), not a natural end — the ONLY case that resumes with a nonzero offset
   let elig = [];             // eligible groups, refreshed 1×/s by the pump
   // A run = consecutive eligible groups, same assigned voice, gaps < 1.4s,
-  // total span ≤ 12s, joined into ONE TTS call. Longer continuous synthesis
+  // total span capped per provider (openai 20s, gemini 28s — see rebuildRuns),
+  // joined into ONE TTS call. Longer continuous synthesis
   // holds one voice identity and natural prosody; short independent clips
   // drift (gpt-4o-mini-tts loses the timbre across separate generations).
   // Immutable once created: membership never changes after a run is built —
@@ -30,6 +31,8 @@
   let genErr = null;         // last generateAll() failure message, surfaced by the popup
   let nowText = null;        // translated line of the clip currently playing, for the popup's now-playing line
   let decodeFails = 0;       // count of decodeAudioData rejections (diagnostics — a spike here means "TTS ok, playback silent")
+  let cooldownUntil = 0; // epoch ms — the worker said the TTS provider is rate-limited; the pump sleeps until then
+  let lastFetchAt = 0;   // pacing: when the last TTS request was launched
 
   // ── consent-gated transport (session-local per attach, not persisted) ────
   // A fresh video must not spend a cent until the user clicks the on-player
@@ -97,7 +100,12 @@
       const v = conf.provider === "gemini"
         ? curVoice()
         : V().voiceForSpeaker(g.spk, conf.voice, conf.multi);
-      const canJoin = cur && cur.voice === v && gStart(g) - cur.end < 1400 && (gEnd(g) - cur.start) <= 20000;
+      // Gemini bills per second of audio, so bigger runs cost the same in
+      // fewer requests — that's what its low RPM ceiling actually rations.
+      // OpenAI stays at the ear-test-approved caps.
+      const gapMax = conf.provider === "gemini" ? 2000 : 1400;
+      const runCap = conf.provider === "gemini" ? 28000 : 20000;
+      const canJoin = cur && cur.voice === v && gStart(g) - cur.end < gapMax && (gEnd(g) - cur.start) <= runCap;
       if (canJoin) {
         cur.end = gEnd(g); cur.text += " " + (g.d || g.t[hooks.target]); cur.groups.push(g);
       } else {
@@ -225,7 +233,10 @@
             console.warn("[SubVibe dub] decode failed:", de && de.message, "run", k);
           }
         }
-      } else if (resp && resp.error) console.warn("[SubVibe dub] speech:", resp.error);
+      } else if (resp && resp.error) {
+        if (resp.cooldownUntil) cooldownUntil = Math.max(cooldownUntil, resp.cooldownUntil);
+        console.warn("[SubVibe dub] speech:", resp.error);
+      }
     } catch (e) { console.warn("[SubVibe dub] speech:", e && e.message); }
     finally { pending.delete(k); }
   }
@@ -241,12 +252,15 @@
     // (buffers filling, aheadPct shifting) that a targeted call site missed.
     paintTransport();
     if (transportPaused) return; // hard gate: no TTS requests until the user clicks
+    if (Date.now() < cooldownUntil) return; // rate-limited — paintTransport (above) shows the countdown
     const v = hooks.getVideo();
     if (!v || v.ended) return;
     if (v.paused && !(v.currentTime > 0.5)) return; // never spend on a video never started
     const t = hooks.playhead();
     for (const k of buffers.keys()) if (k < t - 30000 || k > t + 90000) buffers.delete(k); // bound RAM
-    if (pending.size >= 2) return;
+    const maxInflight = conf.provider === "gemini" ? 1 : 2;
+    const minGapMs = conf.provider === "gemini" ? 6000 : 0;
+    if (pending.size >= maxInflight) return;
     const sortedRuns = [...runs.values()].sort((a, b) => a.start - b.start);
     for (const run of sortedRuns) {
       const s = run.start;
@@ -259,8 +273,10 @@
       // OR the run is due soon enough that waiting risks missing playback.
       const hasLater = elig.some((g) => gStart(g) > run.end);
       if (!hasLater && run.end >= t + 15000) continue;
+      if (minGapMs && Date.now() - lastFetchAt < minGapMs) break;
       fetchOne(run);
-      if (pending.size >= 2) break;
+      lastFetchAt = Date.now();
+      if (pending.size >= maxInflight) break;
     }
   }
 
@@ -396,7 +412,9 @@
     const usd = Number.isFinite(lastRemainUSD) ? lastRemainUSD.toFixed(2) : "…";
     const pct = Math.round((Number.isFinite(lastPct) ? lastPct : 0) * 100);
     let label;
-    if (!transportPaused) label = `⏸ dub · ${Math.round(aheadPct() * 100)}% ready`;
+    const coolS = Math.ceil((cooldownUntil - Date.now()) / 1000);
+    if (!transportPaused && coolS > 0) label = `⏳ dub · rate-limited, resuming in ${coolS}s`;
+    else if (!transportPaused) label = `⏸ dub · ${Math.round(aheadPct() * 100)}% ready`;
     else if (lastPct > 0) label = `▶ dub · ${pct}% cached (~$${usd} more)`;
     else label = `▶ Start dub (~$${usd})`;
     dubctlEl.textContent = label;
@@ -640,6 +658,12 @@
       genAll = { phase: "speaking", total: ready.length, done: 0, cancelled: false };
       for (const run of ready) {
         if (genAll.cancelled) break;
+        while (Date.now() < cooldownUntil && !genAll.cancelled) {
+          genAll.phase = "rate-limited — waiting";
+          await new Promise((r) => setTimeout(r, 1000));
+        }
+        if (genAll.cancelled) break;
+        genAll.phase = "speaking";
         if (!buffers.has(run.start)) await fetchOne(run, false); // cached rows return instantly, free
         genAll.done++;
       }
