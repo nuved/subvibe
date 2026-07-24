@@ -39,6 +39,12 @@
   let transportPaused = true;
   let lastPct = 0, lastRemainUSD = 0; // last coverage snapshot, painted on the button
   let dubctlEl = null;
+  // Generation guard: bumped on every attach()/detach() so an in-flight
+  // refreshCoverage() (or its pump-triggered re-fires) started for the OLD
+  // video can never clobber lastPct/lastRemainUSD (or drive the auto-start
+  // decision) after a SPA nav has already moved on to a new video — the
+  // async AUDIO_KEYS round trip has no other way to know it's stale.
+  let attachGen = 0;
 
   const V = () => globalThis.SV_VOICES;
   const estUSD = (ms) => conf.provider === "gemini" ? V().dubEstimateUSDGemini(ms) : V().dubEstimateUSD(ms);
@@ -347,6 +353,12 @@
   // painting the button doesn't need a round trip through the popup).
   async function refreshCoverage() {
     if (!hooks) return;
+    // Captured at entry: if attach()/detach() bumps attachGen before the
+    // AUDIO_KEYS round trip below resolves (a SPA nav to a different video),
+    // `gen` is now stale — this call belongs to a video that's gone. Bail
+    // before writing lastPct/lastRemainUSD or repainting; the new attach()
+    // already reset+painted the button for the video that's actually showing.
+    const gen = attachGen;
     // Bulletproof: an {error} reply, a missing/malformed `keys` array, or a
     // throwing reduce must never leave lastPct/lastRemainUSD unset or leave
     // this promise rejected — a swallowed failure here is how the button gets
@@ -355,6 +367,7 @@
       const totalMs = elig.reduce((a, g) => a + gSpanMs(g), 0);
       let cachedMs = 0;
       const r = await send({ type: "AUDIO_KEYS", prefix: `${hooks.base}:dub:${vcfg()}#` });
+      if (gen !== attachGen) return; // stale — a newer attach() has already taken over
       const keys = (r && r.keys) || [];
       cachedMs = keys.reduce((a, k) => a + (k.ms || 0), 0);
       lastPct = totalMs ? Math.min(1, cachedMs / totalMs) : 0;
@@ -364,7 +377,7 @@
       // Leave last known-good lastPct/lastRemainUSD in place rather than
       // resetting to 0/NaN — a transient failure shouldn't erase a real number.
     } finally {
-      paintTransport();
+      if (gen === attachGen) paintTransport();
     }
   }
 
@@ -509,17 +522,29 @@
   }
 
   function attach(h) {
+    // Generation guard (must be FIRST): any refreshCoverage() (or its .then
+    // continuation) still in flight for the PREVIOUS video is now stale — it
+    // captured the old gen at its own entry and will bail rather than clobber
+    // the fresh state set up below for the new video.
+    attachGen++;
+    const gen = attachGen;
     hooks = h;
     buffers.clear(); pending.clear(); elig = []; runs.clear();
     stopAll(0);
     spoken.clear(); resumable.clear(); // fresh attach: no run has played yet, nothing is mid-clip
     lastT = -1;
-    // A fresh video must not spend a cent until the user clicks the transport
-    // button; a video with any cached dub audio auto-starts (replay is free).
-    transportPaused = true;
+    // Hard-reset the button's numbers to the fresh video's (unknown-yet)
+    // state and paint immediately — the button must never show the PREVIOUS
+    // video's cached %/$ even for one frame while the new coverage query is
+    // in flight. A fresh video must not spend a cent until the user clicks
+    // the transport button; a video with any cached dub audio auto-starts
+    // (replay is free) — but only once refreshCoverage confirms THIS video's
+    // own coverage below.
+    lastPct = 0; lastRemainUSD = 0; transportPaused = true;
     elig = eligibleGroups();
-    paintTransport(); // show the paused button immediately; refreshed below once coverage is known
+    paintTransport(); // show the paused, zeroed button immediately; refreshed below once coverage is known
     refreshCoverage().then(() => {
+      if (gen !== attachGen) return; // a later attach() has already superseded this one
       if (lastPct > 0) {
         transportPaused = false;
         if (dubOn) { ensureCtx(); duck(true); } // auto-start: create/resume the ctx now coverage is known
@@ -532,6 +557,7 @@
     }
   }
   function detach() {
+    attachGen++; // kill any in-flight coverage query for the video being left
     stopAll(0);
     if (ducked && volEl) { ducked = false; setVol(volEl, baseVol); }
     bindVolEl(null);
