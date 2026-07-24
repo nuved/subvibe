@@ -7,7 +7,7 @@
 const FA_FLAG = window.SV_FA_FLAG;
 const LANGS = window.SV_LANGS;
 
-const DEFAULTS = { enabled: true, targets: ["en"], showOriginal: true, hideNative: true, apiKey: "", keepNames: true, keepTerms: "", position: "bottom", size: "md", stylePreset: "classic", styleCustom: {}, syncOffset: 0, dubEnabled: false, dubVoice: "marin", dubMultiVoice: false, dubDuckLevel: 0.12, dubPace: 1 };
+const DEFAULTS = { enabled: true, targets: ["en"], showOriginal: true, hideNative: true, apiKey: "", translationProvider: "openai", anthropicKey: "", keepNames: true, keepTerms: "", position: "bottom", size: "md", stylePreset: "classic", styleCustom: {}, syncOffset: 0, dubEnabled: false, dubVoice: "marin", dubMultiVoice: false, dubDuckLevel: 0.12, dubPace: 1 };
 const el = (id) => document.getElementById(id);
 const fmtSync = (v) => (v > 0 ? "+" : "") + v.toFixed(2) + "s";
 const langMeta = (code) => LANGS.find((l) => l[0] === code) || [code, code.toUpperCase(), "🏳️"];
@@ -88,7 +88,7 @@ el("langSearch").addEventListener("keydown", (e) => {
 });
 document.addEventListener("click", (e) => { if (!el("langSearch").contains(e.target) && !el("langMenu").contains(e.target)) el("langMenu").classList.remove("show"); });
 
-// ── API key ──────────────────────────────────────────────────────────────────
+// ── API key(s) + translation engine select ───────────────────────────────────
 function setKeyStatus(text, cls) { const s = el("keyStatus"); s.textContent = text; s.className = cls || ""; }
 function keyHint() {
   if (!el("apiKey").value.trim()) setKeyStatus("Paste your key above to start — it's stored only on this device.", "warn");
@@ -108,6 +108,34 @@ el("verify").addEventListener("click", async () => {
   const r = await chrome.runtime.sendMessage({ type: "VERIFY_KEY", apiKey: key }).catch(() => null);
   if (r && r.ok) setKeyStatus("Key works ✓ — you're all set.", "ok");
   else setKeyStatus("Key rejected" + (r && r.status ? " (HTTP " + r.status + ")" : "") + " — check it and try again.", "err");
+});
+
+function setAnthropicKeyStatus(text, cls) { const s = el("anthropicKeyStatus"); s.textContent = text; s.className = cls || ""; }
+function anthropicKeyHint() {
+  if (!el("anthropicKey").value.trim()) setAnthropicKeyStatus("Paste your key above to start — it's stored only on this device.", "warn");
+  else setAnthropicKeyStatus("Stored only on this device. Applies to newly translated lines — cached lines keep their existing translation.", "");
+}
+let anthropicKeyT;
+el("anthropicKey").addEventListener("input", () => {
+  clearTimeout(anthropicKeyT); anthropicKeyHint();
+  anthropicKeyT = setTimeout(() => persist({ anthropicKey: el("anthropicKey").value.trim() }), 400);
+});
+el("verifyAnthropic").addEventListener("click", async () => {
+  const key = el("anthropicKey").value.trim();
+  if (!key) return setAnthropicKeyStatus("Paste your key first.", "warn");
+  setAnthropicKeyStatus("Checking…", "");
+  const r = await chrome.runtime.sendMessage({ type: "VERIFY_ANTHROPIC", apiKey: key }).catch(() => null);
+  if (r && r.ok) setAnthropicKeyStatus("Key works ✓ — you're all set.", "ok");
+  else setAnthropicKeyStatus("Key rejected" + (r && r.status ? " (HTTP " + r.status + ")" : "") + " — check it and try again.", "err");
+});
+
+function updateProviderUI() {
+  const isClaude = el("translationProvider").value === "claude";
+  el("anthropicKeyRow").hidden = !isClaude;
+}
+el("translationProvider").addEventListener("change", () => {
+  persist({ translationProvider: el("translationProvider").value });
+  updateProviderUI();
 });
 
 // ── simple toggles / selects (live) ──────────────────────────────────────────
@@ -424,6 +452,10 @@ async function load() {
   if (!(state.targets && state.targets.length)) state.targets = ["en"];
   el("enabled").checked = state.enabled;
   el("apiKey").value = state.apiKey || "";
+  el("translationProvider").value = state.translationProvider === "claude" ? "claude" : "openai";
+  el("anthropicKey").value = state.anthropicKey || "";
+  updateProviderUI();
+  anthropicKeyHint();
   el("keepNames").checked = state.keepNames !== false;
   el("keepTerms").value = state.keepTerms || "";
   el("showOriginal").checked = state.showOriginal;

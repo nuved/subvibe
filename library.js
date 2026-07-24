@@ -439,13 +439,21 @@ el("clearAll").addEventListener("click", async () => {
   refresh();
 });
 
-// ── Activity tab: a local, on-device log of every OpenAI call ──────────────────
+// ── Activity tab: a local, on-device log of every provider call ────────────────
 const PRICE_IN = 0.15 / 1e6, PRICE_OUT = 0.60 / 1e6; // gpt-4o-mini, USD per token
+// Claude Sonnet 4.6 — verified via WebFetch against
+// https://platform.claude.com/docs/en/about-claude/pricing (checked 2026-07-23):
+// $3 / MTok input, $15 / MTok output.
+const CLAUDE_PRICE_IN = 3 / 1e6, CLAUDE_PRICE_OUT = 15 / 1e6;
 let actQuery = "";
-const estCost = (c) => c && c.kind === "tts"
-  ? ((c.durMs || 0) / 60000) * 0.015
-  : ((c && c.inTok) || 0) * PRICE_IN + ((c && c.outTok) || 0) * PRICE_OUT;
+const estCost = (c) => {
+  if (c && c.kind === "tts") return ((c.durMs || 0) / 60000) * 0.015;
+  const isClaude = c && c.provider === "claude";
+  const pin = isClaude ? CLAUDE_PRICE_IN : PRICE_IN, pout = isClaude ? CLAUDE_PRICE_OUT : PRICE_OUT;
+  return ((c && c.inTok) || 0) * pin + ((c && c.outTok) || 0) * pout;
+};
 const fmtCost = (c) => (c >= 1 ? "$" + c.toFixed(2) : "$" + c.toFixed(4));
+const providerLabel = (p) => (p === "claude" ? "Claude" : "OpenAI");
 function fmtTime(ts) {
   if (!ts) return "—";
   const d = new Date(ts), now = new Date();
@@ -464,25 +472,42 @@ async function loadActivity() {
   const calls = (res && res.calls) || [];
   const q = actQuery;
   const shown = !q ? calls : calls.filter((c) =>
-    ((c.title || "") + " " + (c.site || "") + " " + (c.target || "")).toLowerCase().includes(q) ||
+    ((c.title || "") + " " + (c.site || "") + " " + (c.target || "") + " " + providerLabel(c.provider)).toLowerCase().includes(q) ||
     (langMeta(c.target || "")[1] || "").toLowerCase().includes(q));
-  let inTok = 0, outTok = 0, ms = 0, ok = 0, fail = 0, lines = 0, costToday = 0, costAll = 0;
+  let inTok = 0, outTok = 0, ms = 0, ok = 0, fail = 0, lines = 0;
+  // costByProvider tracks all-time/today split per provider so the stat cards can
+  // show one "Est. cost" card normally, or two ("OpenAI" / "Claude") once a user
+  // has called both providers — most people will only ever see one card.
+  const costByProvider = { openai: { all: 0, today: 0 }, claude: { all: 0, today: 0 } };
   const startToday = new Date(); startToday.setHours(0, 0, 0, 0); const t0 = startToday.getTime();
   for (const c of shown) {
     inTok += c.inTok || 0; outTok += c.outTok || 0; ms += c.ms || 0; lines += c.lines || 0;
     if (c.ok) ok++; else fail++;
-    costAll += estCost(c);
-    if ((c.ts || 0) >= t0) costToday += estCost(c);
+    const p = c.provider === "claude" ? "claude" : "openai";
+    const cost = estCost(c);
+    costByProvider[p].all += cost;
+    if ((c.ts || 0) >= t0) costByProvider[p].today += cost;
   }
   const avgMs = shown.length ? Math.round(ms / shown.length) : 0;
+  const providersUsed = Object.keys(costByProvider).filter((p) => costByProvider[p].all > 0 || costByProvider[p].today > 0);
+  const bothPresent = providersUsed.length > 1;
 
   const stats = el("actStats"); stats.innerHTML = "";
   stats.appendChild(statCard("Calls", String(shown.length), fail ? `· ${fail} failed` : ""));
   if (q) stats.appendChild(statCard("Filtered", shown.length + "/" + calls.length + " calls"));
   stats.appendChild(statCard("Lines translated", lines.toLocaleString()));
   stats.appendChild(statCard("Tokens (in · out)", inTok.toLocaleString() + " · " + outTok.toLocaleString()));
-  stats.appendChild(statCard("Est. cost · all-time", "~" + fmtCost(costAll), "", "cost"));
-  stats.appendChild(statCard("Est. cost · today", "~" + fmtCost(costToday), "", "cost"));
+  if (bothPresent) {
+    for (const p of ["openai", "claude"]) {
+      stats.appendChild(statCard(`Est. cost · ${providerLabel(p)}`, "~" + fmtCost(costByProvider[p].all), "all-time", "cost"));
+      stats.appendChild(statCard(`Est. cost · ${providerLabel(p)} today`, "~" + fmtCost(costByProvider[p].today), "", "cost"));
+    }
+  } else {
+    const costAll = costByProvider.openai.all + costByProvider.claude.all;
+    const costToday = costByProvider.openai.today + costByProvider.claude.today;
+    stats.appendChild(statCard("Est. cost · all-time", "~" + fmtCost(costAll), "", "cost"));
+    stats.appendChild(statCard("Est. cost · today", "~" + fmtCost(costToday), "", "cost"));
+  }
   stats.appendChild(statCard("Avg response", avgMs + " ms"));
 
   const list = el("actList"); list.innerHTML = "";
@@ -493,11 +518,12 @@ async function loadActivity() {
     const s = document.createElement("span"); s.className = "cs";
     s.textContent = (c.title || (c.site ? siteMeta(c.site).label : "—")) + (c.target ? " → " + langMeta(c.target)[1] : "");
     s.title = s.textContent;
+    const pv = document.createElement("span"); pv.className = "cprov"; pv.textContent = providerLabel(c.provider);
     const ln = document.createElement("span"); ln.textContent = c.kind === "tts" ? "🎙 " + Math.round((c.durMs || 0) / 1000) + "s" : (c.lines || 0) + " ln";
     const tk = document.createElement("span"); tk.className = "ctok"; tk.textContent = (c.inTok || 0) + "→" + (c.outTok || 0);
     const mv = document.createElement("span"); mv.className = "cms"; mv.textContent = (c.ms || 0) + "ms";
     const st = document.createElement("span"); st.className = "cok " + (c.ok ? "ok" : "err"); st.textContent = c.ok ? "✓" : "✗";
-    [t, s, ln, tk, mv, st].forEach((e) => row.appendChild(e));
+    [t, s, pv, ln, tk, mv, st].forEach((e) => row.appendChild(e));
     list.appendChild(row);
   }
 }

@@ -10,6 +10,15 @@ const OPENAI_CHAT = "https://api.openai.com/v1/chat/completions";
 const TRANSLATE_MODEL = "gpt-4o-mini";
 const BATCH = 60; // cues per translation request — keeps JSON responses reliable
 
+// Claude (Anthropic) translation provider — an alternative BYOK engine, selected
+// via translationProvider in chrome.storage.local ("openai" default | "claude").
+const ANTHROPIC_MESSAGES = "https://api.anthropic.com/v1/messages";
+const ANTHROPIC_VERSION = "2023-06-01";
+const CLAUDE_MODEL = "claude-sonnet-4-6";
+const CLAUDE_MAX_TOKENS = 8192; // max_tokens is REQUIRED on /v1/messages
+// Pricing (used for cost estimation) lives in library.js as named constants,
+// verified via WebFetch against https://platform.claude.com/docs/en/about-claude/pricing.
+
 // Structured Outputs schema (strict) — the OpenAI-recommended replacement for
 // JSON mode: the model is GUARANTEED to return {"t": [ ...strings ]}, so a
 // missing key / malformed-JSON response can't happen. Supported on gpt-4o-mini
@@ -319,9 +328,66 @@ async function translateChunk(lines, source, target, apiKey, context, keepTerms,
   throw new Error(`OpenAI ${lastStatus}: ${detail}`);
 }
 
+// Claude (Anthropic) translate path — same systemPrompt(...) as OpenAI (so
+// keepTerms/keepNames behave identically per provider), same {t,s,g,d} schema,
+// via output_config.format (verified shape, no beta header required — see
+// https://platform.claude.com/docs/en/build-with-claude/structured-outputs).
+async function translateChunkClaude(lines, source, target, apiKey, context, keepTerms, keepNames) {
+  const userPayload = context && context.length ? { context, lines } : { lines };
+  const body = {
+    model: CLAUDE_MODEL,
+    max_tokens: CLAUDE_MAX_TOKENS,
+    system: systemPrompt(source, target, lines.length, keepTerms, keepNames),
+    messages: [{ role: "user", content: JSON.stringify(userPayload) }],
+    output_config: { format: { type: "json_schema", schema: TRANSLATE_SCHEMA.schema } },
+  };
+  let lastStatus = 0, lastBody = "";
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt) await new Promise((r) => setTimeout(r, 500 * attempt)); // brief backoff between retries
+    const res = await fetch(ANTHROPIC_MESSAGES, {
+      method: "POST",
+      headers: { "x-api-key": apiKey, "anthropic-version": ANTHROPIC_VERSION, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const txt = await res.text();
+    if (res.ok) {
+      if (!txt) throw new Error("Claude returned an empty response");
+      let data;
+      try { data = JSON.parse(txt); } catch { throw new Error("Claude returned a non-JSON response"); }
+      const content = data?.content?.[0]?.text || "{}";
+      let parsed;
+      try { parsed = JSON.parse(content); } catch { throw new Error("the model returned malformed JSON"); }
+      const arr = parsed.t || parsed.translations || parsed.lines || [];
+      return {
+        lines: Array.isArray(arr) ? arr : [],
+        spk: Array.isArray(parsed.s) ? parsed.s : [],
+        gen: Array.isArray(parsed.g) ? parsed.g : [],
+        dub: Array.isArray(parsed.d) ? parsed.d : [],
+        usage: data.usage ? { prompt_tokens: data.usage.input_tokens || 0, completion_tokens: data.usage.output_tokens || 0 } : null,
+      };
+    }
+    lastStatus = res.status; lastBody = txt;
+    if (!TRANSIENT_HTTP.has(res.status)) break; // permanent (e.g. 401 bad key) → don't waste retries
+  }
+  const detail = lastStatus >= 500 ? "Claude is temporarily unavailable — retrying"
+    : lastStatus === 429 ? "rate limited by Anthropic"
+    : /^\s*<(?:!doctype|html|\?xml)/i.test(lastBody || "") ? "unexpected non-JSON response"
+    : (lastBody || "").replace(/\s+/g, " ").slice(0, 140);
+  throw new Error(`Claude ${lastStatus}: ${detail}`);
+}
+
 async function translateAll(lines, source, target, context) {
-  const { apiKey, keepTerms, keepNames } = await chrome.storage.local.get(["apiKey", "keepTerms", "keepNames"]);
-  if (!apiKey) throw new Error("No OpenAI API key yet — open the SubVibe popup and paste your key.");
+  const { apiKey, anthropicKey, keepTerms, keepNames, translationProvider } =
+    await chrome.storage.local.get(["apiKey", "anthropicKey", "keepTerms", "keepNames", "translationProvider"]);
+  const provider = translationProvider === "claude" ? "claude" : "openai";
+  const key = provider === "claude" ? anthropicKey : apiKey;
+  if (!key) {
+    throw new Error(provider === "claude"
+      ? "No Anthropic API key yet — open the SubVibe popup and paste your key."
+      : "No OpenAI API key yet — open the SubVibe popup and paste your key.");
+  }
+  const chunkFn = provider === "claude" ? translateChunkClaude : translateChunk;
+  const model = provider === "claude" ? CLAUDE_MODEL : TRANSLATE_MODEL;
   const keepN = keepNames !== false; // default ON
   const out = new Array(lines.length), spk = new Array(lines.length), gen = new Array(lines.length), dub = new Array(lines.length);
   let lastErr = null, failedBatches = 0, totalBatches = 0, inTok = 0, outTok = 0;
@@ -330,10 +396,10 @@ async function translateAll(lines, source, target, context) {
     totalBatches++;
     let r = null;
     try {
-      r = await translateChunk(chunk, source, target, apiKey, context, keepTerms, keepN);
+      r = await chunkFn(chunk, source, target, key, context, keepTerms, keepN);
     } catch (e) {
       lastErr = e; // one retry before giving up on this batch
-      try { r = await translateChunk(chunk, source, target, apiKey, null, keepTerms, keepN); }
+      try { r = await chunkFn(chunk, source, target, key, null, keepTerms, keepN); }
       catch (e2) { lastErr = e2; r = null; }
     }
     if (r && r.usage) { inTok += r.usage.prompt_tokens || 0; outTok += r.usage.completion_tokens || 0; }
@@ -354,7 +420,7 @@ async function translateAll(lines, source, target, context) {
   // If EVERY batch failed, surface the real reason instead of silently handing
   // back untranslated text (which used to look like "nothing happened").
   if (failedBatches === totalBatches && lastErr) throw new Error(lastErr.message);
-  return { out, spk, gen, dub, inTok, outTok };
+  return { out, spk, gen, dub, inTok, outTok, provider, model };
 }
 
 // ─── TTS (dub speech) ────────────────────────────────────────────────────────
@@ -454,10 +520,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           const meta = { ts: started, site: msg.site, title: msg.title, target: msg.target, lines: (msg.cues || []).length };
           try {
             const r = await translateAll(msg.cues, msg.source, msg.target, msg.context);
-            await logCall({ ...meta, ms: Date.now() - started, inTok: r.inTok, outTok: r.outTok, ok: true });
+            await logCall({ ...meta, ms: Date.now() - started, inTok: r.inTok, outTok: r.outTok, ok: true, provider: r.provider, model: r.model });
             sendResponse({ lines: r.out, spk: r.spk, gen: r.gen, dub: r.dub });
           } catch (e) {
-            await logCall({ ...meta, ms: Date.now() - started, inTok: 0, outTok: 0, ok: false, err: String((e && e.message) || e) });
+            const { translationProvider } = await chrome.storage.local.get("translationProvider");
+            const provider = translationProvider === "claude" ? "claude" : "openai";
+            await logCall({ ...meta, ms: Date.now() - started, inTok: 0, outTok: 0, ok: false, err: String((e && e.message) || e), provider, model: provider === "claude" ? CLAUDE_MODEL : TRANSLATE_MODEL });
             throw e; // let the outer catch send the {error} response
           }
           break;
@@ -526,6 +594,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           // popup show ✓/✗ before the user hits a video.
           try {
             const r = await fetch("https://api.openai.com/v1/models", { headers: { Authorization: "Bearer " + (msg.apiKey || "") } });
+            sendResponse({ ok: r.ok, status: r.status });
+          } catch (e) {
+            sendResponse({ ok: false, error: String((e && e.message) || e) });
+          }
+          break;
+        }
+        case "VERIFY_ANTHROPIC": {
+          // Same idea as VERIFY_KEY but for the Claude BYOK key: a cheap
+          // GET /v1/models with the Anthropic auth headers.
+          try {
+            const r = await fetch("https://api.anthropic.com/v1/models", {
+              headers: { "x-api-key": msg.apiKey || "", "anthropic-version": ANTHROPIC_VERSION },
+            });
             sendResponse({ ok: r.ok, status: r.status });
           } catch (e) {
             sendResponse({ ok: false, error: String((e && e.message) || e) });

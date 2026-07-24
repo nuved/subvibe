@@ -100,10 +100,11 @@
     .acthead { display: flex; align-items: center; justify-content: space-between; margin: 22px 0 8px; font-weight: 700; }
 
     #actList:empty::after { content: "No calls yet — play a video and the requests will show up here."; color: var(--muted); font-size: 12px; }
-    .callrow { display: grid; grid-template-columns: 116px 1fr 60px 92px 60px 20px; gap: 10px; align-items: center;
+    .callrow { display: grid; grid-template-columns: 116px 1fr 56px 60px 92px 60px 20px; gap: 10px; align-items: center;
       padding: 9px 6px; border-bottom: 1px solid #151a23; font-size: 12.5px; }
-    .callrow .ct, .callrow .ctok, .callrow .cms { color: var(--muted); font-variant-numeric: tabular-nums; }
+    .callrow .ct, .callrow .ctok, .callrow .cms, .callrow .cprov { color: var(--muted); font-variant-numeric: tabular-nums; }
     .callrow .cs { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .callrow .cprov { text-align: center; font-size: 11px; }
     .callrow .cms { text-align: right; }
     .callrow .cok { text-align: center; font-weight: 800; }
     .callrow .ok { color: var(--green); } .callrow .err { color: var(--red); }

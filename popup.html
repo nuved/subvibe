@@ -47,8 +47,10 @@
     .btn:hover { background: var(--accent2); }
     .btn.ghost { background: var(--panel2); color: #cdd6e3; border: 1px solid var(--border); }
     .btn.ghost:hover { background: #1b2330; }
-    #keyStatus { font-size: 11px; margin-top: 6px; min-height: 14px; color: var(--muted); }
-    #keyStatus.ok { color: var(--green); } #keyStatus.err { color: var(--red); } #keyStatus.warn { color: var(--amber); }
+    #keyStatus, #anthropicKeyStatus { font-size: 11px; margin-top: 6px; min-height: 14px; color: var(--muted); }
+    #keyStatus.ok, #anthropicKeyStatus.ok { color: var(--green); }
+    #keyStatus.err, #anthropicKeyStatus.err { color: var(--red); }
+    #keyStatus.warn, #anthropicKeyStatus.warn { color: var(--amber); }
 
     /* language chips + autocomplete */
     .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
@@ -179,14 +181,29 @@
     <button id="resetClip" class="scopelink muted" hidden title="Revert this video to your defaults">Reset</button>
   </div>
 
-  <!-- API key -->
+  <!-- Translation engine + API key(s) -->
   <section>
-    <div class="lbl">OpenAI API key <a id="getKey" href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">Get a key →</a></div>
-    <div class="keyrow">
-      <input type="password" id="apiKey" placeholder="sk-…" autocomplete="off" spellcheck="false" />
-      <button class="btn ghost" id="verify">Verify</button>
+    <div class="lbl">Translation engine</div>
+    <select id="translationProvider" style="margin-bottom:10px;">
+      <option value="openai">OpenAI GPT-4o-mini</option>
+      <option value="claude">Claude Sonnet 4.6</option>
+    </select>
+    <div id="openaiKeyRow">
+      <div class="lbl">OpenAI API key <a id="getKey" href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">Get a key →</a></div>
+      <div class="keyrow">
+        <input type="password" id="apiKey" placeholder="sk-…" autocomplete="off" spellcheck="false" />
+        <button class="btn ghost" id="verify">Verify</button>
+      </div>
+      <div id="keyStatus">Stored only on this device · a few cents per hour · cached replays are free.</div>
     </div>
-    <div id="keyStatus">Stored only on this device · a few cents per hour · cached replays are free.</div>
+    <div id="anthropicKeyRow" hidden style="margin-top:10px;">
+      <div class="lbl">Anthropic API key <a id="getAnthropicKey" href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">Get a key →</a></div>
+      <div class="keyrow">
+        <input type="password" id="anthropicKey" placeholder="sk-ant-…" autocomplete="off" spellcheck="false" />
+        <button class="btn ghost" id="verifyAnthropic">Verify</button>
+      </div>
+      <div id="anthropicKeyStatus">Stored only on this device. Applies to newly translated lines — cached lines keep their existing translation.</div>
+    </div>
   </section>
 
   <!-- Languages -->
