@@ -88,15 +88,25 @@ el("langSearch").addEventListener("keydown", (e) => {
 });
 document.addEventListener("click", (e) => { if (!el("langSearch").contains(e.target) && !el("langMenu").contains(e.target)) el("langMenu").classList.remove("show"); });
 
-// ── API key(s) + translation engine select ───────────────────────────────────
+// ── API keys (OpenAI, Anthropic, Gemini) — all three rows always visible ────
+// Each key's status dot is green when a Verify succeeded this session OR a
+// non-empty key is stored; red after a failed Verify; grey when empty.
 function setKeyStatus(text, cls) { const s = el("keyStatus"); s.textContent = text; s.className = cls || ""; }
 function keyHint() {
   if (!el("apiKey").value.trim()) setKeyStatus("Paste your key above to start — it's stored only on this device.", "warn");
   else setKeyStatus("Stored only on this device · a few cents per hour · cached replays are free.", "");
 }
+function setKeyDot(id, ok) { el(id).className = "keydot" + (ok === true ? " green" : ok === false ? " red" : ""); }
+let keyVerifyFailed = false;
+function refreshKeyDot() {
+  const has = !!el("apiKey").value.trim();
+  setKeyDot("apiKeyDot", keyVerifyFailed ? false : has ? true : null);
+}
 let keyT;
 el("apiKey").addEventListener("input", () => {
   clearTimeout(keyT); keyHint();
+  keyVerifyFailed = false; refreshKeyDot();
+  updateProviderAvailability();
   keyT = setTimeout(() => persist({ apiKey: el("apiKey").value.trim() }), 400);
 });
 let termsT;
@@ -106,8 +116,10 @@ el("verify").addEventListener("click", async () => {
   if (!key) return setKeyStatus("Paste your key first.", "warn");
   setKeyStatus("Checking…", "");
   const r = await chrome.runtime.sendMessage({ type: "VERIFY_KEY", apiKey: key }).catch(() => null);
+  keyVerifyFailed = !(r && r.ok);
   if (r && r.ok) setKeyStatus("Key works ✓ — you're all set.", "ok");
   else setKeyStatus("Key rejected" + (r && r.status ? " (HTTP " + r.status + ")" : "") + " — check it and try again.", "err");
+  refreshKeyDot();
 });
 
 function setAnthropicKeyStatus(text, cls) { const s = el("anthropicKeyStatus"); s.textContent = text; s.className = cls || ""; }
@@ -115,9 +127,16 @@ function anthropicKeyHint() {
   if (!el("anthropicKey").value.trim()) setAnthropicKeyStatus("Paste your key above to start — it's stored only on this device.", "warn");
   else setAnthropicKeyStatus("Stored only on this device. Applies to newly translated lines — cached lines keep their existing translation.", "");
 }
+let anthropicKeyVerifyFailed = false;
+function refreshAnthropicKeyDot() {
+  const has = !!el("anthropicKey").value.trim();
+  setKeyDot("anthropicKeyDot", anthropicKeyVerifyFailed ? false : has ? true : null);
+}
 let anthropicKeyT;
 el("anthropicKey").addEventListener("input", () => {
   clearTimeout(anthropicKeyT); anthropicKeyHint();
+  anthropicKeyVerifyFailed = false; refreshAnthropicKeyDot();
+  updateProviderAvailability();
   anthropicKeyT = setTimeout(() => persist({ anthropicKey: el("anthropicKey").value.trim() }), 400);
 });
 el("verifyAnthropic").addEventListener("click", async () => {
@@ -125,17 +144,10 @@ el("verifyAnthropic").addEventListener("click", async () => {
   if (!key) return setAnthropicKeyStatus("Paste your key first.", "warn");
   setAnthropicKeyStatus("Checking…", "");
   const r = await chrome.runtime.sendMessage({ type: "VERIFY_ANTHROPIC", apiKey: key }).catch(() => null);
+  anthropicKeyVerifyFailed = !(r && r.ok);
   if (r && r.ok) setAnthropicKeyStatus("Key works ✓ — you're all set.", "ok");
   else setAnthropicKeyStatus("Key rejected" + (r && r.status ? " (HTTP " + r.status + ")" : "") + " — check it and try again.", "err");
-});
-
-function updateProviderUI() {
-  const isClaude = el("translationProvider").value === "claude";
-  el("anthropicKeyRow").hidden = !isClaude;
-}
-el("translationProvider").addEventListener("change", () => {
-  persist({ translationProvider: el("translationProvider").value });
-  updateProviderUI();
+  refreshAnthropicKeyDot();
 });
 
 // ── Gemini API key (TTS/dub provider) ────────────────────────────────────────
@@ -144,9 +156,16 @@ function geminiKeyHint() {
   if (!el("geminiKey").value.trim()) setGeminiKeyStatus("Paste your key above to start — it's stored only on this device.", "warn");
   else setGeminiKeyStatus("Stored only on this device. Used only for text-to-speech (dub), never for translation.", "");
 }
+let geminiKeyVerifyFailed = false;
+function refreshGeminiKeyDot() {
+  const has = !!el("geminiKey").value.trim();
+  setKeyDot("geminiKeyDot", geminiKeyVerifyFailed ? false : has ? true : null);
+}
 let geminiKeyT;
 el("geminiKey").addEventListener("input", () => {
   clearTimeout(geminiKeyT); geminiKeyHint();
+  geminiKeyVerifyFailed = false; refreshGeminiKeyDot();
+  updateProviderAvailability();
   geminiKeyT = setTimeout(() => persist({ geminiKey: el("geminiKey").value.trim() }), 400);
 });
 el("verifyGemini").addEventListener("click", async () => {
@@ -154,14 +173,54 @@ el("verifyGemini").addEventListener("click", async () => {
   if (!key) return setGeminiKeyStatus("Paste your key first.", "warn");
   setGeminiKeyStatus("Checking…", "");
   const r = await chrome.runtime.sendMessage({ type: "VERIFY_GEMINI", apiKey: key }).catch(() => null);
+  geminiKeyVerifyFailed = !(r && r.ok);
   if (r && r.ok) setGeminiKeyStatus("Key works ✓ — you're all set.", "ok");
   else setGeminiKeyStatus("Key rejected" + (r && r.status ? " (HTTP " + r.status + ")" : "") + " — check it and try again.", "err");
+  refreshGeminiKeyDot();
+});
+
+// ── Translation + TTS engine selects: options disabled/labeled by key availability ──
+// Base labels are constants so rebuilding never accumulates " — add key" suffixes.
+const TRANSLATION_OPTIONS = [["openai", "OpenAI GPT-4o-mini"], ["claude", "Claude Sonnet 4.6"]];
+const TTS_OPTIONS = [["openai", "OpenAI gpt-4o-mini-tts"], ["gemini", "Gemini 2.5 Flash TTS (native Persian voices)"]];
+// Which stored key (input id) each engine option requires, and the two display
+// names used in the missing-key warning ("<engine> selected but no <provider> key…").
+const ENGINE_KEY = { openai: "apiKey", claude: "anthropicKey", gemini: "geminiKey" };
+const ENGINE_KEY_LABEL = { openai: "OpenAI", claude: "Anthropic", gemini: "Gemini" };
+const ENGINE_NAME = { openai: "OpenAI", claude: "Claude", gemini: "Gemini" };
+
+function rebuildEngineSelect(selectEl, baseOptions, warnEl) {
+  const current = selectEl.value;
+  selectEl.innerHTML = "";
+  for (const [value, label] of baseOptions) {
+    const hasKey = !!el(ENGINE_KEY[value]).value.trim();
+    const o = document.createElement("option");
+    o.value = value;
+    o.textContent = hasKey ? label : label + " — add key";
+    o.disabled = !hasKey && value !== current; // never disable the persisted selection itself
+    selectEl.appendChild(o);
+  }
+  selectEl.value = current; // restore selection — never auto-switch away from it
+  const stillHasKey = !!el(ENGINE_KEY[current]).value.trim();
+  if (!stillHasKey) {
+    warnEl.textContent = `${ENGINE_NAME[current]} selected but no ${ENGINE_KEY_LABEL[current]} key — falls back to errors until you add one.`;
+    warnEl.hidden = false;
+  } else {
+    warnEl.hidden = true;
+  }
+}
+function updateProviderAvailability() {
+  rebuildEngineSelect(el("translationProvider"), TRANSLATION_OPTIONS, el("translationProviderWarn"));
+  rebuildEngineSelect(el("ttsProvider"), TTS_OPTIONS, el("ttsProviderWarn"));
+}
+el("translationProvider").addEventListener("change", () => {
+  persist({ translationProvider: el("translationProvider").value });
+  updateProviderAvailability();
 });
 
 // ── TTS engine select (dub voice provider) ───────────────────────────────────
 function updateTtsProviderUI() {
   const isGemini = el("ttsProvider").value === "gemini";
-  el("geminiKeyRow").hidden = !isGemini;
   el("dubVoice").hidden = isGemini;
   el("dubGeminiVoice").hidden = !isGemini;
   // Multi-voice is OpenAI-only in v1 — disable (not hide) under Gemini so the
@@ -174,6 +233,7 @@ function updateTtsProviderUI() {
 el("ttsProvider").addEventListener("change", () => {
   persist({ ttsProvider: el("ttsProvider").value });
   updateTtsProviderUI();
+  updateProviderAvailability();
 });
 
 // ── simple toggles / selects (live) ──────────────────────────────────────────
@@ -501,8 +561,9 @@ async function load() {
   el("apiKey").value = state.apiKey || "";
   el("translationProvider").value = state.translationProvider === "claude" ? "claude" : "openai";
   el("anthropicKey").value = state.anthropicKey || "";
-  updateProviderUI();
   anthropicKeyHint();
+  refreshKeyDot();
+  refreshAnthropicKeyDot();
   el("keepNames").checked = state.keepNames !== false;
   el("keepTerms").value = state.keepTerms || "";
   el("showOriginal").checked = state.showOriginal;
@@ -515,6 +576,8 @@ async function load() {
   el("geminiKey").value = state.geminiKey || "";
   updateTtsProviderUI();
   geminiKeyHint();
+  refreshGeminiKeyDot();
+  updateProviderAvailability();
   buildVoiceSelect();
   el("dubVoice").value = state.dubVoice || "marin";
   el("dubGeminiVoice").value = state.dubGeminiVoice || "Kore";

@@ -52,6 +52,18 @@
     #keyStatus.err, #anthropicKeyStatus.err, #geminiKeyStatus.err { color: var(--red); }
     #keyStatus.warn, #anthropicKeyStatus.warn, #geminiKeyStatus.warn { color: var(--amber); }
 
+    /* API keys panel: per-provider row with status dot */
+    .keysection + .keysection { margin-top: 14px; }
+    .keyhead { display: flex; align-items: baseline; justify-content: space-between; margin: 0 0 2px; }
+    .keyhead .keyname { font-weight: 600; }
+    .keyhead a { color: var(--accent); font-weight: 500; font-size: 11px; text-decoration: none; }
+    .keyhead a:hover { text-decoration: underline; }
+    .keyused { color: var(--muted); font-size: 11px; margin: 0 0 7px; }
+    .keydot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: var(--muted); flex: none; }
+    .keydot.green { background: var(--green); }
+    .keydot.red { background: var(--red); }
+    .selwarn { color: var(--amber); font-size: 11px; margin: 5px 0 0; }
+
     /* language chips + autocomplete */
     .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
     .chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 6px 3px 8px;
@@ -181,28 +193,45 @@
     <button id="resetClip" class="scopelink muted" hidden title="Revert this video to your defaults">Reset</button>
   </div>
 
-  <!-- Translation engine + API key(s) -->
+  <!-- Translation engine -->
   <section>
     <div class="lbl">Translation engine</div>
-    <select id="translationProvider" style="margin-bottom:10px;">
+    <select id="translationProvider">
       <option value="openai">OpenAI GPT-4o-mini</option>
       <option value="claude">Claude Sonnet 4.6</option>
     </select>
-    <div id="openaiKeyRow">
-      <div class="lbl">OpenAI API key <a id="getKey" href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">Get a key →</a></div>
+    <div id="translationProviderWarn" class="selwarn" hidden></div>
+  </section>
+
+  <!-- API keys — all providers always visible; engine dropdowns above/below reflect which are usable -->
+  <section>
+    <div class="lbl">API keys</div>
+    <div class="keysection">
+      <div class="keyhead"><span class="keyname"><span id="apiKeyDot" class="keydot"></span>OpenAI</span> <a id="getKey" href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">Get a key →</a></div>
+      <div class="keyused">used for: translation · voices</div>
       <div class="keyrow">
         <input type="password" id="apiKey" placeholder="sk-…" autocomplete="off" spellcheck="false" />
         <button class="btn ghost" id="verify">Verify</button>
       </div>
       <div id="keyStatus">Stored only on this device · a few cents per hour · cached replays are free.</div>
     </div>
-    <div id="anthropicKeyRow" hidden style="margin-top:10px;">
-      <div class="lbl">Anthropic API key <a id="getAnthropicKey" href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">Get a key →</a></div>
+    <div class="keysection">
+      <div class="keyhead"><span class="keyname"><span id="anthropicKeyDot" class="keydot"></span>Anthropic</span> <a id="getAnthropicKey" href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">Get a key →</a></div>
+      <div class="keyused">used for: Claude translation</div>
       <div class="keyrow">
         <input type="password" id="anthropicKey" placeholder="sk-ant-…" autocomplete="off" spellcheck="false" />
         <button class="btn ghost" id="verifyAnthropic">Verify</button>
       </div>
       <div id="anthropicKeyStatus">Stored only on this device. Applies to newly translated lines — cached lines keep their existing translation.</div>
+    </div>
+    <div class="keysection">
+      <div class="keyhead"><span class="keyname"><span id="geminiKeyDot" class="keydot"></span>Google</span> <a id="getGeminiKey" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Get a key →</a></div>
+      <div class="keyused">used for: Gemini voices</div>
+      <div class="keyrow">
+        <input type="password" id="geminiKey" placeholder="AIza…" autocomplete="off" spellcheck="false" />
+        <button class="btn ghost" id="verifyGemini">Verify</button>
+      </div>
+      <div id="geminiKeyStatus">Stored only on this device. Used only for text-to-speech (dub), never for translation.</div>
     </div>
   </section>
 
@@ -236,14 +265,7 @@
       <option value="openai">OpenAI gpt-4o-mini-tts</option>
       <option value="gemini">Gemini 2.5 Flash TTS (native Persian voices)</option>
     </select>
-    <div id="geminiKeyRow" hidden style="margin-top:9px;">
-      <div class="lbl">Gemini API key <a id="getGeminiKey" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Get a key →</a></div>
-      <div class="keyrow">
-        <input type="password" id="geminiKey" placeholder="AIza…" autocomplete="off" spellcheck="false" />
-        <button class="btn ghost" id="verifyGemini">Verify</button>
-      </div>
-      <div id="geminiKeyStatus">Stored only on this device. Used only for text-to-speech (dub), never for translation.</div>
-    </div>
+    <div id="ttsProviderWarn" class="selwarn" hidden></div>
     <div class="row">
       <span style="min-width:58px; color:var(--muted);">Voice</span>
       <select id="dubVoice" style="flex:1;"></select>
