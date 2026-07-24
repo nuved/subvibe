@@ -44,12 +44,12 @@
   const gStart = (g) => g.cues[0].startMs;
   const gEnd = (g) => { const last = g.cues[g.cues.length - 1]; return last.endMs || last.startMs + 2500; };
   const gSpanMs = (g) => Math.max(600, gEnd(g) - gStart(g)); // one group's own span (status/coverage UI only)
-  // -v3: a generation-version tag on the cache namespace so pre-run-merge /
+  // -v4: a generation-version tag on the cache namespace so pre-run-merge /
   // pre-identity-anchor clips (keyed without it) are never replayed — they die
   // with their track via the existing prefix delete/evict, no migration needed.
-  // Bumped from -v2 for condensed dub scripts (Task 16): the spoken text itself
-  // changed generation, so old clips (full-text renditions) must not mix in.
-  const vcfg = () => (conf.multi ? "mv" : "sv") + "-" + conf.voice + "-v3";
+  // Bumped from -v3 for the persona-anchor instructions + 20s run geometry
+  // (Task 21): the old-regime clips must not mix in with the new ones.
+  const vcfg = () => (conf.multi ? "mv" : "sv") + "-" + conf.voice + "-v4";
   const audioKey = (run) => `${hooks.base}:dub:${vcfg()}#${run.start}`;
   const spanMs = (run) => Math.max(600, run.end - run.start);
   // Video-time silence between upcoming runs in [from, from+windowMs] —
@@ -78,7 +78,7 @@
     for (const g of elig) {
       if (covered.has(gStart(g))) { cur = null; continue; } // never regroup an existing run
       const v = V().voiceForSpeaker(g.spk, conf.voice, conf.multi);
-      const canJoin = cur && cur.voice === v && gStart(g) - cur.end < 1400 && (gEnd(g) - cur.start) <= 12000;
+      const canJoin = cur && cur.voice === v && gStart(g) - cur.end < 1400 && (gEnd(g) - cur.start) <= 20000;
       if (canJoin) {
         cur.end = gEnd(g); cur.text += " " + (g.d || g.t[hooks.target]); cur.groups.push(g);
       } else {

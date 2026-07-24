@@ -12,6 +12,10 @@
     ["echo", "Echo — male"],
     ["sage", "Sage — calm"],
     ["verse", "Verse — expressive"],
+    ["ash", "Ash — male, calm"],
+    ["ballad", "Ballad — male, soft"],
+    ["fable", "Fable — expressive"],
+    ["nova", "Nova — female, clear"],
   ];
   const DEFAULT_VOICE = "marin";
   const PALETTE = {
@@ -45,8 +49,8 @@
   // a fixed register per language keeps prosody continuous across cuts. The
   // `text` param stays in the signature (call sites pass it) but is not inspected.
   function ttsInstructions(text, lang) {
-    let p = "Dub a film line naturally, matching the writing's emotion. Speak at a natural, unhurried pace with clear diction. Keep the exact same single narrator voice throughout — consistent timbre, pitch, and gender; never change speakers.";
-    if ((lang || "").split("-")[0] === "fa") p += " Natural conversational Persian (Farsi) pronunciation.";
+    let p = "Dub a film line naturally, matching the writing's emotion. Speak at a natural, unhurried pace with clear diction. You are ONE consistent narrator with a fixed identity: keep exactly the same voice, timbre, pitch range, and speaking style in every line — never sound like a different person.";
+    if ((lang || "").split("-")[0] === "fa") p += " Native Persian (Farsi) narrator with a natural Tehrani accent; contemporary conversational pronunciation.";
     return p;
   }
 
