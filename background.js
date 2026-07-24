@@ -736,7 +736,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               // Dub Mode's readiness counter, appended (not restructuring the
               // existing subtitle look-ahead title) to the free/counting titles
               // whenever the content script sent it.
-              const dubSuffix = msg.dubReady != null ? ` · dub ${msg.dubReady} clips ready` : "";
+              const dubSuffix = msg.dubReady != null ? ` · dub: ${msg.dubReady} clips buffered ahead` : "";
               if (msg.off) {
                 await chrome.action.setBadgeText({ tabId, text: "" });
                 await chrome.action.setTitle({ tabId, title: "SubVibe" });

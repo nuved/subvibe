@@ -311,6 +311,7 @@ async function pollDub() {
     s.textContent = state.dubEnabled ? "Open a video with subtitles to dub it." : "";
     prog.hidden = true;
     now.textContent = "";
+    maybeRefreshSpend();
     return;
   }
   if (st.live) { btn.hidden = true; s.textContent = "Live streams can't be dubbed."; prog.hidden = true; now.textContent = ""; return; }
@@ -321,6 +322,7 @@ async function pollDub() {
     prog.hidden = !(st.cachedPct > 0 || st.generating);
     el("dubProgFill").style.width = Math.round((st.cachedPct || 0) * 100) + "%";
     now.textContent = st.nowText ? "🔊 " + st.nowText : ""; // textContent — the line is page-derived
+    maybeRefreshSpend();
     return;
   }
   btn.hidden = false;
@@ -335,8 +337,44 @@ async function pollDub() {
   prog.hidden = !(st.cachedPct > 0 || st.generating);
   el("dubProgFill").style.width = Math.round((st.cachedPct || 0) * 100) + "%";
   now.textContent = st.nowText ? "🔊 " + st.nowText : ""; // textContent — the line is page-derived
+  maybeRefreshSpend();
 }
 setInterval(pollDub, 1500);
+
+// ── spend line: "Today ~$X.XX · this video ~$Y.YY" ─────────────────────────────
+// Riding pollDub's 1.5s tick but recomputed only every 4th tick (~6s) — LOG_LIST
+// reads the whole call log, which is cheap but not worth doing 40x/min. Small
+// self-contained fmtCost mirrors library.js's (same rounding: <$1 shows 4dp).
+const fmtCost = (c) => (c >= 1 ? "$" + c.toFixed(2) : "$" + c.toFixed(4));
+let dubPollTick = 0;
+function maybeRefreshSpend() {
+  dubPollTick = (dubPollTick + 1) % 4;
+  if (dubPollTick === 1) refreshSpend();
+}
+async function refreshSpend() {
+  const spend = el("dubSpend");
+  if (!spend) return;
+  const tabs = await chrome.tabs.query({ active: true, currentWindow: true }).catch(() => []);
+  const tab = tabs && tabs[0];
+  // Best-effort title via the same GET_CLIP round-trip loadThisVideo()/resolveClipBase()
+  // use — no tab or no content script attached just means "today only" below.
+  const info = tab ? await chrome.tabs.sendMessage(tab.id, { type: "GET_CLIP" }).catch(() => null) : null;
+  const title = info && info.title;
+
+  const res = await chrome.runtime.sendMessage({ type: "LOG_LIST" }).catch(() => null);
+  const calls = (res && res.calls) || [];
+  const estCost = window.SV_PRICING.estCost;
+  const t0 = new Date().setHours(0, 0, 0, 0);
+  let today = 0, thisVideo = 0;
+  for (const c of calls) {
+    if ((c.ts || 0) >= t0) today += estCost(c);
+    if (title && c.title === title) thisVideo += estCost(c);
+  }
+  spend.textContent = title
+    ? `Today ~${fmtCost(today)} · this video ~${fmtCost(thisVideo)}`
+    : `Today ~${fmtCost(today)}`;
+}
+el("dubSpend").addEventListener("click", openLibrary);
 
 el("dubGenAll").addEventListener("click", async () => {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true }).catch(() => []);
@@ -451,9 +489,8 @@ el("syncVal").style.cursor = "pointer";
 el("syncVal").addEventListener("click", () => { state.syncOffset = 0; el("syncVal").textContent = fmtSync(0); saveSetting({ syncOffset: 0 }); });
 
 function flashStatus(t) { el("status").textContent = t; setTimeout(() => { if (el("status").textContent === t) el("status").textContent = ""; }, 2500); }
-el("openLibrary").addEventListener("click", () => {
-  chrome.tabs.create({ url: chrome.runtime.getURL("library.html") });
-});
+function openLibrary() { chrome.tabs.create({ url: chrome.runtime.getURL("library.html") }); }
+el("openLibrary").addEventListener("click", openLibrary);
 el("clearClip").addEventListener("click", async () => {
   // clipBase is resolved in loadThisVideo() from the active tab's content script.
   if (!clipBase) return;
