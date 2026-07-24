@@ -6,6 +6,8 @@
 const el = (id) => document.getElementById(id);
 const langMeta = window.svLangMeta;
 
+let repaired = false;
+
 // ── dub audio: read the worker's IndexedDB directly (same extension origin;
 // bulk audio through base64 messaging would be silly). Writes stay in the worker.
 function openDb() {
@@ -408,6 +410,10 @@ function render() {
 
 // ── load + events ───────────────────────────────────────────────────────────────
 async function refresh() {
+  if (!repaired) {
+    repaired = true;
+    await chrome.runtime.sendMessage({ type: "REPAIR_LABELS" }).catch(() => null);
+  }
   const res = await chrome.runtime.sendMessage({ type: "CACHE_LIST" }).catch(() => null);
   allGroups = groupTracks((res && res.tracks) || []);
   const n = allGroups.length;

@@ -487,6 +487,33 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         case "AUDIO_DELETE":
           sendResponse({ ok: true, removed: await idbAudioDeletePrefix(msg.prefix || "") });
           break;
+        case "REPAIR_LABELS": {
+          // One-time healing: a YouTube track whose stored url's ?v= disagrees
+          // with its KEY's ?v= was label-stamped by an SPA hop (pre-fix builds).
+          // The key is ground truth. Rewrite url from the key, drop the stolen
+          // title (the card falls back to videoId; the real title heals on the
+          // next watch). Idempotent: repaired rows no longer mismatch.
+          const d = await db();
+          const n = await new Promise((resolve) => {
+            const store = d.transaction("tracks", "readwrite").objectStore("tracks");
+            let fixed = 0;
+            store.openCursor().onsuccess = (e) => {
+              const c = e.target.result;
+              if (!c) return resolve(fixed);
+              const m = /^youtube:\/watch\?v=([\w-]+):/.exec(String(c.key));
+              const t = c.value || {};
+              const uv = /[?&]v=([\w-]+)/.exec(t.url || "");
+              if (m && uv && uv[1] !== m[1]) {
+                c.update({ ...t, url: "https://www.youtube.com/watch?v=" + m[1], title: "" });
+                fixed++;
+              }
+              c.continue();
+            };
+            store.transaction.onerror = () => resolve(fixed);
+          });
+          sendResponse({ ok: true, repaired: n });
+          break;
+        }
         case "LOG_LIST":
           sendResponse({ calls: (await chrome.storage.local.get(CALL_LOG_KEY))[CALL_LOG_KEY] || [] });
           break;
