@@ -111,7 +111,7 @@
   // layers this clip's own changes on top — so a tweak on one video (or live channel)
   // never bleeds onto another. sync defaults to 0 per clip.
   async function getSettings() {
-    const s = await chrome.storage.local.get(["enabled", "targets", "showOriginal", "hideNative", "position", "linePositions", "size", "stylePreset", "styleCustom", "syncOffset", "audioFallback", "audioDeviceId", "clipOverrides"]);
+    const s = await chrome.storage.local.get(["enabled", "targets", "showOriginal", "hideNative", "position", "linePositions", "size", "stylePreset", "styleCustom", "syncOffset", "audioFallback", "audioDeviceId", "translationProvider", "clipOverrides"]);
     const { clipOverrides, ...flat } = s;
     const ov = (clipOverrides && clipOverrides[clipBaseId()]) || {};
     return { ...DEFAULTS, ...flat, ...ov };
@@ -1409,13 +1409,16 @@
         // timestamps (Prime did — the whole file looked "due now"), a pure time
         // window would translate the ENTIRE movie at once and burn API cost. The
         // index cap makes spend track watched time, never file size.
-        const MAX_AHEAD_CUES = 24;
+        // Claude batches take several times longer than gpt-4o-mini — give the
+        // pump a longer runway so slower calls still land before the playhead.
+        const claudeT = settings.translationProvider === "claude";
+        const MAX_AHEAD_CUES = claudeT ? 40 : 24;
         let i0 = 0;
         while (i0 < cues.length && cues[i0].startMs < t - 4000) i0++;
         const groups = [], gseen = new Set();
         for (let k = i0; k < cues.length && k < i0 + MAX_AHEAD_CUES; k++) {
           const c = cues[k];
-          if (c.startMs > t + 45000) break; // also never run far ahead in time
+          if (c.startMs > t + (claudeT ? 75000 : 45000)) break; // also never run far ahead in time
           const g = c.grp;
           if (!g || !g.closed || g.t[tg] || gseen.has(g)) continue;
           gseen.add(g); groups.push(g);

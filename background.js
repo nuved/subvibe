@@ -340,6 +340,9 @@ async function translateChunkClaude(lines, source, target, apiKey, context, keep
     system: systemPrompt(source, target, lines.length, keepTerms, keepNames),
     messages: [{ role: "user", content: JSON.stringify(userPayload) }],
     output_config: { format: { type: "json_schema", schema: TRANSLATE_SCHEMA.schema } },
+    // Structured translation is mechanical — thinking adds seconds per batch
+    // with no quality gain here, and the schema enforces the discipline.
+    thinking: { type: "disabled" },
   };
   let lastStatus = 0, lastBody = "";
   for (let attempt = 0; attempt < 3; attempt++) {
