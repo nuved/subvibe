@@ -89,7 +89,8 @@ Order flips from "settings first" to "this video first":
 ## Part D — Gemini TTS request reduction
 
 Observed: dozens of `Gemini TTS 429` rows within one minute. Cause: runs are
-capped at ≤ 12 s of speech per call, the pump keeps 2 requests in flight at
+capped at ≤ 20 s of speech per call (`content/dub.js:100`; the nearby comment
+saying 12 s is stale — fix it), the pump keeps 2 requests in flight at
 1 Hz, each failed call retries 3× internally (0.7 s/1.4 s backoff), and a
 failed run is re-attempted on the next pump tick — a storm against a hard RPM
 cap. Three changes, all in the worker + `content/dub.js`:
@@ -103,10 +104,13 @@ that error as "pause the pump until N", and the dub transport shows a small
 "rate-limited, resuming in Ns" note instead of silent failure rows.
 
 **D2. Bigger runs for Gemini.** Run span cap becomes per-provider: OpenAI
-stays ≤ 12 s (timbre drift rationale in dub-mode spec); Gemini ≤ 28 s and gap
-tolerance 2 s. Roughly 2–3× fewer calls per video minute at identical audio
-cost. Trade-off accepted: a failed call loses a bigger chunk; runs are
-immutable, so this only affects run *construction* for new fetches.
+stays at the current ≤ 20 s (its behavior is ear-test-approved; its limits
+aren't the problem); Gemini ≤ 28 s with gap tolerance 2 s (vs 1.4 s). Gemini
+TTS bills per second of generated audio, so the same speech costs the same in
+fewer, bigger requests — roughly 1.5–2× fewer calls per video minute.
+Trade-off accepted: a failed call loses a bigger chunk; runs are immutable,
+so this only affects run *construction* for new fetches. (The real storm
+killer is D1; D2 lowers the steady-state request rate under the RPM cap.)
 
 **D3. Per-provider pacing.** Pump concurrency/pacing becomes provider-aware:
 Gemini gets 1 request in flight plus a minimum spacing between launches
