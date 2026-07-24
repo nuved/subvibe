@@ -1177,7 +1177,7 @@
     // the SAME video under many entries, flooding the cache list with duplicates.
     const base = clipBaseId(); // "<site>:<clipId>" — shared by the cache AND per-clip settings
     lastCacheBase = base; // remember for "clear this video" from the popup
-    const pageTitle = document.title, pageUrl = location.href;
+    const pageTitle = SV_TITLE.clean(document.title), pageUrl = location.href;
 
     // Cached translations (per target), applied to current AND future cues.
     const cacheMaps = {};
@@ -1428,7 +1428,7 @@
         busy = true;
         const guard = setTimeout(() => { busy = false; }, 20000); // backstop: a hung worker call must never wedge the pump (the 5→0-stuck bug)
         let resp;
-        try { resp = await send({ type: "TRANSLATE", cues: groups.map((g) => g.orig), source: "auto", target: tg, site: adapter?.site, title: document.title }); }
+        try { resp = await send({ type: "TRANSLATE", cues: groups.map((g) => g.orig), source: "auto", target: tg, site: adapter?.site, title: SV_TITLE.clean(document.title) }); }
         finally { clearTimeout(guard); busy = false; }
         if (resp?.dead) return; // extension reloaded — orphaned script, stop quietly (haltOrphaned showed the refresh hint)
         if (resp?.error) {
@@ -1739,7 +1739,7 @@
 
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (!msg) return;
-    if (msg.type === "GET_CLIP") { sendResponse({ base: lastCacheBase || clipBaseId(), title: document.title }); return; } // popup → "this video" cache + per-clip settings
+    if (msg.type === "GET_CLIP") { sendResponse({ base: lastCacheBase || clipBaseId(), title: SV_TITLE.clean(document.title) }); return; } // popup → "this video" cache + per-clip settings
     if (msg.type === "AUDIO_CUE") onAudioCue(msg.text);
     else if (msg.type === "AUDIO_STOP") stopAudio();
     else if (msg.type === "AUDIO_ERROR") setStatus("Audio: " + msg.error, true);

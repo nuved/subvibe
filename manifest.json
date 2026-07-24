@@ -49,6 +49,7 @@
       "matches": ["https://*.youtube.com/*"],
       "js": [
         "content/adapters/youtube.js",
+        "shared/title.js",
         "shared/presets.js",
         "shared/voices.js",
         "content/dub.js",
@@ -62,6 +63,7 @@
       "matches": ["https://*.netflix.com/*"],
       "js": [
         "content/adapters/netflix.js",
+        "shared/title.js",
         "shared/presets.js",
         "shared/voices.js",
         "content/dub.js",
@@ -75,6 +77,7 @@
       "matches": ["https://*.zdf.de/*"],
       "js": [
         "content/adapters/zdf.js",
+        "shared/title.js",
         "shared/presets.js",
         "shared/voices.js",
         "content/dub.js",
@@ -88,6 +91,7 @@
       "matches": ["https://*.dw.com/*"],
       "js": [
         "content/adapters/dw.js",
+        "shared/title.js",
         "shared/presets.js",
         "shared/voices.js",
         "content/dub.js",
@@ -101,6 +105,7 @@
       "matches": ["https://www.amazon.de/gp/video/*", "https://www.primevideo.com/*"],
       "js": [
         "content/adapters/prime.js",
+        "shared/title.js",
         "shared/presets.js",
         "shared/voices.js",
         "content/dub.js",
@@ -114,6 +119,7 @@
       "matches": ["https://*.udemy.com/*"],
       "js": [
         "content/adapters/udemy.js",
+        "shared/title.js",
         "shared/presets.js",
         "shared/voices.js",
         "content/dub.js",

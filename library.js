@@ -151,7 +151,7 @@ function groupTracks(tracks) {
       g = { base, site: SITES[site] ? site : (t.site || "__other"), title: "", url: "", createdAt: "", langs: new Map() };
       groups.set(base, g);
     }
-    if (!g.title) g.title = t.title || t.videoId || prettyBase(base);
+    if (!g.title) g.title = window.SV_TITLE.clean(t.title || t.videoId || prettyBase(base));
     if (!g.url && t.url) g.url = t.url;
     if (t.createdAt && String(t.createdAt) > String(g.createdAt)) g.createdAt = t.createdAt;
     g.langs.set(target, { cueCount: t.cueCount || 0, totalCues: t.totalCues || 0 });
@@ -512,7 +512,7 @@ async function loadActivity() {
     row.title = "≈ " + fmtCost(estCost(c)) + (c.err ? " · " + c.err : "");
     const t = document.createElement("span"); t.className = "ct"; t.textContent = fmtTime(c.ts);
     const s = document.createElement("span"); s.className = "cs";
-    s.textContent = (c.title || (c.site ? siteMeta(c.site).label : "—")) + (c.target ? " → " + langMeta(c.target)[1] : "");
+    s.textContent = (window.SV_TITLE.clean(c.title || "") || (c.site ? siteMeta(c.site).label : "—")) + (c.target ? " → " + langMeta(c.target)[1] : "");
     s.title = s.textContent;
     const pv = document.createElement("span"); pv.className = "cprov"; pv.textContent = providerLabel(c.provider);
     const ln = document.createElement("span"); ln.textContent = c.kind === "tts" ? "🎙 " + Math.round((c.durMs || 0) / 1000) + "s" : (c.lines || 0) + " ln";
