@@ -608,7 +608,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
         case "TRANSLATE": {
           const started = Date.now();
-          const meta = { ts: started, site: msg.site, title: msg.title, target: msg.target, lines: (msg.cues || []).length };
+          const meta = { ts: started, site: msg.site, title: msg.title, target: msg.target, lines: (msg.cues || []).length, base: msg.base };
           try {
             const r = await translateAll(msg.cues, msg.source, msg.target, msg.context);
             await logCall({ ...meta, ms: Date.now() - started, inTok: r.inTok, outTok: r.outTok, ok: true, provider: r.provider, model: r.model });
@@ -635,7 +635,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             break;
           }
           const started = Date.now();
-          const meta = { ts: started, site: msg.site, title: msg.title, target: msg.target, kind: "tts", chars: (msg.text || "").length, durMs: msg.durMs || 0, provider };
+          const meta = { ts: started, site: msg.site, title: msg.title, target: msg.target, kind: "tts", chars: (msg.text || "").length, durMs: msg.durMs || 0, provider, base: msg.base };
           try {
             const b64 = provider === "gemini"
               ? await ttsChunkGemini(msg.text, msg.voice, msg.instructions, key)

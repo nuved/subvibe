@@ -394,10 +394,9 @@ async function refreshSpend() {
   if (!spend) return;
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true }).catch(() => []);
   const tab = tabs && tabs[0];
-  // Best-effort title via the same GET_CLIP round-trip loadThisVideo()/resolveClipBase()
-  // use — no tab or no content script attached just means "today only" below.
   const info = tab ? await chrome.tabs.sendMessage(tab.id, { type: "GET_CLIP" }).catch(() => null) : null;
-  const title = info && info.title;
+  const base = info && info.base;
+  const title = window.SV_TITLE.clean((info && info.title) || "");
 
   const res = await chrome.runtime.sendMessage({ type: "LOG_LIST" }).catch(() => null);
   const calls = (res && res.calls) || [];
@@ -406,9 +405,11 @@ async function refreshSpend() {
   let today = 0, thisVideo = 0;
   for (const c of calls) {
     if ((c.ts || 0) >= t0) today += estCost(c);
-    if (title && c.title === title) thisVideo += estCost(c);
+    // exact match on clip base for new rows; cleaned-title match for legacy rows
+    const mine = c.base ? c.base === base : (title && window.SV_TITLE.clean(c.title || "") === title);
+    if (mine) thisVideo += estCost(c);
   }
-  spend.textContent = title
+  spend.textContent = (base || title)
     ? `Today ~${fmtCost(today)} · this video ~${fmtCost(thisVideo)}`
     : `Today ~${fmtCost(today)}`;
 }

@@ -205,7 +205,7 @@
       const txt = run.text;
       const resp = await send({
         type: "TTS", key: audioKey(run), text: txt,
-        voice: run.voice,
+        voice: run.voice, base: hooks.base,
         instructions: V().ttsInstructions(txt, hooks.target),
         durMs: spanMs(run), site: hooks.site, title: SV_TITLE.clean(document.title), target: hooks.target,
       });
@@ -614,7 +614,7 @@
     try {
       for (let i = 0; i < untranslated.length && !genAll.cancelled; i += 40) {
         const batch = untranslated.slice(i, i + 40);
-        const resp = await send({ type: "TRANSLATE", cues: batch.map((g) => g.orig), source: "auto", target: hooks.target, site: hooks.site, title: SV_TITLE.clean(document.title) });
+        const resp = await send({ type: "TRANSLATE", cues: batch.map((g) => g.orig), source: "auto", target: hooks.target, site: hooks.site, title: SV_TITLE.clean(document.title), base: hooks.base });
         if (!resp || resp.error || !resp.lines) {
           genErr = (resp && resp.error) || "translation failed";
           console.warn("[SubVibe dub] generate:", genErr);

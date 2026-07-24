@@ -1428,7 +1428,7 @@
         busy = true;
         const guard = setTimeout(() => { busy = false; }, 20000); // backstop: a hung worker call must never wedge the pump (the 5→0-stuck bug)
         let resp;
-        try { resp = await send({ type: "TRANSLATE", cues: groups.map((g) => g.orig), source: "auto", target: tg, site: adapter?.site, title: SV_TITLE.clean(document.title) }); }
+        try { resp = await send({ type: "TRANSLATE", cues: groups.map((g) => g.orig), source: "auto", target: tg, site: adapter?.site, title: SV_TITLE.clean(document.title), base: lastCacheBase }); }
         finally { clearTimeout(guard); busy = false; }
         if (resp?.dead) return; // extension reloaded — orphaned script, stop quietly (haltOrphaned showed the refresh hint)
         if (resp?.error) {
