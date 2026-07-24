@@ -15,7 +15,11 @@ const BATCH = 60; // cues per translation request — keeps JSON responses relia
 const ANTHROPIC_MESSAGES = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION = "2023-06-01";
 const CLAUDE_MODEL = "claude-sonnet-4-6";
-const CLAUDE_MAX_TOKENS = 8192; // max_tokens is REQUIRED on /v1/messages
+// max_tokens is REQUIRED on /v1/messages. 16k, not 8k: a 60-cue batch answers
+// with FOUR arrays (t + the condensed dub "d" ≈ two full Persian renditions),
+// and Persian is token-expensive — 8k truncated long music batches, which fell
+// back to untranslated English lines.
+const CLAUDE_MAX_TOKENS = 16384;
 // Pricing (used for cost estimation) lives in library.js as named constants,
 // verified via WebFetch against https://platform.claude.com/docs/en/about-claude/pricing.
 
@@ -280,6 +284,14 @@ function systemPrompt(source, target, n, keepTerms, keepNames) {
   return p;
 }
 
+// A 429's Retry-After (seconds) as ms, bounded so a translate call can't hang
+// the pump for minutes; absent/garbage header → 4s (a real breather, unlike the
+// old 0.5-1s blind backoff that always burned all retries inside one window).
+function retryAfterMs(res) {
+  const s = parseFloat(res.headers.get("retry-after") || "");
+  return Math.round(Math.min(isFinite(s) && s > 0 ? s : 4, 25) * 1000);
+}
+
 async function translateChunk(lines, source, target, apiKey, context, keepTerms, keepNames) {
   const userPayload = context && context.length ? { context, lines } : { lines };
   const body = {
@@ -291,14 +303,15 @@ async function translateChunk(lines, source, target, apiKey, context, keepTerms,
       { role: "user", content: JSON.stringify(userPayload) },
     ],
   };
-  let lastStatus = 0, lastBody = "";
+  let lastStatus = 0, lastBody = "", waitMs = 0;
   for (let attempt = 0; attempt < 3; attempt++) {
-    if (attempt) await new Promise((r) => setTimeout(r, 500 * attempt)); // brief backoff between retries
+    if (attempt) await new Promise((r) => setTimeout(r, waitMs || 500 * attempt)); // rate-limit hint > blind backoff
     const res = await fetch(OPENAI_CHAT, {
       method: "POST",
       headers: { Authorization: "Bearer " + apiKey, "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
+    waitMs = res.status === 429 ? retryAfterMs(res) : 0;
     const txt = await res.text();
     if (res.ok) {
       if (!txt) throw new Error("OpenAI returned an empty response");
@@ -344,20 +357,24 @@ async function translateChunkClaude(lines, source, target, apiKey, context, keep
     // with no quality gain here, and the schema enforces the discipline.
     thinking: { type: "disabled" },
   };
-  let lastStatus = 0, lastBody = "";
+  let lastStatus = 0, lastBody = "", waitMs = 0;
   for (let attempt = 0; attempt < 3; attempt++) {
-    if (attempt) await new Promise((r) => setTimeout(r, 500 * attempt)); // brief backoff between retries
+    if (attempt) await new Promise((r) => setTimeout(r, waitMs || 500 * attempt)); // rate-limit hint > blind backoff
     const res = await fetch(ANTHROPIC_MESSAGES, {
       method: "POST",
       headers: { "x-api-key": apiKey, "anthropic-version": ANTHROPIC_VERSION, "content-type": "application/json", "anthropic-dangerous-direct-browser-access": "true" },
       body: JSON.stringify(body),
     });
+    waitMs = res.status === 429 ? retryAfterMs(res) : 0;
     const txt = await res.text();
     if (res.ok) {
       if (!txt) throw new Error("Claude returned an empty response");
       let data;
       try { data = JSON.parse(txt); } catch { throw new Error("Claude returned a non-JSON response"); }
       if (data.stop_reason === "refusal") throw new Error("Claude declined this batch (refusal)");
+      // A max_tokens cut leaves partial JSON — name the real cause instead of
+      // "malformed JSON", and let the batch splitter shrink the request.
+      if (data.stop_reason === "max_tokens") throw new Error("Claude truncated the batch (max_tokens)");
       const txtBlock = (data.content || []).find((b) => b && b.type === "text");
       const content = (txtBlock && txtBlock.text) || "{}";
       let parsed;
@@ -396,17 +413,39 @@ async function translateAll(lines, source, target, context) {
   const keepN = keepNames !== false; // default ON
   const out = new Array(lines.length), spk = new Array(lines.length), gen = new Array(lines.length), dub = new Array(lines.length);
   let lastErr = null, failedBatches = 0, totalBatches = 0, inTok = 0, outTok = 0;
+  // A failing batch is retried at HALF SIZE (recursively, twice at most): a
+  // max_tokens truncation fits after a split, and a rate-limited key gets
+  // smaller requests. Halves lose the rolling context — pronouns may suffer on
+  // those lines, which beats the old behavior (whole batch left in English).
+  const pad = (arr, n) => { const r = Array.isArray(arr) ? arr.slice(0, n) : []; while (r.length < n) r.push(undefined); return r; };
+  async function chunkSplit(chunk, ctx, depth) {
+    try {
+      return await chunkFn(chunk, source, target, key, ctx, keepTerms, keepN);
+    } catch (e) {
+      lastErr = e;
+      if (depth >= 2 || chunk.length < 8) throw e;
+      const mid = Math.ceil(chunk.length / 2);
+      const a = await chunkSplit(chunk.slice(0, mid), null, depth + 1);
+      const b = await chunkSplit(chunk.slice(mid), null, depth + 1);
+      const join = (x, y, n) => [...pad(x, mid), ...pad(y, n - mid)];
+      return {
+        lines: join(a.lines, b.lines, chunk.length),
+        spk: join(a.spk, b.spk, chunk.length),
+        gen: join(a.gen, b.gen, chunk.length),
+        dub: join(a.dub, b.dub, chunk.length),
+        usage: {
+          prompt_tokens: ((a.usage || {}).prompt_tokens || 0) + ((b.usage || {}).prompt_tokens || 0),
+          completion_tokens: ((a.usage || {}).completion_tokens || 0) + ((b.usage || {}).completion_tokens || 0),
+        },
+      };
+    }
+  }
   for (let i = 0; i < lines.length; i += BATCH) {
     const chunk = lines.slice(i, i + BATCH);
     totalBatches++;
     let r = null;
-    try {
-      r = await chunkFn(chunk, source, target, key, context, keepTerms, keepN);
-    } catch (e) {
-      lastErr = e; // one retry before giving up on this batch
-      try { r = await chunkFn(chunk, source, target, key, null, keepTerms, keepN); }
-      catch (e2) { lastErr = e2; r = null; }
-    }
+    try { r = await chunkSplit(chunk, context, 0); } // halves retry contextless — no extra outer round
+    catch (e) { lastErr = e; r = null; }
     if (r && r.usage) { inTok += r.usage.prompt_tokens || 0; outTok += r.usage.completion_tokens || 0; }
     const translated = r && r.lines;
     if (!translated) {

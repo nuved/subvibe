@@ -1277,6 +1277,12 @@
       for (const tg of settings.targets) {
         const v = cacheMaps[tg].get(cue.startMs);
         if (!v) continue;
+        // Heal caches poisoned by the failed-batch English fallback: an RTL
+        // target whose cached "translation" has no RTL script is untranslated
+        // source text — skip it so the pump re-translates and re-caches. (Rare
+        // legit Latin-only lines — a kept name, bare numbers — just re-translate
+        // once per session; pennies, and they cache again if RTL comes back.)
+        if (isRTLLang(tg) && v.text && !isRTL(v.text)) continue;
         cue.t[tg] = v.text;
         if (v.sid != null && !cue.spk) cue.spk = { id: v.sid, g: v.sg || "?" };
         if (v.dt != null && cue.dt === undefined) cue.dt = v.dt; // cached condensed dub text (old caches: undefined → g.d null in buildGroups)
@@ -1534,11 +1540,18 @@
           // Transient OpenAI blips (5xx/520/429) self-recover on the next tick — show a
           // gentle, fading note rather than a scary sticky "Translation failed".
           const transient = /temporarily unavailable|rate limited|\bOpenAI (?:429|5\d\d)\b/i.test(resp.error);
-          setStatus(transient ? `${langLabel(tg)}: OpenAI busy — retrying…` : `Translation failed (${langLabel(tg)}): ${resp.error}`, !transient);
+          setStatus(transient ? `${langLabel(tg)}: translator busy — retrying…` : `Translation failed (${langLabel(tg)}): ${resp.error}`, !transient);
           return;
         }
         if (resp?.lines) groups.forEach((g, k) => {
           if (!resp.lines[k]) return;
+          // An RTL target answered with the source line, no RTL script at all:
+          // that's the worker's failed-batch fallback, not a translation. Leave
+          // the group untranslated so the next pump round retries it — but only
+          // twice, so a group the model INSISTS is non-speech ("[music]") can't
+          // become an every-round re-spend loop.
+          const echo = isRTLLang(tg) && resp.lines[k] === g.orig && !isRTL(resp.lines[k]);
+          if (echo && (g.echoN = (g.echoN || 0) + 1) <= 2) return;
           g.t[tg] = resp.lines[k];
           for (const cc of g.cues) cc.t[tg] = resp.lines[k];
           if (tg === settings.targets[0]) {                      // tag once, from the primary target's pass
