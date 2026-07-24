@@ -91,16 +91,54 @@ document.addEventListener("click", (e) => { if (!el("langSearch").contains(e.tar
 // ── API keys (OpenAI, Anthropic, Gemini) — all three rows always visible ────
 // Each key's status dot is green when a Verify succeeded this session OR a
 // non-empty key is stored; red after a failed Verify; grey when empty.
+// keyDotColor() is the single source of truth for that decision — both the
+// per-row dots (.keydot background) and the collapsed-summary dots (colored
+// "●" text) read it, so the two views can never drift apart.
+function keyDotColor(value, failedFlag) {
+  return failedFlag ? "red" : value.trim() ? "green" : null;
+}
 function setKeyStatus(text, cls) { const s = el("keyStatus"); s.textContent = text; s.className = cls || ""; }
 function keyHint() {
   if (!el("apiKey").value.trim()) setKeyStatus("Paste your key above to start — it's stored only on this device.", "warn");
   else setKeyStatus("Stored only on this device · a few cents per hour · cached replays are free.", "");
 }
-function setKeyDot(id, ok) { el(id).className = "keydot" + (ok === true ? " green" : ok === false ? " red" : ""); }
+function setKeyDot(id, color) { el(id).className = "keydot" + (color ? " " + color : ""); }
+
+// ── Summary dots + auto-open (collapsed keys section) ────────────────────────
+// Order: OpenAI, Anthropic, Google — matches the row order and the summary hint text.
+const KEY_PROVIDERS = [
+  { input: "apiKey", failed: () => keyVerifyFailed, name: "OpenAI" },
+  { input: "anthropicKey", failed: () => anthropicKeyVerifyFailed, name: "Anthropic" },
+  { input: "geminiKey", failed: () => geminiKeyVerifyFailed, name: "Google" },
+];
+function refreshKeysSummary() {
+  const host = el("keysSummaryDots");
+  if (!host.childElementCount) {
+    for (const p of KEY_PROVIDERS) {
+      const s = document.createElement("span");
+      s.textContent = "●";
+      s.title = p.name;
+      host.appendChild(s);
+    }
+  }
+  let anyEmpty = false, anyFailed = false;
+  KEY_PROVIDERS.forEach((p, i) => {
+    const value = el(p.input).value;
+    const failed = p.failed();
+    const color = keyDotColor(value, failed);
+    host.children[i].className = color || "";
+    if (!value.trim()) anyEmpty = true;
+    if (failed) anyFailed = true;
+  });
+  // Auto-open only: a key needing attention forces the panel open. Never force-close —
+  // closing is either the user's own click or the default-collapsed initial markup state.
+  if (anyEmpty || anyFailed) el("keysDetails").open = true;
+}
+
 let keyVerifyFailed = false;
 function refreshKeyDot() {
-  const has = !!el("apiKey").value.trim();
-  setKeyDot("apiKeyDot", keyVerifyFailed ? false : has ? true : null);
+  setKeyDot("apiKeyDot", keyDotColor(el("apiKey").value, keyVerifyFailed));
+  refreshKeysSummary();
 }
 let keyT;
 el("apiKey").addEventListener("input", () => {
@@ -129,8 +167,8 @@ function anthropicKeyHint() {
 }
 let anthropicKeyVerifyFailed = false;
 function refreshAnthropicKeyDot() {
-  const has = !!el("anthropicKey").value.trim();
-  setKeyDot("anthropicKeyDot", anthropicKeyVerifyFailed ? false : has ? true : null);
+  setKeyDot("anthropicKeyDot", keyDotColor(el("anthropicKey").value, anthropicKeyVerifyFailed));
+  refreshKeysSummary();
 }
 let anthropicKeyT;
 el("anthropicKey").addEventListener("input", () => {
@@ -158,8 +196,8 @@ function geminiKeyHint() {
 }
 let geminiKeyVerifyFailed = false;
 function refreshGeminiKeyDot() {
-  const has = !!el("geminiKey").value.trim();
-  setKeyDot("geminiKeyDot", geminiKeyVerifyFailed ? false : has ? true : null);
+  setKeyDot("geminiKeyDot", keyDotColor(el("geminiKey").value, geminiKeyVerifyFailed));
+  refreshKeysSummary();
 }
 let geminiKeyT;
 el("geminiKey").addEventListener("input", () => {

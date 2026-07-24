@@ -63,6 +63,10 @@
     .keydot.green { background: var(--green); }
     .keydot.red { background: var(--red); }
     .selwarn { color: var(--amber); font-size: 11px; margin: 5px 0 0; }
+    #keysSummaryDots { letter-spacing: 1px; }
+    #keysSummaryDots span { color: var(--muted); font-size: 9px; }
+    #keysSummaryDots span.green { color: var(--green); }
+    #keysSummaryDots span.red { color: var(--red); }
 
     /* language chips + autocomplete */
     .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
@@ -205,34 +209,36 @@
 
   <!-- API keys — all providers always visible; engine dropdowns above/below reflect which are usable -->
   <section>
-    <div class="lbl">API keys</div>
-    <div class="keysection">
-      <div class="keyhead"><span class="keyname"><span id="apiKeyDot" class="keydot"></span>OpenAI</span> <a id="getKey" href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">Get a key →</a></div>
-      <div class="keyused">used for: translation · voices</div>
-      <div class="keyrow">
-        <input type="password" id="apiKey" placeholder="sk-…" autocomplete="off" spellcheck="false" />
-        <button class="btn ghost" id="verify">Verify</button>
+    <details class="customize" id="keysDetails">
+      <summary>API keys <span id="keysSummaryDots"></span> <span class="hint">OpenAI · Anthropic · Google</span></summary>
+      <div class="keysection">
+        <div class="keyhead"><span class="keyname"><span id="apiKeyDot" class="keydot"></span>OpenAI</span> <a id="getKey" href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">Get a key →</a></div>
+        <div class="keyused">used for: translation · voices</div>
+        <div class="keyrow">
+          <input type="password" id="apiKey" placeholder="sk-…" autocomplete="off" spellcheck="false" />
+          <button class="btn ghost" id="verify">Verify</button>
+        </div>
+        <div id="keyStatus">Stored only on this device · a few cents per hour · cached replays are free.</div>
       </div>
-      <div id="keyStatus">Stored only on this device · a few cents per hour · cached replays are free.</div>
-    </div>
-    <div class="keysection">
-      <div class="keyhead"><span class="keyname"><span id="anthropicKeyDot" class="keydot"></span>Anthropic</span> <a id="getAnthropicKey" href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">Get a key →</a></div>
-      <div class="keyused">used for: Claude translation</div>
-      <div class="keyrow">
-        <input type="password" id="anthropicKey" placeholder="sk-ant-…" autocomplete="off" spellcheck="false" />
-        <button class="btn ghost" id="verifyAnthropic">Verify</button>
+      <div class="keysection">
+        <div class="keyhead"><span class="keyname"><span id="anthropicKeyDot" class="keydot"></span>Anthropic</span> <a id="getAnthropicKey" href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">Get a key →</a></div>
+        <div class="keyused">used for: Claude translation</div>
+        <div class="keyrow">
+          <input type="password" id="anthropicKey" placeholder="sk-ant-…" autocomplete="off" spellcheck="false" />
+          <button class="btn ghost" id="verifyAnthropic">Verify</button>
+        </div>
+        <div id="anthropicKeyStatus">Stored only on this device. Applies to newly translated lines — cached lines keep their existing translation.</div>
       </div>
-      <div id="anthropicKeyStatus">Stored only on this device. Applies to newly translated lines — cached lines keep their existing translation.</div>
-    </div>
-    <div class="keysection">
-      <div class="keyhead"><span class="keyname"><span id="geminiKeyDot" class="keydot"></span>Google</span> <a id="getGeminiKey" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Get a key →</a></div>
-      <div class="keyused">used for: Gemini voices</div>
-      <div class="keyrow">
-        <input type="password" id="geminiKey" placeholder="AIza…" autocomplete="off" spellcheck="false" />
-        <button class="btn ghost" id="verifyGemini">Verify</button>
+      <div class="keysection">
+        <div class="keyhead"><span class="keyname"><span id="geminiKeyDot" class="keydot"></span>Google</span> <a id="getGeminiKey" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Get a key →</a></div>
+        <div class="keyused">used for: Gemini voices</div>
+        <div class="keyrow">
+          <input type="password" id="geminiKey" placeholder="AIza…" autocomplete="off" spellcheck="false" />
+          <button class="btn ghost" id="verifyGemini">Verify</button>
+        </div>
+        <div id="geminiKeyStatus">Stored only on this device. Used only for text-to-speech (dub), never for translation.</div>
       </div>
-      <div id="geminiKeyStatus">Stored only on this device. Used only for text-to-speech (dub), never for translation.</div>
-    </div>
+    </details>
   </section>
 
   <!-- Languages -->
