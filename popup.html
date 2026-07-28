@@ -68,10 +68,14 @@
     .keydot.green { background: var(--green); }
     .keydot.red { background: var(--red); }
     .selwarn { color: var(--amber); font-size: 11px; margin: 5px 0 0; }
-    #keysSummaryDots { letter-spacing: 1px; }
-    #keysSummaryDots span { color: var(--muted); font-size: 9px; }
-    #keysSummaryDots span.green { color: var(--green); }
-    #keysSummaryDots span.red { color: var(--red); }
+    /* per-provider status pills in the collapsed keys bar: green = key stored,
+       red = failed verify, muted = missing. Hidden while open — the rows say it all. */
+    #keysPills { display: inline-flex; gap: 4px; min-width: 0; }
+    #keysPills span { padding: 1px 7px; border-radius: 8px; font-size: 9.5px; font-weight: 600;
+      color: var(--muted); background: var(--panel2); border: 1px solid var(--border); white-space: nowrap; }
+    #keysPills span.green { color: var(--green); border-color: rgba(127,224,176,.45); background: rgba(127,224,176,.08); }
+    #keysPills span.red { color: var(--red); border-color: rgba(255,154,154,.45); background: rgba(255,154,154,.08); }
+    details.customize[open] > summary #keysPills { display: none; }
 
     /* language chips + autocomplete */
     .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
@@ -260,7 +264,7 @@
   <!-- API keys — all providers always visible; engine dropdowns above/below reflect which are usable -->
   <section>
     <details class="customize" id="keysDetails">
-      <summary>API keys <span id="keysSummaryDots"></span> <span class="hint">OpenAI · Anthropic · Google</span></summary>
+      <summary>API keys <span id="keysPills"></span></summary>
       <div class="keysection">
         <div class="keyhead"><span class="keyname"><span id="apiKeyDot" class="keydot"></span>OpenAI</span> <a id="getKey" href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">Get a key →</a></div>
         <div class="keyused">used for: translation · voices</div>

@@ -119,20 +119,19 @@ function keyHint() {
 }
 function setKeyDot(id, color) { el(id).className = "keydot" + (color ? " " + color : ""); }
 
-// ── Summary dots + auto-open (collapsed keys section) ────────────────────────
-// Order: OpenAI, Anthropic, Google — matches the row order and the summary hint text.
+// ── Summary pills + auto-open (collapsed keys section) ──────────────────────
+// Order: OpenAI, Anthropic, Google — matches the row order inside the fold.
 const KEY_PROVIDERS = [
   { input: "apiKey", failed: () => keyVerifyFailed, name: "OpenAI" },
   { input: "anthropicKey", failed: () => anthropicKeyVerifyFailed, name: "Anthropic" },
   { input: "geminiKey", failed: () => geminiKeyVerifyFailed, name: "Google" },
 ];
 function refreshKeysSummary() {
-  const host = el("keysSummaryDots");
+  const host = el("keysPills");
   if (!host.childElementCount) {
     for (const p of KEY_PROVIDERS) {
       const s = document.createElement("span");
-      s.textContent = "●";
-      s.title = p.name;
+      s.textContent = p.name;
       host.appendChild(s);
     }
   }
