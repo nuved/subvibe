@@ -24,7 +24,19 @@ let clipOverrides = {};
 let clipLoadSeq = 0; // guards loadThisVideo()'s async audioRows() fills against a stale re-run (e.g. Clear cache)
 const CLIP_FIELDS = ["targets", "showOriginal", "position", "size", "syncOffset", "linePositions"];
 // Mirrors manifest.json content_scripts matches — update both together.
-const SUPPORTED_SITES = ["YouTube", "Netflix", "Prime Video", "ZDF", "DW", "Udemy"];
+const SUPPORTED_SITES = [
+  ["YouTube", /(^|\.)youtube\.com$/],
+  ["Netflix", /(^|\.)netflix\.com$/],
+  ["Prime Video", /(^|\.)(primevideo\.com|amazon\.de)$/],
+  ["ZDF", /(^|\.)zdf\.de$/],
+  ["DW", /(^|\.)dw\.com$/],
+  ["Udemy", /(^|\.)udemy\.com$/],
+];
+async function activeTabHost() {
+  const tabs = await chrome.tabs.query({ active: true, currentWindow: true }).catch(() => []);
+  // tab.url is exposed only where we hold host permissions — i.e. exactly on supported sites.
+  try { return tabs[0] && tabs[0].url ? new URL(tabs[0].url).hostname : ""; } catch { return ""; }
+}
 
 let savedT;
 function showSaved() { const s = el("saved"); s.classList.add("show"); clearTimeout(savedT); savedT = setTimeout(() => s.classList.remove("show"), 900); }
@@ -673,10 +685,11 @@ async function loadThisVideo() {
     box.appendChild(msg);
     const sites = document.createElement("div");
     sites.className = "sites";
-    for (const s of SUPPORTED_SITES) {
+    const host = await activeTabHost();
+    for (const [name, re] of SUPPORTED_SITES) {
       const c = document.createElement("span");
-      c.className = "site";
-      c.textContent = s;
+      c.className = "site" + (re.test(host) ? " on" : "");
+      c.textContent = name;
       sites.appendChild(c);
     }
     box.appendChild(sites);
