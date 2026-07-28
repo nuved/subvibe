@@ -272,21 +272,11 @@
     </div>
   </section>
 
-  <!-- Subtitle options -->
+  <!-- Translation options -->
   <section>
-    <details class="customize" id="subsFold">
-      <summary>Subtitle options <span class="hint" id="subsVal"></span></summary>
+    <details class="customize" id="transFold">
+      <summary>Translation options <span class="hint" id="transVal"></span></summary>
       <div class="row" style="margin-top:7px;">
-        <label class="switch"><input type="checkbox" id="showOriginal" /><span class="slider"></span></label>
-        <label for="showOriginal">Also show the original line</label>
-        <span class="info" title="Dual subtitles — the original sits right above the translation">i</span>
-      </div>
-      <div class="row" style="margin-top:11px;">
-        <label class="switch"><input type="checkbox" id="karaokeHl" /><span class="slider"></span></label>
-        <label for="karaokeHl">Highlight spoken words</label>
-        <span class="info" title="Karaoke-style sweep across each word as it is spoken">i</span>
-      </div>
-      <div class="row" style="margin-top:11px;">
         <label class="switch"><input type="checkbox" id="keepNames" /><span class="slider"></span></label>
         <label for="keepNames">Keep names &amp; brands untranslated</label>
         <span class="info" title="Never transliterated — MySQL stays MySQL, Skyler stays Skyler">i</span>
@@ -393,6 +383,16 @@
         <label class="switch"><input type="checkbox" id="hideNative" /><span class="slider"></span></label>
         <label for="hideNative">Hide the site's own captions</label>
         <span class="info" title="Prevents doubled subtitles when the site shows its own">i</span>
+      </div>
+      <div class="row">
+        <label class="switch"><input type="checkbox" id="showOriginal" /><span class="slider"></span></label>
+        <label for="showOriginal">Also show the original line</label>
+        <span class="info" title="Dual subtitles — the original sits right above the translation">i</span>
+      </div>
+      <div class="row">
+        <label class="switch"><input type="checkbox" id="karaokeHl" /><span class="slider"></span></label>
+        <label for="karaokeHl">Highlight spoken words</label>
+        <span class="info" title="Karaoke-style sweep across each word as it is spoken">i</span>
       </div>
     </details>
   </section>

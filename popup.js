@@ -141,7 +141,7 @@ function refreshKeysSummary() {
 // (hydrateKeys/refreshKeysSummary) still wins: it sets .open AFTER this runs, and that
 // programmatic toggle is saved too, which is fine — after fixing the key the user closes
 // it once.
-const FOLD_IDS = ["keysDetails", "engineFold", "voiceFold", "subsFold", "lookFold", "timeFold"];
+const FOLD_IDS = ["keysDetails", "engineFold", "voiceFold", "transFold", "lookFold", "timeFold"];
 async function initFolds() {
   const { uiFold } = await chrome.storage.local.get("uiFold");
   const st = uiFold || {};
@@ -163,10 +163,11 @@ function updateFoldSummaries() {
   txt("engineVal", sel("translationProvider"));
   const gem = el("ttsProvider").value === "gemini";
   txt("voiceVal", sel(gem ? "dubGeminiVoice" : "dubVoice") || sel("ttsProvider"));
-  txt("subsVal", [el("showOriginal").checked ? "dual" : "translation only",
-                  el("karaokeHl").checked ? "karaoke" : "",
-                  el("keepNames").checked ? "keep names" : ""].filter(Boolean).join(" · "));
-  txt("lookVal", sizePct(+el("sizeRange").value));
+  txt("transVal", [el("keepNames").checked ? "keep names" : "",
+                   el("keepTerms").value.trim() ? "glossary" : ""].filter(Boolean).join(" · ") || "defaults");
+  txt("lookVal", [sizePct(+el("sizeRange").value),
+                  el("showOriginal").checked ? "dual" : "translation only",
+                  el("karaokeHl").checked ? "karaoke" : ""].filter(Boolean).join(" · "));
   txt("timeVal", el("syncVal").textContent);
 }
 
