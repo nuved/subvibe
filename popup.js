@@ -395,7 +395,14 @@ function buildVoiceSelect() {
 }
 // Dim + freeze the voice/mix config while the master toggle is off — instant
 // feedback that none of it does anything until "Dub subtitles aloud" is on.
-function syncDubConfig() { el("dubConfig").classList.toggle("off", !el("dubEnabled").checked); }
+// inert (not just pointer-events) so keyboard focus can't reach the frozen
+// controls either — Tab+Enter on Generate would start a paid run.
+function syncDubConfig() {
+  const off = !el("dubEnabled").checked;
+  const box = el("dubConfig");
+  box.classList.toggle("off", off);
+  box.inert = off;
+}
 el("dubEnabled").addEventListener("change", () => { state.dubEnabled = el("dubEnabled").checked; persist({ dubEnabled: state.dubEnabled }); syncDubConfig(); });
 el("dubVoice").addEventListener("change", () => persist({ dubVoice: el("dubVoice").value }));
 el("dubGeminiVoice").addEventListener("change", () => persist({ dubGeminiVoice: el("dubGeminiVoice").value }));
