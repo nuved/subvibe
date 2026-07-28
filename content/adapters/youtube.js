@@ -42,7 +42,18 @@
       const t = ev.segs.map((s) => s.utf8 || "").join("").replace(/\s+/g, " ").trim();
       if (!t) continue;
       const startMs = ev.tStartMs || 0;
-      cues.push({ startMs, endMs: startMs + (ev.dDurationMs || 2500), text: t });
+      const cue = { startMs, endMs: startMs + (ev.dDurationMs || 2500), text: t };
+      // ASR tracks carry one seg PER WORD with its own offset — keep it for the
+      // karaoke highlight. Manual tracks can ALSO be multi-seg (split at line
+      // breaks) but with no offsets — all-zero o would light the whole line at
+      // once, so only a track with a real offset counts as word-timed.
+      const w = [];
+      for (const s of ev.segs) {
+        const wt = (s.utf8 || "").replace(/\s+/g, " ").trim();
+        if (wt) w.push({ o: s.tOffsetMs || 0, t: wt });
+      }
+      if (w.length > 1 && w.some((x) => x.o > 0)) cue.w = w;
+      cues.push(cue);
     }
     return cues;
   }

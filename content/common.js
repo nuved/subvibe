@@ -26,8 +26,12 @@
                          // (SubVibe re-renders the same line, so the native one is redundant)
     position: "bottom",  // bottom | top | auto | custom (user-dragged)
     linePositions: {},   // custom mode: slot key ("__orig"|lang) → {x,y} fraction (per-segment)
-    size: "md",          // sm | md | lg | xl
+    size: "md",          // fraction of video height (e.g. 0.03) — legacy "sm|md|lg|xl" names still accepted
+    stylePreset: "classic", // named look from shared/presets.js: classic | youtube | tiktok | pill | snapchat | cinema | minimal
+    styleCustom: {},        // sparse tweaks on top of the preset: { font, color, bg, bgColor, bgOpacity, edge }
     syncOffset: 0,       // seconds; + shows subtitles earlier, − later
+    karaokeHl: true,     // karaoke fill: words already spoken light up in --cs-hl
+                         // (exact per-word times on YouTube ASR tracks, estimated elsewhere)
     audioFallback: false, // transcribe audio ONLY when a video has no captions
     audioDeviceId: "",    // chosen input device (e.g. BlackHole)
   };
@@ -61,6 +65,7 @@
   // spamming "Translation failed" on every pump tick.
   let contextDead = false;
   function haltOrphaned() {
+    if (window.__svDub) try { window.__svDub.detach(); } catch {}
     if (streamCleanup) { try { streamCleanup(); } catch {} streamCleanup = null; }
     try { cancelAnimationFrame(rafId); } catch {}
     try { cancelAnimationFrame(audioRaf); } catch {}
@@ -108,7 +113,7 @@
   // layers this clip's own changes on top — so a tweak on one video (or live channel)
   // never bleeds onto another. sync defaults to 0 per clip.
   async function getSettings() {
-    const s = await chrome.storage.local.get(["enabled", "targets", "showOriginal", "hideNative", "position", "linePositions", "size", "syncOffset", "audioFallback", "audioDeviceId", "clipOverrides"]);
+    const s = await chrome.storage.local.get(["enabled", "targets", "showOriginal", "hideNative", "position", "linePositions", "size", "stylePreset", "styleCustom", "syncOffset", "karaokeHl", "audioFallback", "audioDeviceId", "translationProvider", "clipOverrides"]);
     const { clipOverrides, ...flat } = s;
     const ov = (clipOverrides && clipOverrides[clipBaseId()]) || {};
     return { ...DEFAULTS, ...flat, ...ov };
@@ -320,21 +325,40 @@
   let audioRaf = 0;
   let audioCues = null, audioDefs = [], audioEls = {};
 
-  // Inject the Persian font with ABSOLUTE extension URLs. A relative url() in
+  // Inject bundled fonts with ABSOLUTE extension URLs. A relative url() in
   // overlay.css resolves against the page origin (e.g. www.zdf.de/.../fonts/…)
-  // and 404s, so Persian falls back to a system font. This fixes that.
-  function ensureFont() {
-    if (document.getElementById("copilot-font")) return;
-    try {
-      const reg = chrome.runtime.getURL("fonts/Vazirmatn-Regular.woff2");
-      const bold = chrome.runtime.getURL("fonts/Vazirmatn-Bold.woff2");
-      const st = document.createElement("style");
-      st.id = "copilot-font";
-      st.textContent =
-        `@font-face{font-family:'Vazirmatn';font-weight:400;font-display:swap;src:url('${reg}') format('woff2');}` +
-        `@font-face{font-family:'Vazirmatn';font-weight:700;font-display:swap;src:url('${bold}') format('woff2');}`;
-      (document.head || document.documentElement).appendChild(st);
-    } catch {}
+  // and 404s, so the text falls back to a system font. Vazirmatn (Persian/RTL)
+  // is ALWAYS injected; style fonts (Baloo 2 for the TikTok/Pill presets and the
+  // "Rounded" custom choice) are injected on demand by applyAppearance.
+  const FONT_FACES = {
+    vazirmatn: [
+      { family: "Vazirmatn", weight: 400, file: "fonts/Vazirmatn-Regular.woff2" },
+      { family: "Vazirmatn", weight: 700, file: "fonts/Vazirmatn-Bold.woff2" },
+    ],
+    // Subset per script with unicode-range (Google Fonts subsets), so e.g. a
+    // Polish translation doesn't mix Baloo glyphs with fallback-font diacritics.
+    baloo2: [
+      { family: "Baloo 2", weight: 800, file: "fonts/Baloo2-ExtraBold-latin.woff2",
+        range: "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD" },
+      { family: "Baloo 2", weight: 800, file: "fonts/Baloo2-ExtraBold-latin-ext.woff2",
+        range: "U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF" },
+    ],
+  };
+  function ensureFont(keys) {
+    for (const k of ["vazirmatn", ...(keys || [])]) {
+      const id = "copilot-font-" + k;
+      if (document.getElementById(id) || !FONT_FACES[k]) continue;
+      try {
+        const st = document.createElement("style");
+        st.id = id;
+        st.textContent = FONT_FACES[k].map((f) =>
+          `@font-face{font-family:'${f.family}';font-weight:${f.weight};font-display:swap;` +
+          `src:url('${chrome.runtime.getURL(f.file)}') format('woff2');` +
+          (f.range ? `unicode-range:${f.range};` : "") + "}"
+        ).join("");
+        (document.head || document.documentElement).appendChild(st);
+      } catch {}
+    }
   }
 
   function ensureOverlay() {
@@ -349,6 +373,97 @@
     const parent = adapter?.getPlayerContainer?.() || document.body;
     if (el.parentElement !== parent) parent.appendChild(el);
     return el;
+  }
+
+  // All caption text goes through here: the text lives in an inner span so pill
+  // styles can give each WRAPPED line its own box (see overlay.css). The row's
+  // textContent still reads the same text, so `el.textContent !== txt` guards
+  // at the call sites keep working unchanged.
+  //
+  // Karaoke mode: `units` = [{s: absolute startMs, t: word}]. Each word gets its
+  // own span, separated by REAL space text nodes — so row.textContent === txt
+  // and the change-guards above stay valid. updateSung() then colors the words
+  // whose start time the playhead has passed.
+  function setLineText(row, txt, units) {
+    let span = row.firstElementChild;
+    if (!span || !span.classList.contains("copilot-subs__text")) {
+      row.textContent = "";
+      span = document.createElement("span");
+      span.className = "copilot-subs__text";
+      row.appendChild(span);
+    }
+    if (units && units.length > 1) {
+      span.textContent = "";
+      const spans = [];
+      units.forEach((u, i) => {
+        if (i) span.appendChild(document.createTextNode(" "));
+        const w = document.createElement("span");
+        w.className = "copilot-subs__w";
+        w.textContent = u.t;
+        span.appendChild(w);
+        spans.push(w);
+      });
+      row.__svW = { units, spans, k: -1 };
+    } else {
+      if (span.textContent !== txt) span.textContent = txt;
+      row.__svW = null;
+    }
+  }
+
+  // No word timing in the file (manual subs, translations, dub audio): spread
+  // the words across [startMs,endMs], weighted by length + a per-word floor —
+  // the classic karaoke approximation. Joining the result with " " reproduces
+  // the input EXACTLY only when it's single-space normalized; lineUnits checks.
+  function estimateUnits(text, startMs, endMs) {
+    const words = (text || "").split(" ").filter(Boolean);
+    if (!words.length) return [];
+    const span = Math.max(300, (endMs || startMs) - startMs);
+    const wt = words.map((w) => w.length + 2);
+    const total = wt.reduce((a, b) => a + b, 0);
+    let acc = 0;
+    return words.map((w, i) => {
+      const s = startMs + (span * acc) / total;
+      acc += wt[i];
+      return { s, t: w };
+    });
+  }
+
+  // Word units for the line a row is about to show. Original lines show the
+  // whole sentence GROUP, so exact per-cue offsets (cue.w) and estimated cues
+  // mix into one absolute timeline; translated lines carry one shared text per
+  // group, estimated over the group's span. Returns null when units wouldn't
+  // reassemble into txt (odd spacing) — the line then renders plain, no churn.
+  function lineUnits(c, target, txt) {
+    if (!c || !txt) return null;
+    const cs = c.grp ? c.grp.cues : [c];
+    const endOf = (q) => q.endMs || q.startMs + 2500;
+    let units;
+    if (!target) {
+      units = [];
+      for (const q of cs) {
+        if (q.w && q.w.length > 1) for (const x of q.w) units.push({ s: q.startMs + (x.o || 0), t: x.t });
+        else units.push(...estimateUnits(q.original, q.startMs, endOf(q)));
+      }
+    } else {
+      units = estimateUnits(txt, cs[0].startMs, endOf(cs[cs.length - 1]));
+    }
+    if (units.length > 1 && units.map((u) => u.t).join(" ") === txt) return units;
+    // Exact offsets didn't reassemble (spacing/punct drift) — estimate from txt itself.
+    units = estimateUnits(txt, cs[0].startMs, endOf(cs[cs.length - 1]));
+    return units.length > 1 && units.map((u) => u.t).join(" ") === txt ? units : null;
+  }
+
+  // Sweep the fill: color spans 0..k-1 where k = words already started at t.
+  // DOM writes only when k changes (word boundaries), not per frame.
+  function updateSung(row, t) {
+    const W = row.__svW;
+    if (!W) return;
+    let k = 0;
+    while (k < W.units.length && W.units[k].s <= t) k++;
+    if (k !== W.k) {
+      for (let j = 0; j < W.spans.length; j++) W.spans[j].classList.toggle("sung", j < k);
+      W.k = k;
+    }
   }
 
   function setStatus(text, isError) {
@@ -461,6 +576,9 @@
   // Scale the subtitle font to the VIDEO's rendered height — NOT the viewport — so
   // it matches the player's own captions whether windowed, theater, or fullscreen.
   // (Viewport-relative vw made the text huge over a small windowed player.)
+  // size is a FRACTION of the video height (popup slider, e.g. 0.03); the named
+  // tiers are the legacy S/M/L/XL values still sitting in existing users'
+  // storage — interpreted on read, never migrated.
   const SIZE_FACTORS = { sm: 0.024, md: 0.030, lg: 0.038, xl: 0.048 };
   let appearanceSize = "md";
   function sizeOverlay() {
@@ -469,7 +587,10 @@
     const v = liveVideoEl(adapter && adapter.getVideoEl ? adapter.getVideoEl() : null);
     const h = (v && v.clientHeight) || el.clientHeight || 0;
     if (!h) return;
-    const px = Math.max(11, Math.min(50, Math.round(h * (SIZE_FACTORS[appearanceSize] || SIZE_FACTORS.md))));
+    const f = typeof appearanceSize === "number" && isFinite(appearanceSize)
+      ? appearanceSize
+      : (SIZE_FACTORS[appearanceSize] || SIZE_FACTORS.md);
+    const px = Math.max(9, Math.min(80, Math.round(h * f)));
     el.style.setProperty("--cs-font", px + "px");
   }
 
@@ -562,7 +683,18 @@
       el.querySelectorAll(".copilot-subs__line").forEach((ln) => { ln.style.left = ""; ln.style.top = ""; });
     }
     appearanceSize = settings.size || "md";
-    el.classList.add("copilot-size-" + appearanceSize);
+    // Legacy named tiers only — a numeric (slider) size has no class; sizing is
+    // all --cs-font anyway and an unremovable "copilot-size-0.03" would pile up.
+    if (SIZE_FACTORS[appearanceSize]) el.classList.add("copilot-size-" + appearanceSize);
+    // Visual style: preset + custom tweaks → CSS vars on the overlay (pure
+    // presentation — the storage watcher applies these live, no restart).
+    const style = window.SV_RESOLVE_STYLE ? window.SV_RESOLVE_STYLE(settings) : null;
+    if (style) {
+      for (const k in style.vars) el.style.setProperty(k, style.vars[k]);
+      el.classList.toggle("copilot-style-pill", style.pill);
+      el.classList.toggle("copilot-style-banner", style.banner);
+      ensureFont(style.fonts);
+    }
     sizeOverlay(); // size the font to the video now (a 1s timer keeps it in sync on resize/fullscreen)
     initDrag(el);  // make the subtitles grabbable (idempotent)
     if (autoPosEnabled) updateAutoPosition();
@@ -619,6 +751,7 @@
     audioCues = null;
     if (streamCleanup) { try { streamCleanup(); } catch {} streamCleanup = null; }
     setBadge({ off: true }); // clear the toolbar look-ahead counter
+    if (window.__svDub) try { window.__svDub.detach(); } catch {}
     const el = document.getElementById("copilot-subs");
     if (el) el.remove();
   }
@@ -700,7 +833,7 @@
         if (i !== l.idx) {
           l.idx = i;
           const txt = i >= 0 ? l.cues[i].text : "";
-          l.el.textContent = txt;
+          setLineText(l.el, txt);
           l.el.style.display = txt ? "block" : "none";
           l.el.dir = isRTL(txt) ? "rtl" : "ltr";
         }
@@ -748,7 +881,7 @@
     const els = {};
     for (const d of defs) {
       const row = document.createElement("div");
-      row.className = "copilot-subs__line";
+      row.className = "copilot-subs__line" + (d.target ? "" : " copilot-subs__line--orig");
       row.dataset.lang = d.key;
       els[d.key] = row;
       stack.appendChild(row);
@@ -768,7 +901,7 @@
         const el = els[d.key];
         const txt = c ? (d.target ? c.t?.[d.target] || "" : c.original) : "";
         if (el.textContent !== txt) {
-          el.textContent = txt;
+          setLineText(el, txt);
           el.style.display = txt ? "block" : "none";
           el.dir = (d.target ? isRTLLang(d.target) : isRTL(txt)) ? "rtl" : "ltr";
         }
@@ -794,6 +927,52 @@
     let audioStopped = false;
     const recentLines = []; // preceding dialogue, for translation context
 
+    // Claude bills the ~1k-token instruction prompt on EVERY request, so the
+    // per-line reactive path was ~90% prompt overhead — a live evening hit
+    // ~1.4M tokens/hour. With Claude, coalesce heard lines for a beat (4 lines
+    // or 1.8s) and translate them as ONE batch; OpenAI keeps the instant
+    // per-line path (prompt overhead is pennies there, latency wins).
+    const coalesce = settings.translationProvider === "claude";
+    let sq = [], sqTimer = 0, sqBusy = false;
+    async function flushStreamQ() {
+      sqTimer = 0;
+      if (!adapter || !adapter.matches()) { sq = []; return; } // navigated away — don't spend on dead cues
+      if (sqBusy || !sq.length) return;
+      sqBusy = true;
+      const batch = sq.splice(0);
+      try {
+        for (const tg of targets) {
+          const todo = batch.filter((b) => !(textCache.get(b.text) || {})[tg]);
+          if (!todo.length) continue;
+          const resp = await send({ type: "TRANSLATE", cues: todo.map((b) => b.text), source: "auto", target: tg,
+            context: todo[0].context, site: adapter?.site, title: SV_TITLE.clean(document.title), base: lastCacheBase || clipBaseId() });
+          if (resp?.dead) return; // extension reloaded — orphaned script, stop quietly
+          if (resp?.error) {
+            dbg("ERR " + tg + ": " + resp.error);
+            setStatus(`Translation failed (${langLabel(tg)}): ${resp.error}`, true);
+            continue;
+          }
+          todo.forEach((b, i) => {
+            const out = resp.lines && resp.lines[i];
+            if (!out) { dbg(tg + " — empty reply from model"); return; }
+            const k = textCache.get(b.text) || {};
+            k[tg] = out; textCache.set(b.text, k);
+            b.cue.t[tg] = out;
+            dbg(tg + " ✓ " + out.slice(0, 28));
+          });
+        }
+        persist();
+      } finally {
+        sqBusy = false;
+        if (sq.length && !sqTimer) sqTimer = setTimeout(flushStreamQ, 400); // lines arrived mid-flush
+      }
+    }
+    function queueStreamLine(cue, text, context) {
+      sq.push({ cue, text, context });
+      if (sq.length >= 4) { clearTimeout(sqTimer); flushStreamQ(); }
+      else if (!sqTimer) sqTimer = setTimeout(flushStreamQ, 1800);
+    }
+
     const poll = setInterval(async () => {
       if (!adapter || !adapter.matches()) return; // adapter can be nulled mid-flight on clip nav
       const text = (adapter.readNativeText ? adapter.readNativeText() : "").replace(/\s+/g, " ").trim();
@@ -817,9 +996,17 @@
 
       const known = textCache.get(text) || {};
       textCache.set(text, known);
+      if (coalesce) {
+        let need = false;
+        for (const tg of targets) { if (known[tg]) cue.t[tg] = known[tg]; else need = true; }
+        if (need) queueStreamLine(cue, text, context);
+        else persist();
+        return;
+      }
       for (const tg of targets) {
         if (known[tg]) { cue.t[tg] = known[tg]; continue; }
-        const resp = await send({ type: "TRANSLATE", cues: [text], source: "auto", target: tg, context });
+        const resp = await send({ type: "TRANSLATE", cues: [text], source: "auto", target: tg, context,
+          site: adapter?.site, title: SV_TITLE.clean(document.title), base: lastCacheBase || clipBaseId() }); // meta: the Activity log needs a name for the row
         if (resp?.dead) return; // extension reloaded — orphaned script, stop quietly
         if (resp?.error) {
           dbg("ERR " + tg + ": " + resp.error);
@@ -997,7 +1184,17 @@
           const t = ev.segs.map((s) => s.utf8 || "").join("").replace(/\s+/g, " ").trim();
           if (!t) continue;
           const startMs = ev.tStartMs || 0;
-          cues.push({ startMs, endMs: startMs + (ev.dDurationMs || 2500), text: t });
+          const cue = { startMs, endMs: startMs + (ev.dDurationMs || 2500), text: t };
+          // ASR tracks: one seg per word with its own offset — keep for karaoke.
+          // Multi-seg manual tracks (split at line breaks) have NO offsets;
+          // all-zero o would light the whole line at once, so require a real one.
+          const w = [];
+          for (const s of ev.segs) {
+            const wt = (s.utf8 || "").replace(/\s+/g, " ").trim();
+            if (wt) w.push({ o: s.tOffsetMs || 0, t: wt });
+          }
+          if (w.length > 1 && w.some((x) => x.o > 0)) cue.w = w;
+          cues.push(cue);
         }
         if (cues.length) return cues;
       } catch {}
@@ -1061,14 +1258,18 @@
   // A CLIP-STABLE dedup key. YouTube re-fetches its timedtext with a fresh pot/ei
   // token on every seek (a different URL each time). Keying on v+lang+kind makes
   // those re-fetches resolve to the SAME key → skipped → so a seek doesn't REPLACE
-  // the cue list and wipe the pump's in-progress translations. (A real caption-
-  // language switch has a different lang → different key → still re-fetched.)
+  // the cue list and wipe the pump's in-progress translations. A language switch
+  // must still re-fetch — and that needs `tlang` in the key too: YouTube's
+  // auto-TRANSLATED tracks reuse the source track's lang (German ASR shown as
+  // English = lang=de&tlang=en), so keying on lang alone made switching the
+  // player from translated-English back to real German look like a duplicate,
+  // and the plugin stayed on English no matter what the player showed.
   function subDedupKey(url) {
     try {
       const u = new URL(url);
       if (/\/api\/timedtext$/.test(u.pathname)) {
         const p = u.searchParams;
-        return "yt-tt:" + (p.get("v") || "") + ":" + (p.get("lang") || "") + ":" + (p.get("kind") || "");
+        return "yt-tt:" + (p.get("v") || "") + ":" + (p.get("lang") || "") + ":" + (p.get("kind") || "") + ":" + (p.get("tlang") || "");
       }
     } catch {}
     return url;
@@ -1122,15 +1323,28 @@
     // the SAME video under many entries, flooding the cache list with duplicates.
     const base = clipBaseId(); // "<site>:<clipId>" — shared by the cache AND per-clip settings
     lastCacheBase = base; // remember for "clear this video" from the popup
+    const pageTitle = SV_TITLE.clean(document.title), pageUrl = location.href;
 
     // Cached translations (per target), applied to current AND future cues.
     const cacheMaps = {};
     for (const tg of settings.targets) {
       const cached = (await send({ type: "CACHE_GET", key: `${base}:auto:${tg}` }))?.track;
-      cacheMaps[tg] = new Map((cached?.cues || []).map((c) => [c.startMs, c.text]));
+      cacheMaps[tg] = new Map((cached?.cues || []).map((c) => [c.startMs, c]));
     }
     const applyCache = (cue) => {
-      for (const tg of settings.targets) { const v = cacheMaps[tg].get(cue.startMs); if (v) cue.t[tg] = v; }
+      for (const tg of settings.targets) {
+        const v = cacheMaps[tg].get(cue.startMs);
+        if (!v) continue;
+        // Heal caches poisoned by the failed-batch English fallback: an RTL
+        // target whose cached "translation" has no RTL script is untranslated
+        // source text — skip it so the pump re-translates and re-caches. (Rare
+        // legit Latin-only lines — a kept name, bare numbers — just re-translate
+        // once per session; pennies, and they cache again if RTL comes back.)
+        if (isRTLLang(tg) && v.text && !isRTL(v.text)) continue;
+        cue.t[tg] = v.text;
+        if (v.sid != null && !cue.spk) cue.spk = { id: v.sid, g: v.sg || "?" };
+        if (v.dt != null && cue.dt === undefined) cue.dt = v.dt; // cached condensed dub text (old caches: undefined → g.d null in buildGroups)
+      }
     };
 
     // ZDF streams subtitle cues in as you play, so ingest is incremental.
@@ -1150,6 +1364,7 @@
           continue;
         }
         const cue = { startMs: f.startMs, endMs: f.endMs, original: f.text, t: {} };
+        if (f.w) cue.w = f.w; // per-word offsets (YouTube ASR) — feeds the karaoke highlight
         applyCache(cue);
         insertCue(cues, cue);
       }
@@ -1176,7 +1391,9 @@
         // a sentence, so it closes too.
         const closed = brokeBy !== "end" || SENT_END.test((list[i].original || "").trim());
         const grp = { orig: txt.replace(/\s+/g, " ").trim(), cues: list.slice(start, i + 1), t: {}, closed };
+        grp.spk = (grp.cues.find((c) => c.spk) || {}).spk;
         for (const tg of settings.targets) if (grp.cues.every((c) => c.t[tg])) grp.t[tg] = grp.cues[0].t[tg];
+        grp.d = grp.cues[0].dt || null; // restored from cache (old caches: no dt → null → dub.js falls back to full text)
         for (const c of grp.cues) c.grp = grp;
         i++;
       }
@@ -1193,7 +1410,7 @@
     for (const tg of settings.targets) defs.push({ key: tg, target: tg });
     if (!defs.length) defs.push({ key: "__orig", target: null });
     const els = {};
-    for (const d of defs) { const row = document.createElement("div"); row.className = "copilot-subs__line"; row.dataset.csKey = d.key; els[d.key] = row; stack.appendChild(row); }
+    for (const d of defs) { const row = document.createElement("div"); row.className = "copilot-subs__line" + (d.target ? "" : " copilot-subs__line--orig"); row.dataset.csKey = d.key; els[d.key] = row; stack.appendChild(row); }
     layoutCustomLines(); // if Position is "custom", anchor each line at its own saved spot
 
     cancelAnimationFrame(rafId);
@@ -1231,10 +1448,20 @@
         if (t > lastEnd && t - lastEnd < 20000) i = cues.length - 1;
       }
       const c = i >= 0 ? cues[i] : null;
+      const kar = settings.karaokeHl !== false;
       for (const d of defs) {
         const el = els[d.key];
         const txt = c ? (d.target ? c.t[d.target] || "" : (c.grp ? c.grp.orig : c.original)) : "";
-        if (el.textContent !== txt) { el.textContent = txt; el.style.display = txt ? "block" : "none"; el.dir = (d.target ? isRTLLang(d.target) : isRTL(txt)) ? "rtl" : "ltr"; }
+        // Unit key: a REPEATED line (song refrain) keeps txt identical while the
+        // cue changes — the karaoke fill must still restart from the new times.
+        const uk = c && kar ? (c.grp ? c.grp.cues[0].startMs : c.startMs) + ":" + (d.target || "") : "";
+        if (el.textContent !== txt || (kar && el.__svUk !== uk)) {
+          setLineText(el, txt, kar ? lineUnits(c, d.target, txt) : null);
+          el.__svUk = uk;
+          el.style.display = txt ? "block" : "none";
+          el.dir = (d.target ? isRTLLang(d.target) : isRTL(txt)) ? "rtl" : "ltr";
+        }
+        if (kar) updateSung(el, t);
       }
       // ── live proof of the lookahead — read window.csDiag() in the console ──
       if (performance.now() - diagAt > 1000) {
@@ -1259,9 +1486,12 @@
         // the buffered-ahead window during a pause). Idle only on a never-started
         // video ⇒ clear the badge so nothing shows before you press play.
         const active = video && !video.ended && (!video.paused || engaged);
-        if (!active) setBadge({ off: true });
-        else if (pending <= 0) setBadge({ free: true });
-        else setBadge({ count: done, state: behindMs < 3500 ? "miss" : "lag" });
+        // Dub Mode's own readiness counter (clips decoded and ready to play in
+        // the next ~60s) — ADDS a field to the existing payload, never restructures it.
+        const dub = window.__svDub && window.__svDub.readyAhead ? { dubReady: window.__svDub.readyAhead() } : {};
+        if (!active) setBadge({ off: true, ...dub });
+        else if (pending <= 0) setBadge({ free: true, ...dub });
+        else setBadge({ count: done, state: behindMs < 3500 ? "miss" : "lag", ...dub });
         try {
           document.documentElement.dataset.csDiag = JSON.stringify({
             play: +(t / 1000).toFixed(1), raw: +raw.toFixed(1), relayClk: mainClockMs != null ? +(mainClockMs / 1000).toFixed(1) : null,
@@ -1275,7 +1505,29 @@
       }
       rafId = requestAnimationFrame(tick);
     };
+    const persist = debounce(() => {
+      // Don't cache LIVE: it's not replayable, and all live channels share the same
+      // clip key (/gp/video/livetv) so caching would mix channels and pollute the Library.
+      if (isLiveStream) return;
+      for (const tg of settings.targets) {
+        send({ type: "CACHE_PUT", key: `${base}:auto:${tg}`,
+          track: { site: adapter?.site, videoId, source: "auto", target: tg, model: "gpt-4o-mini", createdAt: new Date().toISOString(),
+            title: pageTitle, url: pageUrl, totalCues: cues.length,
+            cues: cues.filter((c) => c.t[tg]).map((c) => ({ startMs: c.startMs, endMs: c.endMs, text: c.t[tg], sid: c.spk && c.spk.id, sg: c.spk && c.spk.g,
+              dt: c.grp && c === c.grp.cues[0] ? (c.grp.d || undefined) : undefined })) } });
+      }
+    }, 3000);
     rafId = requestAnimationFrame(tick);
+    if (window.__svDub) window.__svDub.attach({
+      base: `${base}:auto:${settings.targets[0] || "en"}`,
+      target: settings.targets[0] || null,
+      getVideo: () => liveVideoEl(video),
+      playhead: () => playheadMs(liveVideoEl(video)) + (isLiveStream ? (liveOffsetMs + liveAutoOffsetMs) : 0),
+      live: () => isLiveStream,
+      cues,
+      site: adapter && adapter.site,
+      persist,
+    });
     ensureAudioStopped();
     applyHideNative(settings.hideNative);
     // If this clip's translations are already cached (a re-watch), say so — it's
@@ -1284,18 +1536,6 @@
     const cachedReady = tgs0.length && cues.length ? cues.filter((c) => tgs0.every((g) => c.t[g])).length / cues.length : 0;
     setStatus(cachedReady > 0.9 ? "Replaying from cache — free, no API cost ✓" : "Subtitles ready — pre-translating ahead.");
     console.info(`[CopilotSubs] perfect-sync ON — ${cues.length} cues`);
-
-    const persist = debounce(() => {
-      // Don't cache LIVE: it's not replayable, and all live channels share the same
-      // clip key (/gp/video/livetv) so caching would mix channels and pollute the Library.
-      if (isLiveStream) return;
-      for (const tg of settings.targets) {
-        send({ type: "CACHE_PUT", key: `${base}:auto:${tg}`,
-          track: { site: adapter?.site, videoId, source: "auto", target: tg, model: "gpt-4o-mini", createdAt: new Date().toISOString(),
-            title: document.title, url: location.href, totalCues: cues.length,
-            cues: cues.filter((c) => c.t[tg]).map((c) => ({ startMs: c.startMs, endMs: c.endMs, text: c.t[tg] })) } });
-      }
-    }, 3000);
 
     // Translate the next ~30s ahead of the playhead, one batch at a time.
     // Keep ingesting cues as ZDF streams more of them in during playback.
@@ -1332,33 +1572,55 @@
         // timestamps (Prime did — the whole file looked "due now"), a pure time
         // window would translate the ENTIRE movie at once and burn API cost. The
         // index cap makes spend track watched time, never file size.
-        const MAX_AHEAD_CUES = 24;
+        // Claude batches take several times longer than gpt-4o-mini — give the
+        // pump a longer runway so slower calls still land before the playhead.
+        const claudeT = settings.translationProvider === "claude";
+        const MAX_AHEAD_CUES = claudeT ? 40 : 24;
         let i0 = 0;
         while (i0 < cues.length && cues[i0].startMs < t - 4000) i0++;
         const groups = [], gseen = new Set();
         for (let k = i0; k < cues.length && k < i0 + MAX_AHEAD_CUES; k++) {
           const c = cues[k];
-          if (c.startMs > t + 45000) break; // also never run far ahead in time
+          if (c.startMs > t + (claudeT ? 75000 : 45000)) break; // also never run far ahead in time
           const g = c.grp;
           if (!g || !g.closed || g.t[tg] || gseen.has(g)) continue;
           gseen.add(g); groups.push(g);
           if (groups.length >= 12) break;
         }
         if (!groups.length) continue;
+        // Live + Claude: a lone just-closed group would re-bill the full prompt
+        // for one line — give a second group ~4s to accumulate first.
+        if (claudeT && isLiveStream && groups.length === 1 && t - groups[0].cues[0].startMs < 4000) continue;
         busy = true;
         const guard = setTimeout(() => { busy = false; }, 20000); // backstop: a hung worker call must never wedge the pump (the 5→0-stuck bug)
         let resp;
-        try { resp = await send({ type: "TRANSLATE", cues: groups.map((g) => g.orig), source: "auto", target: tg, site: adapter?.site, title: document.title }); }
+        try { resp = await send({ type: "TRANSLATE", cues: groups.map((g) => g.orig), source: "auto", target: tg, site: adapter?.site, title: SV_TITLE.clean(document.title), base: lastCacheBase }); }
         finally { clearTimeout(guard); busy = false; }
         if (resp?.dead) return; // extension reloaded — orphaned script, stop quietly (haltOrphaned showed the refresh hint)
         if (resp?.error) {
           // Transient OpenAI blips (5xx/520/429) self-recover on the next tick — show a
           // gentle, fading note rather than a scary sticky "Translation failed".
           const transient = /temporarily unavailable|rate limited|\bOpenAI (?:429|5\d\d)\b/i.test(resp.error);
-          setStatus(transient ? `${langLabel(tg)}: OpenAI busy — retrying…` : `Translation failed (${langLabel(tg)}): ${resp.error}`, !transient);
+          setStatus(transient ? `${langLabel(tg)}: translator busy — retrying…` : `Translation failed (${langLabel(tg)}): ${resp.error}`, !transient);
           return;
         }
-        if (resp?.lines) groups.forEach((g, k) => { if (resp.lines[k]) { g.t[tg] = resp.lines[k]; for (const cc of g.cues) cc.t[tg] = resp.lines[k]; } });
+        if (resp?.lines) groups.forEach((g, k) => {
+          if (!resp.lines[k]) return;
+          // An RTL target answered with the source line, no RTL script at all:
+          // that's the worker's failed-batch fallback, not a translation. Leave
+          // the group untranslated so the next pump round retries it — but only
+          // twice, so a group the model INSISTS is non-speech ("[music]") can't
+          // become an every-round re-spend loop.
+          const echo = isRTLLang(tg) && resp.lines[k] === g.orig && !isRTL(resp.lines[k]);
+          if (echo && (g.echoN = (g.echoN || 0) + 1) <= 2) return;
+          g.t[tg] = resp.lines[k];
+          for (const cc of g.cues) cc.t[tg] = resp.lines[k];
+          if (tg === settings.targets[0]) {                      // tag once, from the primary target's pass
+            g.spk = { id: (resp.spk && resp.spk[k]) || 0, g: (resp.gen && resp.gen[k]) || "?" };
+            for (const cc of g.cues) cc.spk = g.spk;
+            g.d = (resp.dub && resp.dub[k]) || null;             // condensed dub rendition (dub.js falls back to g.t when null)
+          }
+        });
         persist();
         return; // one batch per tick
       }
@@ -1442,7 +1704,7 @@
     audioEls = {};
     for (const d of audioDefs) {
       const row = document.createElement("div");
-      row.className = "copilot-subs__line";
+      row.className = "copilot-subs__line" + (d.target ? "" : " copilot-subs__line--orig");
       audioEls[d.key] = row;
       stack.appendChild(row);
     }
@@ -1455,7 +1717,7 @@
         const el = audioEls[d.key];
         const txt = c ? (d.target ? c.t?.[d.target] || "" : c.original) : "";
         if (el.textContent !== txt) {
-          el.textContent = txt;
+          setLineText(el, txt);
           el.style.display = txt ? "block" : "none";
           el.dir = (d.target ? isRTLLang(d.target) : isRTL(txt)) ? "rtl" : "ltr";
         }
@@ -1493,7 +1755,8 @@
 
     for (const tg of settings.targets) {
       const ctx = audioCues.slice(-5, -1).map((c) => c.original);
-      const resp = await send({ type: "TRANSLATE", cues: [text], source: "auto", target: tg, context: ctx });
+      const resp = await send({ type: "TRANSLATE", cues: [text], source: "auto", target: tg, context: ctx,
+        site: adapter?.site, title: SV_TITLE.clean(document.title), base: lastCacheBase || clipBaseId() }); // meta: the Activity log needs a name for the row
       if (resp?.error) { setStatus("Translation failed: " + resp.error, true); continue; }
       const out = resp && resp.lines && resp.lines[0];
       if (out) cue.t[tg] = out;
@@ -1526,7 +1789,7 @@
     const runKey = JSON.stringify({
       en: settings.enabled, v: vid,
       t: settings.targets, o: settings.showOriginal, h: settings.hideNative,
-      p: settings.position, s: settings.size,
+      p: settings.position, s: settings.size, k: settings.karaokeHl,
       // Whether this clip's FULL cue list has been intercepted yet. Without this,
       // when the subtitle file arrives LATE the run key looks "unchanged" so start()
       // early-returns, leaving the engine in its reactive fallback and the counter
@@ -1615,10 +1878,10 @@
 
   const schedule = debounce(() => { start().catch((e) => console.warn("[CopilotSubs]", e)); }, 400);
 
-  // Appearance keys (position, drag coords, text size) and the sync nudge apply
-  // LIVE — re-style in place, no flicker. Anything else (languages, key, enabled…)
-  // restarts the engine.
-  const LIVE_KEYS = ["syncOffset", "position", "linePositions", "size"];
+  // Appearance keys (position, drag coords, text size, style preset/tweaks) and
+  // the sync nudge apply LIVE — re-style in place, no flicker. Anything else
+  // (languages, key, enabled…) restarts the engine.
+  const LIVE_KEYS = ["syncOffset", "position", "linePositions", "size", "stylePreset", "styleCustom", "dubEnabled", "dubVoice", "dubGeminiVoice", "ttsProvider", "dubMultiVoice", "dubDuckLevel", "dubPace"];
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
     const keys = Object.keys(changes);
@@ -1650,7 +1913,7 @@
 
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (!msg) return;
-    if (msg.type === "GET_CLIP") { sendResponse({ base: lastCacheBase || clipBaseId(), title: document.title }); return; } // popup → "this video" cache + per-clip settings
+    if (msg.type === "GET_CLIP") { sendResponse({ base: lastCacheBase || clipBaseId(), title: SV_TITLE.clean(document.title) }); return; } // popup → "this video" cache + per-clip settings
     if (msg.type === "AUDIO_CUE") onAudioCue(msg.text);
     else if (msg.type === "AUDIO_STOP") stopAudio();
     else if (msg.type === "AUDIO_ERROR") setStatus("Audio: " + msg.error, true);

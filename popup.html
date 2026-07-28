@@ -47,8 +47,26 @@
     .btn:hover { background: var(--accent2); }
     .btn.ghost { background: var(--panel2); color: #cdd6e3; border: 1px solid var(--border); }
     .btn.ghost:hover { background: #1b2330; }
-    #keyStatus { font-size: 11px; margin-top: 6px; min-height: 14px; color: var(--muted); }
-    #keyStatus.ok { color: var(--green); } #keyStatus.err { color: var(--red); } #keyStatus.warn { color: var(--amber); }
+    #keyStatus, #anthropicKeyStatus, #geminiKeyStatus { font-size: 11px; margin-top: 6px; min-height: 14px; color: var(--muted); }
+    #keyStatus.ok, #anthropicKeyStatus.ok, #geminiKeyStatus.ok { color: var(--green); }
+    #keyStatus.err, #anthropicKeyStatus.err, #geminiKeyStatus.err { color: var(--red); }
+    #keyStatus.warn, #anthropicKeyStatus.warn, #geminiKeyStatus.warn { color: var(--amber); }
+
+    /* API keys panel: per-provider row with status dot */
+    .keysection + .keysection { margin-top: 14px; }
+    .keyhead { display: flex; align-items: baseline; justify-content: space-between; margin: 0 0 2px; }
+    .keyhead .keyname { font-weight: 600; }
+    .keyhead a { color: var(--accent); font-weight: 500; font-size: 11px; text-decoration: none; }
+    .keyhead a:hover { text-decoration: underline; }
+    .keyused { color: var(--muted); font-size: 11px; margin: 0 0 7px; }
+    .keydot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: var(--muted); flex: none; }
+    .keydot.green { background: var(--green); }
+    .keydot.red { background: var(--red); }
+    .selwarn { color: var(--amber); font-size: 11px; margin: 5px 0 0; }
+    #keysSummaryDots { letter-spacing: 1px; }
+    #keysSummaryDots span { color: var(--muted); font-size: 9px; }
+    #keysSummaryDots span.green { color: var(--green); }
+    #keysSummaryDots span.red { color: var(--red); }
 
     /* language chips + autocomplete */
     .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
@@ -75,10 +93,31 @@
     .row { display: flex; align-items: center; gap: 9px; margin: 9px 0 0; }
     .row label { font-weight: 500; }
 
-    /* segmented size control */
-    .seg { display: flex; gap: 6px; }
-    .seg button { flex: 1; padding: 7px 0; background: var(--panel); border: 1px solid var(--border); color: #cdd6e3; }
-    .seg button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+    /* appearance: preview strip + style preset tiles + size slider */
+    /* Baloo 2 for the preview/tiles — a relative url() is fine here (extension
+       page origin); the content script injects it with absolute URLs instead. */
+    @font-face { font-family: "Baloo 2"; font-weight: 800; font-display: swap;
+      src: url("fonts/Baloo2-ExtraBold-latin.woff2") format("woff2"); }
+    .prevwrap { height: 48px; border-radius: 9px; border: 1px solid var(--border); overflow: hidden;
+      display: flex; align-items: center; justify-content: center; margin-bottom: 8px;
+      background: linear-gradient(135deg, #232c3d 0%, #0e1420 55%, #1b2436 100%); }
+    .prevtext { font-size: 14px; white-space: nowrap; }
+    .presets { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 3px; scrollbar-width: thin; }
+    .presets button { flex: none; width: 62px; padding: 7px 0 5px; background: var(--panel);
+      border: 1px solid var(--border); display: flex; flex-direction: column; align-items: center; gap: 4px; }
+    .presets button .abc { font-size: 13px; line-height: 1.25; padding: 1px 6px; border-radius: 4px; }
+    .presets button .pname { font-size: 9.5px; color: var(--muted); font-weight: 500; }
+    .presets button.on { border-color: var(--accent); background: #14233c; }
+    .presets button.on .pname { color: var(--accent); }
+    input[type="range"] { accent-color: var(--accent); margin: 0; }
+    input[type="color"] { width: 32px; height: 26px; padding: 2px; border: 1px solid var(--border);
+      border-radius: 6px; background: var(--panel); flex: none; }
+    .sizeval { min-width: 38px; text-align: right; color: var(--muted); font-weight: 600; font-size: 11.5px; }
+    details.customize { border-top: 0; margin-top: 10px; }
+    details.customize summary { padding: 2px 0; font-size: 12px; color: var(--muted); }
+    details.customize summary::after { float: none; margin-left: 6px; }
+    .resetstyle { background: transparent; color: var(--muted); font-weight: 600; font-size: 11px; padding: 2px 0; }
+    .resetstyle:hover { color: var(--accent); }
 
     .sync { display: flex; align-items: center; gap: 10px; }
     .sync button { padding: 7px 11px; background: var(--panel2); color: #cdd6e3; border: 1px solid var(--border); }
@@ -158,14 +197,58 @@
     <button id="resetClip" class="scopelink muted" hidden title="Revert this video to your defaults">Reset</button>
   </div>
 
-  <!-- API key -->
+  <!-- This video -->
   <section>
-    <div class="lbl">OpenAI API key <a id="getKey" href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">Get a key →</a></div>
-    <div class="keyrow">
-      <input type="password" id="apiKey" placeholder="sk-…" autocomplete="off" spellcheck="false" />
-      <button class="btn ghost" id="verify">Verify</button>
-    </div>
-    <div id="keyStatus">Stored only on this device · a few cents per hour · cached replays are free.</div>
+    <div class="lbl">This video <button class="linkbtn" id="clearClip" hidden>Clear cache</button></div>
+    <div id="clipCache" class="clipcache muted">Loading…</div>
+    <div id="clipStats" class="hint" style="margin-top:6px; min-height:13px;"></div>
+    <div class="row" id="clipExports" style="flex-wrap:wrap; gap:6px;" hidden></div>
+  </section>
+
+  <!-- Translation engine -->
+  <section>
+    <details class="customize" id="engineFold">
+      <summary>Translation engine <span class="hint" id="engineVal"></span></summary>
+      <select id="translationProvider" style="margin-top:7px;">
+        <option value="openai">OpenAI GPT-4o-mini (cheapest)</option>
+        <option value="claude">Claude Sonnet 4.6 (best quality · ≈20× the price)</option>
+      </select>
+      <div id="translationProviderWarn" class="selwarn" hidden></div>
+    </details>
+  </section>
+
+  <!-- API keys — all providers always visible; engine dropdowns above/below reflect which are usable -->
+  <section>
+    <details class="customize" id="keysDetails">
+      <summary>API keys <span id="keysSummaryDots"></span> <span class="hint">OpenAI · Anthropic · Google</span></summary>
+      <div class="keysection">
+        <div class="keyhead"><span class="keyname"><span id="apiKeyDot" class="keydot"></span>OpenAI</span> <a id="getKey" href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">Get a key →</a></div>
+        <div class="keyused">used for: translation · voices</div>
+        <div class="keyrow">
+          <input type="password" id="apiKey" placeholder="sk-…" autocomplete="off" spellcheck="false" />
+          <button class="btn ghost" id="verify">Verify</button>
+        </div>
+        <div id="keyStatus">Stored only on this device · a few cents per hour · cached replays are free.</div>
+      </div>
+      <div class="keysection">
+        <div class="keyhead"><span class="keyname"><span id="anthropicKeyDot" class="keydot"></span>Anthropic</span> <a id="getAnthropicKey" href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">Get a key →</a></div>
+        <div class="keyused">used for: Claude translation</div>
+        <div class="keyrow">
+          <input type="password" id="anthropicKey" placeholder="sk-ant-…" autocomplete="off" spellcheck="false" />
+          <button class="btn ghost" id="verifyAnthropic">Verify</button>
+        </div>
+        <div id="anthropicKeyStatus">Stored only on this device. Applies to newly translated lines — cached lines keep their existing translation.</div>
+      </div>
+      <div class="keysection">
+        <div class="keyhead"><span class="keyname"><span id="geminiKeyDot" class="keydot"></span>Google</span> <a id="getGeminiKey" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Get a key →</a></div>
+        <div class="keyused">used for: Gemini voices</div>
+        <div class="keyrow">
+          <input type="password" id="geminiKey" placeholder="AIza…" autocomplete="off" spellcheck="false" />
+          <button class="btn ghost" id="verifyGemini">Verify</button>
+        </div>
+        <div id="geminiKeyStatus">Stored only on this device. Used only for text-to-speech (dub), never for translation.</div>
+      </div>
+    </details>
   </section>
 
   <!-- Languages -->
@@ -176,55 +259,135 @@
       <input type="text" id="langSearch" placeholder="🔍  Add a language…" autocomplete="off" />
       <div class="menu" id="langMenu"></div>
     </div>
-    <div class="row">
-      <label class="switch"><input type="checkbox" id="showOriginal" /><span class="slider"></span></label>
-      <label for="showOriginal">Also show the original line <span class="hint">(dual subtitles)</span></label>
+  </section>
+
+  <!-- Subtitle options -->
+  <section>
+    <details class="customize" id="subsFold">
+      <summary>Subtitle options <span class="hint" id="subsVal"></span></summary>
+      <div class="row" style="margin-top:7px;">
+        <label class="switch"><input type="checkbox" id="showOriginal" /><span class="slider"></span></label>
+        <label for="showOriginal">Also show the original line <span class="hint">(dual subtitles)</span></label>
+      </div>
+      <div class="row" style="margin-top:11px;">
+        <label class="switch"><input type="checkbox" id="karaokeHl" /><span class="slider"></span></label>
+        <label for="karaokeHl">Highlight spoken words <span class="hint">(karaoke-style sweep as speech happens)</span></label>
+      </div>
+      <div class="row" style="margin-top:11px;">
+        <label class="switch"><input type="checkbox" id="keepNames" /><span class="slider"></span></label>
+        <label for="keepNames">Keep names &amp; brands in the original language <span class="hint">(don't transliterate — e.g. MySQL stays MySQL)</span></label>
+      </div>
+      <input type="text" id="keepTerms" placeholder="Extra specific terms (optional): Skyler, Wharton…" autocomplete="off" spellcheck="false" style="margin-top:8px;" />
+    </details>
+  </section>
+
+  <!-- Dub — spoken translation -->
+  <section>
+    <div class="lbl">Dub <span class="hint">speak the translation · original stays quiet under it</span></div>
+    <div class="row" style="margin-top:0;">
+      <label class="switch"><input type="checkbox" id="dubEnabled" /><span class="slider"></span></label>
+      <label for="dubEnabled">Dub subtitles aloud</label>
     </div>
-    <div class="row" style="margin-top:11px;">
-      <label class="switch"><input type="checkbox" id="keepNames" /><span class="slider"></span></label>
-      <label for="keepNames">Keep names &amp; brands in the original language <span class="hint">(don't transliterate — e.g. MySQL stays MySQL)</span></label>
+    <details class="customize" id="voiceFold">
+      <summary>Voice &amp; pace <span class="hint" id="voiceVal"></span></summary>
+      <select id="ttsProvider" style="margin-top:7px;">
+        <option value="openai">OpenAI gpt-4o-mini-tts</option>
+        <option value="gemini">Gemini 2.5 Flash TTS (native Persian voices)</option>
+      </select>
+      <div id="ttsProviderWarn" class="selwarn" hidden></div>
+      <div class="row">
+        <span style="min-width:58px; color:var(--muted);">Voice</span>
+        <select id="dubVoice" style="flex:1;"></select>
+        <select id="dubGeminiVoice" style="flex:1;" hidden></select>
+      </div>
+      <div class="row" id="dubMultiVoiceRow">
+        <label class="switch"><input type="checkbox" id="dubMultiVoice" /><span class="slider"></span></label>
+        <label for="dubMultiVoice">Multi-voice <span class="hint">(beta — a voice per speaker)</span></label>
+      </div>
+      <div class="row">
+        <span style="min-width:58px; color:var(--muted);">Original</span>
+        <input type="range" id="dubDuck" min="0" max="60" step="5" style="flex:1;" title="How loud the original soundtrack stays under the dub" />
+        <span class="sizeval" id="dubDuckVal"></span>
+      </div>
+      <div class="row">
+        <span style="min-width:58px; color:var(--muted);">Pace</span>
+        <input type="range" id="dubPace" min="90" max="130" step="5" style="flex:1;" title="Speech pace of the dub voice" />
+        <span class="sizeval" id="dubPaceVal"></span>
+      </div>
+    </details>
+    <button class="btn ghost" id="dubGenAll" style="width:100%; margin-top:9px;" hidden>Generate full dub</button>
+    <div id="dubStatus" class="hint" style="margin-top:6px; min-height:13px;"></div>
+    <div id="dubProg" style="height:4px; border-radius:2px; background:var(--panel2); margin-top:6px; overflow:hidden;" hidden>
+      <div id="dubProgFill" style="height:100%; width:0%; background:var(--accent); transition:width .4s;"></div>
     </div>
-    <input type="text" id="keepTerms" placeholder="Extra specific terms (optional): Skyler, Wharton…" autocomplete="off" spellcheck="false" style="margin-top:8px;" />
+    <div id="dubNow" class="hint" style="margin-top:5px; min-height:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></div>
+    <div id="dubSpend" class="hint" style="margin-top:3px; min-height:13px; cursor:pointer;" title="Open the Library → Activity for the full breakdown"></div>
   </section>
 
   <!-- Appearance -->
   <section>
-    <div class="lbl">Appearance</div>
-    <div class="seg" id="sizeSeg">
-      <button data-size="sm">S</button><button data-size="md">M</button>
-      <button data-size="lg">L</button><button data-size="xl">XL</button>
-    </div>
-    <div class="row" style="margin-top:10px;">
-      <span style="min-width:58px; color:var(--muted);">Position</span>
-      <select id="position" style="flex:1;">
-        <option value="bottom">Bottom</option>
-        <option value="top">Top</option>
-        <option value="auto">Auto (opposite the original)</option>
-        <option value="custom">Custom (dragged)</option>
-      </select>
-    </div>
-    <div class="hint" style="margin-top:7px;">Tip: drag each subtitle line on the video to place it — the original and translation can sit apart.</div>
-    <div class="row">
-      <label class="switch"><input type="checkbox" id="hideNative" /><span class="slider"></span></label>
-      <label for="hideNative">Hide the site's own captions <span class="hint">(avoid doubles)</span></label>
-    </div>
+    <details class="customize" id="lookFold">
+      <summary>Appearance <span class="hint" id="lookVal"></span></summary>
+      <div class="prevwrap"><span class="prevtext" id="stylePrevText">Subtitles look like this</span></div>
+      <div class="presets" id="presetRow"></div>
+      <div class="row" style="margin-top:10px;">
+        <span style="min-width:58px; color:var(--muted);">Size</span>
+        <input type="range" id="sizeRange" min="12" max="50" step="1" style="flex:1;" />
+        <span class="sizeval" id="sizeVal"></span>
+      </div>
+      <details class="customize">
+        <summary>Customize <span class="hint">font · color · background · outline</span></summary>
+        <div class="row">
+          <span style="min-width:58px; color:var(--muted);">Font</span>
+          <select id="styleFont" style="flex:1;"></select>
+        </div>
+        <div class="row">
+          <span style="min-width:58px; color:var(--muted);">Text</span>
+          <input type="color" id="styleColor" value="#ffffff" title="Text color" />
+          <span style="color:var(--muted); margin-left:4px;">Edge</span>
+          <select id="styleEdge" style="flex:1;" title="Outline / shadow around the letters">
+            <option value="">Preset default</option>
+            <option value="shadow">Soft shadow</option>
+            <option value="outline">Outline</option>
+            <option value="none">None</option>
+          </select>
+        </div>
+        <div class="row">
+          <label class="switch"><input type="checkbox" id="styleBg" /><span class="slider"></span></label>
+          <label for="styleBg">Background</label>
+          <input type="color" id="styleBgColor" value="#080a0e" title="Background color" />
+          <input type="range" id="styleBgOpacity" min="0" max="100" step="1" style="flex:1;" title="Background opacity" />
+        </div>
+        <div class="row"><button class="resetstyle" id="styleReset">↺ Reset tweaks to the preset</button></div>
+      </details>
+      <div class="row" style="margin-top:10px;">
+        <span style="min-width:58px; color:var(--muted);">Position</span>
+        <select id="position" style="flex:1;">
+          <option value="bottom">Bottom</option>
+          <option value="top">Top</option>
+          <option value="auto">Auto (opposite the original)</option>
+          <option value="custom">Custom (dragged)</option>
+        </select>
+      </div>
+      <div class="hint" style="margin-top:7px;">Tip: drag each subtitle line on the video to place it — the original and translation can sit apart.</div>
+      <div class="row">
+        <label class="switch"><input type="checkbox" id="hideNative" /><span class="slider"></span></label>
+        <label for="hideNative">Hide the site's own captions <span class="hint">(avoid doubles)</span></label>
+      </div>
+    </details>
   </section>
 
   <!-- Timing -->
   <section>
-    <div class="lbl">Subtitle timing <span class="hint">shift if out of sync</span></div>
-    <div class="sync">
-      <button id="syncBack">−0.25s</button>
-      <span class="val" id="syncVal">0.00s</span>
-      <button id="syncFwd">+0.25s</button>
-      <span class="hint" style="flex:1;">+ earlier · − later</span>
-    </div>
-  </section>
-
-  <!-- This video -->
-  <section>
-    <div class="lbl">This video <button class="linkbtn" id="clearClip" hidden>Clear cache</button></div>
-    <div id="clipCache" class="clipcache muted">Loading…</div>
+    <details class="customize" id="timeFold">
+      <summary>Subtitle timing <span class="hint" id="timeVal"></span></summary>
+      <div class="sync" style="margin-top:7px;">
+        <button id="syncBack">−0.25s</button>
+        <span class="val" id="syncVal">0.00s</span>
+        <button id="syncFwd">+0.25s</button>
+        <span class="hint" style="flex:1;">+ earlier · − later</span>
+      </div>
+    </details>
   </section>
 
   <!-- Library -->
@@ -249,8 +412,15 @@
     <div id="memDed" class="memded"></div>
   </div>
 
+  <script src="shared/title.js"></script>
   <script src="shared/langs.js"></script>
+  <script src="shared/presets.js"></script>
   <script src="shared/tribute.js"></script>
+  <script src="shared/voices.js"></script>
+  <script src="shared/pricing.js"></script>
+  <script src="shared/srt.js"></script>
+  <script src="shared/audio-export.js"></script>
+  <script src="shared/export.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

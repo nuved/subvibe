@@ -6,6 +6,11 @@
    chrome-extension:// URLs — a relative url() here resolves against the page
    (e.g. www.zdf.de/.../fonts/…) and 404s. */
 
+/* The look (font, colors, box) is driven by --cs-* custom properties set by
+   applyAppearance() from the style preset + custom tweaks (shared/presets.js).
+   Every var's fallback below IS the classic look, so the overlay renders
+   correctly even before JS runs or if a stored style is bad. */
+
 #copilot-subs {
   position: absolute;
   inset: 0;
@@ -15,7 +20,7 @@
   flex-direction: column;
   justify-content: flex-end;
   align-items: center;
-  font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  font-family: var(--cs-font-family, -apple-system, "Segoe UI", Roboto, Arial, sans-serif);
 }
 
 #copilot-subs .copilot-subs__stack {
@@ -33,31 +38,70 @@
   /* Wrap into a readable caption-width column instead of spanning the whole
      video: the em cap (~a line of subtitle text) wins on wide players, the %
      keeps it sane on small ones. */
-  max-width: min(86%, 24em);
+  max-width: var(--cs-maxwidth, min(86%, 24em));
   margin: 0 auto;
-  padding: 0.12em 0.5em;
-  background: rgba(8, 10, 14, 0.78);
-  color: #fff;
+  padding: var(--cs-pad, 0.12em 0.5em);
+  background: var(--cs-bg, rgba(8, 10, 14, 0.78));
+  color: var(--cs-color, #fff);
   /* Sized by JS (sizeOverlay) relative to the VIDEO height; the clamp is only a
      fallback before JS runs. The old per-size vw rules below are removed. */
   font-size: var(--cs-font, clamp(16px, 2.4vw, 40px));
-  font-weight: 600;
-  line-height: 1.32;
+  font-weight: var(--cs-weight, 600);
+  line-height: var(--cs-lh, 1.32);
   text-align: center;
-  border-radius: 7px;
+  border-radius: var(--cs-radius, 7px);
   white-space: pre-wrap;
   /* Render the line in its own bidi context: a Latin name kept in the original
      (e.g. "MySQL") inside RTL text shows correctly, and dir is honored per line. */
   unicode-bidi: isolate;
-  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.9);
+  text-shadow: var(--cs-shadow, 0 2px 6px rgba(0, 0, 0, 0.9));
+}
+
+/* Pill styles (YouTube / TikTok-white): the box hugs each WRAPPED line of text
+   instead of drawing one block per caption. The line's text lives in an inner
+   .copilot-subs__text span (see setLineText in common.js); in pill mode that
+   span goes inline and carries the box, and box-decoration-break gives every
+   wrapped fragment its own padding + corners. In normal mode the span is a
+   plain inline wrapper with zero visual effect — classic renders unchanged. */
+#copilot-subs.copilot-style-pill .copilot-subs__line {
+  padding: 0;
+  background: transparent;
+  border-radius: 0;
+}
+#copilot-subs.copilot-style-pill .copilot-subs__text {
+  padding: var(--cs-pad, 0.12em 0.5em);
+  background: var(--cs-bg, rgba(8, 10, 14, 0.78));
+  border-radius: var(--cs-radius, 7px);
   -webkit-box-decoration-break: clone;
   box-decoration-break: clone;
 }
 
-/* The first stacked line (the original, when shown) reads as secondary. */
-#copilot-subs .copilot-subs__line:first-child {
+/* Karaoke fill: words already spoken (plus the current one) get the .sung class
+   from updateSung() in common.js and sweep into the accent color — following the
+   line's own direction, so Persian fills right-to-left. The transition smooths
+   both the sweep and the reset on a backward seek. */
+#copilot-subs .copilot-subs__w {
+  transition: color 0.15s ease;
+}
+#copilot-subs .copilot-subs__w.sung {
+  color: var(--cs-hl, #ffd479);
+}
+
+/* Banner (Snapchat): the line stretches edge-to-edge instead of hugging the
+   text — the flex stack shrink-wraps items, so a max-width alone can't span. */
+#copilot-subs.copilot-style-banner .copilot-subs__line {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+/* The ORIGINAL line (dual subtitles) reads as secondary: dimmed, one weight step
+   lighter than the preset's weight (classic 600 → 500, exactly the old hardcoded
+   value), never below regular. Marked by class, not :first-child — with the
+   original hidden, the first line is a TRANSLATION and must keep full style. */
+#copilot-subs .copilot-subs__line--orig {
   opacity: 0.9;
-  font-weight: 500;
+  font-weight: max(400, calc(var(--cs-weight, 600) - 100));
 }
 
 /* Draggable: only the text pills are grab handles (the rest of the overlay stays
@@ -78,7 +122,7 @@
 #copilot-subs.copilot-pos-custom .copilot-subs__line {
   position: absolute;
   transform: translate(-50%, -50%);
-  max-width: min(84%, 24em);
+  max-width: var(--cs-maxwidth, min(84%, 24em));
   margin: 0;
 }
 
@@ -153,3 +197,9 @@
   box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5);
 }
 #copilot-subs .copilot-subs__cta:hover { background: #3f7af0; }
+
+/* Dub Mode's consent-gated transport: shows cost/percent, toggles play↔pause. */
+.copilot-subs__dubctl { position: absolute; top: 8px; right: 8px; z-index: 5; padding: 4px 10px;
+  border: 0; border-radius: 14px; background: rgba(8,10,14,.72); color: #e7ecf3; font: 600 12px/1.4 system-ui, sans-serif;
+  cursor: pointer; opacity: .55; transition: opacity .15s; pointer-events: auto; }
+.copilot-subs__dubctl:hover { opacity: 1; }

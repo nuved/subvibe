@@ -17,7 +17,7 @@ const warn = (n, d) => { warns++; console.log(`  ${C.yel}⚠ ${n}${C.rst}${d ? "
 
 function walk(dir, out = []) {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (["tools", "node_modules", ".git", "icons", "fonts"].includes(e.name)) continue;
+    if (e.name.startsWith(".") || ["tools", "node_modules", "icons", "fonts"].includes(e.name)) continue; // dot-dirs (.git, MCP/session scratch) are never shipped
     const p = path.join(dir, e.name);
     if (e.isDirectory()) walk(p, out); else out.push(p);
   }
@@ -80,8 +80,8 @@ if (ih.length) warn(`Review ${ih.length} innerHTML assignment(s) — only use on
 const fetchHosts = new Set();
 for (const f of js) for (const m of read(f).matchAll(/(?:fetch|WebSocket)\(\s*[`"']((?:https?|wss?):\/\/[^/`"'$]+)/g)) fetchHosts.add(m[1]);
 const declared = (manifest.host_permissions || []).map((h) => h.replace(/^https?:\/\//, "").replace(/\/\*$/, ""));
-const undeclared = [...fetchHosts].filter((h) => { const host = h.replace(/^(https?|wss?):\/\//, ""); return !declared.some((d) => host === d || host.endsWith(d.replace(/^\*\./, "."))) && !/openai\.com$/.test(host); });
-undeclared.length ? warn("Network calls to hosts not in host_permissions — verify intentional", undeclared.join(", ")) : pass("All literal network calls target declared hosts / OpenAI");
+const undeclared = [...fetchHosts].filter((h) => { const host = h.replace(/^(https?|wss?):\/\//, ""); return !declared.some((d) => host === d || host.endsWith(d.replace(/^\*\./, "."))) && !/(?:^|\.)(openai|anthropic)\.com$/.test(host) && !/(?:^|\.)(googleapis)\.com$/.test(host); });
+undeclared.length ? warn("Network calls to hosts not in host_permissions — verify intentional", undeclared.join(", ")) : pass("All literal network calls target declared hosts / OpenAI / Anthropic / Google");
 
 console.log(`\n${C.b}${fails ? C.red : C.grn}${fails ? "✗ " + fails + " failed" : "✓ all critical checks passed"}${C.rst}${warns ? `${C.yel}, ${warns} to review${C.rst}` : ""}\n`);
 process.exit(fails ? 1 : 0);

@@ -16,6 +16,13 @@ locally** so re-watching costs nothing.
 - **30+ languages**, right-to-left support (Persian, Arabic, Hebrew, Urdu) + a bundled Persian font.
 - **Per-video settings** — language(s), position (drag each line), size, and a sync nudge,
   remembered per video.
+- **Style presets & custom looks** — Classic, YouTube, TikTok, Pill, Snapchat, Cinema and
+  Minimal (no background) presets, plus custom font, text color, background color/opacity,
+  outline/shadow — and a free size slider (much smaller than before, if you like).
+- **Dub Mode** — speaks the translation over the quieted original (voice-over style): one steady
+  voice, a duration-fitted spoken script, per-speaker voices (beta), an on-player start/pause button
+  with the cost shown before a cent is spent, cached clips free on replay, and export as `.srt` +
+  a stitched audio track. ~$1/hour of watched video.
 - **Bring your own key (BYOK)** — uses *your* OpenAI key, stored only on your device. **No
   SubVibe servers, no accounts, no ads, no tracking.**
 
@@ -24,6 +31,19 @@ locally** so re-watching costs nothing.
 1. `chrome://extensions` → enable **Developer mode**.
 2. **Load unpacked** → select this `extension/` folder.
 3. Click the icon → paste your **OpenAI API key**, pick your language(s).
+
+**Firefox (experimental):** `./build.sh --firefox` builds a Firefox package (same source,
+two manifest tweaks). Load it via `about:debugging#/runtime/this-firefox` → **Load Temporary
+Add-on** — an AMO listing is planned, which Firefox needs for permanent installs. The live
+audio-transcription fallback is Chrome-only (Firefox has no offscreen API).
+
+### On Android?
+Chrome for Android can't run extensions — no extension can work there. What does work:
+- **Firefox for Android** (planned, via the AMO listing): realistic on DRM-free sites —
+  ZDF, DW, Udemy, and YouTube in "Request desktop site" mode. Netflix and Prime Video
+  don't allow mobile-browser playback at all (app-only DRM), on any browser.
+- **Chromium browsers with extension support** (Quetta, Lemur, Edge Canary) can install
+  the normal Chrome build today — same site caveats as above.
 
 ## Use
 1. Play a video (turn the player's own captions **on** once, so SubVibe can read the track).

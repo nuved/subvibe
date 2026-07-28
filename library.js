@@ -5,6 +5,9 @@
 
 const el = (id) => document.getElementById(id);
 const langMeta = window.svLangMeta;
+const { audioRows, trackCues, download, safeName, exportSrt, exportAudio } = window.SV_EXPORT;
+
+let repaired = false;
 
 // Site → display chrome. Keys come from the adapter (adapter.site) or the cache
 // key prefix. Order here is the order categories appear on the page.
@@ -44,13 +47,33 @@ function groupTracks(tracks) {
       g = { base, site: SITES[site] ? site : (t.site || "__other"), title: "", url: "", createdAt: "", langs: new Map() };
       groups.set(base, g);
     }
-    if (!g.title) g.title = t.title || t.videoId || prettyBase(base);
+    if (!g.title) g.title = window.SV_TITLE.clean(t.title || t.videoId || prettyBase(base));
     if (!g.url && t.url) g.url = t.url;
     if (t.createdAt && String(t.createdAt) > String(g.createdAt)) g.createdAt = t.createdAt;
     g.langs.set(target, { cueCount: t.cueCount || 0, totalCues: t.totalCues || 0 });
   }
   // newest first within any grouping
   return [...groups.values()].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+}
+
+// Per-clip cost/calls from the on-device call log. Exact via row.base for new
+// rows; cleaned-title match covers rows logged before base existed. The log is
+// a 300-row ring buffer, so these figures mean "recent activity", not lifetime.
+let logAgg = { byBase: new Map(), byTitle: new Map() };
+async function loadLogAgg() {
+  const res = await chrome.runtime.sendMessage({ type: "LOG_LIST" }).catch(() => null);
+  const byBase = new Map(), byTitle = new Map();
+  for (const c of ((res && res.calls) || [])) {
+    const cost = window.SV_PRICING.estCost(c);
+    const bump = (map, key) => {
+      if (!key) return;
+      const a = map.get(key) || { calls: 0, cost: 0 };
+      a.calls++; a.cost += cost; map.set(key, a);
+    };
+    bump(byBase, c.base);
+    bump(byTitle, window.SV_TITLE.clean(c.title || ""));
+  }
+  logAgg = { byBase, byTitle };
 }
 
 // ── filtering ──────────────────────────────────────────────────────────────────
@@ -88,6 +111,8 @@ function fmtWhen(iso) {
   if (isNaN(d)) return "—";
   return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
+const fmtCost = (c) => (c >= 1 ? "$" + c.toFixed(2) : "$" + c.toFixed(4));
+const localDayKey = () => { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
 
 // ── rendering ───────────────────────────────────────────────────────────────────
 function flag(target) {
@@ -113,18 +138,10 @@ function card(g) {
   const ttl = document.createElement("div");
   ttl.className = "ttl";
   ttl.textContent = g.title;       // XSS-safe: titles come from arbitrary pages
-  ttl.title = g.title;
+  ttl.title = g.url ? g.title + "\n" + g.url : g.title;
   if (g.url) ttl.onclick = () => chrome.tabs.create({ url: g.url });
   else ttl.style.cursor = "default";
   wrap.appendChild(ttl);
-  if (g.url) {
-    const url = document.createElement("div");
-    url.className = "url";
-    url.textContent = g.url;        // XSS-safe
-    url.title = g.url;
-    url.onclick = () => chrome.tabs.create({ url: g.url });
-    wrap.appendChild(url);
-  }
   top.appendChild(wrap);
   c.appendChild(top);
 
@@ -153,12 +170,30 @@ function card(g) {
   }
   c.appendChild(langs);
 
+  const agg = logAgg.byBase.get(g.base) || logAgg.byTitle.get(g.title);
+  const stats = document.createElement("div");
+  stats.className = "stats";
+  if (agg) stats.textContent = `~${fmtCost(agg.cost)} · ${agg.calls} call${agg.calls === 1 ? "" : "s"}`;
+  c.appendChild(stats);
+
   const foot = document.createElement("div");
   foot.className = "foot";
   const when = document.createElement("span");
   when.className = "when";
   when.textContent = fmtWhen(g.createdAt);
   foot.appendChild(when);
+  const act = document.createElement("button");
+  act.className = "mini";
+  act.textContent = "Activity";
+  act.title = "This video's API calls, tokens and cost";
+  act.onclick = () => {
+    actBase = g.base; actBaseTitle = g.title;
+    el("actFilter").value = ""; actQuery = "";
+    actMode = "clip"; // the point of the jump is this video's summary — always land grouped
+    el("actByClip").classList.add("on"); el("actAll").classList.remove("on");
+    setView("activity");
+  };
+  foot.appendChild(act);
   if (g.url) {
     const open = document.createElement("button");
     open.className = "mini open";
@@ -167,17 +202,99 @@ function card(g) {
     open.onclick = () => chrome.tabs.create({ url: g.url });
     foot.appendChild(open);
   }
+  c.appendChild(foot);
+
+  // Per-language export row: srt always; ▶ preview + ⬇ audio when dub clips
+  // exist. Destructive actions (✕ audio, Delete) sit quiet in the far right
+  // corner, after a flex spacer, so the eye lands on Open ▶ first.
+  const exp = document.createElement("div");
+  exp.className = "foot";
+  const spacer = document.createElement("span");
+  spacer.style.flex = "1";
+  exp.appendChild(spacer);
   const del = document.createElement("button");
-  del.className = "mini del";
+  del.className = "mini quiet";
   del.textContent = "Delete";
   del.title = "Remove this video's cached subtitles";
   del.onclick = async () => {
     await chrome.runtime.sendMessage({ type: "CACHE_DELETE", prefix: g.base }).catch(() => null);
     refresh();
   };
-  foot.appendChild(del);
-  c.appendChild(foot);
+  exp.appendChild(del);
+  for (const [target] of g.langs) {
+    const srtBtn = document.createElement("button");
+    srtBtn.className = "mini";
+    srtBtn.textContent = "⬇ srt · " + target;
+    srtBtn.title = "Download the translated subtitles (.srt)";
+    srtBtn.onclick = () => exportSrt(g, target);
+    exp.insertBefore(srtBtn, spacer);
+    audioRows(`${g.base}:auto:${target}:dub:`).then((rows) => {
+      if (!rows.length) return;
+      const ms = rows.reduce((a, r) => a + (r.ms || 0), 0);
+      if (ms) stats.textContent += (stats.textContent ? " · " : "") + `${Math.round(ms / 60000)} min dub audio`;
+      const playBtn = document.createElement("button");
+      playBtn.className = "mini";
+      playBtn.textContent = `▶ ${target}`;
+      playBtn.title = `Play the stitched dub (~${Math.round(ms / 60000)} min cached)`;
+      playBtn.onclick = () => playDub(g, target, playBtn);
+      exp.insertBefore(playBtn, spacer);
+      const audBtn = document.createElement("button");
+      audBtn.className = "mini";
+      audBtn.textContent = "⬇";
+      audBtn.title = "Download the dub as one audio file";
+      audBtn.onclick = () => exportAudio(g, target);
+      exp.insertBefore(audBtn, spacer);
+      const rmBtn = document.createElement("button");
+      rmBtn.className = "mini quiet";
+      rmBtn.textContent = "✕ audio";
+      rmBtn.title = "Delete this language's dub audio (keeps the subtitles)";
+      rmBtn.onclick = async () => {
+        await chrome.runtime.sendMessage({ type: "AUDIO_DELETE", prefix: `${g.base}:auto:${target}:dub:` }).catch(() => null);
+        refresh();
+      };
+      exp.insertBefore(rmBtn, del);
+    });
+  }
+  c.appendChild(exp);
   return c;
+}
+
+// One preview at a time; a sequence counter invalidates any in-flight stitch
+// when a new press (or a refresh) supersedes it, so a slow stitch can never
+// resurrect a stopped preview or leak its object URL. The blob is stitched
+// fresh per press (a long video takes a few seconds — acceptable v1; the
+// button shows … while stitching).
+let dubPreview = null; // { el, url, btn }
+let previewSeq = 0;    // bumped on every stop/press — stale stitches see a mismatch and bail
+
+function stopDubPreview() {
+  previewSeq++;
+  if (!dubPreview) return;
+  dubPreview.el.pause();
+  URL.revokeObjectURL(dubPreview.url);
+  dubPreview.btn.textContent = dubPreview.btn.textContent.replace("⏸", "▶");
+  dubPreview = null;
+}
+
+async function playDub(g, target, btn) {
+  if (btn.textContent === "…") return; // already stitching this one — ignore the extra click
+  const wasMine = dubPreview && dubPreview.btn === btn;
+  stopDubPreview();
+  if (wasMine) return; // same button = toggle off
+  const seq = ++previewSeq;
+  const old = btn.textContent;
+  btn.textContent = "…";
+  const out = await window.SV_EXPORT.stitchDubBlob(g, target, { interactive: false });
+  if (seq !== previewSeq) { btn.textContent = old; return; } // superseded while stitching — nothing was created yet
+  if (!out) { btn.textContent = old; return alert("No dub audio cached for this language yet."); }
+  const url = URL.createObjectURL(out.blob);
+  const el = new Audio(url);
+  dubPreview = { el, url, btn };
+  btn.textContent = old.replace("▶", "⏸");
+  el.onended = () => {
+    if (dubPreview && dubPreview.el === el) { URL.revokeObjectURL(url); btn.textContent = old; dubPreview = null; }
+  };
+  el.play();
 }
 
 function groupHead(badgeText, badgeColor, title, count) {
@@ -220,6 +337,7 @@ function badgeFor(site) {
 }
 
 function render() {
+  stopDubPreview();
   const content = el("content");
   content.innerHTML = "";
   const visible = allGroups.filter((g) => matches(g, query));
@@ -271,8 +389,14 @@ function render() {
 
 // ── load + events ───────────────────────────────────────────────────────────────
 async function refresh() {
+  if (!repaired) {
+    repaired = true;
+    await chrome.runtime.sendMessage({ type: "REPAIR_LABELS" }).catch(() => null);
+  }
   const res = await chrome.runtime.sendMessage({ type: "CACHE_LIST" }).catch(() => null);
   allGroups = groupTracks((res && res.tracks) || []);
+  titleByBase = new Map(allGroups.map((g) => [g.base, g.title])); // names Activity rows whose call lacked a title (streaming path, legacy)
+  await loadLogAgg();
   const n = allGroups.length;
   el("note").textContent = n
     ? `${n} video${n === 1 ? "" : "s"} cached · stored only on this device. Reopening any of them costs nothing.`
@@ -296,10 +420,22 @@ el("clearAll").addEventListener("click", async () => {
   refresh();
 });
 
-// ── Activity tab: a local, on-device log of every OpenAI call ──────────────────
-const PRICE_IN = 0.15 / 1e6, PRICE_OUT = 0.60 / 1e6; // gpt-4o-mini, USD per token
-const estCost = (i, o) => (i || 0) * PRICE_IN + (o || 0) * PRICE_OUT;
-const fmtCost = (c) => (c >= 1 ? "$" + c.toFixed(2) : "$" + c.toFixed(4));
+// ── Activity tab: a local, on-device log of every provider call ────────────────
+// Pricing constants + estCost live in shared/pricing.js (SV_PRICING) — shared
+// with the popup's spend line so both compute identical totals from one source.
+const estCost = window.SV_PRICING.estCost;
+let actQuery = "";
+let actMode = "clip";     // "clip" (grouped per video) | "flat" (every call, scroll-loaded)
+let actBase = null, actBaseTitle = ""; // set by a card's Activity button — shows one video only
+let actObserver = null;   // flat mode's scroll autoloader
+let titleByBase = new Map();
+const providerLabel = (p) => (p === "claude" ? "Claude" : p === "gemini" ? "Gemini" : "OpenAI");
+// Best available name for a call row: its own title, else the cached video's
+// title via base (streaming-path rows carry no title), else site, else base.
+function rowName(c) {
+  return window.SV_TITLE.clean(c.title || "") || (c.base && titleByBase.get(c.base)) ||
+    (c.site ? siteMeta(c.site).label : "") || (c.base ? prettyBase(c.base) : "") || "—";
+}
 function fmtTime(ts) {
   if (!ts) return "—";
   const d = new Date(ts), now = new Date();
@@ -316,39 +452,176 @@ function statCard(k, main, sub, cls) {
 async function loadActivity() {
   const res = await chrome.runtime.sendMessage({ type: "LOG_LIST" }).catch(() => null);
   const calls = (res && res.calls) || [];
-  let inTok = 0, outTok = 0, ms = 0, ok = 0, fail = 0, lines = 0, costToday = 0;
+  const q = actQuery;
+  let shown = !actBase ? calls : calls.filter((c) => c.base === actBase || (!c.base && rowName(c) === actBaseTitle));
+  if (q) shown = shown.filter((c) =>
+    (rowName(c) + " " + (c.site || "") + " " + (c.target || "") + " " + providerLabel(c.provider)).toLowerCase().includes(q) ||
+    (langMeta(c.target || "")[1] || "").toLowerCase().includes(q));
+  el("actChip").classList.toggle("on", !!actBase);
+  if (actBase) el("actChipTitle").textContent = actBaseTitle || prettyBase(actBase);
+  let inTok = 0, outTok = 0, ms = 0, ok = 0, fail = 0, lines = 0, ttsMs = 0;
+  // costByProvider tracks all-time/today split per provider so the stat cards can
+  // show one "Est. cost" card normally, or several (OpenAI / Claude / Gemini)
+  // once a user has called more than one — most people will only ever see one
+  // card. Translation providers (openai/claude) and the TTS provider
+  // (openai/gemini) are independent axes — e.g. Claude translation + Gemini
+  // dub both log here, each under their own key, and OpenAI is shared as the
+  // default for BOTH axes so it nets out correctly either way.
+  const costByProvider = { openai: { all: 0, today: 0 }, claude: { all: 0, today: 0 }, gemini: { all: 0, today: 0 } };
   const startToday = new Date(); startToday.setHours(0, 0, 0, 0); const t0 = startToday.getTime();
-  for (const c of calls) {
+  for (const c of shown) {
     inTok += c.inTok || 0; outTok += c.outTok || 0; ms += c.ms || 0; lines += c.lines || 0;
+    if (c.kind === "tts") ttsMs += c.durMs || 0;
     if (c.ok) ok++; else fail++;
-    if ((c.ts || 0) >= t0) costToday += estCost(c.inTok, c.outTok);
+    const p = costByProvider[c.provider] ? c.provider : "openai";
+    const cost = estCost(c);
+    costByProvider[p].all += cost;
+    if ((c.ts || 0) >= t0) costByProvider[p].today += cost;
   }
-  const avgMs = calls.length ? Math.round(ms / calls.length) : 0;
+  const avgMs = shown.length ? Math.round(ms / shown.length) : 0;
+  const providersUsed = Object.keys(costByProvider).filter((p) => costByProvider[p].all > 0 || costByProvider[p].today > 0);
+  const bothPresent = providersUsed.length > 1;
 
   const stats = el("actStats"); stats.innerHTML = "";
-  stats.appendChild(statCard("Calls", String(calls.length), fail ? `· ${fail} failed` : ""));
+  stats.appendChild(statCard("Calls", String(shown.length), fail ? `· ${fail} failed` : ""));
+  if (q) stats.appendChild(statCard("Filtered", shown.length + "/" + calls.length + " calls"));
   stats.appendChild(statCard("Lines translated", lines.toLocaleString()));
-  stats.appendChild(statCard("Tokens (in · out)", inTok.toLocaleString() + " · " + outTok.toLocaleString()));
-  stats.appendChild(statCard("Est. cost · all-time", "~" + fmtCost(estCost(inTok, outTok)), "", "cost"));
-  stats.appendChild(statCard("Est. cost · today", "~" + fmtCost(costToday), "", "cost"));
+  if (ttsMs) stats.appendChild(statCard("Dub audio spoken", Math.round(ttsMs / 60000) + " min"));
+  stats.appendChild(statCard("Tokens (in · out)", inTok.toLocaleString() + " · " + outTok.toLocaleString(), "logged calls only"));
+  // Cost cards: the ring buffer forgets old rows, so summing visible rows once
+  // read "$1.20 all-time" while the provider console said ~$14. The worker now
+  // keeps RUNNING totals per provider (spendTotals) — use those for the
+  // unfiltered view; a filtered view honestly sums just the rows it shows.
+  const totals = (res && res.totals) || null;
+  const filteredView = !!q || !!actBase;
+  const totProvs = totals ? Object.keys(totals).filter((p) => totals[p] && totals[p].all > 0) : [];
+  if (!filteredView && totProvs.length) {
+    const dk = localDayKey();
+    if (totProvs.length > 1) {
+      for (const p of totProvs) {
+        stats.appendChild(statCard(`Est. cost · ${providerLabel(p)}`, "~" + fmtCost(totals[p].all), "all-time", "cost"));
+        stats.appendChild(statCard(`Est. cost · ${providerLabel(p)} today`, "~" + fmtCost((totals[p].days || {})[dk] || 0), "", "cost"));
+      }
+    } else {
+      const p = totProvs[0];
+      stats.appendChild(statCard("Est. cost · all-time", "~" + fmtCost(totals[p].all), providerLabel(p), "cost"));
+      stats.appendChild(statCard("Est. cost · today", "~" + fmtCost((totals[p].days || {})[dk] || 0), "", "cost"));
+    }
+  } else if (bothPresent) {
+    for (const p of providersUsed) {
+      stats.appendChild(statCard(`Est. cost · ${providerLabel(p)}`, "~" + fmtCost(costByProvider[p].all), filteredView ? "shown calls" : "logged calls", "cost"));
+      stats.appendChild(statCard(`Est. cost · ${providerLabel(p)} today`, "~" + fmtCost(costByProvider[p].today), "", "cost"));
+    }
+  } else {
+    const costAll = costByProvider.openai.all + costByProvider.claude.all + costByProvider.gemini.all;
+    const costToday = costByProvider.openai.today + costByProvider.claude.today + costByProvider.gemini.today;
+    stats.appendChild(statCard("Est. cost", "~" + fmtCost(costAll), filteredView ? "shown calls" : "logged calls", "cost"));
+    stats.appendChild(statCard("Est. cost · today", "~" + fmtCost(costToday), "", "cost"));
+  }
   stats.appendChild(statCard("Avg response", avgMs + " ms"));
 
-  const list = el("actList"); list.innerHTML = "";
-  for (const c of calls.slice().reverse().slice(0, 200)) {
+  // One call = one row. In "By video" mode rows live inside a collapsible group
+  // per clip (rows are built lazily on first expand); "All calls" renders a flat
+  // list that autoloads more as you scroll — the whole ring buffer is reachable.
+  function rowEl(c) {
+    const frag = document.createDocumentFragment();
     const row = document.createElement("div"); row.className = "callrow";
-    row.title = "≈ " + fmtCost(estCost(c.inTok, c.outTok)) + (c.err ? " · " + c.err : "");
+    if (c.cacheR || c.cacheW) row.title = `prompt cache: ${(c.cacheR || 0).toLocaleString()} read (~10% price) · ${(c.cacheW || 0).toLocaleString()} written`;
     const t = document.createElement("span"); t.className = "ct"; t.textContent = fmtTime(c.ts);
     const s = document.createElement("span"); s.className = "cs";
-    s.textContent = (c.title || (c.site ? siteMeta(c.site).label : "—")) + (c.target ? " → " + langMeta(c.target)[1] : "");
+    s.textContent = rowName(c) + (c.target ? " → " + langMeta(c.target)[1] : "");
     s.title = s.textContent;
-    const ln = document.createElement("span"); ln.textContent = (c.lines || 0) + " ln";
-    const tk = document.createElement("span"); tk.className = "ctok"; tk.textContent = (c.inTok || 0) + "→" + (c.outTok || 0);
+    const pv = document.createElement("span"); pv.className = "cprov"; pv.textContent = providerLabel(c.provider);
+    const ln = document.createElement("span"); ln.textContent = c.kind === "tts" ? "🎙 " + Math.round((c.durMs || 0) / 1000) + "s" : (c.lines || 0) + " ln";
+    const tk = document.createElement("span"); tk.className = "ctok";
+    tk.textContent = c.kind === "tts" ? (c.chars || 0) + " ch" : (c.inTok || 0) + "→" + (c.outTok || 0);
     const mv = document.createElement("span"); mv.className = "cms"; mv.textContent = (c.ms || 0) + "ms";
+    const cost = document.createElement("span"); cost.className = "ccost"; cost.textContent = "~" + fmtCost(estCost(c));
     const st = document.createElement("span"); st.className = "cok " + (c.ok ? "ok" : "err"); st.textContent = c.ok ? "✓" : "✗";
-    [t, s, ln, tk, mv, st].forEach((e) => row.appendChild(e));
-    list.appendChild(row);
+    [t, s, pv, ln, tk, mv, cost, st].forEach((e) => row.appendChild(e));
+    frag.appendChild(row);
+    if (!c.ok && c.err) { const e = document.createElement("div"); e.className = "cerrline"; e.textContent = c.err; frag.appendChild(e); }
+    return frag;
+  }
+  function headEl() {
+    const h = document.createElement("div"); h.className = "callhead";
+    const cols = [["Time"], ["Video → language"], ["Engine"], ["Work"], ["Tokens in→out", "ctok"], ["Took", "cms"], ["~Cost", "ccost"], [""]];
+    for (const [label, cls] of cols) { const s = document.createElement("span"); if (cls) s.className = cls; s.textContent = label; h.appendChild(s); }
+    return h;
+  }
+
+  const list = el("actList"); list.innerHTML = "";
+  if (actObserver) { actObserver.disconnect(); actObserver = null; }
+  const newestFirst = shown.slice().reverse();
+
+  if (actMode === "clip") {
+    // key by base; legacy/title-only rows join the base group with the same name
+    const nameKey = new Map();
+    for (const c of newestFirst) if (c.base && !nameKey.has(rowName(c))) nameKey.set(rowName(c), c.base);
+    const groups = new Map();
+    for (const c of newestFirst) {
+      const nm = rowName(c);
+      const key = c.base || nameKey.get(nm) || ("t:" + nm);
+      let g = groups.get(key);
+      if (!g) { g = { name: nm, rows: [], lines: 0, ttsMs: 0, cost: 0, fails: 0, last: 0 }; groups.set(key, g); }
+      if (g.name === "—" && nm !== "—") g.name = nm;
+      g.rows.push(c); g.lines += c.lines || 0; if (c.kind === "tts") g.ttsMs += c.durMs || 0;
+      g.cost += estCost(c); if (!c.ok) g.fails++; g.last = Math.max(g.last, c.ts || 0);
+    }
+    const ordered = [...groups.values()].sort((a, b) => b.last - a.last);
+    for (const g of ordered) {
+      const det = document.createElement("details"); det.className = "cgroup";
+      const sum = document.createElement("summary");
+      const gt = document.createElement("span"); gt.className = "gt"; gt.textContent = g.name; gt.title = g.name;
+      sum.appendChild(gt);
+      const add = (txt, cls) => { const s = document.createElement("span"); s.className = "gs" + (cls ? " " + cls : ""); s.textContent = txt; sum.appendChild(s); };
+      add(g.rows.length + " call" + (g.rows.length === 1 ? "" : "s"));
+      if (g.lines) add(g.lines + " ln");
+      if (g.ttsMs) add("🎙 " + Math.round(g.ttsMs / 1000) + "s");
+      if (g.fails) add(g.fails + " failed", "gfail");
+      add("~" + fmtCost(g.cost), "gcost");
+      add(fmtTime(g.last));
+      const body = document.createElement("div"); body.className = "gbody";
+      let filled = false;
+      det.addEventListener("toggle", () => {
+        if (!det.open || filled) return;
+        filled = true;
+        body.appendChild(headEl());
+        for (const c of g.rows) body.appendChild(rowEl(c));
+      });
+      det.appendChild(sum); det.appendChild(body);
+      list.appendChild(det);
+    }
+    if (ordered.length === 1) { const d = list.querySelector("details"); if (d) d.open = true; }
+    el("actListTitle").textContent = `Calls · ${ordered.length} video${ordered.length === 1 ? "" : "s"} · ${shown.length} call${shown.length === 1 ? "" : "s"}`;
+  } else {
+    list.appendChild(headEl());
+    let rendered = 0;
+    const STEP = 150;
+    const renderMore = () => {
+      const slice = newestFirst.slice(rendered, rendered + STEP);
+      for (const c of slice) list.appendChild(rowEl(c));
+      rendered += slice.length;
+      el("actListTitle").textContent = rendered < newestFirst.length
+        ? `Calls · showing ${rendered} of ${newestFirst.length} — scroll for more`
+        : `Calls · all ${newestFirst.length}`;
+      if (rendered >= newestFirst.length && actObserver) { actObserver.disconnect(); actObserver = null; }
+    };
+    renderMore();
+    if (rendered < newestFirst.length) {
+      actObserver = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) renderMore(); });
+      actObserver.observe(el("actMore"));
+    }
   }
 }
+el("actByClip").addEventListener("click", () => {
+  actMode = "clip"; el("actByClip").classList.add("on"); el("actAll").classList.remove("on"); loadActivity();
+});
+el("actAll").addEventListener("click", () => {
+  actMode = "flat"; el("actAll").classList.add("on"); el("actByClip").classList.remove("on"); loadActivity();
+});
+el("actChipClear").addEventListener("click", () => { actBase = null; actBaseTitle = ""; loadActivity(); });
+el("actFilter").addEventListener("input", () => { actQuery = el("actFilter").value.trim().toLowerCase(); loadActivity(); });
 el("clearLog").addEventListener("click", async () => {
   if (!confirm("Clear the API activity log? (This does not affect cached subtitles.)")) return;
   await chrome.runtime.sendMessage({ type: "LOG_CLEAR" }).catch(() => null);
