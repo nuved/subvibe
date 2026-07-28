@@ -9,6 +9,7 @@
       --bg: #0b0d12; --panel: #11151c; --panel2: #161c26; --border: #28303d;
       --text: #e7ecf3; --muted: #8b95a6; --accent: #4f8cff; --accent2: #3f7af0;
       --green: #7fe0b0; --red: #ff9a9a; --amber: #ffcf8f;
+      --radius: 10px; /* one corner theme for every interactive box */
     }
     * { box-sizing: border-box; }
     body { width: 340px; margin: 0; padding: 0 0 14px; background: var(--bg); color: var(--text);
@@ -40,13 +41,13 @@
     .info:hover { color: var(--text); border-color: var(--muted); }
 
     input[type="password"], input[type="text"], select {
-      width: 100%; padding: 8px 9px; border-radius: 8px; border: 1px solid var(--border);
+      width: 100%; padding: 8px 9px; border-radius: var(--radius); border: 1px solid var(--border);
       background: var(--panel); color: var(--text); font-size: 13px; }
     input:focus, select:focus { outline: none; border-color: var(--accent); }
 
     .keyrow { display: flex; gap: 7px; }
     .keyrow input { flex: 1; }
-    button { border: 0; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 12.5px; }
+    button { border: 0; border-radius: var(--radius); cursor: pointer; font-weight: 600; font-size: 12.5px; }
     .btn { padding: 8px 12px; background: var(--accent); color: #fff; }
     .btn:hover { background: var(--accent2); }
     .btn.ghost { background: var(--panel2); color: #cdd6e3; border: 1px solid var(--border); }
@@ -74,18 +75,18 @@
 
     /* language chips + autocomplete */
     .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
-    .chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 6px 3px 8px;
-      background: var(--panel2); border: 1px solid var(--border); border-radius: 20px; font-size: 12px; }
+    .chip { display: inline-flex; align-items: center; gap: 7px; padding: 4px 9px 4px 11px;
+      background: #1b2330; border: 1px solid var(--border); border-radius: 20px; font-size: 12px; }
     .chip .fl { font-size: 13px; }
     .chip.primary { border-color: #2f5fb0; background: #14233c; }
-    .chip .star { color: var(--accent); font-size: 10px; }
-    .chip button { background: transparent; color: var(--muted); font-size: 14px; line-height: 1; padding: 0 2px; }
+    .chip .star { color: var(--accent); font-size: 10px; margin: 0 1px; }
+    .chip button { background: transparent; color: var(--muted); font-size: 14px; line-height: 1; padding: 0 3px; }
     .chip button:hover { color: var(--red); }
     .chips:empty::after { content: "No language yet — add one below"; color: var(--muted); font-size: 11px; }
 
     .ac { position: relative; }
     .menu { position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 5; max-height: 196px; overflow-y: auto;
-      background: var(--panel); border: 1px solid var(--border); border-radius: 9px; box-shadow: 0 10px 30px rgba(0,0,0,.5);
+      background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 10px 30px rgba(0,0,0,.5);
       display: none; padding: 4px; }
     .menu.show { display: block; }
     .opt { display: flex; align-items: center; gap: 9px; padding: 7px 8px; border-radius: 7px; cursor: pointer; }
@@ -102,13 +103,13 @@
        page origin); the content script injects it with absolute URLs instead. */
     @font-face { font-family: "Baloo 2"; font-weight: 800; font-display: swap;
       src: url("fonts/Baloo2-ExtraBold-latin.woff2") format("woff2"); }
-    .prevwrap { height: 48px; border-radius: 9px; border: 1px solid var(--border); overflow: hidden;
+    .prevwrap { height: 48px; border-radius: var(--radius); border: 1px solid var(--border); overflow: hidden;
       display: flex; align-items: center; justify-content: center; margin-bottom: 8px;
       background: linear-gradient(135deg, #232c3d 0%, #0e1420 55%, #1b2436 100%); }
     .prevtext { font-size: 14px; white-space: nowrap; }
     .presets { display: flex; gap: 6px; overflow-x: auto; padding: 2px 0 5px; scrollbar-width: thin; }
     .presets button { flex: none; width: 64px; padding: 8px 0 6px; background: var(--panel2);
-      border: 1px solid transparent; border-radius: 10px; box-shadow: 0 1px 2px rgba(0,0,0,.35);
+      border: 1px solid transparent; border-radius: var(--radius); box-shadow: 0 1px 2px rgba(0,0,0,.35);
       display: flex; flex-direction: column; align-items: center; gap: 4px; }
     .presets button:hover { background: #1b2330; border-color: var(--border); }
     .presets button .abc { font-size: 13px; line-height: 1.25; padding: 1px 6px; border-radius: 4px; }
@@ -121,11 +122,13 @@
     .sizeval { min-width: 38px; text-align: right; color: var(--muted); font-weight: 600; font-size: 11.5px; }
     details.customize { border-top: 0; margin-top: 10px; }
     details.customize > summary { display: flex; align-items: center; gap: 7px; padding: 8px 10px;
-      background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+      background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
       font-size: 12.5px; color: #cdd6e3; }
     details.customize > summary:hover { background: var(--panel2); }
-    details.customize > summary::after { content: "▸"; float: none; margin-left: auto; color: var(--muted); }
-    details.customize[open] > summary::after { content: "▾"; }
+    /* line-art chevron: points down when the fold will expand downward, up to collapse */
+    details.customize > summary::after { content: "❯"; float: none; margin-left: auto; color: var(--muted);
+      font-size: 10px; transform: rotate(90deg); transition: transform .15s; }
+    details.customize[open] > summary::after { content: "❯"; transform: rotate(-90deg); }
     details.customize > summary .hint { font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .resetstyle { background: transparent; color: var(--muted); font-weight: 600; font-size: 11px; padding: 2px 0; }
     .resetstyle:hover { color: var(--accent); }
@@ -179,13 +182,13 @@
     .scopelink:hover { text-decoration: underline; }
     .scopelink.muted { color: var(--muted); }
 
-    /* tab bar — three workflows; header, scope bar and This-video stay above all of them */
-    .tabs { display: flex; gap: 5px; padding: 10px 14px 0; }
+    /* tab bar — three workflows, pinned right under the header/scope bar; the
+       This-video strip and Library stay visible on every tab, below the nav */
+    .tabs { display: flex; gap: 5px; padding: 10px 14px; }
     .tabs .tab { flex: 1; padding: 7px 0; background: var(--panel); border: 1px solid var(--border);
-      border-radius: 8px; color: var(--muted); font-weight: 600; font-size: 12px; }
+      border-radius: var(--radius); color: var(--muted); font-weight: 600; font-size: 12px; }
     .tabs .tab:hover { background: var(--panel2); color: var(--text); }
     .tabs .tab.on { background: #14233c; border-color: var(--accent); color: var(--text); }
-    .pane > section:first-child { border-top: 0; padding-top: 8px; }
 
     /* hidden tribute card — revealed by tapping the logo three times */
     .memcard { position: fixed; inset: 0; z-index: 50; background: #0b0d12; display: flex;
@@ -220,6 +223,12 @@
     <button id="resetClip" class="scopelink muted" hidden title="Revert this video to your defaults">Reset</button>
   </div>
 
+  <nav class="tabs" id="tabBar">
+    <button class="tab on" data-tab="translate">Translate</button>
+    <button class="tab" data-tab="dub">Dub</button>
+    <button class="tab" data-tab="style">Style</button>
+  </nav>
+
   <!-- This video -->
   <section>
     <div class="lbl">This video <button class="linkbtn" id="clearClip" hidden>Clear cache</button></div>
@@ -227,12 +236,6 @@
     <div id="clipStats" class="hint" style="margin-top:6px; min-height:13px;"></div>
     <div class="row" id="clipExports" style="flex-wrap:wrap; gap:6px;" hidden></div>
   </section>
-
-  <nav class="tabs" id="tabBar">
-    <button class="tab on" data-tab="translate">Translate</button>
-    <button class="tab" data-tab="dub">Dub</button>
-    <button class="tab" data-tab="style">Style</button>
-  </nav>
 
   <div class="pane" data-pane="translate">
   <!-- Translation engine -->
