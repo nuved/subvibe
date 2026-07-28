@@ -464,18 +464,20 @@ async function pollDub() {
 }
 setInterval(pollDub, 1500);
 
-// ── spend line: "Today ~$X.XX · this video ~$Y.YY" ─────────────────────────────
+// ── spend line: "📊 Today ~$X.XX (est.)" in the bottom bar ──────────────────
 // Riding pollDub's 1.5s tick but recomputed only every 4th tick (~6s) — LOG_LIST
-// reads the whole call log, which is cheap but not worth doing 40x/min. Small
-// self-contained fmtCost mirrors library.js's (same rounding: <$1 shows 4dp).
-const fmtCost = (c) => (c >= 1 ? "$" + c.toFixed(2) : "$" + c.toFixed(4));
+// reads the whole call log, which is cheap but not worth doing 40x/min.
+// Display rounds to 2dp (4dp reads like a database dump); the hover title
+// carries the 4dp figures and the this-video split.
+const fmtCost = (c) => "$" + c.toFixed(2);
+const fmtCostFull = (c) => "$" + c.toFixed(4);
 let dubPollTick = 0;
 function maybeRefreshSpend() {
   dubPollTick = (dubPollTick + 1) % 4;
   if (dubPollTick === 1) refreshSpend();
 }
 async function refreshSpend() {
-  const spend = el("dubSpend");
+  const spend = el("spendToday");
   if (!spend) return;
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true }).catch(() => []);
   const tab = tabs && tabs[0];
@@ -494,13 +496,17 @@ async function refreshSpend() {
     const mine = c.base ? c.base === base : (title && window.SV_TITLE.clean(c.title || "") === title);
     if (mine) { thisVideo += estCost(c); clipCalls++; }
   }
-  spend.textContent = (base || title)
-    ? `Today ~${fmtCost(today)} · this video ~${fmtCost(thisVideo)}`
-    : `Today ~${fmtCost(today)}`;
+  spend.textContent = `Today ~${fmtCost(today)}`;
+  el("dubSpend").title = ((base || title) ? `this video ~${fmtCostFull(thisVideo)} · ` : "")
+    + `today ~${fmtCostFull(today)} — open the Library → Activity for the full breakdown`;
   const stats = el("clipStats");
-  if (stats) stats.textContent = (base || title) && clipCalls
-    ? `~${fmtCost(thisVideo)} · ${clipCalls} API call${clipCalls === 1 ? "" : "s"} (recent)`
-    : "";
+  if (stats) {
+    const show = (base || title) && clipCalls;
+    stats.textContent = show
+      ? `~${fmtCost(thisVideo)} · ${clipCalls} API call${clipCalls === 1 ? "" : "s"} (recent)`
+      : "";
+    stats.title = show ? `exactly ~${fmtCostFull(thisVideo)}` : "";
+  }
 }
 el("dubSpend").addEventListener("click", openLibrary);
 
@@ -679,9 +685,7 @@ async function loadThisVideo() {
   // Library count = number of distinct clips cached (across all languages).
   const bases = new Set();
   for (const t of tracks) { const m = t && t.key && /^(.*):auto:[^:]+$/.exec(t.key); if (m) bases.add(m[1]); }
-  el("libCount").textContent = bases.size
-    ? `${bases.size} video${bases.size === 1 ? "" : "s"} cached · reopen any for free`
-    : "No cached videos yet";
+  el("libCount").textContent = `(${bases.size})`;
 
   el("clearClip").hidden = true;
   if (!clipBase) {

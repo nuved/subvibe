@@ -169,14 +169,18 @@
     .dot.full { color: var(--green); }
     .dot.partial { color: var(--amber); }
 
-    .libbtn { display: flex; align-items: center; gap: 11px; width: 100%; text-align: left;
-      padding: 11px 12px; background: var(--panel); border: 1px solid var(--border); color: var(--text); }
+    /* bottom bar: today's spend at left, compact library entry at right */
+    .bottombar { display: flex; align-items: center; gap: 10px; }
+    .usage { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      color: var(--muted); font-size: 11px; cursor: pointer; }
+    .usage:hover { color: var(--text); }
+    .libbtn { display: inline-flex; align-items: center; gap: 6px; flex: none;
+      padding: 7px 10px; background: var(--panel); border: 1px solid var(--border); color: var(--text); }
     .libbtn:hover { background: var(--panel2); border-color: #2f5fb0; }
-    .libbtn .libico { font-size: 18px; }
-    .libbtn .libtxt { display: flex; flex-direction: column; line-height: 1.25; flex: 1; }
-    .libbtn .libtxt b { font-size: 13px; }
+    .libbtn b { font-size: 12px; }
+    .libbtn .libico { font-size: 14px; }
     .libbtn .libsub { color: var(--muted); font-size: 11px; font-weight: 500; }
-    .libbtn .libgo { color: var(--accent); font-weight: 700; font-size: 12px; }
+    .libbtn .libgo { color: var(--accent); font-weight: 700; font-size: 11px; margin-left: 2px; }
 
     footer { display: flex; align-items: center; gap: 10px; padding: 12px 14px 0; }
     #status { font-size: 11px; color: var(--green); min-height: 14px; flex: 1; }
@@ -449,14 +453,11 @@
   </section>
   </div>
 
-  <!-- Usage + Library -->
-  <section>
-    <div class="lbl">Usage <span class="hint">estimated</span></div>
-    <div id="dubSpend" class="hint" style="min-height:13px; cursor:pointer;" title="Open the Library → Activity for the full breakdown"></div>
-    <button class="libbtn" id="openLibrary" style="margin-top:10px;">
-      <span class="libico">📚</span>
-      <span class="libtxt"><b>Library</b><span class="libsub" id="libCount">…</span></span>
-      <span class="libgo">Open →</span>
+  <!-- Usage + Library — one compact bottom bar -->
+  <section class="bottombar">
+    <div id="dubSpend" class="usage" title="Open the Library → Activity for the full breakdown">📊 <span id="spendToday">…</span> <span>(est.)</span></div>
+    <button class="libbtn" id="openLibrary" title="Your cached videos — replays are free">
+      <span class="libico">📚</span><b>Library</b><span class="libsub" id="libCount">…</span><span class="libgo">Open →</span>
     </button>
   </section>
 
