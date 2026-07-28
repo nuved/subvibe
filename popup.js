@@ -427,7 +427,7 @@ async function pollDub() {
     updateFoldSummaries();
     return;
   }
-  if (st.live) { btn.hidden = true; s.textContent = "Live streams can't be dubbed."; prog.hidden = true; now.textContent = ""; return; }
+  if (st.live) { btn.hidden = true; s.textContent = "Live streams can't be dubbed."; prog.hidden = true; now.textContent = ""; maybeRefreshSpend(); updateFoldSummaries(); return; }
   if (st.generating) {
     btn.hidden = false;
     btn.textContent = "Cancel";
@@ -686,6 +686,7 @@ async function loadThisVideo() {
     const sites = document.createElement("div");
     sites.className = "sites";
     const host = await activeTabHost();
+    if (seq !== clipLoadSeq) return; // a newer loadThisVideo() ran during the await
     for (const [name, re] of SUPPORTED_SITES) {
       const c = document.createElement("span");
       c.className = "site" + (re.test(host) ? " on" : "");
