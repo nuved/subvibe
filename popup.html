@@ -94,6 +94,10 @@
     .chips:empty::after { content: "No language yet — add one below"; color: var(--muted); font-size: 11px; }
 
     .ac { position: relative; }
+    /* real magnifier icon — it was an emoji inside the placeholder, so the caret landed on it */
+    #langSearch { padding-left: 31px;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14'%3E%3Ccircle cx='6' cy='6' r='4.2' fill='none' stroke='%238b95a6' stroke-width='1.5'/%3E%3Cpath d='M9.4 9.4L13 13' stroke='%238b95a6' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: left 10px center; background-size: 13px 13px; }
     .menu { position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 5; max-height: 196px; overflow-y: auto;
       background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 10px 30px rgba(0,0,0,.5);
       display: none; padding: 4px; }
@@ -310,7 +314,7 @@
     <div class="lbl">Translate to <span class="hint">first = primary</span></div>
     <div class="chips" id="chips"></div>
     <div class="ac">
-      <input type="text" id="langSearch" placeholder="🔍  Add a language…" autocomplete="off" />
+      <input type="text" id="langSearch" placeholder="Add a language…" autocomplete="off" />
       <div class="menu" id="langMenu"></div>
     </div>
   </section>
