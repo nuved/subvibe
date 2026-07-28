@@ -97,7 +97,7 @@
 
     .row { display: flex; align-items: center; gap: 9px; margin: 9px 0 0; }
     .row label { font-weight: 500; }
-    .voicelbl { min-width: 98px; color: var(--muted); flex: none; }
+    .rowlbl { min-width: 98px; color: var(--muted); flex: none; }
 
     /* dub config dims + freezes while the master dub toggle is off */
     #dubConfig { transition: opacity .15s; }
@@ -247,14 +247,14 @@
   <div class="pane" data-pane="translate">
   <!-- Translation engine -->
   <section>
-    <details class="customize" id="engineFold">
-      <summary>Translation engine <span class="hint" id="engineVal"></span></summary>
-      <select id="translationProvider" style="margin-top:7px;">
+    <div class="row" style="margin-top:0;">
+      <span class="rowlbl">Translation engine</span>
+      <select id="translationProvider" style="flex:1;">
         <option value="openai">OpenAI GPT-4o-mini (cheapest)</option>
         <option value="claude">Claude Sonnet 4.6 (best quality · ≈20× the price)</option>
       </select>
-      <div id="translationProviderWarn" class="selwarn" hidden></div>
-    </details>
+    </div>
+    <div id="translationProviderWarn" class="selwarn" hidden></div>
   </section>
 
   <!-- API keys — all providers always visible; engine dropdowns above/below reflect which are usable -->
@@ -327,7 +327,7 @@
     <details class="customize" id="voiceFold">
       <summary>Voice <span class="hint" id="voiceVal"></span></summary>
       <div class="row" style="margin-top:7px;">
-        <span class="voicelbl">TTS provider</span>
+        <span class="rowlbl">TTS provider</span>
         <select id="ttsProvider" style="flex:1;">
           <option value="openai">OpenAI gpt-4o-mini-tts</option>
           <option value="gemini">Gemini 2.5 Flash TTS (native Persian voices)</option>
@@ -335,7 +335,7 @@
       </div>
       <div id="ttsProviderWarn" class="selwarn" hidden></div>
       <div class="row">
-        <span class="voicelbl">Voice</span>
+        <span class="rowlbl">Voice</span>
         <select id="dubVoice" style="flex:1;"></select>
         <select id="dubGeminiVoice" style="flex:1;" hidden></select>
       </div>
@@ -345,12 +345,12 @@
         <span class="info" title="Beta — a different voice per speaker (OpenAI voices only)">i</span>
       </div>
       <div class="row">
-        <span class="voicelbl">Original volume</span>
+        <span class="rowlbl">Original volume</span>
         <input type="range" id="dubDuck" min="0" max="60" step="5" style="flex:1;" title="How loud the original soundtrack stays under the dub" />
         <span class="sizeval" id="dubDuckVal"></span>
       </div>
       <div class="row">
-        <span class="voicelbl">Pace</span>
+        <span class="rowlbl">Pace</span>
         <input type="range" id="dubPace" min="90" max="130" step="5" style="flex:1;" title="Speech pace of the dub voice" />
         <span class="sizeval" id="dubPaceVal"></span>
       </div>

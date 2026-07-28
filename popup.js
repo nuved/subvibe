@@ -155,7 +155,7 @@ function refreshKeysSummary() {
 // (hydrateKeys/refreshKeysSummary) still wins: it sets .open AFTER this runs, and that
 // programmatic toggle is saved too, which is fine — after fixing the key the user closes
 // it once.
-const FOLD_IDS = ["keysDetails", "engineFold", "voiceFold", "transFold", "lookFold", "timeFold"];
+const FOLD_IDS = ["keysDetails", "voiceFold", "transFold", "lookFold", "timeFold"];
 async function initFolds() {
   const { uiFold } = await chrome.storage.local.get("uiFold");
   const st = uiFold || {};
@@ -192,7 +192,6 @@ async function initTabs() {
 function updateFoldSummaries() {
   const txt = (id, v) => { const n = el(id); if (n) n.textContent = v; };
   const sel = (id) => { const s = el(id); return (s && s.selectedOptions[0] && s.selectedOptions[0].textContent) || ""; };
-  txt("engineVal", sel("translationProvider"));
   const gem = el("ttsProvider").value === "gemini";
   txt("voiceVal", sel(gem ? "dubGeminiVoice" : "dubVoice") || sel("ttsProvider"));
   txt("transVal", [el("keepNames").checked ? "keep names" : "",
