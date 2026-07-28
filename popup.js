@@ -689,12 +689,11 @@ async function loadThisVideo() {
 
   el("clearClip").hidden = true;
   if (!clipBase) {
+    // No video: the strip becomes the platform list — the lit chip is the
+    // "SubVibe recognizes this tab" signal, no sentence needed.
+    el("clipTitleLbl").textContent = "Supported platforms";
     box.className = "clipcache muted";
     box.innerHTML = "";
-    const msg = document.createElement("div");
-    msg.style.width = "100%";
-    msg.textContent = "No video detected — open one on a supported site:";
-    box.appendChild(msg);
     const sites = document.createElement("div");
     sites.className = "sites";
     const host = await activeTabHost();
@@ -709,6 +708,7 @@ async function loadThisVideo() {
     el("clipExports").hidden = true;
     return;
   }
+  el("clipTitleLbl").textContent = "This video";
   const mine = tracks.filter((t) => t.key && t.key.startsWith(clipBase + ":auto:"));
   if (!mine.length) {
     box.className = "clipcache muted";
