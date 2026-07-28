@@ -346,7 +346,6 @@
       <div id="dubProgFill" style="height:100%; width:0%; background:var(--accent); transition:width .4s;"></div>
     </div>
     <div id="dubNow" class="hint" style="margin-top:5px; min-height:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></div>
-    <div id="dubSpend" class="hint" style="margin-top:3px; min-height:13px; cursor:pointer;" title="Open the Library → Activity for the full breakdown"></div>
   </section>
   </div>
 
@@ -430,9 +429,11 @@
   </section>
   </div>
 
-  <!-- Library -->
+  <!-- Usage + Library -->
   <section>
-    <button class="libbtn" id="openLibrary">
+    <div class="lbl">Usage <span class="hint">estimated</span></div>
+    <div id="dubSpend" class="hint" style="min-height:13px; cursor:pointer;" title="Open the Library → Activity for the full breakdown"></div>
+    <button class="libbtn" id="openLibrary" style="margin-top:10px;">
       <span class="libico">📚</span>
       <span class="libtxt"><b>Library</b><span class="libsub" id="libCount">…</span></span>
       <span class="libgo">Open →</span>
