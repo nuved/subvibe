@@ -304,10 +304,13 @@
     </div>
     <details class="customize" id="voiceFold">
       <summary>Voice &amp; pace <span class="hint" id="voiceVal"></span></summary>
-      <select id="ttsProvider" style="margin-top:7px;">
-        <option value="openai">OpenAI gpt-4o-mini-tts</option>
-        <option value="gemini">Gemini 2.5 Flash TTS (native Persian voices)</option>
-      </select>
+      <div class="row" style="margin-top:7px;">
+        <span style="min-width:58px; color:var(--muted);">Engine</span>
+        <select id="ttsProvider" style="flex:1;">
+          <option value="openai">OpenAI gpt-4o-mini-tts</option>
+          <option value="gemini">Gemini 2.5 Flash TTS (native Persian voices)</option>
+        </select>
+      </div>
       <div id="ttsProviderWarn" class="selwarn" hidden></div>
       <div class="row">
         <span style="min-width:58px; color:var(--muted);">Voice</span>
