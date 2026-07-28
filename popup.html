@@ -34,6 +34,10 @@
     .lbl a { color: var(--accent); font-weight: 500; font-size: 11px; text-decoration: none; }
     .lbl a:hover { text-decoration: underline; }
     .hint { color: var(--muted); font-weight: 400; font-size: 11px; }
+    .info { display: inline-block; width: 14px; height: 14px; margin-left: 5px; flex: none;
+      border: 1px solid var(--border); border-radius: 50%; color: var(--muted);
+      font-size: 10px; line-height: 12px; text-align: center; font-weight: 600; cursor: help; }
+    .info:hover { color: var(--text); border-color: var(--muted); }
 
     input[type="password"], input[type="text"], select {
       width: 100%; padding: 8px 9px; border-radius: 8px; border: 1px solid var(--border);
@@ -267,15 +271,18 @@
       <summary>Subtitle options <span class="hint" id="subsVal"></span></summary>
       <div class="row" style="margin-top:7px;">
         <label class="switch"><input type="checkbox" id="showOriginal" /><span class="slider"></span></label>
-        <label for="showOriginal">Also show the original line <span class="hint">(dual subtitles)</span></label>
+        <label for="showOriginal">Also show the original line</label>
+        <span class="info" title="Dual subtitles — the original sits right above the translation">i</span>
       </div>
       <div class="row" style="margin-top:11px;">
         <label class="switch"><input type="checkbox" id="karaokeHl" /><span class="slider"></span></label>
-        <label for="karaokeHl">Highlight spoken words <span class="hint">(karaoke-style sweep as speech happens)</span></label>
+        <label for="karaokeHl">Highlight spoken words</label>
+        <span class="info" title="Karaoke-style sweep across each word as it is spoken">i</span>
       </div>
       <div class="row" style="margin-top:11px;">
         <label class="switch"><input type="checkbox" id="keepNames" /><span class="slider"></span></label>
-        <label for="keepNames">Keep names &amp; brands in the original language <span class="hint">(don't transliterate — e.g. MySQL stays MySQL)</span></label>
+        <label for="keepNames">Keep names &amp; brands untranslated</label>
+        <span class="info" title="Never transliterated — MySQL stays MySQL, Skyler stays Skyler">i</span>
       </div>
       <input type="text" id="keepTerms" placeholder="Extra specific terms (optional): Skyler, Wharton…" autocomplete="off" spellcheck="false" style="margin-top:8px;" />
     </details>
@@ -283,7 +290,7 @@
 
   <!-- Dub — spoken translation -->
   <section>
-    <div class="lbl">Dub <span class="hint">speak the translation · original stays quiet under it</span></div>
+    <div class="lbl"><span>Dub <span class="info" title="Speaks the translation aloud — the original soundtrack stays quiet underneath">i</span></span></div>
     <div class="row" style="margin-top:0;">
       <label class="switch"><input type="checkbox" id="dubEnabled" /><span class="slider"></span></label>
       <label for="dubEnabled">Dub subtitles aloud</label>
@@ -302,7 +309,8 @@
       </div>
       <div class="row" id="dubMultiVoiceRow">
         <label class="switch"><input type="checkbox" id="dubMultiVoice" /><span class="slider"></span></label>
-        <label for="dubMultiVoice">Multi-voice <span class="hint">(beta — a voice per speaker)</span></label>
+        <label for="dubMultiVoice">Multi-voice</label>
+        <span class="info" title="Beta — a different voice per speaker (OpenAI voices only)">i</span>
       </div>
       <div class="row">
         <span style="min-width:58px; color:var(--muted);">Original</span>
@@ -369,11 +377,12 @@
           <option value="auto">Auto (opposite the original)</option>
           <option value="custom">Custom (dragged)</option>
         </select>
+        <span class="info" title="You can also drag each subtitle line on the video — original and translation can sit apart">i</span>
       </div>
-      <div class="hint" style="margin-top:7px;">Tip: drag each subtitle line on the video to place it — the original and translation can sit apart.</div>
       <div class="row">
         <label class="switch"><input type="checkbox" id="hideNative" /><span class="slider"></span></label>
-        <label for="hideNative">Hide the site's own captions <span class="hint">(avoid doubles)</span></label>
+        <label for="hideNative">Hide the site's own captions</label>
+        <span class="info" title="Prevents doubled subtitles when the site shows its own">i</span>
       </div>
     </details>
   </section>
