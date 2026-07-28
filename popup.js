@@ -197,7 +197,8 @@ function updateFoldSummaries() {
                    el("keepTerms").value.trim() ? "glossary" : ""].filter(Boolean).join(" · ") || "defaults");
   txt("lookVal", [sizePct(+el("sizeRange").value),
                   el("showOriginal").checked ? "dual" : "translation only",
-                  el("karaokeHl").checked ? "karaoke" : ""].filter(Boolean).join(" · "));
+                  el("karaokeHl").checked ? "karaoke" : "",
+                  el("hideNative").checked ? "no doubles" : ""].filter(Boolean).join(" · "));
   txt("timeVal", el("syncVal").textContent);
 }
 
