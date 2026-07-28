@@ -157,6 +157,24 @@ async function initFolds() {
   }
 }
 
+// ── tabs: Translate / Dub / Style. Header, scope bar and the This-video strip
+// stay visible above whichever tab is open; the choice persists like uiFold.
+const TAB_NAMES = ["translate", "dub", "style"];
+function selectTab(name) {
+  for (const b of el("tabBar").children) b.classList.toggle("on", b.dataset.tab === name);
+  for (const p of document.querySelectorAll(".pane")) p.hidden = p.dataset.pane !== name;
+}
+async function initTabs() {
+  const { uiTab } = await chrome.storage.local.get("uiTab");
+  if (TAB_NAMES.includes(uiTab)) selectTab(uiTab);
+  el("tabBar").addEventListener("click", (e) => {
+    const b = e.target.closest(".tab");
+    if (!b) return;
+    selectTab(b.dataset.tab);
+    chrome.storage.local.set({ uiTab: b.dataset.tab });
+  });
+}
+
 function updateFoldSummaries() {
   const txt = (id, v) => { const n = el(id); if (n) n.textContent = v; };
   const sel = (id) => { const s = el(id); return (s && s.selectedOptions[0] && s.selectedOptions[0].textContent) || ""; };
@@ -782,3 +800,4 @@ async function load() {
 buildPresetRow();
 load();
 initFolds();
+initTabs();

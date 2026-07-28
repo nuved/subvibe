@@ -175,6 +175,14 @@
     .scopelink:hover { text-decoration: underline; }
     .scopelink.muted { color: var(--muted); }
 
+    /* tab bar — three workflows; header, scope bar and This-video stay above all of them */
+    .tabs { display: flex; gap: 5px; padding: 10px 14px 0; }
+    .tabs .tab { flex: 1; padding: 7px 0; background: var(--panel); border: 1px solid var(--border);
+      border-radius: 8px; color: var(--muted); font-weight: 600; font-size: 12px; }
+    .tabs .tab:hover { background: var(--panel2); color: var(--text); }
+    .tabs .tab.on { background: #14233c; border-color: var(--accent); color: var(--text); }
+    .pane > section:first-child { border-top: 0; padding-top: 8px; }
+
     /* hidden tribute card — revealed by tapping the logo three times */
     .memcard { position: fixed; inset: 0; z-index: 50; background: #0b0d12; display: flex;
       flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 16px; }
@@ -216,6 +224,13 @@
     <div class="row" id="clipExports" style="flex-wrap:wrap; gap:6px;" hidden></div>
   </section>
 
+  <nav class="tabs" id="tabBar">
+    <button class="tab on" data-tab="translate">Translate</button>
+    <button class="tab" data-tab="dub">Dub</button>
+    <button class="tab" data-tab="style">Style</button>
+  </nav>
+
+  <div class="pane" data-pane="translate">
   <!-- Translation engine -->
   <section>
     <details class="customize" id="engineFold">
@@ -284,7 +299,9 @@
       <input type="text" id="keepTerms" placeholder="Extra specific terms (optional): Skyler, Wharton…" autocomplete="off" spellcheck="false" style="margin-top:8px;" />
     </details>
   </section>
+  </div>
 
+  <div class="pane" data-pane="dub" hidden>
   <!-- Dub — spoken translation -->
   <section>
     <div class="lbl"><span>Dub <span class="info" title="Speaks the translation aloud — the original soundtrack stays quiet underneath">i</span></span></div>
@@ -331,7 +348,9 @@
     <div id="dubNow" class="hint" style="margin-top:5px; min-height:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></div>
     <div id="dubSpend" class="hint" style="margin-top:3px; min-height:13px; cursor:pointer;" title="Open the Library → Activity for the full breakdown"></div>
   </section>
+  </div>
 
+  <div class="pane" data-pane="style" hidden>
   <!-- Appearance -->
   <section>
     <details class="customize" id="lookFold">
@@ -409,6 +428,7 @@
       </div>
     </details>
   </section>
+  </div>
 
   <!-- Library -->
   <section>
