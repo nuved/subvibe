@@ -698,6 +698,9 @@ Not tasks — process. This is the recurring cadence for all future popup/Librar
 | B4 | Site chips as favicon-style monogram badges | Text chips are v1; logos raise store/trademark questions — decide deliberately | Task 9 eye test |
 | B5 | Firefox popup QA (fold/tab rendering, `details` styling) | Firefox phases B1–B3 from the style-presets plan still pending | AMO track resuming |
 | B6 | Library page gets the same card/accordion language | Popup and Library should read as one product | This plan fully shipped |
+| B7 | Content-script storage watcher gets a UI-keys ignore list (`uiTab`, `uiFold`) | Every tab click schedules a redundant debounced `start()` in the page; today it no-ops only because the run key dedupes | Touches `content/common.js` — separate branch |
+| B8 | Prime Video chip lights on any `www.amazon.de` page, not just `/gp/video/*` | Host permission exposes `tab.url` site-wide, so the chip over-claims recognition on the shopping homepage | Product call at the B4 eye test |
+| B9 | Appearance fold mixes per-clip (`showOriginal`) and global (`karaokeHl`, `hideNative`) toggles with no visual distinction | The fold implies uniform scoping; a per-video badge like the scope bar's would be honest | Design idea for B1's attention-dot pass |
 
 ## Self-Review (done at write time)
 
