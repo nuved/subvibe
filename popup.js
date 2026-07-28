@@ -166,7 +166,7 @@ function updateFoldSummaries() {
   txt("subsVal", [el("showOriginal").checked ? "dual" : "translation only",
                   el("karaokeHl").checked ? "karaoke" : "",
                   el("keepNames").checked ? "keep names" : ""].filter(Boolean).join(" · "));
-  txt("lookVal", `${el("sizeRange").value}px`);
+  txt("lookVal", sizePct(+el("sizeRange").value));
   txt("timeVal", el("syncVal").textContent);
 }
 
@@ -323,15 +323,20 @@ el("keepNames").addEventListener("change", () => persist({ keepNames: el("keepNa
 // keep working — the content script interprets both, nothing is migrated.
 const SIZE_TIER = { sm: 24, md: 30, lg: 38, xl: 48 };
 const sliderFromSize = (s) => (typeof s === "number" && isFinite(s) ? Math.round(s * 1000) : SIZE_TIER[s] || SIZE_TIER.md);
+
+// Display only — 100% = the default (md tier, slider 30). The stored value
+// stays a fraction of video height; px would lie the moment fullscreen hits.
+const sizePct = (v) => Math.round((v / SIZE_TIER.md) * 100) + "%";
+
 function setSizeUI(size) {
   const v = Math.max(12, Math.min(50, sliderFromSize(size)));
   el("sizeRange").value = v;
-  el("sizeVal").textContent = (v / 10).toFixed(1) + "%";
+  el("sizeVal").textContent = sizePct(v);
 }
 let sizeT;
 el("sizeRange").addEventListener("input", () => {
   const v = +el("sizeRange").value;
-  el("sizeVal").textContent = (v / 10).toFixed(1) + "%";
+  el("sizeVal").textContent = sizePct(v);
   clearTimeout(sizeT);
   sizeT = setTimeout(() => saveSetting({ size: v / 1000 }), 120); // live via the storage watcher
 });
