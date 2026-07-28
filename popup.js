@@ -23,6 +23,7 @@ let clipBase = null;
 let clipOverrides = {};
 let clipLoadSeq = 0; // guards loadThisVideo()'s async audioRows() fills against a stale re-run (e.g. Clear cache)
 const CLIP_FIELDS = ["targets", "showOriginal", "position", "size", "syncOffset", "linePositions"];
+// Mirrors manifest.json content_scripts matches — update both together.
 const SUPPORTED_SITES = ["YouTube", "Netflix", "Prime Video", "ZDF", "DW", "Udemy"];
 
 let savedT;
