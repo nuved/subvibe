@@ -1258,14 +1258,18 @@
   // A CLIP-STABLE dedup key. YouTube re-fetches its timedtext with a fresh pot/ei
   // token on every seek (a different URL each time). Keying on v+lang+kind makes
   // those re-fetches resolve to the SAME key → skipped → so a seek doesn't REPLACE
-  // the cue list and wipe the pump's in-progress translations. (A real caption-
-  // language switch has a different lang → different key → still re-fetched.)
+  // the cue list and wipe the pump's in-progress translations. A language switch
+  // must still re-fetch — and that needs `tlang` in the key too: YouTube's
+  // auto-TRANSLATED tracks reuse the source track's lang (German ASR shown as
+  // English = lang=de&tlang=en), so keying on lang alone made switching the
+  // player from translated-English back to real German look like a duplicate,
+  // and the plugin stayed on English no matter what the player showed.
   function subDedupKey(url) {
     try {
       const u = new URL(url);
       if (/\/api\/timedtext$/.test(u.pathname)) {
         const p = u.searchParams;
-        return "yt-tt:" + (p.get("v") || "") + ":" + (p.get("lang") || "") + ":" + (p.get("kind") || "");
+        return "yt-tt:" + (p.get("v") || "") + ":" + (p.get("lang") || "") + ":" + (p.get("kind") || "") + ":" + (p.get("tlang") || "");
       }
     } catch {}
     return url;
