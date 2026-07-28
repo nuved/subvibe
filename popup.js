@@ -393,7 +393,10 @@ function buildVoiceSelect() {
     gsel.appendChild(o);
   }
 }
-el("dubEnabled").addEventListener("change", () => { state.dubEnabled = el("dubEnabled").checked; persist({ dubEnabled: state.dubEnabled }); });
+// Dim + freeze the voice/mix config while the master toggle is off — instant
+// feedback that none of it does anything until "Dub subtitles aloud" is on.
+function syncDubConfig() { el("dubConfig").classList.toggle("off", !el("dubEnabled").checked); }
+el("dubEnabled").addEventListener("change", () => { state.dubEnabled = el("dubEnabled").checked; persist({ dubEnabled: state.dubEnabled }); syncDubConfig(); });
 el("dubVoice").addEventListener("change", () => persist({ dubVoice: el("dubVoice").value }));
 el("dubGeminiVoice").addEventListener("change", () => persist({ dubGeminiVoice: el("dubGeminiVoice").value }));
 el("dubMultiVoice").addEventListener("change", () => persist({ dubMultiVoice: el("dubMultiVoice").checked }));
@@ -776,6 +779,7 @@ async function load() {
   el("syncVal").textContent = fmtSync(state.syncOffset || 0);
   setSizeUI(state.size || "md");
   el("dubEnabled").checked = !!state.dubEnabled;
+  syncDubConfig();
   el("ttsProvider").value = state.ttsProvider === "gemini" ? "gemini" : "openai";
   el("geminiKey").value = state.geminiKey || "";
   updateTtsProviderUI();

@@ -97,6 +97,11 @@
 
     .row { display: flex; align-items: center; gap: 9px; margin: 9px 0 0; }
     .row label { font-weight: 500; }
+    .voicelbl { min-width: 98px; color: var(--muted); flex: none; }
+
+    /* dub config dims + freezes while the master dub toggle is off */
+    #dubConfig { transition: opacity .15s; }
+    #dubConfig.off { opacity: .4; pointer-events: none; }
 
     /* appearance: preview strip + style preset tiles + size slider */
     /* Baloo 2 for the preview/tiles — a relative url() is fine here (extension
@@ -130,6 +135,8 @@
       font-size: 10px; transform: rotate(90deg); transition: transform .15s; }
     details.customize[open] > summary::after { content: "❯"; transform: rotate(-90deg); }
     details.customize > summary .hint { font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* the value hint belongs to the collapsed bar; an open fold shows the controls themselves */
+    details.customize[open] > summary .hint { display: none; }
     .resetstyle { background: transparent; color: var(--muted); font-weight: 600; font-size: 11px; padding: 2px 0; }
     .resetstyle:hover { color: var(--accent); }
 
@@ -311,15 +318,16 @@
   <div class="pane" data-pane="dub" hidden>
   <!-- Dub — spoken translation -->
   <section>
-    <div class="lbl"><span>Dub <span class="info" title="Speaks the translation aloud — the original soundtrack stays quiet underneath">i</span></span></div>
     <div class="row" style="margin-top:0;">
       <label class="switch"><input type="checkbox" id="dubEnabled" /><span class="slider"></span></label>
       <label for="dubEnabled">Dub subtitles aloud</label>
+      <span class="info" title="Speaks the translation aloud — the original soundtrack stays quiet underneath">i</span>
     </div>
+    <div id="dubConfig">
     <details class="customize" id="voiceFold">
-      <summary>Voice &amp; pace <span class="hint" id="voiceVal"></span></summary>
+      <summary>Voice <span class="hint" id="voiceVal"></span></summary>
       <div class="row" style="margin-top:7px;">
-        <span style="min-width:58px; color:var(--muted);">Engine</span>
+        <span class="voicelbl">TTS provider</span>
         <select id="ttsProvider" style="flex:1;">
           <option value="openai">OpenAI gpt-4o-mini-tts</option>
           <option value="gemini">Gemini 2.5 Flash TTS (native Persian voices)</option>
@@ -327,7 +335,7 @@
       </div>
       <div id="ttsProviderWarn" class="selwarn" hidden></div>
       <div class="row">
-        <span style="min-width:58px; color:var(--muted);">Voice</span>
+        <span class="voicelbl">Voice</span>
         <select id="dubVoice" style="flex:1;"></select>
         <select id="dubGeminiVoice" style="flex:1;" hidden></select>
       </div>
@@ -337,17 +345,18 @@
         <span class="info" title="Beta — a different voice per speaker (OpenAI voices only)">i</span>
       </div>
       <div class="row">
-        <span style="min-width:58px; color:var(--muted);">Original</span>
+        <span class="voicelbl">Original volume</span>
         <input type="range" id="dubDuck" min="0" max="60" step="5" style="flex:1;" title="How loud the original soundtrack stays under the dub" />
         <span class="sizeval" id="dubDuckVal"></span>
       </div>
       <div class="row">
-        <span style="min-width:58px; color:var(--muted);">Pace</span>
+        <span class="voicelbl">Pace</span>
         <input type="range" id="dubPace" min="90" max="130" step="5" style="flex:1;" title="Speech pace of the dub voice" />
         <span class="sizeval" id="dubPaceVal"></span>
       </div>
     </details>
     <button class="btn ghost" id="dubGenAll" style="width:100%; margin-top:9px;" hidden>Generate full dub</button>
+    </div>
     <div id="dubStatus" class="hint" style="margin-top:6px; min-height:13px;"></div>
     <div id="dubProg" style="height:4px; border-radius:2px; background:var(--panel2); margin-top:6px; overflow:hidden;" hidden>
       <div id="dubProgFill" style="height:100%; width:0%; background:var(--accent); transition:width .4s;"></div>
