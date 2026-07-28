@@ -23,6 +23,7 @@ let clipBase = null;
 let clipOverrides = {};
 let clipLoadSeq = 0; // guards loadThisVideo()'s async audioRows() fills against a stale re-run (e.g. Clear cache)
 const CLIP_FIELDS = ["targets", "showOriginal", "position", "size", "syncOffset", "linePositions"];
+const SUPPORTED_SITES = ["YouTube", "Netflix", "Prime Video", "ZDF", "DW", "Udemy"];
 
 let savedT;
 function showSaved() { const s = el("saved"); s.classList.add("show"); clearTimeout(savedT); savedT = setTimeout(() => s.classList.remove("show"), 900); }
@@ -664,7 +665,20 @@ async function loadThisVideo() {
   el("clearClip").hidden = true;
   if (!clipBase) {
     box.className = "clipcache muted";
-    box.textContent = "Open a YouTube, Netflix, Prime Video, ZDF or DW video to translate it.";
+    box.innerHTML = "";
+    const msg = document.createElement("div");
+    msg.style.width = "100%";
+    msg.textContent = "No video detected — open one on a supported site:";
+    box.appendChild(msg);
+    const sites = document.createElement("div");
+    sites.className = "sites";
+    for (const s of SUPPORTED_SITES) {
+      const c = document.createElement("span");
+      c.className = "site";
+      c.textContent = s;
+      sites.appendChild(c);
+    }
+    box.appendChild(sites);
     el("clipExports").hidden = true;
     return;
   }
