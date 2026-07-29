@@ -1332,7 +1332,8 @@
     // between variants of the same track (YouTube re-generates ASR, native
     // roll-up cues carry their own timestamps) — an exact-only key turned every
     // millisecond of drift into a paid re-translation of a line we already own.
-    const CACHE_NEAR_MS = 450;
+    const CACHE_NEAR_MS = 250;
+    let nearMatchLogs = 0;
     const cacheMaps = {}, cacheStarts = {}, cacheTextMaps = {};
     for (const tg of settings.targets) {
       const cached = (await send({ type: "CACHE_GET", key: `${base}:auto:${tg}` }))?.track;
@@ -1341,9 +1342,14 @@
       cacheStarts[tg] = rows.map((c) => c.startMs).sort((a, b) => a - b);
       cacheTextMaps[tg] = new Map(rows.filter((c) => c.o).map((c) => [normCue(c.o), c]));
     }
-    // Nearest cached row whose start is within CACHE_NEAR_MS AND whose time
-    // window overlaps the cue's — the overlap requirement keeps a dense-dialog
-    // neighbor from donating its translation to the wrong line.
+    // Nearest LEGACY cached row (no `o` field) within CACHE_NEAR_MS whose time
+    // window overlaps the cue's. Rows that know their original are excluded on
+    // purpose: the exact/text layers already serve them, and a near-in-time row
+    // with DIFFERENT text is the wrong line by definition — assigning it would
+    // show a wrong subtitle silently for the whole session, worse than the
+    // pennies of a re-translation. Legacy rows can't be text-compared (they
+    // only store the translation), so they get a tight window plus a crude
+    // length-plausibility check, and every acceptance is logged.
     const nearCacheRow = (tg, cue) => {
       const arr = cacheStarts[tg];
       if (!arr || !arr.length) return null;
@@ -1355,9 +1361,13 @@
         const d = Math.abs(k - cue.startMs);
         if (d > CACHE_NEAR_MS || (best && d >= best.d)) continue;
         const row = cacheMaps[tg].get(k);
+        if (row.o) continue; // has its original → exact/text layers own it
+        const oLen = normCue(cue.original || "").length, tLen = (row.text || "").length;
+        if (oLen && tLen && (oLen > tLen * 3 || tLen > oLen * 3)) continue; // length-implausible pair
         const rowEnd = row.endMs || row.startMs, cueEnd = cue.endMs || cue.startMs;
         if (row.startMs < cueEnd && cue.startMs < rowEnd) best = { d, row };
       }
+      if (best && nearMatchLogs++ < 5) console.info(`[CopilotSubs] cache near-match (+${best.d}ms) for cue @${Math.round(cue.startMs / 1000)}s — legacy row, timestamp jitter healed`);
       return best ? best.row : null;
     };
     const applyCache = (cue) => {
