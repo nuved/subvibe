@@ -267,9 +267,11 @@
   let streamCleanup = null;  // stops a streaming (DOM-scrape) source
   let currentRunKey = null;  // dedupes redundant start() calls (event spam)
   let liveOffsetMs = 0;      // manual sync nudge (+ = earlier) — applied to LIVE streams only (recorded titles are exact)
+  let liveOffsetChangedAt = -Infinity, liveClampNotedAt = -1; // when the nudge last changed (−∞ = never — early-page clamps must not read as a user action); which change already got its clamp note
   let liveAutoOffsetMs = 0;  // AUTO sync: shift so our cues coincide with the player's OWN on-screen caption
   let calibAt = 0, calibMatched = false, calibMisses = 0;
-  let isLiveStream = false;  // current video is live (duration = Infinity); recorded titles ignore the manual nudge
+  let isLiveStream = null;   // latched liveness verdict: true = live, false = a real finite duration was seen (VOD),
+                             // null = no verdict yet this page — only this state may be armed from a PAUSED video
   const normCue = (s) => (s || "").toLowerCase().replace(/[^\p{L}\p{N} ]/gu, "").replace(/\s+/g, " ").trim();
   // Find the site's own caption currently on screen by MATCHING its text to one of
   // our cues, then shift our timeline so that cue shows exactly when the player
@@ -1528,6 +1530,17 @@
       // Safe for VOD: metadata (finite duration) always lands before playback
       // can advance past the first half-second.
       else if (video && !video.paused && playheadMs(video) > 500) isLiveStream = true;
+      // PAUSED ZDF live: the rule above can never arm (it requires playing), and
+      // NaN keeps the verdict — so an engine that starts against an already-paused
+      // live tab (content script injected late, tab refreshed while paused) reads
+      // as VOD forever and the manual shift silently multiplies by zero. Arm from
+      // pause ONLY while the verdict is still null: a clip that ever reported a
+      // finite duration stays VOD through NaN flickers (the hover-preview and SPA
+      // +15s incidents stay impossible). A paused pre-metadata VOD normally can't
+      // get here (clock ~0, no cues); the narrow slip-through — restored caption
+      // track feeding nativePlayheadMs before metadata — mis-arms only until the
+      // finite duration lands, which flips the verdict and drops the auto-offset.
+      else if (isLiveStream == null && video && video.paused && Number.isNaN(dur0) && playheadMs(video) > 500 && cues.length) isLiveStream = true;
       // Auto-align to the player's own caption — LIVE ONLY. On VOD (YouTube, Netflix,
       // recorded Prime) the cue list is already exactly timed to video.currentTime, so
       // ANY auto-shift can only DESYNC it. The trap: a caption stays on screen for its
@@ -1549,7 +1562,15 @@
       // nothing. (When rewound, t is well below the newest cue, so findCue handles it.)
       if (i < 0 && isLiveStream && cues.length) {
         const last = cues[cues.length - 1], lastEnd = last.endMs || last.startMs;
-        if (t > lastEnd && t - lastEnd < 20000) i = cues.length - 1;
+        if (t > lastEnd && t - lastEnd < 20000) {
+          i = cues.length - 1;
+          // A shift the user JUST made that lands past the newest line would
+          // otherwise re-show the same text — reading as a dead control. Say why.
+          if (performance.now() - liveOffsetChangedAt < 5000 && liveClampNotedAt !== liveOffsetChangedAt) {
+            liveClampNotedAt = liveOffsetChangedAt;
+            setStatus(`Live edge — no newer subtitle exists yet (${((t - lastEnd) / 1000).toFixed(1)}s past the newest line). It applies as new lines arrive.`);
+          }
+        }
       }
       const c = i >= 0 ? cues[i] : null;
       const kar = settings.karaokeHl !== false;
@@ -2045,7 +2066,8 @@
     const overChanged = keys.includes("clipOverrides");
     if (overChanged || keys.some((k) => LIVE_KEYS.includes(k))) {
       getSettings().then((s) => {
-        liveOffsetMs = Math.round((s.syncOffset || 0) * 1000);
+        const next = Math.round((s.syncOffset || 0) * 1000);
+        if (next !== liveOffsetMs) { liveOffsetMs = next; liveOffsetChangedAt = performance.now(); }
         if (document.getElementById("copilot-subs")) applyAppearance(s);
       }).catch(() => {});
     }
