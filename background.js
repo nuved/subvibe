@@ -16,7 +16,11 @@ const BATCH = 60; // cues per translation request — keeps JSON responses relia
 // via translationProvider in chrome.storage.local ("openai" default | "claude").
 const ANTHROPIC_MESSAGES = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION = "2023-06-01";
-const CLAUDE_MODEL = "claude-sonnet-4-6";
+// The Claude model is user-selectable (popup → storage key `claudeModel`).
+// Resolve through an allowlist so corrupted/stale storage can never put an
+// unknown model id on the wire — unknown values fall back to Sonnet 5.
+const CLAUDE_MODELS = ["claude-sonnet-5", "claude-haiku-4-5"];
+const resolveClaudeModel = (v) => (CLAUDE_MODELS.includes(v) ? v : CLAUDE_MODELS[0]);
 // max_tokens is REQUIRED on /v1/messages. 16k, not 8k: a 60-cue batch answers
 // with FOUR arrays (t + the condensed dub "d" ≈ two full Persian renditions),
 // and Persian is token-expensive — 8k truncated long music batches, which fell
@@ -387,10 +391,10 @@ async function translateChunk(lines, source, target, apiKey, context, keepTerms,
 // keepTerms/keepNames behave identically per provider), same {t,s,g,d} schema,
 // via output_config.format (verified shape, no beta header required — see
 // https://platform.claude.com/docs/en/build-with-claude/structured-outputs).
-async function translateChunkClaude(lines, source, target, apiKey, context, keepTerms, keepNames) {
+async function translateChunkClaude(lines, source, target, apiKey, context, keepTerms, keepNames, model) {
   const userPayload = context && context.length ? { count: lines.length, context, lines } : { count: lines.length, lines };
   const body = {
-    model: CLAUDE_MODEL,
+    model,
     max_tokens: CLAUDE_MAX_TOKENS,
     // cache_control: the system prompt is cache-stable (see systemPrompt) — on
     // cache hits its tokens bill at ~10% instead of full price. Engages only
@@ -399,10 +403,12 @@ async function translateChunkClaude(lines, source, target, apiKey, context, keep
     system: [{ type: "text", text: systemPrompt(source, target, keepTerms, keepNames), cache_control: { type: "ephemeral" } }],
     messages: [{ role: "user", content: JSON.stringify(userPayload) }],
     output_config: { format: { type: "json_schema", schema: TRANSLATE_SCHEMA.schema } },
-    // Structured translation is mechanical — thinking adds seconds per batch
-    // with no quality gain here, and the schema enforces the discipline.
-    thinking: { type: "disabled" },
   };
+  // Sonnet 5: omitting `thinking` silently turns ADAPTIVE thinking ON — seconds
+  // and output tokens per batch for zero gain on mechanical structured
+  // translation. Haiku 4.5 (older generation): no-thinking is already the
+  // default and the explicit `disabled` type is not accepted there — omit it.
+  if (!/haiku/.test(model)) body.thinking = { type: "disabled" };
   let lastStatus = 0, lastBody = "", waitMs = 0;
   for (let attempt = 0; attempt < 3; attempt++) {
     if (attempt) await new Promise((r) => setTimeout(r, waitMs || 500 * attempt)); // rate-limit hint > blind backoff
@@ -438,6 +444,15 @@ async function translateChunkClaude(lines, source, target, apiKey, context, keep
       };
     }
     lastStatus = res.status; lastBody = txt;
+    // Haiku + structured outputs: if this model generation rejects
+    // output_config (400 naming it), drop to schema-in-prompt once — the
+    // system prompt already dictates the {t,s,g,d} JSON shape and the parser
+    // tolerates plain JSON text. Logged so the Activity mystery is solvable.
+    if (res.status === 400 && body.output_config && /output_config|output_format/i.test(txt || "")) {
+      console.info("[SubVibe] " + model + " rejected output_config — retrying schema-in-prompt");
+      delete body.output_config;
+      continue;
+    }
     if (!TRANSIENT_HTTP.has(res.status)) break; // permanent (e.g. 401 bad key) → don't waste retries
   }
   const detail = lastStatus >= 500 ? "Claude is temporarily unavailable — retrying"
@@ -448,8 +463,8 @@ async function translateChunkClaude(lines, source, target, apiKey, context, keep
 }
 
 async function translateAll(lines, source, target, context) {
-  const { apiKey, anthropicKey, keepTerms, keepNames, translationProvider } =
-    await chrome.storage.local.get(["apiKey", "anthropicKey", "keepTerms", "keepNames", "translationProvider"]);
+  const { apiKey, anthropicKey, keepTerms, keepNames, translationProvider, claudeModel } =
+    await chrome.storage.local.get(["apiKey", "anthropicKey", "keepTerms", "keepNames", "translationProvider", "claudeModel"]);
   const provider = translationProvider === "claude" ? "claude" : "openai";
   const key = provider === "claude" ? anthropicKey : apiKey;
   if (!key) {
@@ -458,7 +473,7 @@ async function translateAll(lines, source, target, context) {
       : "No OpenAI API key yet — open the SubVibe popup and paste your key.");
   }
   const chunkFn = provider === "claude" ? translateChunkClaude : translateChunk;
-  const model = provider === "claude" ? CLAUDE_MODEL : TRANSLATE_MODEL;
+  const model = provider === "claude" ? resolveClaudeModel(claudeModel) : TRANSLATE_MODEL;
   const keepN = keepNames !== false; // default ON
   const out = new Array(lines.length), spk = new Array(lines.length), gen = new Array(lines.length), dub = new Array(lines.length);
   let lastErr = null, failedBatches = 0, totalBatches = 0, inTok = 0, outTok = 0, cacheR = 0, cacheW = 0;
@@ -469,7 +484,7 @@ async function translateAll(lines, source, target, context) {
   const pad = (arr, n) => { const r = Array.isArray(arr) ? arr.slice(0, n) : []; while (r.length < n) r.push(undefined); return r; };
   async function chunkSplit(chunk, ctx, depth) {
     try {
-      return await chunkFn(chunk, source, target, key, ctx, keepTerms, keepN);
+      return await chunkFn(chunk, source, target, key, ctx, keepTerms, keepN, model);
     } catch (e) {
       lastErr = e;
       if (depth >= 2 || chunk.length < 8) throw e;
@@ -758,9 +773,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             await logCall({ ...meta, ms: Date.now() - started, inTok: r.inTok, outTok: r.outTok, cacheR: r.cacheR || 0, cacheW: r.cacheW || 0, ok: true, provider: r.provider, model: r.model });
             sendResponse({ lines: r.out, spk: r.spk, gen: r.gen, dub: r.dub });
           } catch (e) {
-            const { translationProvider } = await chrome.storage.local.get("translationProvider");
+            const { translationProvider, claudeModel } = await chrome.storage.local.get(["translationProvider", "claudeModel"]);
             const provider = translationProvider === "claude" ? "claude" : "openai";
-            await logCall({ ...meta, ms: Date.now() - started, inTok: 0, outTok: 0, ok: false, err: String((e && e.message) || e), provider, model: provider === "claude" ? CLAUDE_MODEL : TRANSLATE_MODEL });
+            await logCall({ ...meta, ms: Date.now() - started, inTok: 0, outTok: 0, ok: false, err: String((e && e.message) || e), provider, model: provider === "claude" ? resolveClaudeModel(claudeModel) : TRANSLATE_MODEL });
             throw e; // let the outer catch send the {error} response
           }
           break;
