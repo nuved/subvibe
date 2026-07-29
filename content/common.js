@@ -320,6 +320,7 @@
   let interceptedClipId = null; // the clip (URL-derived videoId) those cues belong to
   let cueListActive = false;  // perfect-sync cue-list mode is the running engine
   let mainClockMs = null, mainClockAt = 0, mainClockPaused = false; // playhead relayed from the page world
+  let lastClipChangeAt = 0; // SPA clip switches stamp this; 0 = initial page load (no hold-back)
   let mainVideoId = null;     // id of the playing clip, reported from the page world (detects clip switch)
   let audioActive = false;   // live audio-transcription mode is running
   let audioRaf = 0;
@@ -1059,6 +1060,12 @@
     // toggled off. Poll for it and, when present, upgrade from line-by-line
     // scraping to perfect-sync cue-list mode.
     const upgrade = setInterval(() => {
+      // YouTube SPA nav: the reused <video>'s track list can still hold the
+      // PREVIOUS clip's cues for a beat (their console showed a 150-cue run
+      // from the prior video painting onto the next one). Give the real
+      // subtitle file — whose fetch the CC nudge triggers — an 8s head start
+      // before trusting the native track on a freshly switched clip.
+      if (adapter && adapter.site === "youtube" && lastClipChangeAt && performance.now() - lastClipChangeAt < 8000) return;
       const full = readVideoCueList(video);
       if (full && full.length > 3) onInterceptedCues(full);
     }, 2000);
@@ -2051,6 +2058,7 @@
       // cues and re-fetch the new clip's subtitle file.
       if (!d.paused && d.id) { // only track the clip that is actually playing
         if (mainVideoId && d.id !== mainVideoId) { // a real clip switch
+          lastClipChangeAt = performance.now();
           dropInterceptedCues(); schedule();
         }
         mainVideoId = d.id;
@@ -2076,7 +2084,7 @@
   let lastUrl = location.href, lastClip = currentClipId();
   setInterval(() => {
     const clip = currentClipId();
-    if (clip !== lastClip) { lastClip = clip; dropInterceptedCues(); schedule(); }
+    if (clip !== lastClip) { lastClip = clip; lastClipChangeAt = performance.now(); dropInterceptedCues(); schedule(); }
     else if (location.href !== lastUrl) { lastUrl = location.href; schedule(); }
   }, 1000);
 
