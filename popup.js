@@ -7,7 +7,7 @@
 const FA_FLAG = window.SV_FA_FLAG;
 const LANGS = window.SV_LANGS;
 
-const DEFAULTS = { enabled: true, targets: ["en"], showOriginal: true, hideNative: true, karaokeHl: true, apiKey: "", translationProvider: "openai", anthropicKey: "", keepNames: true, keepTerms: "", position: "bottom", size: "md", stylePreset: "classic", styleCustom: {}, syncOffset: 0, dubEnabled: false, ttsProvider: "openai", geminiKey: "", dubVoice: "marin", dubGeminiVoice: "Kore", dubMultiVoice: false, dubDuckLevel: 0.12, dubPace: 1 };
+const DEFAULTS = { enabled: true, targets: ["en"], showOriginal: true, hideNative: true, karaokeHl: true, apiKey: "", translationProvider: "openai", claudeModel: "claude-sonnet-5", anthropicKey: "", keepNames: true, keepTerms: "", position: "bottom", size: "md", stylePreset: "classic", styleCustom: {}, syncOffset: 0, dubEnabled: false, ttsProvider: "openai", geminiKey: "", dubVoice: "marin", dubGeminiVoice: "Kore", dubMultiVoice: false, dubDuckLevel: 0.12, dubPace: 1 };
 const el = (id) => document.getElementById(id);
 const fmtSync = (v) => (v > 0 ? "+" : "") + v.toFixed(2) + "s";
 const langMeta = (code) => LANGS.find((l) => l[0] === code) || [code, code.toUpperCase(), "🏳️"];
@@ -286,7 +286,7 @@ el("verifyGemini").addEventListener("click", async () => {
 
 // ── Translation + TTS engine selects: options disabled/labeled by key availability ──
 // Base labels are constants so rebuilding never accumulates " — add key" suffixes.
-const TRANSLATION_OPTIONS = [["openai", "OpenAI GPT-4o-mini"], ["claude", "Claude Sonnet 4.6"]];
+const TRANSLATION_OPTIONS = [["openai", "OpenAI GPT-4o-mini"], ["claude", "Claude (model below)"]];
 const TTS_OPTIONS = [["openai", "OpenAI gpt-4o-mini-tts"], ["gemini", "Gemini 2.5 Flash TTS (native Persian voices)"]];
 // Which stored key (input id) each engine option requires, and the two display
 // names used in the missing-key warning ("<engine> selected but no <provider> key…").
@@ -321,7 +321,22 @@ function updateProviderAvailability() {
 el("translationProvider").addEventListener("change", () => {
   persist({ translationProvider: el("translationProvider").value });
   updateProviderAvailability();
+  updateClaudeModelUI();
 });
+
+// ── Claude model picker: always visible; dim+inert unless the engine is Claude ──
+function updateClaudeModelUI() {
+  const isClaude = el("translationProvider").value === "claude";
+  const row = el("claudeModelRow");
+  row.classList.toggle("dim", !isClaude);
+  // `inert` (not pointer-events): keyboard focus must not reach a dimmed
+  // control — a prior review caught Tab+Enter activating a pointer-blocked one.
+  if (isClaude) row.removeAttribute("inert"); else row.setAttribute("inert", "");
+  for (const b of row.querySelectorAll(".segopt")) b.classList.toggle("on", b.dataset.model === (state.claudeModel || "claude-sonnet-5"));
+}
+for (const b of document.querySelectorAll("#claudeModelRow .segopt")) {
+  b.addEventListener("click", () => { state.claudeModel = b.dataset.model; persist({ claudeModel: state.claudeModel }); updateClaudeModelUI(); });
+}
 
 // ── TTS engine select (dub voice provider) ───────────────────────────────────
 function updateTtsProviderUI() {
@@ -782,6 +797,7 @@ async function load() {
   el("enabled").checked = state.enabled;
   el("apiKey").value = state.apiKey || "";
   el("translationProvider").value = state.translationProvider === "claude" ? "claude" : "openai";
+  updateClaudeModelUI();
   el("anthropicKey").value = state.anthropicKey || "";
   anthropicKeyHint();
   el("keepNames").checked = state.keepNames !== false;

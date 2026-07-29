@@ -111,6 +111,12 @@
     .row { display: flex; align-items: center; gap: 9px; margin: 9px 0 0; }
     .row label { font-weight: 500; }
     .rowlbl { min-width: 98px; color: var(--muted); flex: none; }
+    .seg2 { flex: 1; display: flex; gap: 6px; }
+    .segopt { flex: 1; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); color: var(--text); cursor: pointer; text-align: center; font-weight: 400; font-size: 12.5px; }
+    .segopt b { display: block; font-weight: 600; }
+    .segopt small { display: block; margin-top: 1px; font-size: 10.5px; color: var(--muted); }
+    .segopt.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--panel)); }
+    #claudeModelRow.dim { opacity: .45; }
 
     /* dub config dims + freezes while the master dub toggle is off */
     #dubConfig { transition: opacity .15s; }
@@ -285,6 +291,13 @@
       </select>
     </div>
     <div id="translationProviderWarn" class="selwarn" hidden></div>
+    <div class="row" id="claudeModelRow">
+      <span class="rowlbl">Claude model</span>
+      <div class="seg2" role="radiogroup" aria-label="Claude model">
+        <button type="button" class="segopt" data-model="claude-sonnet-5"><b>Sonnet 5</b><small>best quality</small></button>
+        <button type="button" class="segopt" data-model="claude-haiku-4-5"><b>Haiku 4.5</b><small>fastest, ~3× cheaper</small></button>
+      </div>
+    </div>
   </section>
 
   <!-- API keys — all providers always visible; engine dropdowns above/below reflect which are usable -->
