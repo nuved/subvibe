@@ -1521,9 +1521,13 @@
       // PLAYING with an advancing clock but still no finite duration = live.
       // ZDF live reports NaN (not Infinity), so without this rule the latch
       // never flipped and the manual timing shift silently multiplied by zero.
+      // The clock MUST be playheadMs(): the raw element currentTime reads ~0 in
+      // this isolated world on MSE players (ZDF live!) — reading it directly
+      // silently disabled this very rule. playheadMs() falls back to the
+      // page-world relay, the same clock every other consumer trusts.
       // Safe for VOD: metadata (finite duration) always lands before playback
       // can advance past the first half-second.
-      else if (video && !video.paused && (video.currentTime || 0) > 0.5) isLiveStream = true;
+      else if (video && !video.paused && playheadMs(video) > 500) isLiveStream = true;
       // Auto-align to the player's own caption — LIVE ONLY. On VOD (YouTube, Netflix,
       // recorded Prime) the cue list is already exactly timed to video.currentTime, so
       // ANY auto-shift can only DESYNC it. The trap: a caption stays on screen for its
