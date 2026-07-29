@@ -1518,6 +1518,12 @@
       const dur0 = video && video.duration;
       if (dur0 === Infinity) isLiveStream = true;
       else if (typeof dur0 === "number" && isFinite(dur0) && dur0 > 0) isLiveStream = false;
+      // PLAYING with an advancing clock but still no finite duration = live.
+      // ZDF live reports NaN (not Infinity), so without this rule the latch
+      // never flipped and the manual timing shift silently multiplied by zero.
+      // Safe for VOD: metadata (finite duration) always lands before playback
+      // can advance past the first half-second.
+      else if (video && !video.paused && (video.currentTime || 0) > 0.5) isLiveStream = true;
       // Auto-align to the player's own caption — LIVE ONLY. On VOD (YouTube, Netflix,
       // recorded Prime) the cue list is already exactly timed to video.currentTime, so
       // ANY auto-shift can only DESYNC it. The trap: a caption stays on screen for its
