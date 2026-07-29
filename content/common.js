@@ -1038,6 +1038,18 @@
       }
     };
     watchdog = setTimeout(checkWatchdog, 8000); // first check at 8s, re-check every 6s up to ~32s
+    // YouTube: we can't fetch timedtext ourselves (a token-less request returns an
+    // empty body — see subs-intercept.js), but the PLAYER fires its pot-bearing
+    // fetch the moment a caption track is enabled. So instead of waiting ~32s to
+    // ASK the user to press CC, ask the page world to switch the track on now —
+    // hideNative keeps it invisible, and the intercepted URL upgrades this scrape
+    // run to perfect-sync (real cue timing + karaoke) within seconds.
+    let ccNudges = 0;
+    const ccNudge = setInterval(() => {
+      if (!adapter || adapter.site !== "youtube") { clearInterval(ccNudge); return; }
+      if (cueListActive || (interceptedCues && interceptedCues.length) || ++ccNudges > 4) { clearInterval(ccNudge); return; }
+      window.postMessage({ __copilotSubs: true, type: "NEED_CAPTIONS" }, "*");
+    }, 2500);
     // Same-origin <track> sources (e.g. DW) expose the full cue list through the
     // <video>'s textTracks once it loads — even with the site's own captions
     // toggled off. Poll for it and, when present, upgrade from line-by-line
@@ -1046,7 +1058,7 @@
       const full = readVideoCueList(video);
       if (full && full.length > 3) onInterceptedCues(full);
     }, 2000);
-    streamCleanup = () => { clearInterval(poll); clearTimeout(watchdog); clearInterval(upgrade); };
+    streamCleanup = () => { clearInterval(poll); clearTimeout(watchdog); clearInterval(upgrade); clearInterval(ccNudge); };
     applyHideNative(settings.hideNative);
     setStatus(`Live mode → ${targets.map(langLabel).join(" · ")}. Turn ON the player's CC / subtitles if you see nothing.`);
   }
@@ -1382,7 +1394,7 @@
         // legit Latin-only lines — a kept name, bare numbers — just re-translate
         // once per session; pennies, and they cache again if RTL comes back.)
         if (isRTLLang(tg) && v.text && !isRTL(v.text)) continue;
-        cue.t[tg] = v.text;
+        cue.t[tg] = (v.text || "").replace(/\s+/g, " ").trim(); // normalized for karaoke unit reassembly
         if (v.sid != null && !cue.spk) cue.spk = { id: v.sid, g: v.sg || "?" };
         if (v.dt != null && cue.dt === undefined) cue.dt = v.dt; // cached condensed dub text (old caches: undefined → g.d null in buildGroups)
       }
@@ -1699,8 +1711,12 @@
           // become an every-round re-spend loop.
           const echo = isRTLLang(tg) && resp.lines[k] === g.orig && !isRTL(resp.lines[k]);
           if (echo && (g.echoN = (g.echoN || 0) + 1) <= 2) return;
-          g.t[tg] = resp.lines[k];
-          for (const cc of g.cues) cc.t[tg] = resp.lines[k];
+          // Single-space-normalized: karaoke's word units only attach when they
+          // reassemble into the display text exactly — stray double spaces from
+          // the model silently disabled the highlight for that line.
+          const line = resp.lines[k].replace(/\s+/g, " ").trim();
+          g.t[tg] = line;
+          for (const cc of g.cues) cc.t[tg] = line;
           if (tg === settings.targets[0]) {                      // tag once, from the primary target's pass
             g.spk = { id: (resp.spk && resp.spk[k]) || 0, g: (resp.gen && resp.gen[k]) || "?" };
             for (const cc of g.cues) cc.spk = g.spk;

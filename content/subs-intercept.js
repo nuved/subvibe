@@ -59,6 +59,41 @@
   // clip's subtitles.
   setInterval(() => { if (latestUrl) window.postMessage({ __copilotSubs: true, type: "SUBS_URL", url: latestUrl }, "*"); }, 1500);
 
+  // ── NEED_CAPTIONS: the content script asks for this when SubVibe is running
+  // but no subtitle file has appeared. Enabling a caption track makes the player
+  // fire its pot-bearing timedtext request (the only kind that returns real
+  // cues) — the observer above then hands over the URL. The captions stay
+  // invisible (SubVibe hides the site's own rendering); this just automates the
+  // "turn ON the player's CC" advice the overlay used to show after 32s.
+  let ccTriedFor = "";
+  window.addEventListener("message", (ev) => {
+    const d = ev.data;
+    if (ev.source !== window || !d || !d.__copilotSubs || d.type !== "NEED_CAPTIONS") return;
+    const k = clipKey();
+    if (ccTriedFor === k) return; // once per clip — later nudges only retry while we couldn't act
+    try {
+      const p = document.getElementById("movie_player");
+      if (p && p.loadModule) {
+        p.loadModule("captions");
+        const cur = p.getOption && p.getOption("captions", "track");
+        if (cur && cur.languageCode) { ccTriedFor = k; return; } // already on
+        const tl = (p.getOption && p.getOption("captions", "tracklist")) || [];
+        if (tl.length) {
+          p.setOption("captions", "track", { languageCode: tl[0].languageCode });
+          ccTriedFor = k;
+          console.info("[CopilotSubs/MAIN] caption track switched on for SubVibe:", tl[0].languageCode);
+          return;
+        }
+        // Module may have just loaded — the tracklist can populate a tick later;
+        // fall through WITHOUT marking tried so the next nudge retries.
+      }
+    } catch {}
+    try {
+      const b = document.querySelector('.ytp-subtitles-button[aria-pressed="false"]');
+      if (b) { b.click(); ccTriedFor = k; console.info("[CopilotSubs/MAIN] captions enabled via the CC button"); }
+    } catch {}
+  });
+
   // Clip-change detector by URL — covers SPA players whose <video> element has no
   // per-clip id (YouTube: same element across videos, id only in ?v=). When the
   // clip key changes, the previous clip's subtitle URL is stale; stop re-posting it.
