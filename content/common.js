@@ -981,6 +981,9 @@
       const nowMs = (video.currentTime || 0) * 1000;
       if (curCue && curCue.endMs == null) curCue.endMs = nowMs;
       lastText = text;
+      // Mode stamp for diagnosis: if this ever shows while a "perfect-sync ON"
+      // run is believed active, a scrape run is what is actually rendering.
+      try { document.documentElement.dataset.csDiag = JSON.stringify({ mode: "scrape", heard: (text || "").slice(0, 48), cues: cues.length, play: +((video.currentTime || 0)).toFixed(1) }); } catch {}
       if (!text) { curCue = null; return; }
       sawAny = true;
       if (!audioStopped) { ensureAudioStopped(); audioStopped = true; } // captions exist → no audio
@@ -1562,6 +1565,7 @@
         else setBadge({ count: done, state: behindMs < 3500 ? "miss" : "lag", ...dub });
         try {
           document.documentElement.dataset.csDiag = JSON.stringify({
+            mode: "cuelist", src: interceptedUrl ? "file" : "native",
             play: +(t / 1000).toFixed(1), raw: +raw.toFixed(1), relayClk: mainClockMs != null ? +(mainClockMs / 1000).toFixed(1) : null,
             live: isLiveStream, autoOff: +(liveAutoOffsetMs / 1000).toFixed(1),
             showing: i >= 0 ? +(cues[i].startMs / 1000).toFixed(1) : null,
