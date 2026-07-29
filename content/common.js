@@ -1508,10 +1508,16 @@
     const tick = () => {
       video = liveVideoEl(video); // DW's video.js can swap the <video> element mid-play
       if (video && !video.paused && (video.currentTime || 0) > 0.5) engaged = true;
-      // Infinity ONLY — the old !isFinite() also matched NaN, so a video element
-      // whose metadata hadn't loaded (fresh SPA clip, hover-preview) read as
-      // "live" and woke the live-only auto-calibrator on plain VOD.
-      isLiveStream = !!(video && video.duration === Infinity);
+      // Latched live detection. Infinity ⇒ live; a real finite duration ⇒ VOD;
+      // NaN keeps the previous verdict. The old !isFinite() matched NaN too, so
+      // a metadata-less element (fresh SPA clip, hover-preview) read as "live"
+      // and woke the live-only auto-calibrator on plain VOD (the +15s incident).
+      // The latch protects the other direction too: a single NaN tick during a
+      // real live stream's MediaSource rebuild must not zero the converged
+      // auto-offset or let persist() cache a live channel under the shared key.
+      const dur0 = video && video.duration;
+      if (dur0 === Infinity) isLiveStream = true;
+      else if (typeof dur0 === "number" && isFinite(dur0) && dur0 > 0) isLiveStream = false;
       // Auto-align to the player's own caption — LIVE ONLY. On VOD (YouTube, Netflix,
       // recorded Prime) the cue list is already exactly timed to video.currentTime, so
       // ANY auto-shift can only DESYNC it. The trap: a caption stays on screen for its
