@@ -353,8 +353,12 @@
     for (const v of vids) if (!main || v.clientWidth * v.clientHeight > main.clientWidth * main.clientHeight) main = v;
     // A PAUSED main player + a playing thumbnail-preview must NOT flip the relay:
     // the id switch downstream drops a healthy clip's cues. If the only playing
-    // video is under half the real player's size, keep reporting the player.
-    if (best && main && best !== main && (best.clientWidth * best.clientHeight) < 0.5 * (main.clientWidth * main.clientHeight)) best = main;
+    // video is under half the real player's size, keep reporting the player —
+    // but ONLY if that player was itself the last playing source (sticky main).
+    // Without that condition, a DW article's big never-played hero video would
+    // steal the relay from the small embed the user deliberately started.
+    if (best && main && best !== main && main.id && main.id === lastPlayingId
+        && (best.clientWidth * best.clientHeight) < 0.5 * (main.clientWidth * main.clientHeight)) best = main;
     if (!best) for (const v of vids) if (!best || (v.currentTime || 0) > (best.currentTime || 0)) best = v;
     if (!best) return;
     // When the PLAYING clip changes, the previous subtitle file is stale — stop
