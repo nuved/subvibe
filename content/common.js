@@ -166,6 +166,7 @@
     return t;
   }
 
+  let lastMainEl = null; // sticky main — see below
   function liveVideoEl(fallback) {
     // Best-effort pick of the element being watched. NOTE: on MSE players the
     // isolated content-script world can't read live media state, so the real
@@ -175,9 +176,22 @@
     // Prefer the LARGEST playing video — the main content. Picking the furthest-
     // along one let a small ad / hover-preview video (with a totally different
     // time) hijack the playhead, flipping the shown cue on/off → a fast blink.
-    if (playing.length) return playing.reduce((a, b) => ((b.clientWidth * b.clientHeight) > (a.clientWidth * a.clientHeight) ? b : a));
-    const a = adapter && adapter.getVideoEl && adapter.getVideoEl();
-    return (a && a.isConnected) ? a : fallback;
+    let pick = null;
+    if (playing.length) pick = playing.reduce((a, b) => ((b.clientWidth * b.clientHeight) > (a.clientWidth * a.clientHeight) ? b : a));
+    // STICKY MAIN (same rule as the page-world relay): when the main player is
+    // PAUSED, a playing hover-preview becomes the only candidate — its 0-6s
+    // loop hijacks the playhead (early cues shown) and its NaN/∞ duration made
+    // isLiveStream flap true, waking the live auto-calibrator on plain VOD
+    // (the "auto offset 15s" incident). Under half the followed element's size
+    // ⇒ it's a preview/ad: keep the main, even paused.
+    if (pick && lastMainEl && lastMainEl.isConnected && pick !== lastMainEl
+        && (pick.clientWidth * pick.clientHeight) < 0.5 * (lastMainEl.clientWidth * lastMainEl.clientHeight)) pick = lastMainEl;
+    if (!pick) {
+      if (lastMainEl && lastMainEl.isConnected) pick = lastMainEl;
+      else { const a = adapter && adapter.getVideoEl && adapter.getVideoEl(); pick = (a && a.isConnected) ? a : fallback; }
+    }
+    if (pick) lastMainEl = pick;
+    return pick;
   }
 
   function waitFor(fn, timeoutMs = 15000) {
@@ -1494,7 +1508,10 @@
     const tick = () => {
       video = liveVideoEl(video); // DW's video.js can swap the <video> element mid-play
       if (video && !video.paused && (video.currentTime || 0) > 0.5) engaged = true;
-      isLiveStream = !!(video && video.duration != null && !isFinite(video.duration));
+      // Infinity ONLY — the old !isFinite() also matched NaN, so a video element
+      // whose metadata hadn't loaded (fresh SPA clip, hover-preview) read as
+      // "live" and woke the live-only auto-calibrator on plain VOD.
+      isLiveStream = !!(video && video.duration === Infinity);
       // Auto-align to the player's own caption — LIVE ONLY. On VOD (YouTube, Netflix,
       // recorded Prime) the cue list is already exactly timed to video.currentTime, so
       // ANY auto-shift can only DESYNC it. The trap: a caption stays on screen for its
