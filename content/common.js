@@ -1329,7 +1329,16 @@
     if (!url || url === interceptedUrl || fetchedSubUrls.has(key)) return; // already active / in flight / done
     fetchedSubUrls.add(key); // claim NOW so the 1.5s re-post (subs-intercept.js) can't launch a duplicate fetch
     console.info("[CopilotSubs] fetching subtitle file:", url);
-    const resp = await send({ type: "FETCH_SUBS", url });
+    // YouTube timedtext: the pot token validates against the SAME first-party
+    // context the player fetched with (cookies included). The worker's cookieless
+    // re-fetch comes back as an empty 200 body — so fetch it same-origin from THIS
+    // world first, exactly like the player did. The worker stays the path for
+    // cross-origin files (ZDF's utstreaming subdomain), where it's CORS-exempt.
+    let resp = null;
+    if (/\/api\/timedtext/.test(url) && location.hostname.endsWith("youtube.com")) {
+      try { const r = await fetch(url, { credentials: "include" }); resp = { ok: r.ok, status: r.status, text: await r.text() }; } catch {}
+    }
+    if (!resp || !resp.text) resp = await send({ type: "FETCH_SUBS", url });
     if (!resp || resp.error || !resp.text) {
       // Transport failure is transient — let a later re-post retry, but only a few
       // times, then give up (leave it claimed) so we never hammer a dead URL forever.
