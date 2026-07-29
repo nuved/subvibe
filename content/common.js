@@ -1146,6 +1146,10 @@
   // from a previous clip (different URL/id) are ignored so they can't bleed across.
   function getAllCues(video) {
     if (interceptedCues && interceptedCues.length && interceptedClipId === currentClipId()) return interceptedCues;
+    // YouTube: right after a clip switch the reused <video>'s track can still
+    // hold the previous clip's ROLLING cues — hold back so the real file (whose
+    // fetch the CC nudge triggers) wins the race instead of junk native cues.
+    if (adapter && adapter.site === "youtube" && lastClipChangeAt && performance.now() - lastClipChangeAt < 8000) return null;
     return readVideoCueList(video);
   }
   function onInterceptedCues(list) {
@@ -2058,8 +2062,15 @@
       // cues and re-fetch the new clip's subtitle file.
       if (!d.paused && d.id) { // only track the clip that is actually playing
         if (mainVideoId && d.id !== mainVideoId) { // a real clip switch
-          lastClipChangeAt = performance.now();
-          dropInterceptedCues(); schedule();
+          // YouTube: a real clip switch ALWAYS changes the URL, and the 1s
+          // watcher below handles that. The element-id relay only ever fires
+          // false positives here (hover previews / ads reporting their own tiny
+          // <video>) — and dropping cues on one nuked a healthy perfect-sync
+          // run mid-watch, stranding the clip on rolling native cues.
+          if (!(adapter && adapter.site === "youtube")) {
+            lastClipChangeAt = performance.now();
+            dropInterceptedCues(); schedule();
+          }
         }
         mainVideoId = d.id;
       }

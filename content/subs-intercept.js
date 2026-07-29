@@ -346,10 +346,15 @@
   function reportTime() {
     const vids = document.querySelectorAll("video");
     if (!vids.length) return;
-    let best = null;
+    let best = null, main = null;
     // Prefer the LARGEST playing video (main content) so a small ad/preview can't
     // hijack the relayed clock and make the shown cue flicker.
     for (const v of vids) if (!v.paused && !v.ended && (!best || v.clientWidth * v.clientHeight > best.clientWidth * best.clientHeight)) best = v;
+    for (const v of vids) if (!main || v.clientWidth * v.clientHeight > main.clientWidth * main.clientHeight) main = v;
+    // A PAUSED main player + a playing thumbnail-preview must NOT flip the relay:
+    // the id switch downstream drops a healthy clip's cues. If the only playing
+    // video is under half the real player's size, keep reporting the player.
+    if (best && main && best !== main && (best.clientWidth * best.clientHeight) < 0.5 * (main.clientWidth * main.clientHeight)) best = main;
     if (!best) for (const v of vids) if (!best || (v.currentTime || 0) > (best.currentTime || 0)) best = v;
     if (!best) return;
     // When the PLAYING clip changes, the previous subtitle file is stale — stop
