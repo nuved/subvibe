@@ -84,8 +84,10 @@
           console.info("[CopilotSubs/MAIN] caption track switched on for SubVibe:", tl[0].languageCode);
           return;
         }
-        // Module may have just loaded — the tracklist can populate a tick later;
-        // fall through WITHOUT marking tried so the next nudge retries.
+        // Tracklist not populated yet (loadModule is async in effect) — fall
+        // through to the CC button IN THIS SAME PASS; in practice the button is
+        // the path that fires on nudge #1. Nothing is marked tried unless one of
+        // the two paths actually acted, so a later nudge can retry.
       }
     } catch {}
     try {

@@ -1044,12 +1044,16 @@
     // ASK the user to press CC, ask the page world to switch the track on now —
     // hideNative keeps it invisible, and the intercepted URL upgrades this scrape
     // run to perfect-sync (real cue timing + karaoke) within seconds.
+    // Gated on hideNative: with it OFF the site's captions actually render, so
+    // auto-enabling them would paint doubles and persist a CC preference the
+    // user never chose — those users keep the manual "turn on CC" advice.
     let ccNudges = 0;
-    const ccNudge = setInterval(() => {
-      if (!adapter || adapter.site !== "youtube") { clearInterval(ccNudge); return; }
-      if (cueListActive || (interceptedCues && interceptedCues.length) || ++ccNudges > 4) { clearInterval(ccNudge); return; }
-      window.postMessage({ __copilotSubs: true, type: "NEED_CAPTIONS" }, "*");
-    }, 2500);
+    const ccNudge = (adapter && adapter.site === "youtube" && settings.hideNative !== false)
+      ? setInterval(() => {
+          if (cueListActive || (interceptedCues && interceptedCues.length) || ++ccNudges > 4) { clearInterval(ccNudge); return; }
+          window.postMessage({ __copilotSubs: true, type: "NEED_CAPTIONS" }, "*");
+        }, 2500)
+      : null;
     // Same-origin <track> sources (e.g. DW) expose the full cue list through the
     // <video>'s textTracks once it loads — even with the site's own captions
     // toggled off. Poll for it and, when present, upgrade from line-by-line
@@ -1058,7 +1062,7 @@
       const full = readVideoCueList(video);
       if (full && full.length > 3) onInterceptedCues(full);
     }, 2000);
-    streamCleanup = () => { clearInterval(poll); clearTimeout(watchdog); clearInterval(upgrade); clearInterval(ccNudge); };
+    streamCleanup = () => { clearInterval(poll); clearTimeout(watchdog); clearInterval(upgrade); if (ccNudge) clearInterval(ccNudge); };
     applyHideNative(settings.hideNative);
     setStatus(`Live mode → ${targets.map(langLabel).join(" · ")}. Turn ON the player's CC / subtitles if you see nothing.`);
   }
