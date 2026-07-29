@@ -778,7 +778,11 @@
   // Original spoken language = the ASR track if present, else the first track.
   function pickOriginalTrack(tracks) {
     if (!tracks || !tracks.length) return null;
-    return tracks.find((t) => t.kind === "asr") || tracks[0];
+    // ASR = the spoken language, always the best "original". Otherwise prefer the
+    // track the site itself marks default — tracks[0] is alphabetical on multi-
+    // track uploads (a DW German video listed Arabic first, so "the original"
+    // came out Arabic and everything downstream translated the wrong language).
+    return tracks.find((t) => t.kind === "asr") || tracks.find((t) => t.isDefault) || tracks[0];
   }
 
   // Build the cue list for one target language, being SMART about cost:

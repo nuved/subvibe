@@ -107,12 +107,19 @@
       if (!jsonStr) return [];
       let pr;
       try { pr = JSON.parse(jsonStr); } catch { return []; }
-      const list = pr?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
-      return list.map((t) => ({
+      const r = pr?.captions?.playerCaptionsTracklistRenderer;
+      const list = r?.captionTracks || [];
+      // The list is ALPHABETICAL on multi-track uploads — index 0 is an arbitrary
+      // language (Arabic on DW's 19-track videos). YT marks which track its own CC
+      // button would show: audioTracks[defaultAudioTrackIndex].defaultCaptionTrackIndex.
+      const at = (r?.audioTracks || [])[r?.defaultAudioTrackIndex || 0];
+      const di = at && at.defaultCaptionTrackIndex != null ? at.defaultCaptionTrackIndex : -1;
+      return list.map((t, i) => ({
         languageCode: t.languageCode,
         name: t.name?.simpleText || t.name?.runs?.[0]?.text || t.languageCode,
         baseUrl: t.baseUrl,
         kind: t.kind || "",
+        isDefault: i === di,
       }));
     },
 

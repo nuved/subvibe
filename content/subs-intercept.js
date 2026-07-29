@@ -79,9 +79,13 @@
         if (cur && cur.languageCode) { ccTriedFor = k; return; } // already on
         const tl = (p.getOption && p.getOption("captions", "tracklist")) || [];
         if (tl.length) {
-          p.setOption("captions", "track", { languageCode: tl[0].languageCode });
+          // The tracklist is ALPHABETICAL on multi-track uploads (a 19-track DW
+          // video listed Arabic first) — tl[0] enables the wrong language. Prefer
+          // the player's own default marker: the same track the CC button enables.
+          const pick = tl.find((t) => t.is_default) || tl[0];
+          p.setOption("captions", "track", { languageCode: pick.languageCode });
           ccTriedFor = k;
-          console.info("[CopilotSubs/MAIN] caption track switched on for SubVibe:", tl[0].languageCode);
+          console.info("[CopilotSubs/MAIN] caption track switched on for SubVibe:", pick.languageCode);
           return;
         }
         // Tracklist not populated yet (loadModule is async in effect) — fall
