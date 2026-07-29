@@ -112,11 +112,16 @@
     .row label { font-weight: 500; }
     .rowlbl { min-width: 98px; color: var(--muted); flex: none; }
     .seg2 { flex: 1; display: flex; gap: 6px; }
-    .segopt { flex: 1; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); color: var(--text); cursor: pointer; text-align: center; font-weight: 400; font-size: 12.5px; }
+    .segopt { flex: 1; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); color: var(--text); cursor: pointer; text-align: center; font-weight: 400; font-size: 12.5px; transition: border-color .18s ease, background .18s ease; }
     .segopt b { display: block; font-weight: 600; }
     .segopt small { display: block; margin-top: 1px; font-size: 10.5px; color: var(--muted); }
     .segopt.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--panel)); }
-    #claudeModelRow.dim { opacity: .45; }
+    /* Dimmed = engine isn't Claude: the whole row fades AND the accent lets go —
+       the border snapping back on is the "this is active now" cue, so the
+       dropdown needs no "(model below)" instruction text. */
+    #claudeModelRow { transition: opacity .18s ease; }
+    #claudeModelRow.dim { opacity: .4; }
+    #claudeModelRow.dim .segopt.on { border-color: var(--border); background: var(--panel); }
 
     /* dub config dims + freezes while the master dub toggle is off */
     #dubConfig { transition: opacity .15s; }
@@ -287,7 +292,7 @@
       <span class="rowlbl">Translation engine</span>
       <select id="translationProvider" style="flex:1;">
         <option value="openai">OpenAI GPT-4o-mini (cheapest)</option>
-        <option value="claude">Claude (model below)</option>
+        <option value="claude">Claude</option>
       </select>
     </div>
     <div id="translationProviderWarn" class="selwarn" hidden></div>

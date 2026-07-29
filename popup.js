@@ -286,7 +286,7 @@ el("verifyGemini").addEventListener("click", async () => {
 
 // ── Translation + TTS engine selects: options disabled/labeled by key availability ──
 // Base labels are constants so rebuilding never accumulates " — add key" suffixes.
-const TRANSLATION_OPTIONS = [["openai", "OpenAI GPT-4o-mini"], ["claude", "Claude (model below)"]];
+const TRANSLATION_OPTIONS = [["openai", "OpenAI GPT-4o-mini"], ["claude", "Claude"]];
 const TTS_OPTIONS = [["openai", "OpenAI gpt-4o-mini-tts"], ["gemini", "Gemini 2.5 Flash TTS (native Persian voices)"]];
 // Which stored key (input id) each engine option requires, and the two display
 // names used in the missing-key warning ("<engine> selected but no <provider> key…").
