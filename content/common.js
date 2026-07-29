@@ -1610,9 +1610,14 @@
       buildGroups(cues); // re-group as new cues arrive (streaming sources)
     }, 3000);
 
-    let busy = false;
+    // Up to TWO batches in flight: Claude's ~13-20s per call outruns a single
+    // serial pipe on dense speech — the runway drained faster than it filled.
+    // In-flight content is marked on the CUES (c.pend[tg]), not the groups:
+    // buildGroups rebuilds group objects every 3s, so a group-level flag would
+    // be wiped mid-call and the same lines re-sent (double billing).
+    let inFlight = 0;
     const pump = setInterval(async () => {
-      if (busy) return;
+      if (inFlight >= 2) return;
       const lv = liveVideoEl(video);
       // Pre-translate the buffered-ahead window while PLAYING — and also while PAUSED
       // once you've engaged this clip, so pausing a live/DVR (or any) video lets the
@@ -1633,29 +1638,42 @@
         // window would translate the ENTIRE movie at once and burn API cost. The
         // index cap makes spend track watched time, never file size.
         // Claude batches take several times longer than gpt-4o-mini — give the
-        // pump a longer runway so slower calls still land before the playhead.
+        // pump a longer runway (~2.5 min) so slower calls land well before the
+        // playhead and batches fill up instead of trickling out one line at a time.
         const claudeT = settings.translationProvider === "claude";
-        const MAX_AHEAD_CUES = claudeT ? 40 : 24;
+        const MAX_AHEAD_CUES = claudeT ? 80 : 24;
         let i0 = 0;
         while (i0 < cues.length && cues[i0].startMs < t - 4000) i0++;
         const groups = [], gseen = new Set();
         for (let k = i0; k < cues.length && k < i0 + MAX_AHEAD_CUES; k++) {
           const c = cues[k];
-          if (c.startMs > t + (claudeT ? 75000 : 45000)) break; // also never run far ahead in time
+          if (c.startMs > t + (claudeT ? 150000 : 45000)) break; // also never run far ahead in time
           const g = c.grp;
           if (!g || !g.closed || g.t[tg] || gseen.has(g)) continue;
+          if (g.cues.some((cc) => cc.pend && cc.pend[tg])) continue; // already in flight
           gseen.add(g); groups.push(g);
           if (groups.length >= 12) break;
         }
         if (!groups.length) continue;
-        // Live + Claude: a lone just-closed group would re-bill the full prompt
-        // for one line — give a second group ~4s to accumulate first.
-        if (claudeT && isLiveStream && groups.length === 1 && t - groups[0].cues[0].startMs < 4000) continue;
-        busy = true;
-        const guard = setTimeout(() => { busy = false; }, 20000); // backstop: a hung worker call must never wedge the pump (the 5→0-stuck bug)
+        // A lone group re-bills the full prompt for one line. LIVE: give a second
+        // group ~4s to accumulate. VOD: hold a lone batch while its line isn't due
+        // within 12s — the deadline always wins over batching, nothing shows late.
+        if (claudeT && groups.length === 1) {
+          if (isLiveStream) { if (t - groups[0].cues[0].startMs < 4000) continue; }
+          else if (groups[0].cues[0].startMs - t > 12000) continue;
+        }
+        for (const g of groups) for (const cc of g.cues) (cc.pend ||= {})[tg] = 1;
+        inFlight++;
+        let released = false;
+        const release = () => {
+          if (released) return;
+          released = true; inFlight--;
+          for (const g of groups) for (const cc of g.cues) if (cc.pend) delete cc.pend[tg];
+        };
+        const guard = setTimeout(release, 45000); // backstop: a hung worker call must never leak the slot (the 5→0-stuck bug); 45s clears Claude's slowest observed calls
         let resp;
         try { resp = await send({ type: "TRANSLATE", cues: groups.map((g) => g.orig), source: "auto", target: tg, site: adapter?.site, title: SV_TITLE.clean(document.title), base: lastCacheBase }); }
-        finally { clearTimeout(guard); busy = false; }
+        finally { clearTimeout(guard); release(); }
         if (resp?.dead) return; // extension reloaded — orphaned script, stop quietly (haltOrphaned showed the refresh hint)
         if (resp?.error) {
           // Transient OpenAI blips (5xx/520/429) self-recover on the next tick — show a
