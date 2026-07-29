@@ -1660,7 +1660,9 @@
         // within 12s — the deadline always wins over batching, nothing shows late.
         if (claudeT && groups.length === 1) {
           if (isLiveStream) { if (t - groups[0].cues[0].startMs < 4000) continue; }
-          else if (groups[0].cues[0].startMs - t > 12000) continue;
+          // 30s: comfortably above Claude's observed worst call (~21s) — a 12s
+          // margin would have guaranteed a late line every time the hold fired.
+          else if (groups[0].cues[0].startMs - t > 30000) continue;
         }
         for (const g of groups) for (const cc of g.cues) (cc.pend ||= {})[tg] = 1;
         inFlight++;
@@ -1670,7 +1672,13 @@
           released = true; inFlight--;
           for (const g of groups) for (const cc of g.cues) if (cc.pend) delete cc.pend[tg];
         };
-        const guard = setTimeout(release, 45000); // backstop: a hung worker call must never leak the slot (the 5→0-stuck bug); 45s clears Claude's slowest observed calls
+        // Last-resort zombie-slot reclaim ONLY. A LEGITIMATE call can run minutes:
+        // the worker retries 429s with up to 25s waits x3 attempts, then halves the
+        // batch and retries each half — firing early re-bills content still in
+        // flight (the old 20s guard's exact bug). Extension reloads resolve via
+        // resp.dead, so this timer covers only a truly hung worker; with two slots
+        // a wedged one no longer stalls the pump, so it can afford to be patient.
+        const guard = setTimeout(release, 300000);
         let resp;
         try { resp = await send({ type: "TRANSLATE", cues: groups.map((g) => g.orig), source: "auto", target: tg, site: adapter?.site, title: SV_TITLE.clean(document.title), base: lastCacheBase }); }
         finally { clearTimeout(guard); release(); }
