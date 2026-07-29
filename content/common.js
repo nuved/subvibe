@@ -1326,14 +1326,45 @@
     const pageTitle = SV_TITLE.clean(document.title), pageUrl = location.href;
 
     // Cached translations (per target), applied to current AND future cues.
-    const cacheMaps = {};
+    // Three lookup layers, strictest first: exact startMs; the cue's ORIGINAL
+    // text (rows persisted since the `o` field shipped); then an overlapping
+    // near-miss on time. The fallbacks exist because caption timings JITTER
+    // between variants of the same track (YouTube re-generates ASR, native
+    // roll-up cues carry their own timestamps) — an exact-only key turned every
+    // millisecond of drift into a paid re-translation of a line we already own.
+    const CACHE_NEAR_MS = 450;
+    const cacheMaps = {}, cacheStarts = {}, cacheTextMaps = {};
     for (const tg of settings.targets) {
       const cached = (await send({ type: "CACHE_GET", key: `${base}:auto:${tg}` }))?.track;
-      cacheMaps[tg] = new Map((cached?.cues || []).map((c) => [c.startMs, c]));
+      const rows = cached?.cues || [];
+      cacheMaps[tg] = new Map(rows.map((c) => [c.startMs, c]));
+      cacheStarts[tg] = rows.map((c) => c.startMs).sort((a, b) => a - b);
+      cacheTextMaps[tg] = new Map(rows.filter((c) => c.o).map((c) => [normCue(c.o), c]));
     }
+    // Nearest cached row whose start is within CACHE_NEAR_MS AND whose time
+    // window overlaps the cue's — the overlap requirement keeps a dense-dialog
+    // neighbor from donating its translation to the wrong line.
+    const nearCacheRow = (tg, cue) => {
+      const arr = cacheStarts[tg];
+      if (!arr || !arr.length) return null;
+      let lo = 0, hi = arr.length - 1;
+      while (lo < hi) { const m = (lo + hi) >> 1; if (arr[m] < cue.startMs) lo = m + 1; else hi = m; }
+      let best = null;
+      for (const k of [arr[lo], arr[lo - 1]]) {
+        if (k == null) continue;
+        const d = Math.abs(k - cue.startMs);
+        if (d > CACHE_NEAR_MS || (best && d >= best.d)) continue;
+        const row = cacheMaps[tg].get(k);
+        const rowEnd = row.endMs || row.startMs, cueEnd = cue.endMs || cue.startMs;
+        if (row.startMs < cueEnd && cue.startMs < rowEnd) best = { d, row };
+      }
+      return best ? best.row : null;
+    };
     const applyCache = (cue) => {
       for (const tg of settings.targets) {
-        const v = cacheMaps[tg].get(cue.startMs);
+        const v = cacheMaps[tg].get(cue.startMs)
+          || (cue.original && cacheTextMaps[tg].get(normCue(cue.original)))
+          || nearCacheRow(tg, cue);
         if (!v) continue;
         // Heal caches poisoned by the failed-batch English fallback: an RTL
         // target whose cached "translation" has no RTL script is untranslated
@@ -1513,7 +1544,7 @@
         send({ type: "CACHE_PUT", key: `${base}:auto:${tg}`,
           track: { site: adapter?.site, videoId, source: "auto", target: tg, model: "gpt-4o-mini", createdAt: new Date().toISOString(),
             title: pageTitle, url: pageUrl, totalCues: cues.length,
-            cues: cues.filter((c) => c.t[tg]).map((c) => ({ startMs: c.startMs, endMs: c.endMs, text: c.t[tg], sid: c.spk && c.spk.id, sg: c.spk && c.spk.g,
+            cues: cues.filter((c) => c.t[tg]).map((c) => ({ startMs: c.startMs, endMs: c.endMs, text: c.t[tg], o: c.original, sid: c.spk && c.spk.id, sg: c.spk && c.spk.g,
               dt: c.grp && c === c.grp.cues[0] ? (c.grp.d || undefined) : undefined })) } });
       }
     }, 3000);
@@ -1542,9 +1573,28 @@
     // Keep ingesting as more cues arrive. HLS players (e.g. DW) add subtitle
     // cues to the text track segment-by-segment during playback, so re-read the
     // live track too — not just the one-shot intercepted file.
+    // A complete intercepted FILE is authoritative — never merge the player's
+    // own track cues on top of it. YouTube's native track rolls the previous +
+    // current line into ONE cue with its own timestamps; merging those in
+    // duplicated every line under near-miss startMs values, so the duplicates
+    // missed the cache, the pump re-translated them (real spend), the badge
+    // read 0/8 in already-watched territory, and the display flip-flopped
+    // between the one-line and two-line copies. Only merge the live track
+    // while the file does NOT cover the clip (HLS sites stream cues in
+    // segment-by-segment; live has no duration and always merges).
+    const fileCoversClip = () => {
+      if (!interceptedUrl || !cues.length) return false;
+      // YouTube VOD timedtext is always the complete track — no heuristic needed.
+      // (Live falls through: duration is Infinity, durMs 0 → keep merging.)
+      if (adapter && adapter.site === "youtube" && video && isFinite(video.duration)) return true;
+      const durMs = video && isFinite(video.duration) ? video.duration * 1000 : 0;
+      return durMs > 0 && cues[cues.length - 1].startMs >= 0.8 * durMs;
+    };
     const reread = setInterval(() => {
-      const native = readVideoCueList(video);
-      if (native && native.length) onInterceptedCues(native); // dedups into interceptedCues
+      if (!fileCoversClip()) {
+        const native = readVideoCueList(video);
+        if (native && native.length) onInterceptedCues(native); // dedups into interceptedCues
+      }
       const fresh = getAllCues(video);
       if (fresh) ingest(fresh);
       buildGroups(cues); // re-group as new cues arrive (streaming sources)
