@@ -199,7 +199,7 @@ function updateFoldSummaries() {
                   el("showOriginal").checked ? "dual" : "translation only",
                   el("karaokeHl").checked ? "karaoke" : "",
                   el("hideNative").checked ? "no doubles" : ""].filter(Boolean).join(" · "));
-  txt("timeVal", el("syncVal").textContent);
+  txt("timeVal", fmtSync(parseFloat(el("syncInput").value) || 0));
 }
 
 let keyVerifyFailed = false;
@@ -610,18 +610,22 @@ el("styleBgOpacity").addEventListener("input", () => { clearTimeout(bgT); bgT = 
 el("styleFont").addEventListener("change", () => setCustom({ font: el("styleFont").value }));
 el("styleReset").addEventListener("click", () => { state.styleCustom = {}; persist({ styleCustom: {} }); updateStyleUI(); });
 
-// Sync nudge — writes instantly so the overlay shifts without a reload.
-function nudgeSync(delta) {
-  state.syncOffset = Math.max(-15, Math.min(15, Math.round((state.syncOffset + delta) * 100) / 100));
-  el("syncVal").textContent = fmtSync(state.syncOffset);
-  saveSetting({ syncOffset: state.syncOffset });
+// Sync dock — writes instantly so the overlay shifts without a reload.
+// The dock shows subtitle DELAY (standard player convention: − = earlier,
+// + = later); the STORED syncOffset is the engine's look-ahead where positive
+// means earlier. The sign flips only at this UI boundary, so every stored /
+// per-clip value keeps its exact engine meaning.
+function setSyncFromShown(shown) {
+  const stored = Math.max(-15, Math.min(15, Math.round(-shown * 100) / 100));
+  state.syncOffset = stored;
+  el("syncInput").value = (-stored).toFixed(2);
+  saveSetting({ syncOffset: stored });
 }
-el("syncBack").addEventListener("click", () => nudgeSync(-0.25));
-el("syncFwd").addEventListener("click", () => nudgeSync(0.25));
-// Click the value to snap back to 0 — handy after a big live shift (e.g. +8s).
-el("syncVal").title = "Click to reset to 0";
-el("syncVal").style.cursor = "pointer";
-el("syncVal").addEventListener("click", () => { state.syncOffset = 0; el("syncVal").textContent = fmtSync(0); saveSetting({ syncOffset: 0 }); });
+const shownSync = () => parseFloat(el("syncInput").value) || 0;
+el("syncBack").addEventListener("click", () => setSyncFromShown(shownSync() - 0.25));
+el("syncFwd").addEventListener("click", () => setSyncFromShown(shownSync() + 0.25));
+el("syncInput").addEventListener("change", () => setSyncFromShown(shownSync()));
+el("syncReset").addEventListener("click", () => setSyncFromShown(0));
 
 function flashStatus(t) { el("status").textContent = t; setTimeout(() => { if (el("status").textContent === t) el("status").textContent = ""; }, 2500); }
 function openLibrary() { chrome.tabs.create({ url: chrome.runtime.getURL("library.html") }); }
@@ -786,7 +790,7 @@ async function load() {
   el("hideNative").checked = state.hideNative;
   el("karaokeHl").checked = state.karaokeHl !== false;
   el("position").value = state.position || "bottom";
-  el("syncVal").textContent = fmtSync(state.syncOffset || 0);
+  el("syncInput").value = (-(state.syncOffset || 0)).toFixed(2);
   setSizeUI(state.size || "md");
   el("dubEnabled").checked = !!state.dubEnabled;
   syncDubConfig();

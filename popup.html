@@ -153,9 +153,16 @@
     .resetstyle { background: transparent; color: var(--muted); font-weight: 600; font-size: 11px; padding: 2px 0; }
     .resetstyle:hover { color: var(--accent); }
 
-    .sync { display: flex; align-items: center; gap: 10px; }
-    .sync button { padding: 7px 11px; background: var(--panel2); color: #cdd6e3; border: 1px solid var(--border); }
-    .sync .val { min-width: 56px; text-align: center; font-weight: 700; }
+    /* sync dock: − / typed delay / + with a reset underneath (− earlier, + later) */
+    .syncdock { margin-top: 7px; }
+    .synclbls { display: flex; justify-content: space-between; color: #e0e0e0; font-size: 11px; font-weight: 600; margin: 0 2px 5px; }
+    .syncrow { display: flex; align-items: center; gap: 7px; }
+    .syncrow .syncbtn { flex: none; padding: 8px 11px; background: var(--panel); color: var(--text); border: 1px solid var(--border); font-weight: 700; }
+    .syncrow .syncbtn:hover { background: var(--panel2); border-color: var(--accent); }
+    .syncrow input { flex: 1; text-align: center; font-weight: 700; }
+    .syncrow input::-webkit-inner-spin-button, .syncrow input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    .syncreset { display: block; margin: 8px auto 0; background: transparent; color: var(--muted); font-weight: 600; font-size: 11px; }
+    .syncreset:hover { color: var(--accent); }
 
     details { border-top: 1px solid #161b24; }
     summary { padding: 12px 14px; cursor: pointer; font-weight: 600; color: #cdd6e3; list-style: none; }
@@ -453,11 +460,14 @@
   <section>
     <details class="customize" id="timeFold">
       <summary>Subtitle timing <span class="hint" id="timeVal"></span></summary>
-      <div class="sync" style="margin-top:7px;">
-        <button id="syncBack">−0.25s</button>
-        <span class="val" id="syncVal">0.00s</span>
-        <button id="syncFwd">+0.25s</button>
-        <span class="hint" style="flex:1;">+ earlier · − later</span>
+      <div class="syncdock">
+        <div class="synclbls"><span>Earlier</span><span>Later</span></div>
+        <div class="syncrow">
+          <button id="syncBack" class="syncbtn" title="Subtitles 0.25s earlier">−0.25s</button>
+          <input id="syncInput" type="number" step="0.25" min="-15" max="15" placeholder="0.00" title="Subtitle delay in seconds — negative shows them earlier, positive later. Type a value like -1.5 or 8" />
+          <button id="syncFwd" class="syncbtn" title="Subtitles 0.25s later">+0.25s</button>
+        </div>
+        <button id="syncReset" class="syncreset">↺ Reset to 0.00s</button>
       </div>
     </details>
   </section>
