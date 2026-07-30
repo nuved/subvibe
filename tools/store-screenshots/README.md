@@ -1,7 +1,20 @@
 # Chrome Web Store screenshots
 
-The three `store-*-1280x800.jpg` files are the listing screenshots (exact store
-spec: 1280×800 JPEG). Regenerate them after any popup change worth showing.
+The `store-*-1280x800.jpg` files are the listing screenshots (exact store
+spec: 1280×800 JPEG). Suggested order in the dashboard: **action first**
+(the product doing its job), then translate, dub, style. Regenerate after any
+popup or overlay change worth showing.
+
+## The action shot
+
+`action.html` renders SubVibe's REAL subtitle output — the actual
+`styles/overlay.css` plus the exact DOM `setLineText()` produces (word spans,
+`.sung` karaoke fill, dual lines, RTL) — over a mock cinematic frame with
+generic player chrome. Mock scene on purpose: frames from other people's
+videos are their copyright. Two traps encoded in the file's comments: caption
+markup must be single-line (`pre-wrap` renders source newlines), and the
+overlay must keep its natural `inset: 0` geometry (only `--cs-font` and
+z-index are overridden). Capture at 1280×800 → same `sips` downscale.
 
 ## How they're made (repeatable)
 
