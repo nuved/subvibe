@@ -14,7 +14,7 @@ const LIVE_WS_BASE = "wss://generativelanguage.googleapis.com/ws/google.ai.gener
 
 let lvStream = null, lvWs = null, lvCtxIn = null, lvSrc = null, lvProc = null, lvCtxPass = null;
 let lvCtxOut = null, lvCursor = 0, lvScheduled = [];
-let lvRunning = false, lvClosing = false, lvRetries = 0;
+let lvRunning = false, lvStarting = false, lvClosing = false, lvRetries = 0;
 let lvTurn = { orig: "", out: "" }, lvFlushT = 0, lvPartialT = 0;
 let lvChanMode = { orig: null, out: null }; // per-channel stream shape: null=unknown, "cum"=cumulative snapshots
 let lvDbgN = 0; // raw-chunk forensics counter (see the onmessage debug log)
@@ -31,10 +31,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 const lvState = (running, error, stage) => chrome.runtime.sendMessage({ type: "LIVE_STATE", running, error: error || null, stage: stage || null, stats: lvStats && running ? { secs: Math.round((Date.now() - lvStats.t0) / 1000), upSecs: Math.round(lvStats.upSamples / 16000), heard: lvStats.textIn, spoke: lvStats.textOut, voiceSecs: Math.round(lvStats.voiceMs / 1000) } : null });
 
 async function liveStart(msg) {
-  if (lvRunning) return;
+  // lvRunning only latches AFTER capture succeeds — without lvStarting, two
+  // deliveries in flight both passed this gate and raced for the same stream.
+  if (lvRunning || lvStarting) return;
+  lvStarting = true;
   lvState(true, null, "Capture page ready — opening audio…"); // proves LIVE_START arrived
   const { geminiKey } = await chrome.storage.local.get("geminiKey");
-  if (!geminiKey) { lvState(false, "No Gemini API key saved — add it in the popup's API keys."); return; }
+  if (!geminiKey) { lvStarting = false; lvState(false, "No Gemini API key saved — add it in the popup's API keys."); return; }
   lvCfg = { deviceId: msg.deviceId, target: msg.target || "English", model: msg.model || "gemini-3.5-live-translate", key: geminiKey, sysAsContent: false,
     // Passthrough only applies to tab capture (Chrome mutes a captured tab
     // until someone routes it back out); a mic passthrough would just echo.
@@ -64,9 +67,10 @@ async function liveStart(msg) {
         new Promise((_, rej) => setTimeout(() => rej(new Error("microphone permission pending — allow the mic for the extension, then Start again")), 8000)),
       ]);
     }
-  } catch (e) { lvState(false, "capture: " + (e.message || e)); return; }
+  } catch (e) { lvStarting = false; lvState(false, "capture: " + (e.message || e)); return; }
   lvState(true, null, (msg.streamId ? "Tab audio OK" : "Mic OK") + " — connecting to Google…");
 
+  lvStarting = false;
   lvRunning = true; lvClosing = false; lvRetries = 0;
   lvTurn = { orig: "", out: "" };
   lvChanMode = { orig: null, out: null }; // re-learn the stream shape per session
@@ -294,6 +298,7 @@ function liveStop(reason) {
   lvClosing = true;
   const wasRunning = lvRunning;
   lvRunning = false;
+  lvStarting = false;
   clearTimeout(lvFlushT);
   clearTimeout(lvPartialT); lvPartialT = 0;
   clearInterval(lvStatsT); lvStatsT = 0; lvStats = null;

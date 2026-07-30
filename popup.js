@@ -653,7 +653,11 @@ async function livePopulateDevices() {
 el("liveDevice").addEventListener("change", () => { state.audioDeviceId = el("liveDevice").value; persist({ audioDeviceId: state.audioDeviceId }); });
 el("dbgHud").addEventListener("change", () => { state.debugHud = el("dbgHud").checked; persist({ debugHud: state.debugHud }); });
 el("liveBtn").addEventListener("click", async () => {
-  if (liveRunning) { chrome.runtime.sendMessage({ type: "LIVE_STOP" }); liveUI(false, "Stopped."); return; }
+  // LIVE_BEGIN/LIVE_END are popup→background ONLY. A runtime broadcast reaches
+  // every extension page — sending LIVE_START from here delivered it to the
+  // capture page TWICE (direct + background's forward), and the two parallel
+  // starts raced to consume the same single-use tab stream id.
+  if (liveRunning) { chrome.runtime.sendMessage({ type: "LIVE_END" }); liveUI(false, "Stopped."); return; }
   if (!(state.geminiKey || el("geminiKey").value.trim())) { liveUI(false, "Add your Google (Gemini) key under API keys first.", true); return; }
   // Two voices can't share the stage: a running dub would talk over the live
   // translation (and both spend the same Gemini quota) — switch it off.
@@ -706,7 +710,7 @@ el("liveBtn").addEventListener("click", async () => {
       return;
     }
   }
-  chrome.runtime.sendMessage({ type: "LIVE_START", tabId, streamId, deviceId: state.audioDeviceId || "", origVol: typeof state.dubDuckLevel === "number" ? state.dubDuckLevel : 0.12, target, model: state.liveModel || "gemini-3.5-live-translate" });
+  chrome.runtime.sendMessage({ type: "LIVE_BEGIN", tabId, streamId, deviceId: state.audioDeviceId || "", origVol: typeof state.dubDuckLevel === "number" ? state.dubDuckLevel : 0.12, target, model: state.liveModel || "gemini-3.5-live-translate" });
   // Total-silence watchdog: if NOTHING reports back within 10s, every layer's
   // own error path failed too — say so instead of sitting on "Connecting…".
   const sentAt = Date.now();

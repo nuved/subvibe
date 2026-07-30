@@ -955,7 +955,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse({ ok: true });
           break;
         // ── Live Translate (experimental): popup ⇄ offscreen ⇄ content ──────
-        case "LIVE_START": {
+        case "LIVE_BEGIN": { // popup→background; the offscreen page only ever hears background's LIVE_START
           if (!hasOffscreen) { sendResponse({ error: "offscreen API unavailable in this browser" }); break; }
           liveTabId = msg.tabId ?? null;
           if (liveTabId == null) {
@@ -982,7 +982,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse({ ok: true });
           break;
         }
-        case "LIVE_STOP":
+        case "LIVE_END": // popup→background; forwarded to the capture page as LIVE_STOP
           liveActive = false;
           chrome.runtime.sendMessage({ type: "LIVE_STOP" });
           if (liveTabId != null) chrome.tabs.sendMessage(liveTabId, { type: "LIVE_STATE", running: false }).catch(() => {});
