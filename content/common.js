@@ -1963,10 +1963,63 @@
     schedule(); // resume caption scraping if the page has its own captions
   }
 
+  // ─── Live Translate (experimental) ───────────────────────────────────────────
+  // Transcript lines relayed from the Gemini Live session (offscreen document).
+  // Takes over the overlay like audio mode does; the translated text arrives
+  // ready, so no TRANSLATE calls happen here. LIVE_STATE {running:false}
+  // hands the overlay back to the normal engine.
+  let liveMode = false, liveIdleT = 0;
+  async function liveShow(orig, out) {
+    const settings = await getSettings();
+    if (!liveMode) {
+      liveMode = true;
+      // Full engine teardown: stops the tick AND the pump/reread intervals
+      // (no background billing), detaches a running dub (no voice collision),
+      // clears the badge. ensureOverlay below rebuilds the overlay fresh.
+      teardown();
+      currentRunKey = null;
+      const overlay = ensureOverlay();
+      applyAppearance(settings);
+      const stack = overlay.querySelector(".copilot-subs__stack");
+      stack.innerHTML = "";
+      for (const key of ["__orig", "__live"]) {
+        const row = document.createElement("div");
+        row.className = "copilot-subs__line" + (key === "__orig" ? " copilot-subs__line--orig" : "");
+        row.dataset.csKey = key;
+        stack.appendChild(row);
+      }
+      setStatus("Live Translate — experimental");
+    }
+    const overlay = document.getElementById("copilot-subs");
+    if (!overlay) return;
+    const rows = overlay.querySelectorAll(".copilot-subs__line");
+    const ro = rows[0], rt = rows[1];
+    if (ro) {
+      if (settings.showOriginal && orig) { setLineText(ro, orig); ro.style.display = "block"; ro.dir = isRTL(orig) ? "rtl" : "ltr"; }
+      else ro.style.display = "none";
+    }
+    if (rt && out) { setLineText(rt, out); rt.style.display = "block"; rt.dir = isRTL(out) ? "rtl" : "ltr"; }
+    // A quiet room keeps the last line ~8s, then the overlay clears until the
+    // next spoken line — live has no cue end times to honor.
+    clearTimeout(liveIdleT);
+    liveIdleT = setTimeout(() => {
+      const o = document.getElementById("copilot-subs");
+      if (o && liveMode) o.querySelectorAll(".copilot-subs__line").forEach((r) => (r.style.display = "none"));
+    }, 8000);
+  }
+  function liveEnd() {
+    if (!liveMode) return;
+    liveMode = false;
+    clearTimeout(liveIdleT);
+    currentRunKey = null;
+    schedule(); // normal engine takes the overlay back
+  }
+
   // ─── orchestration ───────────────────────────────────────────────────────────
 
   async function start() {
     if (!extAlive()) return; // orphaned by a reload — don't touch chrome.* APIs
+    if (liveMode) return;    // Live Translate owns the overlay until LIVE_STATE ends it
     const settings = await getSettings();
     liveOffsetMs = Math.round((settings.syncOffset || 0) * 1000);
     const ad = pickAdapter();
@@ -2106,6 +2159,11 @@
     if (msg.type === "AUDIO_CUE") onAudioCue(msg.text);
     else if (msg.type === "AUDIO_STOP") stopAudio();
     else if (msg.type === "AUDIO_ERROR") setStatus("Audio: " + msg.error, true);
+    else if (msg.type === "LIVE_LINE") liveShow(msg.original, msg.translated);
+    else if (msg.type === "LIVE_STATE") {
+      if (msg.error) setStatus("Live: " + msg.error, true);
+      if (!msg.running) liveEnd();
+    }
   });
 
   // Full cue list / subtitle-file URL captured by subs-intercept.js (MAIN world).

@@ -69,6 +69,9 @@ const langName = (c) => LANG_NAMES[c] || LANG_NAMES[(c || "").split("-")[0]] || 
 // ─── Live audio capture (offscreen document) ─────────────────────────────────
 
 let audioTabId = null; // the tab whose overlay shows transcribed subtitles
+let audioActive = false; // transcription running (shares the offscreen doc with live)
+let liveTabId = null;  // the tab whose overlay shows LIVE_TRANSLATE transcript lines
+let liveActive = false; // live translate running — guards offscreen closeDocument
 
 // chrome.offscreen is Chrome-only (needs the "offscreen" permission in the
 // manifest) — Firefox has no offscreen API (its event page is a real DOM page
@@ -81,8 +84,8 @@ async function ensureOffscreen() {
   if (await chrome.offscreen.hasDocument()) return;
   await chrome.offscreen.createDocument({
     url: "offscreen.html",
-    reasons: ["USER_MEDIA"],
-    justification: "Capture audio to transcribe live subtitles.",
+    reasons: ["USER_MEDIA", "AUDIO_PLAYBACK"],
+    justification: "Capture audio to transcribe or live-translate it, and play translated speech.",
   });
 }
 
@@ -930,6 +933,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           break;
         }
         case "START_AUDIO":
+          audioActive = true;
           audioTabId = sender?.tab?.id ?? msg.tabId;
           if (!hasOffscreen) {
             // START_AUDIO is fire-and-forget in the content script, so an error
@@ -944,9 +948,44 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse({ ok: true });
           break;
         case "STOP_AUDIO":
+          audioActive = false;
           chrome.runtime.sendMessage({ type: "AUDIO_STOP" });
           if (audioTabId != null) chrome.tabs.sendMessage(audioTabId, { type: "AUDIO_STOP" }).catch(() => {});
-          try { await chrome.offscreen.closeDocument(); } catch {}
+          if (!liveActive) { try { await chrome.offscreen.closeDocument(); } catch {} } // live shares the doc
+          sendResponse({ ok: true });
+          break;
+        // ── Live Translate (experimental): popup ⇄ offscreen ⇄ content ──────
+        case "LIVE_START": {
+          if (!hasOffscreen) { sendResponse({ error: "offscreen API unavailable in this browser" }); break; }
+          liveTabId = msg.tabId ?? null;
+          if (liveTabId == null) {
+            const tabs = await chrome.tabs.query({ active: true, currentWindow: true }).catch(() => []);
+            liveTabId = tabs && tabs[0] ? tabs[0].id : null;
+          }
+          liveActive = true;
+          await ensureOffscreen();
+          chrome.runtime.sendMessage({ type: "LIVE_START", deviceId: msg.deviceId, target: msg.target, model: msg.model });
+          sendResponse({ ok: true });
+          break;
+        }
+        case "LIVE_STOP":
+          liveActive = false;
+          chrome.runtime.sendMessage({ type: "LIVE_STOP" });
+          if (liveTabId != null) chrome.tabs.sendMessage(liveTabId, { type: "LIVE_STATE", running: false }).catch(() => {});
+          if (!audioActive) { try { await chrome.offscreen.closeDocument(); } catch {} }
+          sendResponse({ ok: true });
+          break;
+        case "LIVE_QUERY":
+          sendResponse({ running: liveActive });
+          break;
+        case "LIVE_TEXT":
+          if (liveTabId != null) chrome.tabs.sendMessage(liveTabId, { type: "LIVE_LINE", original: msg.original, translated: msg.translated }).catch(() => {});
+          sendResponse({ ok: true });
+          break;
+        case "LIVE_STATE":
+          if (!msg.running) liveActive = false; // any terminal state — clean stop OR death-with-error
+          if (liveTabId != null) chrome.tabs.sendMessage(liveTabId, { type: "LIVE_STATE", running: msg.running, error: msg.error }).catch(() => {});
+          // popup (if open) listens on runtime for the same message — nothing to do
           sendResponse({ ok: true });
           break;
         case "AUDIO_TEXT":

@@ -1,0 +1,28 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Live Translate harness</title>
+<!--
+  Drives the REAL offscreen-live.js against a scripted fake Gemini Live server:
+  WebSocket is monkey-patched (records outbound frames, replies setupComplete →
+  transcriptions → PCM audio → turnComplete), getUserMedia returns an oscillator
+  stream, chrome.* is stubbed. Open harness.html?autorun=1 — PASS/FAIL renders
+  on the page and in the title. No network, no key, no build step.
+-->
+<style>
+  body { background: #111; color: #9f9; font: 12px monospace; padding: 16px; }
+  pre { white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h3>Live Translate harness</h3>
+<!-- AudioContexts need a trusted user gesture in a normal page (the real
+     offscreen document is exempt) — the run starts from this click. -->
+<button id="go" style="font: inherit; padding: 6px 14px;">RUN</button>
+<pre id="out">click RUN (or let the driver click it)…</pre>
+<script src="fake-env.js"></script>
+<script src="../../../offscreen-live.js"></script>
+<script src="autorun.js"></script>
+</body>
+</html>

@@ -7,7 +7,7 @@
 const FA_FLAG = window.SV_FA_FLAG;
 const LANGS = window.SV_LANGS;
 
-const DEFAULTS = { enabled: true, targets: ["en"], showOriginal: true, hideNative: true, karaokeHl: true, apiKey: "", translationProvider: "openai", claudeModel: "claude-sonnet-5", anthropicKey: "", keepNames: true, keepTerms: "", position: "bottom", size: "md", stylePreset: "classic", styleCustom: {}, syncOffset: 0, dubEnabled: false, ttsProvider: "openai", geminiKey: "", dubVoice: "marin", dubGeminiVoice: "Kore", dubMultiVoice: false, dubDuckLevel: 0.12, dubPace: 1 };
+const DEFAULTS = { enabled: true, targets: ["en"], showOriginal: true, hideNative: true, karaokeHl: true, apiKey: "", translationProvider: "openai", claudeModel: "claude-sonnet-5", anthropicKey: "", keepNames: true, keepTerms: "", position: "bottom", size: "md", stylePreset: "classic", styleCustom: {}, syncOffset: 0, dubEnabled: false, ttsProvider: "openai", geminiKey: "", dubVoice: "marin", dubGeminiVoice: "Kore", dubMultiVoice: false, dubDuckLevel: 0.12, dubPace: 1, liveModel: "gemini-3.5-live-translate", audioDeviceId: "" };
 const el = (id) => document.getElementById(id);
 const fmtSync = (v) => (v > 0 ? "+" : "") + v.toFixed(2) + "s";
 const langMeta = (code) => LANGS.find((l) => l[0] === code) || [code, code.toUpperCase(), "🏳️"];
@@ -625,6 +625,53 @@ el("styleBgOpacity").addEventListener("input", () => { clearTimeout(bgT); bgT = 
 el("styleFont").addEventListener("change", () => setCustom({ font: el("styleFont").value }));
 el("styleReset").addEventListener("click", () => { state.styleCustom = {}; persist({ styleCustom: {} }); updateStyleUI(); });
 
+// ── Live Translate (experimental) ─────────────────────────────────────────────
+// One Gemini Live session per run: session-based free tier (token budget, no
+// request counter), so it keeps running where the TTS dub rate-limits.
+let liveRunning = false;
+function liveUI(running, statusText, isErr) {
+  liveRunning = !!running;
+  el("liveBtn").textContent = liveRunning ? "■ Stop Live Translate" : "▶ Start Live Translate";
+  if (statusText != null) {
+    const s = el("liveStatus");
+    s.textContent = statusText;
+    s.style.color = isErr ? "#e08585" : "";
+  }
+}
+async function livePopulateDevices() {
+  const sel = el("liveDevice");
+  sel.replaceChildren();
+  const add = (v, t, selected) => { const o = document.createElement("option"); o.value = v; o.textContent = t; if (selected) o.selected = true; sel.appendChild(o); };
+  add("", "System default input", !state.audioDeviceId);
+  try {
+    const devs = await navigator.mediaDevices.enumerateDevices();
+    devs.filter((d) => d.kind === "audioinput" && d.deviceId && d.deviceId !== "default")
+      .forEach((d, i) => add(d.deviceId, d.label || "Input " + (i + 1), d.deviceId === state.audioDeviceId));
+  } catch {}
+}
+el("liveDevice").addEventListener("change", () => { state.audioDeviceId = el("liveDevice").value; persist({ audioDeviceId: state.audioDeviceId }); });
+el("liveModel").addEventListener("change", () => {
+  state.liveModel = el("liveModel").value.trim() || "gemini-3.5-live-translate";
+  el("liveModel").value = state.liveModel;
+  el("liveModelVal").textContent = state.liveModel;
+  persist({ liveModel: state.liveModel });
+});
+el("liveBtn").addEventListener("click", async () => {
+  if (liveRunning) { chrome.runtime.sendMessage({ type: "LIVE_STOP" }); liveUI(false, "Stopped."); return; }
+  if (!(state.geminiKey || el("geminiKey").value.trim())) { liveUI(false, "Add your Google (Gemini) key under API keys first.", true); return; }
+  const tabs = await chrome.tabs.query({ active: true, currentWindow: true }).catch(() => []);
+  const tabId = tabs && tabs[0] ? tabs[0].id : null;
+  let target = "English";
+  try { target = new Intl.DisplayNames(["en"], { type: "language" }).of((state.targets && state.targets[0]) || "en") || "English"; } catch {}
+  liveUI(true, "Connecting…");
+  chrome.runtime.sendMessage({ type: "LIVE_START", tabId, deviceId: state.audioDeviceId || "", target, model: state.liveModel });
+});
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg && msg.type === "LIVE_STATE") {
+    liveUI(msg.running, msg.error ? msg.error : msg.running ? "Live — listening and speaking…" : "Stopped.", !!msg.error);
+  }
+});
+
 // Sync dock — writes instantly so the overlay shifts without a reload.
 // The dock shows subtitle DELAY (standard player convention: − = earlier,
 // + = later); the STORED syncOffset is the engine's look-ahead where positive
@@ -814,6 +861,10 @@ async function load() {
   el("geminiKey").value = state.geminiKey || "";
   updateTtsProviderUI();
   geminiKeyHint();
+  el("liveModel").value = state.liveModel || "gemini-3.5-live-translate";
+  el("liveModelVal").textContent = el("liveModel").value;
+  livePopulateDevices();
+  chrome.runtime.sendMessage({ type: "LIVE_QUERY" }, (r) => { if (r && r.running) liveUI(true, "Live — running."); });
   // Refresh all key dots only AFTER every key input is hydrated — an earlier
   // refresh saw the still-empty Google field and auto-opened the panel forever.
   refreshKeyDot();

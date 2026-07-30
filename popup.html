@@ -424,6 +424,28 @@
     </div>
     <div id="dubNow" class="hint" style="margin-top:5px; min-height:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></div>
   </section>
+
+  <!-- Live Translate (experimental) — one Gemini Live session: hears the audio,
+       speaks the translation. Free tier is session-based, so unlike the TTS dub
+       it never hits request-per-minute walls. -->
+  <section>
+    <div class="row" style="margin-top:0;">
+      <button class="btn ghost" id="liveBtn" style="flex:1;">▶ Start Live Translate</button>
+      <span class="info" title="Experimental — hears the audio and speaks the translation a moment behind. Free on Gemini's live tier and works with any site's sound. Dub Mode stays sharper for videos with captions.">i</span>
+    </div>
+    <div class="row">
+      <span class="rowlbl">Input device</span>
+      <select id="liveDevice" style="flex:1;" title="Pick your loopback device (e.g. BlackHole) to hear the tab's audio — shared with the audio-transcription fallback"></select>
+    </div>
+    <details class="customize" id="liveFold">
+      <summary>Live model <span class="hint" id="liveModelVal"></span></summary>
+      <div class="row" style="margin-top:7px;">
+        <input type="text" id="liveModel" style="flex:1;" spellcheck="false" />
+      </div>
+      <div class="hint" style="margin-top:4px;">Gemini Live model id — edit here if Google renames the live-translate model; a wrong id shows the server's error below.</div>
+    </details>
+    <div id="liveStatus" class="hint" style="margin-top:6px; min-height:13px;"></div>
+  </section>
   </div>
 
   <div class="pane" data-pane="style" hidden>
