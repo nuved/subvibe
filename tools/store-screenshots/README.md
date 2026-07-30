@@ -45,3 +45,18 @@ Sources: `promo-small.html` (designed at 2×, 880×560 — Chrome's minimum wind
 width is 500 so a 440 viewport can't be captured directly) and
 `promo-marquee.html` (1400×560 natively). Capture at the design size, then
 `sips -z <h> <w> … --out promo-*.jpg`.
+
+## Real-footage shots
+
+`real-video.html?clip=sintel|bunny&style=classic|tiktok` streams a Blender
+Foundation open movie (CC-BY, attribution rendered in-frame) from
+download.blender.org and lays the real overlay on top — Sintel wears Classic,
+Big Buck Bunny wears TikTok (Baloo 2 + heavy outline, loaded from ../../fonts).
+MUST be served over http (file:// pages can't load remote video):
+`python3 -m http.server 8734` from the repo root, then open
+`http://localhost:8734/tools/store-screenshots/real-video.html?...`, wait for
+the title to say READY, resize 1280×800 (re-check EVERY capture — a stale
+window size from a previous tile silently distorts), screenshot, sips.
+
+Store allows 5 screenshots — suggested set: real-sintel, real-bunny,
+translate, dub, style (the mock `action` shot is the spare).
