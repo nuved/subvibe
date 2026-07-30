@@ -1,0 +1,72 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Store screenshot — SubVibe in action</title>
+<!--
+  The "product in action" store shot: SubVibe's REAL subtitle rendering — the
+  actual overlay.css and the exact DOM structure setLineText() produces (word
+  spans, .sung karaoke fill, dual lines, RTL) — over a MOCK cinematic player
+  frame (no third-party video frames: their copyright, not ours).
+  Capture at viewport 1280×800 → downscale per README.
+-->
+<link rel="stylesheet" href="../../styles/overlay.css">
+<style>
+  * { margin: 0; box-sizing: border-box; }
+  body { width: 1280px; height: 800px; overflow: hidden; font-family: -apple-system, "Segoe UI", system-ui, sans-serif; }
+  .player { position: relative; width: 1280px; height: 800px; overflow: hidden;
+    background:
+      radial-gradient(ellipse 900px 420px at 24% 30%, rgba(79, 140, 255, .18) 0%, transparent 60%),
+      radial-gradient(ellipse 1100px 500px at 60% 78%, rgba(226, 150, 66, .22) 0%, transparent 65%),
+      radial-gradient(ellipse 700px 380px at 85% 25%, rgba(127, 224, 176, .10) 0%, transparent 60%),
+      linear-gradient(175deg, #10151f 0%, #151a26 45%, #201a16 100%); }
+  .player::after { content: ""; position: absolute; inset: 0;
+    background: radial-gradient(ellipse 105% 90% at 50% 45%, transparent 55%, rgba(0, 0, 0, .55) 100%); }
+  .brand { position: absolute; top: 26px; left: 30px; z-index: 3; display: flex; align-items: center; gap: 10px;
+    background: rgba(8, 10, 14, .55); border: 1px solid rgba(255, 255, 255, .12); border-radius: 999px; padding: 8px 16px 8px 10px; }
+  .brand img { width: 22px; height: 22px; border-radius: 6px; }
+  .brand span { color: #e7ecf3; font-size: 14px; font-weight: 600; letter-spacing: .2px; }
+  .brand b { color: #4f8cff; font-weight: 800; }
+  /* player chrome — generic, deliberately unbranded */
+  .chrome { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; padding: 46px 28px 18px;
+    background: linear-gradient(transparent, rgba(0, 0, 0, .72)); }
+  .progress { height: 4px; border-radius: 2px; background: rgba(255, 255, 255, .22); position: relative; }
+  .progress .fill { width: 37%; height: 100%; border-radius: 2px; background: #4f8cff; }
+  .progress .knob { position: absolute; left: 37%; top: 50%; width: 13px; height: 13px; border-radius: 50%; background: #fff; transform: translate(-50%, -50%); }
+  .controls { display: flex; align-items: center; gap: 20px; margin-top: 13px; color: #fff; }
+  .controls svg { display: block; opacity: .95; }
+  .controls .time { font-size: 14px; color: rgba(255, 255, 255, .85); letter-spacing: .3px; }
+  .controls .spacer { flex: 1; }
+  /* Let overlay.css do its real job: absolute inset:0 inside the positioned
+     .player, stack bottom-padded to clear the control bar. Only the z-order and
+     the JS-normally-set font size are ours. */
+  #copilot-subs { z-index: 1 !important; --cs-font: 30px; }
+</style>
+</head>
+<body>
+<div class="player">
+  <div class="brand"><img src="../../icons/icon-48.png" alt=""><span><b>SubVibe</b> · live-translated subtitles</span></div>
+
+  <!-- The overlay, exactly as content/common.js builds it: stack → line rows →
+       text span → word spans; spoken words carry .sung (the karaoke fill). -->
+  <!-- single-line markup: .copilot-subs__line is white-space:pre-wrap, so source
+       newlines/indentation inside it would render as phantom blank lines -->
+  <div id="copilot-subs">
+    <div class="copilot-subs__stack"><div class="copilot-subs__line copilot-subs__line--orig" dir="ltr" style="display:block"><span class="copilot-subs__text"><span class="copilot-subs__w sung">Ich</span> <span class="copilot-subs__w sung">habe</span> <span class="copilot-subs__w sung">eine</span> <span class="copilot-subs__w sung">gute</span> <span class="copilot-subs__w">Idee</span> <span class="copilot-subs__w">—</span> <span class="copilot-subs__w">hör</span> <span class="copilot-subs__w">zu!</span></span></div><div class="copilot-subs__line" dir="rtl" style="display:block"><span class="copilot-subs__text"><span class="copilot-subs__w sung">من</span> <span class="copilot-subs__w sung">یک</span> <span class="copilot-subs__w sung">ایدهٔ</span> <span class="copilot-subs__w">خوب</span> <span class="copilot-subs__w">دارم</span> <span class="copilot-subs__w">—</span> <span class="copilot-subs__w">گوش</span> <span class="copilot-subs__w">کن!</span></span></div></div>
+  </div>
+
+  <div class="chrome">
+    <div class="progress"><div class="fill"></div><div class="knob"></div></div>
+    <div class="controls">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="#fff"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="#fff"><path d="M6 6l8.5 6L6 18zM16 6h2v12h-2z"/></svg>
+      <span class="time">38:12 / 1:43:26</span>
+      <span class="spacer"></span>
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 15h6" stroke-linecap="round"/></svg>
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M4 9v6h4l5 4V5L8 9H4z" fill="#fff" stroke="none"/><path d="M16 9a4 4 0 010 6" stroke-linecap="round"/></svg>
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 12h6M12 9v6" stroke-linecap="round"/></svg>
+    </div>
+  </div>
+</div>
+</body>
+</html>
