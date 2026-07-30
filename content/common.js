@@ -1084,6 +1084,18 @@
     // toggled off. Poll for it and, when present, upgrade from line-by-line
     // scraping to perfect-sync cue-list mode.
     const upgrade = setInterval(() => {
+      // THE RELEASE VALVE (found via the on-video HUD: "intercepted: 442 cues
+      // (clip ok)" + "last start: deduped (run unchanged)" + starts climbing —
+      // the file was held while every restart bounced off the dedupe gate).
+      // While scraping with a fetched file in hand, force adoption: null the
+      // run key so the dedupe CANNOT bounce, and retry every tick until
+      // cue-list mode actually takes over.
+      if (interceptedCues && interceptedCues.length && interceptedClipId === currentClipId() && !cueListActive) {
+        dbgSub.adopt = "upgrade→adopting file " + interceptedCues.length;
+        currentRunKey = null;
+        schedule();
+        return;
+      }
       // YouTube SPA nav: the reused <video>'s track list can still hold the
       // PREVIOUS clip's cues for a beat (their console showed a 150-cue run
       // from the prior video painting onto the next one). Give the real
@@ -1091,7 +1103,10 @@
       // before trusting the native track on a freshly switched clip.
       if (adapter && adapter.site === "youtube" && lastClipChangeAt && performance.now() - lastClipChangeAt < 8000) return;
       const full = readVideoCueList(video);
-      if (full && full.length > 3) onInterceptedCues(full);
+      // Never merge rolling native cues OVER a held file — that's the caption
+      // pollution the cue-list reread already guards against (fileCoversClip);
+      // the scrape upgrade path was missing the same guard.
+      if (!(interceptedCues && interceptedCues.length) && full && full.length > 3) onInterceptedCues(full);
     }, 2000);
     streamCleanup = () => { clearInterval(poll); clearTimeout(watchdog); clearInterval(upgrade); if (ccNudge) clearInterval(ccNudge); };
     applyHideNative(settings.hideNative);
@@ -1169,6 +1184,8 @@
   // hand back intercepted cues that belong to the CLIP NOW PLAYING — stale cues
   // from a previous clip (different URL/id) are ignored so they can't bleed across.
   function getAllCues(video) {
+    // HUD forensics: record what THIS call saw, so "file not usable" names its reason.
+    dbgSub.inter = interceptedCues ? (interceptedClipId === currentClipId() ? "ok:" + interceptedCues.length : "CLIP≠ " + interceptedClipId + " vs " + currentClipId()) : "null";
     if (interceptedCues && interceptedCues.length && interceptedClipId === currentClipId()) return interceptedCues;
     // YouTube: right after a clip switch the reused <video>'s track can still
     // hold the previous clip's ROLLING cues — hold back so the real file (whose
@@ -2197,7 +2214,7 @@
       "file spotted: " + (dbgSub.spotted || "NONE"),
       "file fetch:   " + (dbgSub.fetch || "—"),
       "intercepted:  " + (interceptedCues ? interceptedCues.length + " cues " + (interceptedClipId === currentClipId() ? "(clip ok)" : "(CLIP MISMATCH)") : "none held"),
-      "starts: " + dbgSub.starts + (dbgSub.hold ? "  " + dbgSub.hold : ""),
+      "starts: " + dbgSub.starts + (dbgSub.hold ? "  " + dbgSub.hold : "") + "  getAllCues: " + (dbgSub.inter || "—"),
       "last start:   " + (dbgSub.adopt || "—"),
     ].filter(Boolean).join("\n");
   }, 1000);
