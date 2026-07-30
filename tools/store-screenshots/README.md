@@ -36,3 +36,12 @@ z-index are overridden). Capture at 1280×800 → same `sips` downscale.
 Any agent session can re-run this via the chrome-devtools MCP (the capture
 stub + fold/scroll steps above are the whole recipe). The store dashboard
 upload itself is manual: Store listing → Screenshots → replace.
+
+## Promo tiles
+
+`promo-small-440x280.jpg` (category grids / search rails — required for any
+featuring consideration) and `promo-marquee-1400x560.jpg` (featured banners).
+Sources: `promo-small.html` (designed at 2×, 880×560 — Chrome's minimum window
+width is 500 so a 440 viewport can't be captured directly) and
+`promo-marquee.html` (1400×560 natively). Capture at the design size, then
+`sips -z <h> <w> … --out promo-*.jpg`.
