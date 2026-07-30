@@ -438,6 +438,11 @@
       <select id="liveDevice" style="flex:1;" title="Pick your loopback device (e.g. BlackHole) to hear the tab's audio — shared with the audio-transcription fallback"></select>
     </div>
     <div id="liveStatus" class="hint" style="margin-top:6px; min-height:13px;"></div>
+    <div class="row" style="margin-top:9px;">
+      <label class="switch"><input type="checkbox" id="dbgHud" /><span class="slider"></span></label>
+      <label for="dbgHud">Debug overlay</label>
+      <span class="info" title="Shows the engine's internals on the video (mode, playhead, caption-file pipeline) — screenshot it when reporting a bug">i</span>
+    </div>
   </section>
   </div>
 

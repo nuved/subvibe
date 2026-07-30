@@ -34,6 +34,7 @@
                          // (exact per-word times on YouTube ASR tracks, estimated elsewhere)
     audioFallback: false, // transcribe audio ONLY when a video has no captions
     audioDeviceId: "",    // chosen input device (e.g. BlackHole)
+    debugHud: false,      // on-video debug panel (engine mode + caption-file pipeline)
   };
 
   const LANG_LABEL = {
@@ -113,7 +114,7 @@
   // layers this clip's own changes on top — so a tweak on one video (or live channel)
   // never bleeds onto another. sync defaults to 0 per clip.
   async function getSettings() {
-    const s = await chrome.storage.local.get(["enabled", "targets", "showOriginal", "hideNative", "position", "linePositions", "size", "stylePreset", "styleCustom", "syncOffset", "karaokeHl", "audioFallback", "audioDeviceId", "translationProvider", "clipOverrides"]);
+    const s = await chrome.storage.local.get(["enabled", "targets", "showOriginal", "hideNative", "position", "linePositions", "size", "stylePreset", "styleCustom", "syncOffset", "karaokeHl", "audioFallback", "audioDeviceId", "translationProvider", "debugHud", "clipOverrides"]);
     const { clipOverrides, ...flat } = s;
     const ov = (clipOverrides && clipOverrides[clipBaseId()]) || {};
     return { ...DEFAULTS, ...flat, ...ov };
@@ -1324,11 +1325,16 @@
     } catch {}
     return url;
   }
+  // Caption-file pipeline state for the on-video debug HUD — each stage writes
+  // its outcome here so a single screenshot shows where adoption died.
+  const dbgSub = { spotted: "", fetch: "" };
+
   async function fetchSubsByUrl(url) {
     const key = subDedupKey(url);
     if (!url || url === interceptedUrl || fetchedSubUrls.has(key)) return; // already active / in flight / done
     fetchedSubUrls.add(key); // claim NOW so the 1.5s re-post (subs-intercept.js) can't launch a duplicate fetch
     console.info("[CopilotSubs] fetching subtitle file:", url);
+    dbgSub.fetch = "fetching…";
     // YouTube timedtext: the pot token validates against the SAME first-party
     // context the player fetched with (cookies included). The worker's cookieless
     // re-fetch comes back as an empty 200 body — so fetch it same-origin from THIS
@@ -1344,6 +1350,7 @@
       // times, then give up (leave it claimed) so we never hammer a dead URL forever.
       const n = (subFetchFails.get(key) || 0) + 1;
       subFetchFails.set(key, n);
+      dbgSub.fetch = "FAILED " + ((resp && (resp.error || (resp.status + (resp.text === "" ? " empty body" : "")))) || "no response") + ` (try ${n}/4)`;
       console.warn("[CopilotSubs] subtitle fetch failed:", resp && (resp.error || resp.status), `(try ${n}/4)`, url);
       if (n < 4) fetchedSubUrls.delete(key);
       return;
@@ -1353,9 +1360,11 @@
     // re-fetch loop (the re-post would otherwise hammer it ~every 1.5s forever).
     const cues = parseSubtitleFile(resp.text);
     if (!cues.length) {
+      dbgSub.fetch = "parsed 0 cues (" + resp.text.length + "B body)";
       console.warn("[CopilotSubs] subtitle file parsed to 0 cues (not TTML/VTT?):", url, resp.text.slice(0, 160));
       return;
     }
+    dbgSub.fetch = "OK " + cues.length + " cues";
     console.info(`[CopilotSubs] ${cues.length} cues from subtitle file → perfect-sync`);
     setStatus(`Loaded subtitle file (${cues.length} lines) — perfect sync.`);
     // A subtitle file IS this clip's full cue list — REPLACE, never merge across
@@ -2129,7 +2138,7 @@
   // Appearance keys (position, drag coords, text size, style preset/tweaks) and
   // the sync nudge apply LIVE — re-style in place, no flicker. Anything else
   // (languages, key, enabled…) restarts the engine.
-  const LIVE_KEYS = ["syncOffset", "position", "linePositions", "size", "stylePreset", "styleCustom", "dubEnabled", "dubVoice", "dubGeminiVoice", "ttsProvider", "dubMultiVoice", "dubDuckLevel", "dubPace"];
+  const LIVE_KEYS = ["syncOffset", "position", "linePositions", "size", "stylePreset", "styleCustom", "dubEnabled", "dubVoice", "dubGeminiVoice", "ttsProvider", "dubMultiVoice", "dubDuckLevel", "dubPace", "debugHud"];
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
     const keys = Object.keys(changes);
@@ -2156,6 +2165,34 @@
       if (JSON.stringify(before.targets) !== JSON.stringify(after.targets) || !!before.showOriginal !== !!after.showOriginal) schedule();
     }
   });
+  // ── On-video debug HUD (popup: "Debug overlay") ────────────────────────────
+  // One screenshot = full diagnosis: engine mode, playhead, cue counts, and
+  // every stage of the caption-file pipeline (spotted → fetched → adopted).
+  setInterval(async () => {
+    let on = false;
+    try { on = (await getSettings()).debugHud; } catch {}
+    let hud = document.getElementById("copilot-subs-hud");
+    if (!on) { if (hud) hud.remove(); return; }
+    const parent = (adapter && adapter.getPlayerContainer && adapter.getPlayerContainer()) || document.body;
+    if (!hud) {
+      hud = document.createElement("div");
+      hud.id = "copilot-subs-hud";
+      hud.style.cssText = "position:absolute;top:8px;left:8px;z-index:2147483001;background:rgba(0,0,0,.78);color:#8fe3a8;font:11px/1.55 ui-monospace,Menlo,monospace;padding:7px 10px;border-radius:7px;pointer-events:none;white-space:pre;max-width:46%;";
+    }
+    if (hud.parentElement !== parent) parent.appendChild(hud);
+    let d = {};
+    try { d = JSON.parse(document.documentElement.dataset.csDiag || "{}"); } catch {}
+    hud.textContent = [
+      "SubVibe debug",
+      "mode: " + (liveMode ? "LIVE" : d.mode || "—") + (d.src ? " (" + d.src + ")" : ""),
+      "play: " + (d.play != null ? d.play : "—") + "  cues: " + (d.total != null ? d.total : d.cues != null ? d.cues : "—"),
+      d.live != null ? "live-stream: " + d.live + "  autoOff: " + d.autoOff : null,
+      d.heard != null ? "scrape heard: " + JSON.stringify(String(d.heard).slice(0, 42)) : null,
+      "file spotted: " + (dbgSub.spotted || "NONE"),
+      "file fetch:   " + (dbgSub.fetch || "—"),
+    ].filter(Boolean).join("\n");
+  }, 1000);
+
   document.addEventListener("fullscreenchange", onFullscreenChange);
   setInterval(() => { if (autoPosEnabled) updateAutoPosition(); }, 600);
   setInterval(() => { if (hideNativeOn) { injectShadowHide(); hideNativeTextTracks(); } }, 2000);
@@ -2180,7 +2217,7 @@
     if (!d || !d.__copilotSubs) return;
     if (d.type === "SUBS_CUES") onInterceptedCues(d.cues);          // parsed full cue list (legacy path)
     else if (d.type === "SUBS_RESET") { dropInterceptedCues(); schedule(); } // live channel switched → drop the previous channel's cues + restart fresh
-    else if (d.type === "SUBS_URL") fetchSubsByUrl(d.url);          // discovered subtitle URL → fetch via worker
+    else if (d.type === "SUBS_URL") { dbgSub.spotted = "…" + String(d.url).replace(/\?.*/, "").slice(-34); fetchSubsByUrl(d.url); } // discovered subtitle URL
     else if (d.type === "SUBS_TEXT") {                              // raw subtitle file body (Netflix sniffer)
       try {
         const cues = parseSubtitleFile(d.text || "");
