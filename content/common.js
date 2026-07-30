@@ -2006,6 +2006,13 @@
   // ready, so no TRANSLATE calls happen here. LIVE_STATE {running:false}
   // hands the overlay back to the normal engine.
   let liveMode = false, liveIdleT = 0;
+  // Voice-only live: when the engine already runs PERFECT-SYNC subtitles
+  // (cueListActive), the live session contributes just the translated VOICE —
+  // the engine keeps the screen, its timing, and the karaoke sweep. The
+  // transcript lines paint only where no caption engine is running (unsupported
+  // sites, no-caption videos). Decided ONCE at session start, deliberately —
+  // flip-flopping mid-session would thrash the overlay.
+  let liveVoiceOnly = false;
   // Enter live mode the moment the session STARTS (LIVE_STATE running:true) —
   // not on the first transcript. Waiting for text left the scrape engine
   // painting its rolling word-by-word captions straight through the live
@@ -2232,7 +2239,7 @@
     try { d = JSON.parse(document.documentElement.dataset.csDiag || "{}"); } catch {}
     hud.textContent = [
       "SubVibe debug",
-      "mode: " + (liveMode ? "LIVE" : d.mode || "—") + (d.src ? " (" + d.src + ")" : ""),
+      "mode: " + (liveMode ? "LIVE" : (d.mode || "—") + (liveVoiceOnly ? " + live voice" : "")) + (d.src ? " (" + d.src + ")" : ""),
       "play: " + (d.play != null ? d.play : "—") + "  cues: " + (d.total != null ? d.total : d.cues != null ? d.cues : "—"),
       d.live != null ? "live-stream: " + d.live + "  autoOff: " + d.autoOff : null,
       d.heard != null ? "scrape heard: " + JSON.stringify(String(d.heard).slice(0, 42)) : null,
@@ -2255,11 +2262,17 @@
     if (msg.type === "AUDIO_CUE") onAudioCue(msg.text);
     else if (msg.type === "AUDIO_STOP") stopAudio();
     else if (msg.type === "AUDIO_ERROR") setStatus("Audio: " + msg.error, true);
-    else if (msg.type === "LIVE_LINE") liveShow(msg.original, msg.translated);
+    else if (msg.type === "LIVE_LINE") { if (!liveVoiceOnly) liveShow(msg.original, msg.translated); }
     else if (msg.type === "LIVE_STATE") {
-      if (msg.running) liveEnter();          // take the stage immediately — silence the scrape engine
+      if (msg.running) {
+        // Perfect-sync already on stage → keep it (text + karaoke) and let the
+        // session speak. Otherwise the live transcripts take the overlay —
+        // that's the only text source there is.
+        if (cueListActive && !liveMode) { liveVoiceOnly = true; setStatus("Live Translate — voice over your subtitles."); }
+        else liveEnter();                    // take the stage immediately — silence the scrape engine
+      }
       if (msg.error) setStatus("Live: " + msg.error, true);
-      if (!msg.running) liveEnd();
+      if (!msg.running) { liveVoiceOnly = false; liveEnd(); }
     }
   });
 
