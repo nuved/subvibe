@@ -38,7 +38,12 @@ async function liveStart(msg) {
   lvState(true, null, "Capture page ready…"); // proves LIVE_START arrived
   const geminiKey = msg.key || (await chrome.storage.local.get("geminiKey")).geminiKey;
   if (!geminiKey) { lvStarting = false; lvState(false, "No Gemini API key saved — add it in the popup's API keys."); return; }
-  lvCfg = { deviceId: msg.deviceId, target: msg.target || "English", model: msg.model || "gemini-3.5-live-translate", key: geminiKey, sysAsContent: false,
+  // The API id carries a -preview suffix (ai.google.dev/gemini-api/docs/models/
+  // gemini-3.5-live-translate-preview) — the suffixless form we shipped first is
+  // REJECTED at setup (the server closes the socket, which looked like an
+  // endless "reconnecting…"). Heal any stale stored value here.
+  const model = (!msg.model || msg.model === "gemini-3.5-live-translate") ? "gemini-3.5-live-translate-preview" : msg.model;
+  lvCfg = { deviceId: msg.deviceId, target: msg.target || "English", model, key: geminiKey, sysAsContent: false,
     // Passthrough only applies to tab capture (Chrome mutes a captured tab
     // until someone routes it back out); a mic passthrough would just echo.
     passVol: msg.streamId && typeof msg.origVol === "number" ? msg.origVol : 0 };
@@ -163,16 +168,29 @@ function connectLive() {
     }
   };
 
-  lvWs.onclose = () => {
+  lvWs.onclose = (e) => {
     clearTimeout(watchdog);
     if (lvClosing) return;
     if (!lvRunning) return;
+    // The server's close code + reason IS the diagnosis (Gemini names bad
+    // model ids and rejected payloads in the close reason) — show it, never
+    // swallow it. 1006 = the connection never opened / was refused (key,
+    // network, shields).
+    const why = "code " + ((e && e.code) || "?") + (e && e.reason ? " — " + String(e.reason).slice(0, 180) : "");
+    // A close BEFORE any setupComplete usually means the setup itself was
+    // rejected. Attempt 1 retries with the Content-object systemInstruction
+    // shape; after that, STOP EARLY and hand over the server's own words —
+    // endless reconnects with a doomed setup only hide the cause.
+    if (!lvStats) {
+      if (!lvCfg.sysAsContent) lvCfg.sysAsContent = true;
+      else if (lvRetries >= 2) { lvState(false, "Google closed the session during setup (" + why + "). Likely the model id or the API key. Stopped."); liveStop(); return; }
+    }
     // Unexpected close (network blip, session cap, or the sysAsContent retry):
     // fresh session with backoff — context is lost, acceptable for live speech.
     const delay = [1000, 2000, 5000][Math.min(lvRetries, 2)];
     lvRetries++;
-    if (lvRetries > 6) { lvState(false, "connection keeps dropping — stopped."); liveStop(); return; }
-    lvState(true, "reconnecting…");
+    if (lvRetries > 6) { lvState(false, "connection keeps dropping — stopped. Last close: " + why); liveStop(); return; }
+    lvState(true, "reconnecting… (" + why + ")");
     setTimeout(() => { if (lvRunning) connectLive(); }, delay);
   };
   lvWs.onerror = () => {}; // onclose carries the retry; error alone is noise
