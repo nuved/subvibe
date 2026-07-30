@@ -41,10 +41,13 @@
       } else if (msg.realtimeInput && !this._replied) {
         this._replied = true; // one scripted turn per session
         setTimeout(() => {
-          // Deliberately pathological shapes — the module must dedupe both:
-          // German = OVERLAPPING fragments; Persian = CUMULATIVE snapshots.
+          // Deliberately pathological shapes — the module must dedupe all three:
+          // German = OVERLAPPING fragments; Persian = CUMULATIVE snapshots where
+          // the third message REVISES earlier words (no startsWith, no overlap —
+          // the exact case that duplicated text in the operator's real test).
           this._recv({ serverContent: { inputTranscription: { text: "Guten Morgen, " } } });
-          this._recv({ serverContent: { inputTranscription: { text: "Morgen, wie geht " }, outputTranscription: { text: "صبح بخیر، " } } });
+          this._recv({ serverContent: { inputTranscription: { text: "Morgen, wie geht " }, outputTranscription: { text: "صبح " } } });
+          this._recv({ serverContent: { outputTranscription: { text: "صبح بخیر حالت" } } });
           this._recv({ serverContent: { inputTranscription: { text: "wie geht es dir?" }, outputTranscription: { text: "صبح بخیر، حالت چطوره؟" }, modelTurn: { parts: [{ inlineData: { mimeType: "audio/pcm;rate=24000", data: sinePcmBase64(200, 24000) } }] } } });
           this._recv({ serverContent: { turnComplete: true } });
         }, 30);

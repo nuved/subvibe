@@ -650,21 +650,25 @@ async function livePopulateDevices() {
   } catch {}
 }
 el("liveDevice").addEventListener("change", () => { state.audioDeviceId = el("liveDevice").value; persist({ audioDeviceId: state.audioDeviceId }); });
-el("liveModel").addEventListener("change", () => {
-  state.liveModel = el("liveModel").value.trim() || "gemini-3.5-live-translate";
-  el("liveModel").value = state.liveModel;
-  el("liveModelVal").textContent = state.liveModel;
-  persist({ liveModel: state.liveModel });
-});
 el("liveBtn").addEventListener("click", async () => {
   if (liveRunning) { chrome.runtime.sendMessage({ type: "LIVE_STOP" }); liveUI(false, "Stopped."); return; }
   if (!(state.geminiKey || el("geminiKey").value.trim())) { liveUI(false, "Add your Google (Gemini) key under API keys first.", true); return; }
+  // Two voices can't share the stage: a running dub would talk over the live
+  // translation (and both spend the same Gemini quota) — switch it off.
+  let note = "";
+  if (el("dubEnabled").checked) {
+    el("dubEnabled").checked = false;
+    state.dubEnabled = false;
+    persist({ dubEnabled: false });
+    syncDubConfig();
+    note = " (Dub switched off while Live runs)";
+  }
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true }).catch(() => []);
   const tabId = tabs && tabs[0] ? tabs[0].id : null;
   let target = "English";
   try { target = new Intl.DisplayNames(["en"], { type: "language" }).of((state.targets && state.targets[0]) || "en") || "English"; } catch {}
-  liveUI(true, "Connecting…");
-  chrome.runtime.sendMessage({ type: "LIVE_START", tabId, deviceId: state.audioDeviceId || "", target, model: state.liveModel });
+  liveUI(true, "Connecting…" + note);
+  chrome.runtime.sendMessage({ type: "LIVE_START", tabId, deviceId: state.audioDeviceId || "", target, model: state.liveModel || "gemini-3.5-live-translate" });
 });
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg && msg.type === "LIVE_STATE") {
@@ -861,8 +865,6 @@ async function load() {
   el("geminiKey").value = state.geminiKey || "";
   updateTtsProviderUI();
   geminiKeyHint();
-  el("liveModel").value = state.liveModel || "gemini-3.5-live-translate";
-  el("liveModelVal").textContent = el("liveModel").value;
   livePopulateDevices();
   chrome.runtime.sendMessage({ type: "LIVE_QUERY" }, (r) => { if (r && r.running) liveUI(true, "Live — running."); });
   // Refresh all key dots only AFTER every key input is hydrated — an earlier

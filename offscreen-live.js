@@ -16,6 +16,8 @@ let lvStream = null, lvWs = null, lvCtxIn = null, lvSrc = null, lvProc = null;
 let lvCtxOut = null, lvCursor = 0, lvScheduled = [];
 let lvRunning = false, lvClosing = false, lvRetries = 0;
 let lvTurn = { orig: "", out: "" }, lvFlushT = 0, lvPartialT = 0;
+let lvChanMode = { orig: null, out: null }; // per-channel stream shape: null=unknown, "cum"=cumulative snapshots
+let lvDbgN = 0; // raw-chunk forensics counter (see the onmessage debug log)
 let lvCfg = null; // {deviceId, target, model, key, sysAsContent}
 
 chrome.runtime.onMessage.addListener((msg) => {
@@ -39,6 +41,8 @@ async function liveStart(msg) {
   } catch (e) { lvState(false, "capture: " + (e.message || e)); return; }
 
   lvRunning = true; lvClosing = false; lvRetries = 0;
+  lvTurn = { orig: "", out: "" };
+  lvChanMode = { orig: null, out: null }; // re-learn the stream shape per session
   connectLive();
 }
 
@@ -81,14 +85,21 @@ function connectLive() {
     }
     const sc = ev.serverContent;
     if (!sc) return;
-    if (sc.interrupted) clearLiveAudio(); // the model restarted its answer — drop stale audio
+    if (sc.interrupted) { clearLiveAudio(); lvTurn = { orig: "", out: "" }; } // restart — drop stale audio AND stale turn text
     const parts = (sc.modelTurn && sc.modelTurn.parts) || [];
     for (const p of parts) {
       const d = p.inlineData;
       if (d && d.data && /audio\/pcm/.test(d.mimeType || "")) scheduleLiveAudio(d.data, d.mimeType);
     }
-    if (sc.inputTranscription && sc.inputTranscription.text) lvTurn.orig = mergeStreamText(lvTurn.orig, sc.inputTranscription.text);
-    if (sc.outputTranscription && sc.outputTranscription.text) lvTurn.out = mergeStreamText(lvTurn.out, sc.outputTranscription.text);
+    // Forensics for stream-shape bugs: the first 40 raw transcript chunks land in
+    // the offscreen console (chrome://extensions → SubVibe → Inspect views:
+    // offscreen.html) — paste them if the on-screen text ever stutters again.
+    if ((sc.inputTranscription || sc.outputTranscription) && lvDbgN < 40) {
+      lvDbgN++;
+      console.debug("[SubVibe live raw]", JSON.stringify({ in: sc.inputTranscription && sc.inputTranscription.text, out: sc.outputTranscription && sc.outputTranscription.text, turnComplete: !!sc.turnComplete }));
+    }
+    if (sc.inputTranscription && sc.inputTranscription.text) lvTurn.orig = mergeStreamText("orig", lvTurn.orig, sc.inputTranscription.text);
+    if (sc.outputTranscription && sc.outputTranscription.text) lvTurn.out = mergeStreamText("out", lvTurn.out, sc.outputTranscription.text);
     if (sc.turnComplete) flushLiveText();
     else if (lvTurn.orig || lvTurn.out) {
       // Smooth caption cadence: show the growing line at most twice a second
@@ -168,14 +179,21 @@ function clearLiveAudio() {
   lvCursor = 0;
 }
 
-// Streamed transcription chunks arrive as DELTAS, CUMULATIVE snapshots, or
-// overlapping fragments depending on the model's mood — blind += duplicated
-// words on screen (the operator's "appends words to the same word"). Merge by
-// overlap instead: snapshot replaces, overlap joins, true delta appends.
-function mergeStreamText(prev, add) {
-  if (!prev) return add;
+// Streamed transcription chunks arrive as DELTAS, CUMULATIVE snapshots — which
+// may also REVISE earlier words — or overlapping fragments, depending on the
+// model's mood. Blind += duplicated words on screen (the operator's "appends
+// words to the same word"). Strategy: the first snapshot proves the channel is
+// cumulative, and from then on the LATEST snapshot simply wins (revisions
+// included); otherwise merge by overlap; otherwise append a true delta.
+function mergeStreamText(chan, prev, add) {
   if (!add) return prev;
-  if (add.startsWith(prev)) return add;                 // cumulative snapshot
+  if (!prev) return add;
+  if (add.startsWith(prev)) { lvChanMode[chan] = "cum"; return add; }
+  if (lvChanMode[chan] === "cum") {
+    // Cumulative channel that rewrote earlier words — replace, unless the new
+    // text is a stray sliver (guard against a lone fragment nuking the line).
+    return add.length * 2 >= prev.length ? add : prev;
+  }
   const max = Math.min(prev.length, add.length);
   for (let k = max; k > 0; k--) if (prev.endsWith(add.slice(0, k))) return prev + add.slice(k); // overlap join
   return prev + add;                                    // pure delta
