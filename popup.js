@@ -629,6 +629,7 @@ el("styleReset").addEventListener("click", () => { state.styleCustom = {}; persi
 // One Gemini Live session per run: session-based free tier (token budget, no
 // request counter), so it keeps running where the TTS dub rate-limits.
 let liveRunning = false;
+let liveStateAt = 0; // when the last LIVE_STATE arrived — silence after Start is itself a diagnosis
 function liveUI(running, statusText, isErr) {
   liveRunning = !!running;
   el("liveBtn").textContent = liveRunning ? "■ Stop Live Translate" : "▶ Start Live Translate";
@@ -675,7 +676,10 @@ el("liveBtn").addEventListener("click", async () => {
     // microphone, no loopback device, works with headphones. The popup click
     // is the user invocation tabCapture requires.
     try {
-      streamId = await new Promise((res, rej) => chrome.tabCapture.getMediaStreamId({ targetTabId: tabId }, (id) => chrome.runtime.lastError ? rej(new Error(chrome.runtime.lastError.message)) : res(id)));
+      streamId = await Promise.race([
+        new Promise((res, rej) => chrome.tabCapture.getMediaStreamId({ targetTabId: tabId }, (id) => chrome.runtime.lastError ? rej(new Error(chrome.runtime.lastError.message)) : res(id))),
+        new Promise((_, rej) => setTimeout(() => rej(new Error("no stream id after 5s — the browser may be blocking tabCapture")), 5000)),
+      ]);
     } catch (e) {
       liveUI(false, "Tab audio capture failed: " + (e.message || e) + ". Try again on a normal website tab.", true);
       return;
@@ -703,9 +707,16 @@ el("liveBtn").addEventListener("click", async () => {
     }
   }
   chrome.runtime.sendMessage({ type: "LIVE_START", tabId, streamId, deviceId: state.audioDeviceId || "", origVol: typeof state.dubDuckLevel === "number" ? state.dubDuckLevel : 0.12, target, model: state.liveModel || "gemini-3.5-live-translate" });
+  // Total-silence watchdog: if NOTHING reports back within 10s, every layer's
+  // own error path failed too — say so instead of sitting on "Connecting…".
+  const sentAt = Date.now();
+  setTimeout(() => {
+    if (liveRunning && liveStateAt < sentAt) liveUI(false, "No answer from the capture page in 10s — reload the extension (chrome://extensions ↻), reload this tab, and press Start again.", true);
+  }, 10000);
 });
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg && msg.type === "LIVE_STATE") {
+    liveStateAt = Date.now();
     // The stats line is the whole diagnosis: "sent" proves capture works,
     // "heard/spoke" prove Gemini responds, "voice" proves playback scheduled.
     let text;

@@ -963,8 +963,22 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             liveTabId = tabs && tabs[0] ? tabs[0].id : null;
           }
           liveActive = true;
-          await ensureOffscreen();
-          chrome.runtime.sendMessage({ type: "LIVE_START", streamId: msg.streamId, origVol: msg.origVol, deviceId: msg.deviceId, target: msg.target, model: msg.model });
+          try {
+            await ensureOffscreen();
+            // A just-created document may still be parsing its scripts when a
+            // broadcast goes out — a lost LIVE_START was an eternal
+            // "Connecting…". Ping until the live script answers, THEN forward.
+            let ready = false;
+            for (let i = 0; i < 10 && !ready; i++) {
+              ready = await new Promise((res) => chrome.runtime.sendMessage({ type: "LIVE_PING" }, (r) => res(!chrome.runtime.lastError && !!(r && r.pong))));
+              if (!ready) await new Promise((r) => setTimeout(r, 150));
+            }
+            if (!ready) throw new Error("loaded but never answered the ready ping");
+            chrome.runtime.sendMessage({ type: "LIVE_START", streamId: msg.streamId, origVol: msg.origVol, deviceId: msg.deviceId, target: msg.target, model: msg.model });
+          } catch (e) {
+            liveActive = false;
+            chrome.runtime.sendMessage({ type: "LIVE_STATE", running: false, error: "capture page: " + (e.message || e) });
+          }
           sendResponse({ ok: true });
           break;
         }

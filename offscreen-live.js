@@ -21,8 +21,9 @@ let lvDbgN = 0; // raw-chunk forensics counter (see the onmessage debug log)
 let lvStats = null, lvStatsT = 0; // popup-visible flow counters — no console spelunking
 let lvCfg = null; // {deviceId, target, model, key, sysAsContent}
 
-chrome.runtime.onMessage.addListener((msg) => {
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg) return;
+  if (msg.type === "LIVE_PING") { sendResponse({ pong: true }); return; } // readiness handshake — see background LIVE_START
   if (msg.type === "LIVE_START") liveStart(msg);
   else if (msg.type === "LIVE_STOP") liveStop("stopped");
 });
@@ -31,6 +32,7 @@ const lvState = (running, error, stage) => chrome.runtime.sendMessage({ type: "L
 
 async function liveStart(msg) {
   if (lvRunning) return;
+  lvState(true, null, "Capture page ready — opening audio…"); // proves LIVE_START arrived
   const { geminiKey } = await chrome.storage.local.get("geminiKey");
   if (!geminiKey) { lvState(false, "No Gemini API key saved — add it in the popup's API keys."); return; }
   lvCfg = { deviceId: msg.deviceId, target: msg.target || "English", model: msg.model || "gemini-3.5-live-translate", key: geminiKey, sysAsContent: false,
@@ -42,9 +44,13 @@ async function liveStart(msg) {
     if (msg.streamId) {
       // Default path: the tab's own audio, handed over by the popup's
       // tabCapture.getMediaStreamId — no microphone, no permission prompt.
-      lvStream = await navigator.mediaDevices.getUserMedia({
-        audio: { mandatory: { chromeMediaSource: "tab", chromeMediaSourceId: msg.streamId } },
-      });
+      // Same 8s race as the device path: a hung consume must NAME itself.
+      lvStream = await Promise.race([
+        navigator.mediaDevices.getUserMedia({
+          audio: { mandatory: { chromeMediaSource: "tab", chromeMediaSourceId: msg.streamId } },
+        }),
+        new Promise((_, rej) => setTimeout(() => rej(new Error("tab stream didn't open in 8s — the browser may block tab capture")), 8000)),
+      ]);
     } else {
       // Explicit input device (mic / BlackHole). This document is invisible, so
       // an ungranted mic request has nowhere to prompt and can sit PENDING
