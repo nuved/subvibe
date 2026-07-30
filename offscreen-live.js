@@ -27,7 +27,7 @@ chrome.runtime.onMessage.addListener((msg) => {
   else if (msg.type === "LIVE_STOP") liveStop("stopped");
 });
 
-const lvState = (running, error) => chrome.runtime.sendMessage({ type: "LIVE_STATE", running, error: error || null, stats: lvStats && running ? { secs: Math.round((Date.now() - lvStats.t0) / 1000), upSecs: Math.round(lvStats.upSamples / 16000), heard: lvStats.textIn, spoke: lvStats.textOut, voiceSecs: Math.round(lvStats.voiceMs / 1000) } : null });
+const lvState = (running, error, stage) => chrome.runtime.sendMessage({ type: "LIVE_STATE", running, error: error || null, stage: stage || null, stats: lvStats && running ? { secs: Math.round((Date.now() - lvStats.t0) / 1000), upSecs: Math.round(lvStats.upSamples / 16000), heard: lvStats.textIn, spoke: lvStats.textOut, voiceSecs: Math.round(lvStats.voiceMs / 1000) } : null });
 
 async function liveStart(msg) {
   if (lvRunning) return;
@@ -36,10 +36,18 @@ async function liveStart(msg) {
   lvCfg = { deviceId: msg.deviceId, target: msg.target || "English", model: msg.model || "gemini-3.5-live-translate", key: geminiKey, sysAsContent: false };
 
   try {
-    lvStream = await navigator.mediaDevices.getUserMedia({
-      audio: lvCfg.deviceId ? { deviceId: { exact: lvCfg.deviceId } } : true,
-    });
+    // This document is invisible, so an ungranted mic request has nowhere to
+    // prompt and can sit PENDING forever (the operator's eternal "Connecting…").
+    // The popup pre-authorizes before LIVE_START, but never trust that: an 8s
+    // race turns a silent hang into a named, popup-visible failure.
+    lvStream = await Promise.race([
+      navigator.mediaDevices.getUserMedia({
+        audio: lvCfg.deviceId ? { deviceId: { exact: lvCfg.deviceId } } : true,
+      }),
+      new Promise((_, rej) => setTimeout(() => rej(new Error("microphone permission pending — allow the mic for the extension, then Start again")), 8000)),
+    ]);
   } catch (e) { lvState(false, "capture: " + (e.message || e)); return; }
+  lvState(true, null, "Mic OK — connecting to Google…");
 
   lvRunning = true; lvClosing = false; lvRetries = 0;
   lvTurn = { orig: "", out: "" };
@@ -51,6 +59,17 @@ function connectLive() {
   try {
     lvWs = new WebSocket(LIVE_WS_BASE + "?key=" + encodeURIComponent(lvCfg.key));
   } catch (e) { lvState(false, "ws: " + (e.message || e)); liveStop(); return; }
+
+  // Handshake watchdog: no setupComplete AND no server error within 12s means
+  // the socket is black-holed (shields/VPN/firewall swallowing
+  // generativelanguage.googleapis.com) — name it instead of hanging forever.
+  const ws = lvWs;
+  let setupSeen = false;
+  const watchdog = setTimeout(() => {
+    if (ws !== lvWs || setupSeen || !lvRunning) return;
+    lvState(false, "no reply from Google in 12s — something is blocking generativelanguage.googleapis.com (shields / VPN / firewall). Stopped.");
+    liveStop();
+  }, 12000);
 
   lvWs.onopen = () => {
     // The reference documents systemInstruction as a STRING; some servers want
@@ -73,6 +92,8 @@ function connectLive() {
     let ev;
     try { ev = JSON.parse(typeof e.data === "string" ? e.data : await e.data.text()); } catch { return; }
     if (ev.setupComplete) {
+      setupSeen = true;
+      clearTimeout(watchdog);
       lvRetries = 0;
       if (!lvStats) lvStats = { t0: Date.now(), upSamples: 0, textIn: 0, textOut: 0, voiceMs: 0 };
       startLivePipe();
@@ -118,6 +139,7 @@ function connectLive() {
   };
 
   lvWs.onclose = () => {
+    clearTimeout(watchdog);
     if (lvClosing) return;
     if (!lvRunning) return;
     // Unexpected close (network blip, session cap, or the sysAsContent retry):

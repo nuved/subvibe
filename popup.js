@@ -669,6 +669,18 @@ el("liveBtn").addEventListener("click", async () => {
   let target = "English";
   try { target = new Intl.DisplayNames(["en"], { type: "language" }).of((state.targets && state.targets[0]) || "en") || "English"; } catch {}
   liveUI(true, "Connecting…" + note);
+  // The offscreen capture document is invisible — it can never SHOW a mic
+  // permission prompt, so an ungranted request over there just hangs (the
+  // eternal "Connecting…"). The popup is a visible extension page on the same
+  // origin: authorize here, and the grant carries over to offscreen.
+  try {
+    const probe = await navigator.mediaDevices.getUserMedia({ audio: true });
+    probe.getTracks().forEach((t) => t.stop());
+    livePopulateDevices(); // device NAMES unlock with the grant (e.g. BlackHole)
+  } catch (e) {
+    liveUI(false, "Microphone blocked (" + (e.name || e) + "). Allow microphone access for the extension, then press Start again.", true);
+    return;
+  }
   chrome.runtime.sendMessage({ type: "LIVE_START", tabId, deviceId: state.audioDeviceId || "", target, model: state.liveModel || "gemini-3.5-live-translate" });
 });
 chrome.runtime.onMessage.addListener((msg) => {
@@ -679,6 +691,7 @@ chrome.runtime.onMessage.addListener((msg) => {
     if (msg.error) text = msg.error;
     else if (!msg.running) text = "Stopped.";
     else if (msg.stats) text = `Live ${Math.floor(msg.stats.secs / 60)}:${String(msg.stats.secs % 60).padStart(2, "0")} · sent ${msg.stats.upSecs}s audio · heard ${msg.stats.heard} · spoke ${msg.stats.spoke} (${msg.stats.voiceSecs}s voice)`;
+    else if (msg.stage) text = msg.stage; // pre-session progress — a stall names its stage
     else text = "Live — connected, waiting for audio…";
     liveUI(msg.running, text, !!msg.error);
   }
