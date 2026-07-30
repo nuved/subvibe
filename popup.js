@@ -837,9 +837,11 @@ async function load() {
   updateFoldSummaries();
 }
 
-// ── hidden tribute: tap the logo three times ──────────────────────────────────
+// ── hidden tribute: tap the logo three times, or hold the version line ────────
 // In memory of Agha Mansoor. The portrait + words live in shared/tribute.js
-// (window.SV_TRIBUTE), loaded before this script.
+// (window.SV_TRIBUTE), loaded before this script. The header's version line
+// (v1330.1 · Mansoor — his year, his name) is the quiet door: park the mouse on
+// it for 2.5s; its slow shift to mint + glow IS the countdown (see header .ver).
 (function () {
   const logo = document.querySelector("header img");
   if (!logo) return;
@@ -854,10 +856,26 @@ async function load() {
     el("memArt").textContent = tr.portrait;
     el("memName").textContent = "In memory of " + tr.name;
     el("memDed").textContent = tr.dedication;
-    el("memoryCard").hidden = false;
+    const card = el("memoryCard");
+    card.hidden = false;
+    // Double rAF: the card must PAINT at opacity 0 before .show lands, or the
+    // 1.5s fade-in is skipped and it snaps into view.
+    requestAnimationFrame(() => requestAnimationFrame(() => card.classList.add("show")));
   }
   const close = el("memClose");
-  if (close) close.addEventListener("click", () => (el("memoryCard").hidden = true));
+  if (close) close.addEventListener("click", () => { const c = el("memoryCard"); c.classList.remove("show"); c.hidden = true; });
+
+  // Version line: text from the manifest (single source of truth), hover-hold to open.
+  const ver = el("verTag");
+  if (ver) {
+    try { const m = chrome.runtime.getManifest(); ver.textContent = "v" + (m.version_name || m.version); } catch { ver.textContent = ""; }
+    let holdT = 0;
+    ver.addEventListener("mouseenter", () => {
+      ver.classList.add("arming"); // starts the 2.5s color/glow "unlocking" cue
+      holdT = setTimeout(() => { ver.classList.remove("arming"); showMemory(); }, 2500);
+    });
+    ver.addEventListener("mouseleave", () => { ver.classList.remove("arming"); clearTimeout(holdT); });
+  }
 })();
 
 buildPresetRow();
