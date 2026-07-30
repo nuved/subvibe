@@ -267,6 +267,7 @@
   let activeLines = [];      // [{ lang, cues, idx, el }]
   let streamCleanup = null;  // stops a streaming (DOM-scrape) source
   let currentRunKey = null;  // dedupes redundant start() calls (event spam)
+  let engineGen = 0;         // bumped by every non-deduped start(); a start whose gen is stale after an await was SUPERSEDED and must die, not build
   let liveOffsetMs = 0;      // manual sync nudge (+ = earlier) — applied to LIVE streams only (recorded titles are exact)
   let liveOffsetChangedAt = -Infinity, liveClampNotedAt = -1; // when the nudge last changed (−∞ = never — early-page clamps must not read as a user action); which change already got its clamp note
   let liveAutoOffsetMs = 0;  // AUTO sync: shift so our cues coincide with the player's OWN on-screen caption
@@ -870,7 +871,7 @@
   // Read the site's own on-screen captions, translate each line to every target
   // (deduped by text, cached to disk), overlay the result, all keyed to
   // video.currentTime so replay reuses everything for free.
-  async function startStream(settings, video) {
+  async function startStream(settings, video, gen) {
     const site = adapter.site;
     const videoId = adapter.getVideoId();
     if (!videoId) return;
@@ -878,6 +879,11 @@
 
     const cacheKey = `${site}:${videoId}:stream`;
     const loaded = (await send({ type: "CACHE_GET", key: cacheKey }))?.track;
+    // A newer start() may have committed a cuelist engine while that cache read
+    // was in flight. Building the scrape engine now would bulldoze it (wipe its
+    // overlay stack, cancel its rAF) while leaving cueListActive stuck true —
+    // the exact deadlock the adopt-harness reproduces. Superseded → vanish.
+    if (gen !== undefined && (gen !== engineGen || liveMode)) { dbgSub.stale = "scrape build superseded (during cache read)"; return; }
     const track = loaded || {
       site, videoId, source: "auto", model: "gpt-4o-mini",
       createdAt: new Date().toISOString(), cues: [],
@@ -1397,7 +1403,7 @@
 
   // Perfect-sync display: cues carry their own timing, and we translate a window
   // AHEAD of the playhead so each line is ready before it's needed.
-  async function runCueListMode(settings, video, cueList) {
+  async function runCueListMode(settings, video, cueList, gen) {
     adapter = pickAdapter();
     teardown();
     cueListActive = true; // claim the engine so streamed-in cues don't restart us
@@ -1428,6 +1434,10 @@
       cacheStarts[tg] = rows.map((c) => c.startMs).sort((a, b) => a - b);
       cacheTextMaps[tg] = new Map(rows.filter((c) => c.o).map((c) => [normCue(c.o), c]));
     }
+    // Same fence as startStream: if a newer start() superseded us while the
+    // cache reads were in flight, its teardown already revoked our claim —
+    // building the overlay/rAF now would fight the newer engine. Vanish.
+    if (gen !== undefined && (gen !== engineGen || liveMode)) { dbgSub.stale = "cuelist build superseded (during cache read)"; return; }
     // Nearest LEGACY cached row (no `o` field) within CACHE_NEAR_MS whose time
     // window overlaps the cue's. Rows that know their original are excluded on
     // purpose: the exact/text layers already serve them, and a near-in-time row
@@ -2076,6 +2086,15 @@
     });
     if (runKey === currentRunKey && document.getElementById("copilot-subs")) { dbgSub.adopt = "deduped (run unchanged)"; return; }
     currentRunKey = runKey;
+    // Reentrancy fence. start() awaits real network (getCaptionTracks, cache
+    // reads) — a NEWER start can complete an engine while an older one sleeps.
+    // The harness proved the older one then resumes and rebuilds scrape ON TOP
+    // of the fresh cuelist engine without a teardown, leaving cueListActive
+    // stuck true — which in turn disables the upgrade valve, onInterceptedCues
+    // and the dedupe key. So: every await below is followed by a staleness
+    // check, and a superseded start returns without touching anything.
+    const gen = ++engineGen;
+    const stale = () => gen !== engineGen || liveMode;
 
     teardown();
     applyHideNative(settings.enabled && settings.hideNative);
@@ -2091,15 +2110,17 @@
     // own videoId is unreliable on MSE players, so we don't key cues off it here.
 
     const video = await waitFor(() => adapter.getVideoEl());
+    if (stale()) { dbgSub.stale = "start superseded (waiting for video)"; return; }
     if (!video) { currentRunKey = null; return; } // not ready — allow a retry
 
     // Streaming sources: if the browser exposes the full caption track (e.g. ZDF),
     // use it for perfect-sync pre-translation; otherwise scrape on-screen captions.
     if (adapter.stream) {
       const cueList = await waitFor(() => getAllCues(video), 3000);
-      if (cueList && cueList.length) { dbgSub.adopt = "cuelist(stream) " + cueList.length; await runCueListMode(settings, video, cueList); return; }
+      if (stale()) { dbgSub.stale = "start superseded (waiting for cues)"; return; }
+      if (cueList && cueList.length) { dbgSub.adopt = "cuelist(stream) " + cueList.length; await runCueListMode(settings, video, cueList, gen); return; }
       dbgSub.adopt = "scrape (stream: no track cues yet)";
-      await startStream(settings, video);
+      await startStream(settings, video, gen);
       return;
     }
 
@@ -2111,13 +2132,16 @@
     // list for this clip, use it — full pre-translate lookahead, same as ZDF/DW.
     {
       const inter = getAllCues(video);
-      if (inter && inter.length) { dbgSub.adopt = "cuelist(file) " + inter.length; await runCueListMode(settings, video, inter); return; }
+      if (inter && inter.length) { dbgSub.adopt = "cuelist(file) " + inter.length; await runCueListMode(settings, video, inter, gen); return; }
       dbgSub.adopt = "file not usable at start #" + dbgSub.starts + (dbgSub.hold ? " (" + dbgSub.hold + ")" : "");
     }
 
     setStatus("Loading captions…");
     let tracks = [];
     try { tracks = await adapter.getCaptionTracks(videoId); } catch { tracks = []; }
+    // THE await that bit in production: getCaptionTracks is a real network call,
+    // and the intercepted caption file routinely lands while it's in flight.
+    if (stale()) { dbgSub.stale = "start superseded (during getCaptionTracks)"; return; }
     const originalTrack = pickOriginalTrack(tracks);
 
     // Try the direct download (still works on some sites / when logged in). If it
@@ -2126,6 +2150,7 @@
     if (originalTrack) {
       try { originalCues = await adapter.fetchCues(originalTrack.baseUrl); }
       catch (e) { console.warn("[CopilotSubs] fetchCues failed", e); originalCues = []; }
+      if (stale()) { dbgSub.stale = "start superseded (during fetchCues)"; return; }
     }
     if (!originalCues.length) {
       if (adapter.readNativeText) {
@@ -2134,7 +2159,7 @@
         // pre-translation. Until then, scrape the on-screen captions line by line.
         setStatus("Turn ON the player's CC (subtitles) — then I'll pre-translate the whole track in sync.", true);
         dbgSub.adopt = "scrape (direct download empty) at start #" + dbgSub.starts;
-        await startStream(settings, video);
+        await startStream(settings, video, gen);
         return;
       }
       if (!maybeOfferAudio(settings)) {
@@ -2151,7 +2176,7 @@
     // language finished — so each line lagged and even the original waited on the
     // (slow) translation. runCueListMode fixes both. (window.csDiag proves the lookahead.)
     dbgSub.adopt = "cuelist(track) " + originalCues.length;
-    await runCueListMode(settings, video, originalCues);
+    await runCueListMode(settings, video, originalCues, gen);
   }
 
   // ─── wiring ──────────────────────────────────────────────────────────────────
@@ -2216,6 +2241,7 @@
       "intercepted:  " + (interceptedCues ? interceptedCues.length + " cues " + (interceptedClipId === currentClipId() ? "(clip ok)" : "(CLIP MISMATCH)") : "none held"),
       "starts: " + dbgSub.starts + (dbgSub.hold ? "  " + dbgSub.hold : "") + "  getAllCues: " + (dbgSub.inter || "—"),
       "last start:   " + (dbgSub.adopt || "—"),
+      dbgSub.stale ? "superseded:   " + dbgSub.stale : null,
     ].filter(Boolean).join("\n");
   }, 1000);
 
