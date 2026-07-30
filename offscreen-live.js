@@ -35,14 +35,17 @@ async function liveStart(msg) {
   // deliveries in flight both passed this gate and raced for the same stream.
   if (lvRunning || lvStarting) return;
   lvStarting = true;
-  lvState(true, null, "Capture page ready — opening audio…"); // proves LIVE_START arrived
-  const { geminiKey } = await chrome.storage.local.get("geminiKey");
+  lvState(true, null, "Capture page ready…"); // proves LIVE_START arrived
+  const geminiKey = msg.key || (await chrome.storage.local.get("geminiKey")).geminiKey;
   if (!geminiKey) { lvStarting = false; lvState(false, "No Gemini API key saved — add it in the popup's API keys."); return; }
   lvCfg = { deviceId: msg.deviceId, target: msg.target || "English", model: msg.model || "gemini-3.5-live-translate", key: geminiKey, sysAsContent: false,
     // Passthrough only applies to tab capture (Chrome mutes a captured tab
     // until someone routes it back out); a mic passthrough would just echo.
     passVol: msg.streamId && typeof msg.origVol === "number" ? msg.origVol : 0 };
 
+  // The finest-grain breadcrumb: if the popup freezes on THIS line, the raced
+  // getUserMedia below is the stall — and its 8s timeout names it.
+  lvState(true, null, msg.streamId ? "Opening tab audio…" : "Opening microphone…");
   try {
     if (msg.streamId) {
       // Default path: the tab's own audio, handed over by the popup's

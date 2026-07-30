@@ -674,21 +674,12 @@ el("liveBtn").addEventListener("click", async () => {
   let target = "English";
   try { target = new Intl.DisplayNames(["en"], { type: "language" }).of((state.targets && state.targets[0]) || "en") || "English"; } catch {}
   liveUI(true, "Connecting…" + note);
-  let streamId = null;
-  if (!state.audioDeviceId) {
-    // Default: capture THIS TAB's audio straight from the browser — no
-    // microphone, no loopback device, works with headphones. The popup click
-    // is the user invocation tabCapture requires.
-    try {
-      streamId = await Promise.race([
-        new Promise((res, rej) => chrome.tabCapture.getMediaStreamId({ targetTabId: tabId }, (id) => chrome.runtime.lastError ? rej(new Error(chrome.runtime.lastError.message)) : res(id))),
-        new Promise((_, rej) => setTimeout(() => rej(new Error("no stream id after 5s — the browser may be blocking tabCapture")), 5000)),
-      ]);
-    } catch (e) {
-      liveUI(false, "Tab audio capture failed: " + (e.message || e) + ". Try again on a normal website tab.", true);
-      return;
-    }
-  } else {
+  // NOTE: the tab-capture stream id is minted in the BACKGROUND worker, not
+  // here — an id minted without consumerTabId is only consumable in the
+  // caller's own render process (Chrome 116+), so a popup-minted id was dead
+  // on arrival at the offscreen capture page. The popup click still counts as
+  // the user invocation tabCapture requires.
+  if (state.audioDeviceId) {
     // A real input device was picked (mic / BlackHole) — that DOES need the mic
     // permission, and the invisible offscreen page can never show the prompt.
     // The popup is a visible extension page on the same origin: authorize here,
@@ -710,7 +701,7 @@ el("liveBtn").addEventListener("click", async () => {
       return;
     }
   }
-  chrome.runtime.sendMessage({ type: "LIVE_BEGIN", tabId, streamId, deviceId: state.audioDeviceId || "", origVol: typeof state.dubDuckLevel === "number" ? state.dubDuckLevel : 0.12, target, model: state.liveModel || "gemini-3.5-live-translate" });
+  chrome.runtime.sendMessage({ type: "LIVE_BEGIN", tabId, wantTab: !state.audioDeviceId, deviceId: state.audioDeviceId || "", origVol: typeof state.dubDuckLevel === "number" ? state.dubDuckLevel : 0.12, target, model: state.liveModel || "gemini-3.5-live-translate" });
   // Total-silence watchdog: if NOTHING reports back within 10s, every layer's
   // own error path failed too — say so instead of sitting on "Connecting…".
   const sentAt = Date.now();

@@ -974,7 +974,22 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               if (!ready) await new Promise((r) => setTimeout(r, 150));
             }
             if (!ready) throw new Error("loaded but never answered the ready ping");
-            chrome.runtime.sendMessage({ type: "LIVE_START", streamId: msg.streamId, origVol: msg.origVol, deviceId: msg.deviceId, target: msg.target, model: msg.model });
+            let streamId = null;
+            if (msg.wantTab) {
+              // Minted HERE, not in the popup: without consumerTabId a stream
+              // id is only consumable in the caller's render process (Chrome
+              // 116+) — a popup-minted id was dead on arrival at the offscreen
+              // page. The worker mint is Google's own offscreen-recording
+              // pattern and is consumable extension-wide.
+              streamId = await Promise.race([
+                new Promise((res, rej) => chrome.tabCapture.getMediaStreamId({ targetTabId: liveTabId }, (id) => chrome.runtime.lastError ? rej(new Error(chrome.runtime.lastError.message)) : res(id))),
+                new Promise((_, rej) => setTimeout(() => rej(new Error("no tab stream id after 5s — the browser may be blocking tabCapture")), 5000)),
+              ]);
+            }
+            // Hand the key over instead of letting the capture page read
+            // storage itself — one less await over there that could stall.
+            const { geminiKey } = await chrome.storage.local.get("geminiKey");
+            chrome.runtime.sendMessage({ type: "LIVE_START", key: geminiKey || "", streamId, origVol: msg.origVol, deviceId: msg.deviceId, target: msg.target, model: msg.model });
           } catch (e) {
             liveActive = false;
             chrome.runtime.sendMessage({ type: "LIVE_STATE", running: false, error: "capture page: " + (e.message || e) });
@@ -998,7 +1013,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           break;
         case "LIVE_STATE":
           if (!msg.running) liveActive = false; // any terminal state — clean stop OR death-with-error
-          if (liveTabId != null) chrome.tabs.sendMessage(liveTabId, { type: "LIVE_STATE", running: msg.running, error: msg.error }).catch(() => {});
+          // Stage breadcrumbs ("opening audio…") are popup-only progress. The
+          // content script tears the subtitle engine down on ANY running:true —
+          // forwarding a breadcrumb killed subtitles/badge before a session
+          // even existed. Only real transitions reach the tab.
+          if (liveTabId != null && !(msg.running && msg.stage)) chrome.tabs.sendMessage(liveTabId, { type: "LIVE_STATE", running: msg.running, error: msg.error }).catch(() => {});
           // popup (if open) listens on runtime for the same message — nothing to do
           sendResponse({ ok: true });
           break;
