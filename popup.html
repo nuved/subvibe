@@ -243,17 +243,21 @@
     .tabs .tab.on { background: #14233c; border-color: var(--accent); color: var(--text); }
 
     /* hidden tribute card — logo triple-tap, or hold the version line 2.5s.
-       Ambient teal glow center-fading to black; contents fade in over 1.5s. */
-    .memcard { position: fixed; inset: 0; z-index: 50; display: flex;
-      background: radial-gradient(circle at 50% 46%, #10261f 0%, #0a1712 40%, #000 82%);
-      flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 16px;
+       The glow sits behind the text and the portrait's lower half (focal 62%),
+       melting to black at the edges; contents fade in over 1.5s; the whole
+       card is a close target, hinted at the very bottom. */
+    .memcard { position: fixed; inset: 0; z-index: 50; display: flex; cursor: default;
+      background: radial-gradient(circle at 50% 62%, #10261f 0%, #0a1712 46%, #000 84%);
+      flex-direction: column; align-items: center; justify-content: center; gap: 18px; padding: 16px;
       opacity: 0; transition: opacity 1.5s ease; }
     .memcard.show { opacity: 1; }
     .memcard[hidden] { display: none; }
     .memart { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 4px; line-height: 1.04;
       color: #cdd6e3; white-space: pre; margin: 0; letter-spacing: 0; max-width: 100%; overflow: hidden; }
-    .memname { color: #ffffff; font-weight: 800; font-size: 13.5px; letter-spacing: .3px; }
-    .memded { color: #9ccfb6; font-size: 11px; text-align: center; line-height: 1.55; max-width: 290px; }
+    .memname { color: #ffffff; font-weight: 800; font-size: 13.5px; letter-spacing: .3px; margin-top: 4px; }
+    .memded { color: #a3c1b4; font-size: 11px; text-align: center; line-height: 1.65; max-width: 296px; }
+    .memhint { position: absolute; bottom: 14px; left: 0; right: 0; text-align: center;
+      color: rgba(139, 149, 166, .45); font-size: 10px; letter-spacing: .3px; }
     .memclose { position: absolute; top: 8px; right: 11px; background: transparent; color: var(--muted); font-size: 20px; line-height: 1; }
     .memclose:hover { color: var(--text); }
   </style>
@@ -527,6 +531,7 @@
     <pre id="memArt" class="memart"></pre>
     <div id="memName" class="memname"></div>
     <div id="memDed" class="memded"></div>
+    <div class="memhint">Click anywhere to return</div>
   </div>
 
   <script src="shared/title.js"></script>

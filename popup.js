@@ -862,8 +862,11 @@ async function load() {
     // 1.5s fade-in is skipped and it snaps into view.
     requestAnimationFrame(() => requestAnimationFrame(() => card.classList.add("show")));
   }
+  // The whole card closes it (the bottom hint says so); the × stays for instinct.
+  const closeCard = () => { const c = el("memoryCard"); c.classList.remove("show"); c.hidden = true; };
   const close = el("memClose");
-  if (close) close.addEventListener("click", () => { const c = el("memoryCard"); c.classList.remove("show"); c.hidden = true; });
+  if (close) close.addEventListener("click", closeCard);
+  el("memoryCard").addEventListener("click", closeCard);
 
   // Version line: text from the manifest (single source of truth), hover-hold to open.
   const ver = el("verTag");
