@@ -678,7 +678,15 @@ el("liveBtn").addEventListener("click", async () => {
     probe.getTracks().forEach((t) => t.stop());
     livePopulateDevices(); // device NAMES unlock with the grant (e.g. BlackHole)
   } catch (e) {
-    liveUI(false, "Microphone blocked (" + (e.name || e) + "). Allow microphone access for the extension, then press Start again.", true);
+    if (e && e.name === "NotAllowedError") {
+      // A previously denied permission REJECTS instantly without re-prompting —
+      // only a full tab can show the prompt again (or undo the block via the
+      // padlock menu). Open ours and point the user there.
+      chrome.tabs.create({ url: chrome.runtime.getURL("mic-permission.html") });
+      liveUI(false, "Microphone blocked — opened a page to grant access. Allow it there, then press Start again.", true);
+    } else {
+      liveUI(false, "Microphone blocked (" + (e.name || e) + "). Allow microphone access for the extension, then press Start again.", true);
+    }
     return;
   }
   chrome.runtime.sendMessage({ type: "LIVE_START", tabId, deviceId: state.audioDeviceId || "", target, model: state.liveModel || "gemini-3.5-live-translate" });
