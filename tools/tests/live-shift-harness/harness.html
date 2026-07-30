@@ -1,0 +1,46 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>SubVibe engine harness — live sync shift</title>
+<!--
+  Drives the REAL content/common.js against a simulated ZDF-live MSE player
+  (NaN duration, relay clock, cues streaming into a TextTrack) with chrome.*
+  shimmed. No build, no dependencies: open the file in any Chromium browser.
+
+    Interactive:  open harness.html and use window.sim in the console
+                  (sim.pause(keepBuffering), sim.play(), sim.setStoredOffset(s), sim.state()).
+    Suite:        open harness.html?autorun=1 — chains 3 page loads (~1 min),
+                  then shows PASS/FAIL per scenario; document.title carries the verdict.
+-->
+<link rel="stylesheet" href="../../../styles/overlay.css">
+<style>
+  body { background: #111; color: #ddd; font: 14px system-ui; margin: 0; }
+  #player { position: relative; width: 800px; height: 450px; background: #000; margin: 20px auto; }
+  #vid { width: 100%; height: 100%; background: #222; }
+  #hud { position: fixed; top: 8px; left: 8px; font: 11px monospace; color: #7f7; z-index: 99999; white-space: pre; }
+</style>
+</head>
+<body>
+<div id="player"><video id="vid"></video><div id="nativecap" style="position:absolute;bottom:6px;left:0;right:0;text-align:center;color:#fff;font-size:18px;"></div></div>
+<div id="hud"></div>
+<script src="chrome-shim.js"></script>
+<script src="fake-adapter.js"></script>
+<script src="driver.js"></script>
+<script src="../../../shared/title.js"></script>
+<script src="../../../shared/presets.js"></script>
+<script src="../../../content/common.js"></script>
+<script src="autorun.js"></script>
+<script>
+  setInterval(() => {
+    const s = window.sim.state();
+    // Numbers ONLY in the HUD — cue text here would be matched by autoCalibrate's
+    // DOM scan and anchor auto-sync to our own output (a loop the real page can't have).
+    const d = s.diag || {};
+    document.getElementById("hud").textContent =
+      `clock=${s.clock} edge=${s.edge} playing=${s.playing} buffering=${s.buffering} cues=${s.cueCount}\n` +
+      `play=${d.play} live=${d.live} autoOff=${d.autoOff} showing=${d.showing} ahead=${d.translatedAhead}`;
+  }, 500);
+</script>
+</body>
+</html>

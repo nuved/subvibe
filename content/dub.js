@@ -619,7 +619,9 @@
   // sentence group, then request speech for every group. Speech requests use
   // decode=false — they warm the worker's cache; playback decodes on demand.
   async function generateAll() {
-    if (!hooks || genAll || (hooks.live && hooks.live())) return;
+    // dubOn gate: the popup's button is frozen while dubbing is off, but this
+    // is a paid run — never trust the UI alone to guard it.
+    if (!dubOn || !hooks || genAll || (hooks.live && hooks.live())) return;
     const all = [];
     const seen = new Set();
     for (const c of hooks.cues) {

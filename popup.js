@@ -7,7 +7,7 @@
 const FA_FLAG = window.SV_FA_FLAG;
 const LANGS = window.SV_LANGS;
 
-const DEFAULTS = { enabled: true, targets: ["en"], showOriginal: true, hideNative: true, karaokeHl: true, apiKey: "", translationProvider: "openai", anthropicKey: "", keepNames: true, keepTerms: "", position: "bottom", size: "md", stylePreset: "classic", styleCustom: {}, syncOffset: 0, dubEnabled: false, ttsProvider: "openai", geminiKey: "", dubVoice: "marin", dubGeminiVoice: "Kore", dubMultiVoice: false, dubDuckLevel: 0.12, dubPace: 1 };
+const DEFAULTS = { enabled: true, targets: ["en"], showOriginal: true, hideNative: true, karaokeHl: true, apiKey: "", translationProvider: "openai", claudeModel: "claude-sonnet-5", anthropicKey: "", keepNames: true, keepTerms: "", position: "bottom", size: "md", stylePreset: "classic", styleCustom: {}, syncOffset: 0, dubEnabled: false, ttsProvider: "openai", geminiKey: "", dubVoice: "marin", dubGeminiVoice: "Kore", dubMultiVoice: false, dubDuckLevel: 0.12, dubPace: 1 };
 const el = (id) => document.getElementById(id);
 const fmtSync = (v) => (v > 0 ? "+" : "") + v.toFixed(2) + "s";
 const langMeta = (code) => LANGS.find((l) => l[0] === code) || [code, code.toUpperCase(), "🏳️"];
@@ -23,6 +23,20 @@ let clipBase = null;
 let clipOverrides = {};
 let clipLoadSeq = 0; // guards loadThisVideo()'s async audioRows() fills against a stale re-run (e.g. Clear cache)
 const CLIP_FIELDS = ["targets", "showOriginal", "position", "size", "syncOffset", "linePositions"];
+// Mirrors manifest.json content_scripts matches — update both together.
+const SUPPORTED_SITES = [
+  ["YouTube", /(^|\.)youtube\.com$/],
+  ["Netflix", /(^|\.)netflix\.com$/],
+  ["Prime Video", /(^|\.)(primevideo\.com|amazon\.de)$/],
+  ["ZDF", /(^|\.)zdf\.de$/],
+  ["DW", /(^|\.)dw\.com$/],
+  ["Udemy", /(^|\.)udemy\.com$/],
+];
+async function activeTabHost() {
+  const tabs = await chrome.tabs.query({ active: true, currentWindow: true }).catch(() => []);
+  // tab.url is exposed only where we hold host permissions — i.e. exactly on supported sites.
+  try { return tabs[0] && tabs[0].url ? new URL(tabs[0].url).hostname : ""; } catch { return ""; }
+}
 
 let savedT;
 function showSaved() { const s = el("saved"); s.classList.add("show"); clearTimeout(savedT); savedT = setTimeout(() => s.classList.remove("show"), 900); }
@@ -105,20 +119,19 @@ function keyHint() {
 }
 function setKeyDot(id, color) { el(id).className = "keydot" + (color ? " " + color : ""); }
 
-// ── Summary dots + auto-open (collapsed keys section) ────────────────────────
-// Order: OpenAI, Anthropic, Google — matches the row order and the summary hint text.
+// ── Summary pills + auto-open (collapsed keys section) ──────────────────────
+// Order: OpenAI, Anthropic, Google — matches the row order inside the fold.
 const KEY_PROVIDERS = [
   { input: "apiKey", failed: () => keyVerifyFailed, name: "OpenAI" },
   { input: "anthropicKey", failed: () => anthropicKeyVerifyFailed, name: "Anthropic" },
   { input: "geminiKey", failed: () => geminiKeyVerifyFailed, name: "Google" },
 ];
 function refreshKeysSummary() {
-  const host = el("keysSummaryDots");
+  const host = el("keysPills");
   if (!host.childElementCount) {
     for (const p of KEY_PROVIDERS) {
       const s = document.createElement("span");
-      s.textContent = "●";
-      s.title = p.name;
+      s.textContent = p.name;
       host.appendChild(s);
     }
   }
@@ -141,7 +154,7 @@ function refreshKeysSummary() {
 // (hydrateKeys/refreshKeysSummary) still wins: it sets .open AFTER this runs, and that
 // programmatic toggle is saved too, which is fine — after fixing the key the user closes
 // it once.
-const FOLD_IDS = ["keysDetails", "engineFold", "voiceFold", "subsFold", "lookFold", "timeFold"];
+const FOLD_IDS = ["keysDetails", "voiceFold", "transFold", "lookFold", "timeFold"];
 async function initFolds() {
   const { uiFold } = await chrome.storage.local.get("uiFold");
   const st = uiFold || {};
@@ -157,17 +170,36 @@ async function initFolds() {
   }
 }
 
+// ── tabs: Translate / Dub / Style. Header, scope bar and the This-video strip
+// stay visible above whichever tab is open; the choice persists like uiFold.
+const TAB_NAMES = ["translate", "dub", "style"];
+function selectTab(name) {
+  for (const b of el("tabBar").children) b.classList.toggle("on", b.dataset.tab === name);
+  for (const p of document.querySelectorAll(".pane")) p.hidden = p.dataset.pane !== name;
+}
+async function initTabs() {
+  const { uiTab } = await chrome.storage.local.get("uiTab");
+  if (TAB_NAMES.includes(uiTab)) selectTab(uiTab);
+  el("tabBar").addEventListener("click", (e) => {
+    const b = e.target.closest(".tab");
+    if (!b) return;
+    selectTab(b.dataset.tab);
+    chrome.storage.local.set({ uiTab: b.dataset.tab });
+  });
+}
+
 function updateFoldSummaries() {
   const txt = (id, v) => { const n = el(id); if (n) n.textContent = v; };
   const sel = (id) => { const s = el(id); return (s && s.selectedOptions[0] && s.selectedOptions[0].textContent) || ""; };
-  txt("engineVal", sel("translationProvider"));
   const gem = el("ttsProvider").value === "gemini";
   txt("voiceVal", sel(gem ? "dubGeminiVoice" : "dubVoice") || sel("ttsProvider"));
-  txt("subsVal", [el("showOriginal").checked ? "dual" : "translation only",
+  txt("transVal", [el("keepNames").checked ? "keep names" : "",
+                   el("keepTerms").value.trim() ? "glossary" : ""].filter(Boolean).join(" · ") || "defaults");
+  txt("lookVal", [sizePct(+el("sizeRange").value),
+                  el("showOriginal").checked ? "dual" : "translation only",
                   el("karaokeHl").checked ? "karaoke" : "",
-                  el("keepNames").checked ? "keep names" : ""].filter(Boolean).join(" · "));
-  txt("lookVal", `${el("sizeRange").value}px`);
-  txt("timeVal", el("syncVal").textContent);
+                  el("hideNative").checked ? "no doubles" : ""].filter(Boolean).join(" · "));
+  txt("timeVal", fmtSync(parseFloat(el("syncInput").value) || 0));
 }
 
 let keyVerifyFailed = false;
@@ -254,7 +286,7 @@ el("verifyGemini").addEventListener("click", async () => {
 
 // ── Translation + TTS engine selects: options disabled/labeled by key availability ──
 // Base labels are constants so rebuilding never accumulates " — add key" suffixes.
-const TRANSLATION_OPTIONS = [["openai", "OpenAI GPT-4o-mini"], ["claude", "Claude Sonnet 4.6"]];
+const TRANSLATION_OPTIONS = [["openai", "OpenAI GPT-4o-mini"], ["claude", "Claude"]];
 const TTS_OPTIONS = [["openai", "OpenAI gpt-4o-mini-tts"], ["gemini", "Gemini 2.5 Flash TTS (native Persian voices)"]];
 // Which stored key (input id) each engine option requires, and the two display
 // names used in the missing-key warning ("<engine> selected but no <provider> key…").
@@ -289,7 +321,22 @@ function updateProviderAvailability() {
 el("translationProvider").addEventListener("change", () => {
   persist({ translationProvider: el("translationProvider").value });
   updateProviderAvailability();
+  updateClaudeModelUI();
 });
+
+// ── Claude model picker: always visible; dim+inert unless the engine is Claude ──
+function updateClaudeModelUI() {
+  const isClaude = el("translationProvider").value === "claude";
+  const row = el("claudeModelRow");
+  row.classList.toggle("dim", !isClaude);
+  // `inert` (not pointer-events): keyboard focus must not reach a dimmed
+  // control — a prior review caught Tab+Enter activating a pointer-blocked one.
+  if (isClaude) row.removeAttribute("inert"); else row.setAttribute("inert", "");
+  for (const b of row.querySelectorAll(".segopt")) b.classList.toggle("on", b.dataset.model === (state.claudeModel || "claude-sonnet-5"));
+}
+for (const b of document.querySelectorAll("#claudeModelRow .segopt")) {
+  b.addEventListener("click", () => { state.claudeModel = b.dataset.model; persist({ claudeModel: state.claudeModel }); updateClaudeModelUI(); });
+}
 
 // ── TTS engine select (dub voice provider) ───────────────────────────────────
 function updateTtsProviderUI() {
@@ -323,15 +370,20 @@ el("keepNames").addEventListener("change", () => persist({ keepNames: el("keepNa
 // keep working — the content script interprets both, nothing is migrated.
 const SIZE_TIER = { sm: 24, md: 30, lg: 38, xl: 48 };
 const sliderFromSize = (s) => (typeof s === "number" && isFinite(s) ? Math.round(s * 1000) : SIZE_TIER[s] || SIZE_TIER.md);
+
+// Display only — 100% = the default (md tier, slider 30). The stored value
+// stays a fraction of video height; px would lie the moment fullscreen hits.
+const sizePct = (v) => Math.round((v / SIZE_TIER.md) * 100) + "%";
+
 function setSizeUI(size) {
   const v = Math.max(12, Math.min(50, sliderFromSize(size)));
   el("sizeRange").value = v;
-  el("sizeVal").textContent = (v / 10).toFixed(1) + "%";
+  el("sizeVal").textContent = sizePct(v);
 }
 let sizeT;
 el("sizeRange").addEventListener("input", () => {
   const v = +el("sizeRange").value;
-  el("sizeVal").textContent = (v / 10).toFixed(1) + "%";
+  el("sizeVal").textContent = sizePct(v);
   clearTimeout(sizeT);
   sizeT = setTimeout(() => saveSetting({ size: v / 1000 }), 120); // live via the storage watcher
 });
@@ -355,7 +407,17 @@ function buildVoiceSelect() {
     gsel.appendChild(o);
   }
 }
-el("dubEnabled").addEventListener("change", () => { state.dubEnabled = el("dubEnabled").checked; persist({ dubEnabled: state.dubEnabled }); });
+// Dim + freeze the voice/mix config while the master toggle is off — instant
+// feedback that none of it does anything until "Dub subtitles aloud" is on.
+// inert (not just pointer-events) so keyboard focus can't reach the frozen
+// controls either — Tab+Enter on Generate would start a paid run.
+function syncDubConfig() {
+  const off = !el("dubEnabled").checked;
+  const box = el("dubConfig");
+  box.classList.toggle("off", off);
+  box.inert = off;
+}
+el("dubEnabled").addEventListener("change", () => { state.dubEnabled = el("dubEnabled").checked; persist({ dubEnabled: state.dubEnabled }); syncDubConfig(); });
 el("dubVoice").addEventListener("change", () => persist({ dubVoice: el("dubVoice").value }));
 el("dubGeminiVoice").addEventListener("change", () => persist({ dubGeminiVoice: el("dubGeminiVoice").value }));
 el("dubMultiVoice").addEventListener("change", () => persist({ dubMultiVoice: el("dubMultiVoice").checked }));
@@ -389,7 +451,7 @@ async function pollDub() {
     updateFoldSummaries();
     return;
   }
-  if (st.live) { btn.hidden = true; s.textContent = "Live streams can't be dubbed."; prog.hidden = true; now.textContent = ""; return; }
+  if (st.live) { btn.hidden = true; s.textContent = "Live streams can't be dubbed."; prog.hidden = true; now.textContent = ""; maybeRefreshSpend(); updateFoldSummaries(); return; }
   if (st.generating) {
     btn.hidden = false;
     btn.textContent = "Cancel";
@@ -418,18 +480,20 @@ async function pollDub() {
 }
 setInterval(pollDub, 1500);
 
-// ── spend line: "Today ~$X.XX · this video ~$Y.YY" ─────────────────────────────
+// ── spend line: "📊 Today ~$X.XX (est.)" in the bottom bar ──────────────────
 // Riding pollDub's 1.5s tick but recomputed only every 4th tick (~6s) — LOG_LIST
-// reads the whole call log, which is cheap but not worth doing 40x/min. Small
-// self-contained fmtCost mirrors library.js's (same rounding: <$1 shows 4dp).
-const fmtCost = (c) => (c >= 1 ? "$" + c.toFixed(2) : "$" + c.toFixed(4));
+// reads the whole call log, which is cheap but not worth doing 40x/min.
+// Display rounds to 2dp (4dp reads like a database dump); the hover title
+// carries the 4dp figures and the this-video split.
+const fmtCost = (c) => "$" + c.toFixed(2);
+const fmtCostFull = (c) => "$" + c.toFixed(4);
 let dubPollTick = 0;
 function maybeRefreshSpend() {
   dubPollTick = (dubPollTick + 1) % 4;
   if (dubPollTick === 1) refreshSpend();
 }
 async function refreshSpend() {
-  const spend = el("dubSpend");
+  const spend = el("spendToday");
   if (!spend) return;
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true }).catch(() => []);
   const tab = tabs && tabs[0];
@@ -448,13 +512,17 @@ async function refreshSpend() {
     const mine = c.base ? c.base === base : (title && window.SV_TITLE.clean(c.title || "") === title);
     if (mine) { thisVideo += estCost(c); clipCalls++; }
   }
-  spend.textContent = (base || title)
-    ? `Today ~${fmtCost(today)} · this video ~${fmtCost(thisVideo)}`
-    : `Today ~${fmtCost(today)}`;
+  spend.textContent = `Today ~${fmtCost(today)}`;
+  el("dubSpend").title = ((base || title) ? `this video ~${fmtCostFull(thisVideo)} · ` : "")
+    + `today ~${fmtCostFull(today)} — open the Library → Activity for the full breakdown`;
   const stats = el("clipStats");
-  if (stats) stats.textContent = (base || title) && clipCalls
-    ? `~${fmtCost(thisVideo)} · ${clipCalls} API call${clipCalls === 1 ? "" : "s"} (recent)`
-    : "";
+  if (stats) {
+    const show = (base || title) && clipCalls;
+    stats.textContent = show
+      ? `~${fmtCost(thisVideo)} · ${clipCalls} API call${clipCalls === 1 ? "" : "s"} (recent)`
+      : "";
+    stats.title = show ? `exactly ~${fmtCostFull(thisVideo)}` : "";
+  }
 }
 el("dubSpend").addEventListener("click", openLibrary);
 
@@ -557,18 +625,22 @@ el("styleBgOpacity").addEventListener("input", () => { clearTimeout(bgT); bgT = 
 el("styleFont").addEventListener("change", () => setCustom({ font: el("styleFont").value }));
 el("styleReset").addEventListener("click", () => { state.styleCustom = {}; persist({ styleCustom: {} }); updateStyleUI(); });
 
-// Sync nudge — writes instantly so the overlay shifts without a reload.
-function nudgeSync(delta) {
-  state.syncOffset = Math.max(-15, Math.min(15, Math.round((state.syncOffset + delta) * 100) / 100));
-  el("syncVal").textContent = fmtSync(state.syncOffset);
-  saveSetting({ syncOffset: state.syncOffset });
+// Sync dock — writes instantly so the overlay shifts without a reload.
+// The dock shows subtitle DELAY (standard player convention: − = earlier,
+// + = later); the STORED syncOffset is the engine's look-ahead where positive
+// means earlier. The sign flips only at this UI boundary, so every stored /
+// per-clip value keeps its exact engine meaning.
+function setSyncFromShown(shown) {
+  const stored = Math.max(-15, Math.min(15, Math.round(-shown * 100) / 100));
+  state.syncOffset = stored;
+  el("syncInput").value = (-stored).toFixed(2);
+  saveSetting({ syncOffset: stored });
 }
-el("syncBack").addEventListener("click", () => nudgeSync(-0.25));
-el("syncFwd").addEventListener("click", () => nudgeSync(0.25));
-// Click the value to snap back to 0 — handy after a big live shift (e.g. +8s).
-el("syncVal").title = "Click to reset to 0";
-el("syncVal").style.cursor = "pointer";
-el("syncVal").addEventListener("click", () => { state.syncOffset = 0; el("syncVal").textContent = fmtSync(0); saveSetting({ syncOffset: 0 }); });
+const shownSync = () => parseFloat(el("syncInput").value) || 0;
+el("syncBack").addEventListener("click", () => setSyncFromShown(shownSync() - 0.25));
+el("syncFwd").addEventListener("click", () => setSyncFromShown(shownSync() + 0.25));
+el("syncInput").addEventListener("change", () => setSyncFromShown(shownSync()));
+el("syncReset").addEventListener("click", () => setSyncFromShown(0));
 
 function flashStatus(t) { el("status").textContent = t; setTimeout(() => { if (el("status").textContent === t) el("status").textContent = ""; }, 2500); }
 function openLibrary() { chrome.tabs.create({ url: chrome.runtime.getURL("library.html") }); }
@@ -633,17 +705,30 @@ async function loadThisVideo() {
   // Library count = number of distinct clips cached (across all languages).
   const bases = new Set();
   for (const t of tracks) { const m = t && t.key && /^(.*):auto:[^:]+$/.exec(t.key); if (m) bases.add(m[1]); }
-  el("libCount").textContent = bases.size
-    ? `${bases.size} video${bases.size === 1 ? "" : "s"} cached · reopen any for free`
-    : "No cached videos yet";
+  el("libCount").textContent = `(${bases.size})`;
 
   el("clearClip").hidden = true;
   if (!clipBase) {
+    // No video: the strip becomes the platform list — the lit chip is the
+    // "SubVibe recognizes this tab" signal, no sentence needed.
+    el("clipTitleLbl").textContent = "Supported platforms";
     box.className = "clipcache muted";
-    box.textContent = "Open a YouTube, Netflix, Prime Video, ZDF or DW video to translate it.";
+    box.innerHTML = "";
+    const sites = document.createElement("div");
+    sites.className = "sites";
+    const host = await activeTabHost();
+    if (seq !== clipLoadSeq) return; // a newer loadThisVideo() ran during the await
+    for (const [name, re] of SUPPORTED_SITES) {
+      const c = document.createElement("span");
+      c.className = "site" + (re.test(host) ? " on" : "");
+      c.textContent = name;
+      sites.appendChild(c);
+    }
+    box.appendChild(sites);
     el("clipExports").hidden = true;
     return;
   }
+  el("clipTitleLbl").textContent = "This video";
   const mine = tracks.filter((t) => t.key && t.key.startsWith(clipBase + ":auto:"));
   if (!mine.length) {
     box.className = "clipcache muted";
@@ -712,6 +797,7 @@ async function load() {
   el("enabled").checked = state.enabled;
   el("apiKey").value = state.apiKey || "";
   el("translationProvider").value = state.translationProvider === "claude" ? "claude" : "openai";
+  updateClaudeModelUI();
   el("anthropicKey").value = state.anthropicKey || "";
   anthropicKeyHint();
   el("keepNames").checked = state.keepNames !== false;
@@ -720,9 +806,10 @@ async function load() {
   el("hideNative").checked = state.hideNative;
   el("karaokeHl").checked = state.karaokeHl !== false;
   el("position").value = state.position || "bottom";
-  el("syncVal").textContent = fmtSync(state.syncOffset || 0);
+  el("syncInput").value = (-(state.syncOffset || 0)).toFixed(2);
   setSizeUI(state.size || "md");
   el("dubEnabled").checked = !!state.dubEnabled;
+  syncDubConfig();
   el("ttsProvider").value = state.ttsProvider === "gemini" ? "gemini" : "openai";
   el("geminiKey").value = state.geminiKey || "";
   updateTtsProviderUI();
@@ -750,9 +837,11 @@ async function load() {
   updateFoldSummaries();
 }
 
-// ── hidden tribute: tap the logo three times ──────────────────────────────────
+// ── hidden tribute: tap the logo three times, or hold the version line ────────
 // In memory of Agha Mansoor. The portrait + words live in shared/tribute.js
-// (window.SV_TRIBUTE), loaded before this script.
+// (window.SV_TRIBUTE), loaded before this script. The header's version line
+// (v1330.1 · Mansoor — his year, his name) is the quiet door: park the mouse on
+// it for 2.5s; its slow shift to mint + glow IS the countdown (see header .ver).
 (function () {
   const logo = document.querySelector("header img");
   if (!logo) return;
@@ -767,12 +856,32 @@ async function load() {
     el("memArt").textContent = tr.portrait;
     el("memName").textContent = "In memory of " + tr.name;
     el("memDed").textContent = tr.dedication;
-    el("memoryCard").hidden = false;
+    const card = el("memoryCard");
+    card.hidden = false;
+    // Double rAF: the card must PAINT at opacity 0 before .show lands, or the
+    // 1.5s fade-in is skipped and it snaps into view.
+    requestAnimationFrame(() => requestAnimationFrame(() => card.classList.add("show")));
   }
+  // The whole card closes it (the bottom hint says so); the × stays for instinct.
+  const closeCard = () => { const c = el("memoryCard"); c.classList.remove("show"); c.hidden = true; };
   const close = el("memClose");
-  if (close) close.addEventListener("click", () => (el("memoryCard").hidden = true));
+  if (close) close.addEventListener("click", closeCard);
+  el("memoryCard").addEventListener("click", closeCard);
+
+  // Version line: text from the manifest (single source of truth), hover-hold to open.
+  const ver = el("verTag");
+  if (ver) {
+    try { const m = chrome.runtime.getManifest(); ver.textContent = "v" + (m.version_name || m.version); } catch { ver.textContent = ""; }
+    let holdT = 0;
+    ver.addEventListener("mouseenter", () => {
+      ver.classList.add("arming"); // starts the 2.5s color/glow "unlocking" cue
+      holdT = setTimeout(() => { ver.classList.remove("arming"); showMemory(); }, 2500);
+    });
+    ver.addEventListener("mouseleave", () => { ver.classList.remove("arming"); clearTimeout(holdT); });
+  }
 })();
 
 buildPresetRow();
 load();
 initFolds();
+initTabs();

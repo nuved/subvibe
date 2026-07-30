@@ -7,6 +7,8 @@
   // https://platform.claude.com/docs/en/about-claude/pricing (checked 2026-07-23):
   // $3 / MTok input, $15 / MTok output.
   const CLAUDE_PRICE_IN = 3 / 1e6, CLAUDE_PRICE_OUT = 15 / 1e6;
+  // Claude Haiku 4.5 — $1 / MTok input, $5 / MTok output (list price).
+  const HAIKU_PRICE_IN = 1 / 1e6, HAIKU_PRICE_OUT = 5 / 1e6;
   // gemini-2.5-flash-preview-tts — verified via WebFetch/curl against
   // https://ai.google.dev/gemini-api/docs/pricing (checked 2026-07-24, Standard
   // tier): $10.00 / 1M output (audio) tokens, 25 audio tokens/sec →
@@ -20,17 +22,22 @@
       return ((c.durMs || 0) / 60000) * perMin;
     }
     const isClaude = c && c.provider === "claude";
-    const pin = isClaude ? CLAUDE_PRICE_IN : PRICE_IN, pout = isClaude ? CLAUDE_PRICE_OUT : PRICE_OUT;
+    // Two Claude tiers since the model became selectable; rows without a model
+    // field predate the picker and were all Sonnet — keep Sonnet rates for them.
+    const isHaiku = isClaude && /haiku/.test((c && c.model) || "");
+    const pin = isHaiku ? HAIKU_PRICE_IN : isClaude ? CLAUDE_PRICE_IN : PRICE_IN;
+    const pout = isHaiku ? HAIKU_PRICE_OUT : isClaude ? CLAUDE_PRICE_OUT : PRICE_OUT;
     let usd = ((c && c.inTok) || 0) * pin + ((c && c.outTok) || 0) * pout;
     // Anthropic bills cached prompt reads at 10% and cache writes at 125% of the
-    // input price; those token counts arrive SEPARATE from input_tokens. (OpenAI
-    // folds cached tokens into prompt_tokens — its automatic 50% discount isn't
-    // modeled here, so OpenAI estimates read slightly high, never low.)
-    if (isClaude) usd += ((c && c.cacheR) || 0) * CLAUDE_PRICE_IN * 0.1 + ((c && c.cacheW) || 0) * CLAUDE_PRICE_IN * 1.25;
+    // model's own input price; those token counts arrive SEPARATE from
+    // input_tokens. (OpenAI folds cached tokens into prompt_tokens — its
+    // automatic 50% discount isn't modeled here, so OpenAI estimates read
+    // slightly high, never low.)
+    if (isClaude) usd += ((c && c.cacheR) || 0) * pin * 0.1 + ((c && c.cacheW) || 0) * pin * 1.25;
     return usd;
   };
 
   g.SV_PRICING = {
-    PRICE_IN, PRICE_OUT, CLAUDE_PRICE_IN, CLAUDE_PRICE_OUT, GEMINI_TTS_USD_PER_MIN, estCost,
+    PRICE_IN, PRICE_OUT, CLAUDE_PRICE_IN, CLAUDE_PRICE_OUT, HAIKU_PRICE_IN, HAIKU_PRICE_OUT, GEMINI_TTS_USD_PER_MIN, estCost,
   };
 })(globalThis);

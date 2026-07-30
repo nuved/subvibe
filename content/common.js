@@ -166,6 +166,7 @@
     return t;
   }
 
+  let lastMainEl = null; // sticky main — see below
   function liveVideoEl(fallback) {
     // Best-effort pick of the element being watched. NOTE: on MSE players the
     // isolated content-script world can't read live media state, so the real
@@ -175,9 +176,22 @@
     // Prefer the LARGEST playing video — the main content. Picking the furthest-
     // along one let a small ad / hover-preview video (with a totally different
     // time) hijack the playhead, flipping the shown cue on/off → a fast blink.
-    if (playing.length) return playing.reduce((a, b) => ((b.clientWidth * b.clientHeight) > (a.clientWidth * a.clientHeight) ? b : a));
-    const a = adapter && adapter.getVideoEl && adapter.getVideoEl();
-    return (a && a.isConnected) ? a : fallback;
+    let pick = null;
+    if (playing.length) pick = playing.reduce((a, b) => ((b.clientWidth * b.clientHeight) > (a.clientWidth * a.clientHeight) ? b : a));
+    // STICKY MAIN (same rule as the page-world relay): when the main player is
+    // PAUSED, a playing hover-preview becomes the only candidate — its 0-6s
+    // loop hijacks the playhead (early cues shown) and its NaN/∞ duration made
+    // isLiveStream flap true, waking the live auto-calibrator on plain VOD
+    // (the "auto offset 15s" incident). Under half the followed element's size
+    // ⇒ it's a preview/ad: keep the main, even paused.
+    if (pick && lastMainEl && lastMainEl.isConnected && pick !== lastMainEl
+        && (pick.clientWidth * pick.clientHeight) < 0.5 * (lastMainEl.clientWidth * lastMainEl.clientHeight)) pick = lastMainEl;
+    if (!pick) {
+      if (lastMainEl && lastMainEl.isConnected) pick = lastMainEl;
+      else { const a = adapter && adapter.getVideoEl && adapter.getVideoEl(); pick = (a && a.isConnected) ? a : fallback; }
+    }
+    if (pick) lastMainEl = pick;
+    return pick;
   }
 
   function waitFor(fn, timeoutMs = 15000) {
@@ -253,9 +267,11 @@
   let streamCleanup = null;  // stops a streaming (DOM-scrape) source
   let currentRunKey = null;  // dedupes redundant start() calls (event spam)
   let liveOffsetMs = 0;      // manual sync nudge (+ = earlier) — applied to LIVE streams only (recorded titles are exact)
+  let liveOffsetChangedAt = -Infinity, liveClampNotedAt = -1; // when the nudge last changed (−∞ = never — early-page clamps must not read as a user action); which change already got its clamp note
   let liveAutoOffsetMs = 0;  // AUTO sync: shift so our cues coincide with the player's OWN on-screen caption
   let calibAt = 0, calibMatched = false, calibMisses = 0;
-  let isLiveStream = false;  // current video is live (duration = Infinity); recorded titles ignore the manual nudge
+  let isLiveStream = null;   // latched liveness verdict: true = live, false = a real finite duration was seen (VOD),
+                             // null = no verdict yet this page — only this state may be armed from a PAUSED video
   const normCue = (s) => (s || "").toLowerCase().replace(/[^\p{L}\p{N} ]/gu, "").replace(/\s+/g, " ").trim();
   // Find the site's own caption currently on screen by MATCHING its text to one of
   // our cues, then shift our timeline so that cue shows exactly when the player
@@ -320,6 +336,7 @@
   let interceptedClipId = null; // the clip (URL-derived videoId) those cues belong to
   let cueListActive = false;  // perfect-sync cue-list mode is the running engine
   let mainClockMs = null, mainClockAt = 0, mainClockPaused = false; // playhead relayed from the page world
+  let lastClipChangeAt = 0; // SPA clip switches stamp this; 0 = initial page load (no hold-back)
   let mainVideoId = null;     // id of the playing clip, reported from the page world (detects clip switch)
   let audioActive = false;   // live audio-transcription mode is running
   let audioRaf = 0;
@@ -761,7 +778,11 @@
   // Original spoken language = the ASR track if present, else the first track.
   function pickOriginalTrack(tracks) {
     if (!tracks || !tracks.length) return null;
-    return tracks.find((t) => t.kind === "asr") || tracks[0];
+    // ASR = the spoken language, always the best "original". Otherwise prefer the
+    // track the site itself marks default — tracks[0] is alphabetical on multi-
+    // track uploads (a DW German video listed Arabic first, so "the original"
+    // came out Arabic and everything downstream translated the wrong language).
+    return tracks.find((t) => t.kind === "asr") || tracks.find((t) => t.isDefault) || tracks[0];
   }
 
   // Build the cue list for one target language, being SMART about cost:
@@ -980,6 +1001,9 @@
       const nowMs = (video.currentTime || 0) * 1000;
       if (curCue && curCue.endMs == null) curCue.endMs = nowMs;
       lastText = text;
+      // Mode stamp for diagnosis: if this ever shows while a "perfect-sync ON"
+      // run is believed active, a scrape run is what is actually rendering.
+      try { document.documentElement.dataset.csDiag = JSON.stringify({ mode: "scrape", heard: (text || "").slice(0, 48), cues: cues.length, play: +((video.currentTime || 0)).toFixed(1) }); } catch {}
       if (!text) { curCue = null; return; }
       sawAny = true;
       if (!audioStopped) { ensureAudioStopped(); audioStopped = true; } // captions exist → no audio
@@ -1038,15 +1062,37 @@
       }
     };
     watchdog = setTimeout(checkWatchdog, 8000); // first check at 8s, re-check every 6s up to ~32s
+    // YouTube: we can't fetch timedtext ourselves (a token-less request returns an
+    // empty body — see subs-intercept.js), but the PLAYER fires its pot-bearing
+    // fetch the moment a caption track is enabled. So instead of waiting ~32s to
+    // ASK the user to press CC, ask the page world to switch the track on now —
+    // hideNative keeps it invisible, and the intercepted URL upgrades this scrape
+    // run to perfect-sync (real cue timing + karaoke) within seconds.
+    // Gated on hideNative: with it OFF the site's captions actually render, so
+    // auto-enabling them would paint doubles and persist a CC preference the
+    // user never chose — those users keep the manual "turn on CC" advice.
+    let ccNudges = 0;
+    const ccNudge = (adapter && adapter.site === "youtube" && settings.hideNative !== false)
+      ? setInterval(() => {
+          if (cueListActive || (interceptedCues && interceptedCues.length) || ++ccNudges > 4) { clearInterval(ccNudge); return; }
+          window.postMessage({ __copilotSubs: true, type: "NEED_CAPTIONS" }, "*");
+        }, 2500)
+      : null;
     // Same-origin <track> sources (e.g. DW) expose the full cue list through the
     // <video>'s textTracks once it loads — even with the site's own captions
     // toggled off. Poll for it and, when present, upgrade from line-by-line
     // scraping to perfect-sync cue-list mode.
     const upgrade = setInterval(() => {
+      // YouTube SPA nav: the reused <video>'s track list can still hold the
+      // PREVIOUS clip's cues for a beat (their console showed a 150-cue run
+      // from the prior video painting onto the next one). Give the real
+      // subtitle file — whose fetch the CC nudge triggers — an 8s head start
+      // before trusting the native track on a freshly switched clip.
+      if (adapter && adapter.site === "youtube" && lastClipChangeAt && performance.now() - lastClipChangeAt < 8000) return;
       const full = readVideoCueList(video);
       if (full && full.length > 3) onInterceptedCues(full);
     }, 2000);
-    streamCleanup = () => { clearInterval(poll); clearTimeout(watchdog); clearInterval(upgrade); };
+    streamCleanup = () => { clearInterval(poll); clearTimeout(watchdog); clearInterval(upgrade); if (ccNudge) clearInterval(ccNudge); };
     applyHideNative(settings.hideNative);
     setStatus(`Live mode → ${targets.map(langLabel).join(" · ")}. Turn ON the player's CC / subtitles if you see nothing.`);
   }
@@ -1123,6 +1169,10 @@
   // from a previous clip (different URL/id) are ignored so they can't bleed across.
   function getAllCues(video) {
     if (interceptedCues && interceptedCues.length && interceptedClipId === currentClipId()) return interceptedCues;
+    // YouTube: right after a clip switch the reused <video>'s track can still
+    // hold the previous clip's ROLLING cues — hold back so the real file (whose
+    // fetch the CC nudge triggers) wins the race instead of junk native cues.
+    if (adapter && adapter.site === "youtube" && lastClipChangeAt && performance.now() - lastClipChangeAt < 8000) return null;
     return readVideoCueList(video);
   }
   function onInterceptedCues(list) {
@@ -1279,7 +1329,16 @@
     if (!url || url === interceptedUrl || fetchedSubUrls.has(key)) return; // already active / in flight / done
     fetchedSubUrls.add(key); // claim NOW so the 1.5s re-post (subs-intercept.js) can't launch a duplicate fetch
     console.info("[CopilotSubs] fetching subtitle file:", url);
-    const resp = await send({ type: "FETCH_SUBS", url });
+    // YouTube timedtext: the pot token validates against the SAME first-party
+    // context the player fetched with (cookies included). The worker's cookieless
+    // re-fetch comes back as an empty 200 body — so fetch it same-origin from THIS
+    // world first, exactly like the player did. The worker stays the path for
+    // cross-origin files (ZDF's utstreaming subdomain), where it's CORS-exempt.
+    let resp = null;
+    if (/\/api\/timedtext/.test(url) && location.hostname.endsWith("youtube.com")) {
+      try { const r = await fetch(url, { credentials: "include" }); resp = { ok: r.ok, status: r.status, text: await r.text() }; } catch {}
+    }
+    if (!resp || !resp.text) resp = await send({ type: "FETCH_SUBS", url });
     if (!resp || resp.error || !resp.text) {
       // Transport failure is transient — let a later re-post retry, but only a few
       // times, then give up (leave it claimed) so we never hammer a dead URL forever.
@@ -1326,14 +1385,55 @@
     const pageTitle = SV_TITLE.clean(document.title), pageUrl = location.href;
 
     // Cached translations (per target), applied to current AND future cues.
-    const cacheMaps = {};
+    // Three lookup layers, strictest first: exact startMs; the cue's ORIGINAL
+    // text (rows persisted since the `o` field shipped); then an overlapping
+    // near-miss on time. The fallbacks exist because caption timings JITTER
+    // between variants of the same track (YouTube re-generates ASR, native
+    // roll-up cues carry their own timestamps) — an exact-only key turned every
+    // millisecond of drift into a paid re-translation of a line we already own.
+    const CACHE_NEAR_MS = 250;
+    let nearMatchLogs = 0;
+    const cacheMaps = {}, cacheStarts = {}, cacheTextMaps = {};
     for (const tg of settings.targets) {
       const cached = (await send({ type: "CACHE_GET", key: `${base}:auto:${tg}` }))?.track;
-      cacheMaps[tg] = new Map((cached?.cues || []).map((c) => [c.startMs, c]));
+      const rows = cached?.cues || [];
+      cacheMaps[tg] = new Map(rows.map((c) => [c.startMs, c]));
+      cacheStarts[tg] = rows.map((c) => c.startMs).sort((a, b) => a - b);
+      cacheTextMaps[tg] = new Map(rows.filter((c) => c.o).map((c) => [normCue(c.o), c]));
     }
+    // Nearest LEGACY cached row (no `o` field) within CACHE_NEAR_MS whose time
+    // window overlaps the cue's. Rows that know their original are excluded on
+    // purpose: the exact/text layers already serve them, and a near-in-time row
+    // with DIFFERENT text is the wrong line by definition — assigning it would
+    // show a wrong subtitle silently for the whole session, worse than the
+    // pennies of a re-translation. Legacy rows can't be text-compared (they
+    // only store the translation), so they get a tight window plus a crude
+    // length-plausibility check, and every acceptance is logged.
+    const nearCacheRow = (tg, cue) => {
+      const arr = cacheStarts[tg];
+      if (!arr || !arr.length) return null;
+      let lo = 0, hi = arr.length - 1;
+      while (lo < hi) { const m = (lo + hi) >> 1; if (arr[m] < cue.startMs) lo = m + 1; else hi = m; }
+      let best = null;
+      for (const k of [arr[lo], arr[lo - 1]]) {
+        if (k == null) continue;
+        const d = Math.abs(k - cue.startMs);
+        if (d > CACHE_NEAR_MS || (best && d >= best.d)) continue;
+        const row = cacheMaps[tg].get(k);
+        if (row.o) continue; // has its original → exact/text layers own it
+        const oLen = normCue(cue.original || "").length, tLen = (row.text || "").length;
+        if (oLen && tLen && (oLen > tLen * 3 || tLen > oLen * 3)) continue; // length-implausible pair
+        const rowEnd = row.endMs || row.startMs, cueEnd = cue.endMs || cue.startMs;
+        if (row.startMs < cueEnd && cue.startMs < rowEnd) best = { d, row };
+      }
+      if (best && nearMatchLogs++ < 5) console.info(`[CopilotSubs] cache near-match (+${best.d}ms) for cue @${Math.round(cue.startMs / 1000)}s — legacy row, timestamp jitter healed`);
+      return best ? best.row : null;
+    };
     const applyCache = (cue) => {
       for (const tg of settings.targets) {
-        const v = cacheMaps[tg].get(cue.startMs);
+        const v = cacheMaps[tg].get(cue.startMs)
+          || (cue.original && cacheTextMaps[tg].get(normCue(cue.original)))
+          || nearCacheRow(tg, cue);
         if (!v) continue;
         // Heal caches poisoned by the failed-batch English fallback: an RTL
         // target whose cached "translation" has no RTL script is untranslated
@@ -1341,7 +1441,7 @@
         // legit Latin-only lines — a kept name, bare numbers — just re-translate
         // once per session; pennies, and they cache again if RTL comes back.)
         if (isRTLLang(tg) && v.text && !isRTL(v.text)) continue;
-        cue.t[tg] = v.text;
+        cue.t[tg] = (v.text || "").replace(/\s+/g, " ").trim(); // normalized for karaoke unit reassembly
         if (v.sid != null && !cue.spk) cue.spk = { id: v.sid, g: v.sg || "?" };
         if (v.dt != null && cue.dt === undefined) cue.dt = v.dt; // cached condensed dub text (old caches: undefined → g.d null in buildGroups)
       }
@@ -1423,7 +1523,37 @@
     const tick = () => {
       video = liveVideoEl(video); // DW's video.js can swap the <video> element mid-play
       if (video && !video.paused && (video.currentTime || 0) > 0.5) engaged = true;
-      isLiveStream = !!(video && video.duration != null && !isFinite(video.duration));
+      // Latched live detection. Infinity ⇒ live; a real finite duration ⇒ VOD;
+      // NaN keeps the previous verdict. The old !isFinite() matched NaN too, so
+      // a metadata-less element (fresh SPA clip, hover-preview) read as "live"
+      // and woke the live-only auto-calibrator on plain VOD (the +15s incident).
+      // The latch protects the other direction too: a single NaN tick during a
+      // real live stream's MediaSource rebuild must not zero the converged
+      // auto-offset or let persist() cache a live channel under the shared key.
+      const dur0 = video && video.duration;
+      if (dur0 === Infinity) isLiveStream = true;
+      else if (typeof dur0 === "number" && isFinite(dur0) && dur0 > 0) isLiveStream = false;
+      // PLAYING with an advancing clock but still no finite duration = live.
+      // ZDF live reports NaN (not Infinity), so without this rule the latch
+      // never flipped and the manual timing shift silently multiplied by zero.
+      // The clock MUST be playheadMs(): the raw element currentTime reads ~0 in
+      // this isolated world on MSE players (ZDF live!) — reading it directly
+      // silently disabled this very rule. playheadMs() falls back to the
+      // page-world relay, the same clock every other consumer trusts.
+      // Safe for VOD: metadata (finite duration) always lands before playback
+      // can advance past the first half-second.
+      else if (video && !video.paused && playheadMs(video) > 500) isLiveStream = true;
+      // PAUSED ZDF live: the rule above can never arm (it requires playing), and
+      // NaN keeps the verdict — so an engine that starts against an already-paused
+      // live tab (content script injected late, tab refreshed while paused) reads
+      // as VOD forever and the manual shift silently multiplies by zero. Arm from
+      // pause ONLY while the verdict is still null: a clip that ever reported a
+      // finite duration stays VOD through NaN flickers (the hover-preview and SPA
+      // +15s incidents stay impossible). A paused pre-metadata VOD normally can't
+      // get here (clock ~0, no cues); the narrow slip-through — restored caption
+      // track feeding nativePlayheadMs before metadata — mis-arms only until the
+      // finite duration lands, which flips the verdict and drops the auto-offset.
+      else if (isLiveStream == null && video && video.paused && Number.isNaN(dur0) && playheadMs(video) > 500 && cues.length) isLiveStream = true;
       // Auto-align to the player's own caption — LIVE ONLY. On VOD (YouTube, Netflix,
       // recorded Prime) the cue list is already exactly timed to video.currentTime, so
       // ANY auto-shift can only DESYNC it. The trap: a caption stays on screen for its
@@ -1445,7 +1575,15 @@
       // nothing. (When rewound, t is well below the newest cue, so findCue handles it.)
       if (i < 0 && isLiveStream && cues.length) {
         const last = cues[cues.length - 1], lastEnd = last.endMs || last.startMs;
-        if (t > lastEnd && t - lastEnd < 20000) i = cues.length - 1;
+        if (t > lastEnd && t - lastEnd < 20000) {
+          i = cues.length - 1;
+          // A shift the user JUST made that lands past the newest line would
+          // otherwise re-show the same text — reading as a dead control. Say why.
+          if (performance.now() - liveOffsetChangedAt < 5000 && liveClampNotedAt !== liveOffsetChangedAt) {
+            liveClampNotedAt = liveOffsetChangedAt;
+            setStatus(`Live edge — no newer subtitle exists yet (${((t - lastEnd) / 1000).toFixed(1)}s past the newest line). It applies as new lines arrive.`);
+          }
+        }
       }
       const c = i >= 0 ? cues[i] : null;
       const kar = settings.karaokeHl !== false;
@@ -1494,6 +1632,7 @@
         else setBadge({ count: done, state: behindMs < 3500 ? "miss" : "lag", ...dub });
         try {
           document.documentElement.dataset.csDiag = JSON.stringify({
+            mode: "cuelist", src: interceptedUrl ? "file" : "native",
             play: +(t / 1000).toFixed(1), raw: +raw.toFixed(1), relayClk: mainClockMs != null ? +(mainClockMs / 1000).toFixed(1) : null,
             live: isLiveStream, autoOff: +(liveAutoOffsetMs / 1000).toFixed(1),
             showing: i >= 0 ? +(cues[i].startMs / 1000).toFixed(1) : null,
@@ -1513,7 +1652,7 @@
         send({ type: "CACHE_PUT", key: `${base}:auto:${tg}`,
           track: { site: adapter?.site, videoId, source: "auto", target: tg, model: "gpt-4o-mini", createdAt: new Date().toISOString(),
             title: pageTitle, url: pageUrl, totalCues: cues.length,
-            cues: cues.filter((c) => c.t[tg]).map((c) => ({ startMs: c.startMs, endMs: c.endMs, text: c.t[tg], sid: c.spk && c.spk.id, sg: c.spk && c.spk.g,
+            cues: cues.filter((c) => c.t[tg]).map((c) => ({ startMs: c.startMs, endMs: c.endMs, text: c.t[tg], o: c.original, sid: c.spk && c.spk.id, sg: c.spk && c.spk.g,
               dt: c.grp && c === c.grp.cues[0] ? (c.grp.d || undefined) : undefined })) } });
       }
     }, 3000);
@@ -1542,17 +1681,41 @@
     // Keep ingesting as more cues arrive. HLS players (e.g. DW) add subtitle
     // cues to the text track segment-by-segment during playback, so re-read the
     // live track too — not just the one-shot intercepted file.
+    // A complete intercepted FILE is authoritative — never merge the player's
+    // own track cues on top of it. YouTube's native track rolls the previous +
+    // current line into ONE cue with its own timestamps; merging those in
+    // duplicated every line under near-miss startMs values, so the duplicates
+    // missed the cache, the pump re-translated them (real spend), the badge
+    // read 0/8 in already-watched territory, and the display flip-flopped
+    // between the one-line and two-line copies. Only merge the live track
+    // while the file does NOT cover the clip (HLS sites stream cues in
+    // segment-by-segment; live has no duration and always merges).
+    const fileCoversClip = () => {
+      if (!interceptedUrl || !cues.length) return false;
+      // YouTube VOD timedtext is always the complete track — no heuristic needed.
+      // (Live falls through: duration is Infinity, durMs 0 → keep merging.)
+      if (adapter && adapter.site === "youtube" && video && isFinite(video.duration)) return true;
+      const durMs = video && isFinite(video.duration) ? video.duration * 1000 : 0;
+      return durMs > 0 && cues[cues.length - 1].startMs >= 0.8 * durMs;
+    };
     const reread = setInterval(() => {
-      const native = readVideoCueList(video);
-      if (native && native.length) onInterceptedCues(native); // dedups into interceptedCues
+      if (!fileCoversClip()) {
+        const native = readVideoCueList(video);
+        if (native && native.length) onInterceptedCues(native); // dedups into interceptedCues
+      }
       const fresh = getAllCues(video);
       if (fresh) ingest(fresh);
       buildGroups(cues); // re-group as new cues arrive (streaming sources)
     }, 3000);
 
-    let busy = false;
+    // Up to TWO batches in flight: Claude's ~13-20s per call outruns a single
+    // serial pipe on dense speech — the runway drained faster than it filled.
+    // In-flight content is marked on the CUES (c.pend[tg]), not the groups:
+    // buildGroups rebuilds group objects every 3s, so a group-level flag would
+    // be wiped mid-call and the same lines re-sent (double billing).
+    let inFlight = 0;
     const pump = setInterval(async () => {
-      if (busy) return;
+      if (inFlight >= 2) return;
       const lv = liveVideoEl(video);
       // Pre-translate the buffered-ahead window while PLAYING — and also while PAUSED
       // once you've engaged this clip, so pausing a live/DVR (or any) video lets the
@@ -1573,29 +1736,50 @@
         // window would translate the ENTIRE movie at once and burn API cost. The
         // index cap makes spend track watched time, never file size.
         // Claude batches take several times longer than gpt-4o-mini — give the
-        // pump a longer runway so slower calls still land before the playhead.
+        // pump a longer runway (~2.5 min) so slower calls land well before the
+        // playhead and batches fill up instead of trickling out one line at a time.
         const claudeT = settings.translationProvider === "claude";
-        const MAX_AHEAD_CUES = claudeT ? 40 : 24;
+        const MAX_AHEAD_CUES = claudeT ? 80 : 24;
         let i0 = 0;
         while (i0 < cues.length && cues[i0].startMs < t - 4000) i0++;
         const groups = [], gseen = new Set();
         for (let k = i0; k < cues.length && k < i0 + MAX_AHEAD_CUES; k++) {
           const c = cues[k];
-          if (c.startMs > t + (claudeT ? 75000 : 45000)) break; // also never run far ahead in time
+          if (c.startMs > t + (claudeT ? 150000 : 45000)) break; // also never run far ahead in time
           const g = c.grp;
           if (!g || !g.closed || g.t[tg] || gseen.has(g)) continue;
+          if (g.cues.some((cc) => cc.pend && cc.pend[tg])) continue; // already in flight
           gseen.add(g); groups.push(g);
           if (groups.length >= 12) break;
         }
         if (!groups.length) continue;
-        // Live + Claude: a lone just-closed group would re-bill the full prompt
-        // for one line — give a second group ~4s to accumulate first.
-        if (claudeT && isLiveStream && groups.length === 1 && t - groups[0].cues[0].startMs < 4000) continue;
-        busy = true;
-        const guard = setTimeout(() => { busy = false; }, 20000); // backstop: a hung worker call must never wedge the pump (the 5→0-stuck bug)
+        // A lone group re-bills the full prompt for one line. LIVE: give a second
+        // group ~4s to accumulate. VOD: hold a lone batch while its line isn't due
+        // within 12s — the deadline always wins over batching, nothing shows late.
+        if (claudeT && groups.length === 1) {
+          if (isLiveStream) { if (t - groups[0].cues[0].startMs < 4000) continue; }
+          // 30s: comfortably above Claude's observed worst call (~21s) — a 12s
+          // margin would have guaranteed a late line every time the hold fired.
+          else if (groups[0].cues[0].startMs - t > 30000) continue;
+        }
+        for (const g of groups) for (const cc of g.cues) (cc.pend ||= {})[tg] = 1;
+        inFlight++;
+        let released = false;
+        const release = () => {
+          if (released) return;
+          released = true; inFlight--;
+          for (const g of groups) for (const cc of g.cues) if (cc.pend) delete cc.pend[tg];
+        };
+        // Last-resort zombie-slot reclaim ONLY. A LEGITIMATE call can run minutes:
+        // the worker retries 429s with up to 25s waits x3 attempts, then halves the
+        // batch and retries each half — firing early re-bills content still in
+        // flight (the old 20s guard's exact bug). Extension reloads resolve via
+        // resp.dead, so this timer covers only a truly hung worker; with two slots
+        // a wedged one no longer stalls the pump, so it can afford to be patient.
+        const guard = setTimeout(release, 300000);
         let resp;
         try { resp = await send({ type: "TRANSLATE", cues: groups.map((g) => g.orig), source: "auto", target: tg, site: adapter?.site, title: SV_TITLE.clean(document.title), base: lastCacheBase }); }
-        finally { clearTimeout(guard); busy = false; }
+        finally { clearTimeout(guard); release(); }
         if (resp?.dead) return; // extension reloaded — orphaned script, stop quietly (haltOrphaned showed the refresh hint)
         if (resp?.error) {
           // Transient OpenAI blips (5xx/520/429) self-recover on the next tick — show a
@@ -1613,8 +1797,12 @@
           // become an every-round re-spend loop.
           const echo = isRTLLang(tg) && resp.lines[k] === g.orig && !isRTL(resp.lines[k]);
           if (echo && (g.echoN = (g.echoN || 0) + 1) <= 2) return;
-          g.t[tg] = resp.lines[k];
-          for (const cc of g.cues) cc.t[tg] = resp.lines[k];
+          // Single-space-normalized: karaoke's word units only attach when they
+          // reassemble into the display text exactly — stray double spaces from
+          // the model silently disabled the highlight for that line.
+          const line = resp.lines[k].replace(/\s+/g, " ").trim();
+          g.t[tg] = line;
+          for (const cc of g.cues) cc.t[tg] = line;
           if (tg === settings.targets[0]) {                      // tag once, from the primary target's pass
             g.spk = { id: (resp.spk && resp.spk[k]) || 0, g: (resp.gen && resp.gen[k]) || "?" };
             for (const cc of g.cues) cc.spk = g.spk;
@@ -1891,7 +2079,8 @@
     const overChanged = keys.includes("clipOverrides");
     if (overChanged || keys.some((k) => LIVE_KEYS.includes(k))) {
       getSettings().then((s) => {
-        liveOffsetMs = Math.round((s.syncOffset || 0) * 1000);
+        const next = Math.round((s.syncOffset || 0) * 1000);
+        if (next !== liveOffsetMs) { liveOffsetMs = next; liveOffsetChangedAt = performance.now(); }
         if (document.getElementById("copilot-subs")) applyAppearance(s);
       }).catch(() => {});
     }
@@ -1945,7 +2134,15 @@
       // cues and re-fetch the new clip's subtitle file.
       if (!d.paused && d.id) { // only track the clip that is actually playing
         if (mainVideoId && d.id !== mainVideoId) { // a real clip switch
-          dropInterceptedCues(); schedule();
+          // YouTube: a real clip switch ALWAYS changes the URL, and the 1s
+          // watcher below handles that. The element-id relay only ever fires
+          // false positives here (hover previews / ads reporting their own tiny
+          // <video>) — and dropping cues on one nuked a healthy perfect-sync
+          // run mid-watch, stranding the clip on rolling native cues.
+          if (!(adapter && adapter.site === "youtube")) {
+            lastClipChangeAt = performance.now();
+            dropInterceptedCues(); schedule();
+          }
         }
         mainVideoId = d.id;
       }
@@ -1970,7 +2167,7 @@
   let lastUrl = location.href, lastClip = currentClipId();
   setInterval(() => {
     const clip = currentClipId();
-    if (clip !== lastClip) { lastClip = clip; dropInterceptedCues(); schedule(); }
+    if (clip !== lastClip) { lastClip = clip; lastClipChangeAt = performance.now(); dropInterceptedCues(); schedule(); }
     else if (location.href !== lastUrl) { lastUrl = location.href; schedule(); }
   }, 1000);
 

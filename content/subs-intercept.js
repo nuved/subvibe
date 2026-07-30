@@ -59,6 +59,47 @@
   // clip's subtitles.
   setInterval(() => { if (latestUrl) window.postMessage({ __copilotSubs: true, type: "SUBS_URL", url: latestUrl }, "*"); }, 1500);
 
+  // ── NEED_CAPTIONS: the content script asks for this when SubVibe is running
+  // but no subtitle file has appeared. Enabling a caption track makes the player
+  // fire its pot-bearing timedtext request (the only kind that returns real
+  // cues) — the observer above then hands over the URL. The captions stay
+  // invisible (SubVibe hides the site's own rendering); this just automates the
+  // "turn ON the player's CC" advice the overlay used to show after 32s.
+  let ccTriedFor = "";
+  window.addEventListener("message", (ev) => {
+    const d = ev.data;
+    if (ev.source !== window || !d || !d.__copilotSubs || d.type !== "NEED_CAPTIONS") return;
+    const k = clipKey();
+    if (ccTriedFor === k) return; // once per clip — later nudges only retry while we couldn't act
+    try {
+      const p = document.getElementById("movie_player");
+      if (p && p.loadModule) {
+        p.loadModule("captions");
+        const cur = p.getOption && p.getOption("captions", "track");
+        if (cur && cur.languageCode) { ccTriedFor = k; return; } // already on
+        const tl = (p.getOption && p.getOption("captions", "tracklist")) || [];
+        if (tl.length) {
+          // The tracklist is ALPHABETICAL on multi-track uploads (a 19-track DW
+          // video listed Arabic first) — tl[0] enables the wrong language. Prefer
+          // the player's own default marker: the same track the CC button enables.
+          const pick = tl.find((t) => t.is_default) || tl[0];
+          p.setOption("captions", "track", { languageCode: pick.languageCode });
+          ccTriedFor = k;
+          console.info("[CopilotSubs/MAIN] caption track switched on for SubVibe:", pick.languageCode);
+          return;
+        }
+        // Tracklist not populated yet (loadModule is async in effect) — fall
+        // through to the CC button IN THIS SAME PASS; in practice the button is
+        // the path that fires on nudge #1. Nothing is marked tried unless one of
+        // the two paths actually acted, so a later nudge can retry.
+      }
+    } catch {}
+    try {
+      const b = document.querySelector('.ytp-subtitles-button[aria-pressed="false"]');
+      if (b) { b.click(); ccTriedFor = k; console.info("[CopilotSubs/MAIN] captions enabled via the CC button"); }
+    } catch {}
+  });
+
   // Clip-change detector by URL — covers SPA players whose <video> element has no
   // per-clip id (YouTube: same element across videos, id only in ?v=). When the
   // clip key changes, the previous clip's subtitle URL is stale; stop re-posting it.
@@ -309,10 +350,19 @@
   function reportTime() {
     const vids = document.querySelectorAll("video");
     if (!vids.length) return;
-    let best = null;
+    let best = null, main = null;
     // Prefer the LARGEST playing video (main content) so a small ad/preview can't
     // hijack the relayed clock and make the shown cue flicker.
     for (const v of vids) if (!v.paused && !v.ended && (!best || v.clientWidth * v.clientHeight > best.clientWidth * best.clientHeight)) best = v;
+    for (const v of vids) if (!main || v.clientWidth * v.clientHeight > main.clientWidth * main.clientHeight) main = v;
+    // A PAUSED main player + a playing thumbnail-preview must NOT flip the relay:
+    // the id switch downstream drops a healthy clip's cues. If the only playing
+    // video is under half the real player's size, keep reporting the player —
+    // but ONLY if that player was itself the last playing source (sticky main).
+    // Without that condition, a DW article's big never-played hero video would
+    // steal the relay from the small embed the user deliberately started.
+    if (best && main && best !== main && main.id && main.id === lastPlayingId
+        && (best.clientWidth * best.clientHeight) < 0.5 * (main.clientWidth * main.clientHeight)) best = main;
     if (!best) for (const v of vids) if (!best || (v.currentTime || 0) > (best.currentTime || 0)) best = v;
     if (!best) return;
     // When the PLAYING clip changes, the previous subtitle file is stale — stop

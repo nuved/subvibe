@@ -9,6 +9,7 @@
       --bg: #0b0d12; --panel: #11151c; --panel2: #161c26; --border: #28303d;
       --text: #e7ecf3; --muted: #8b95a6; --accent: #4f8cff; --accent2: #3f7af0;
       --green: #7fe0b0; --red: #ff9a9a; --amber: #ffcf8f;
+      --radius: 10px; /* one corner theme for every interactive box */
     }
     * { box-sizing: border-box; }
     body { width: 340px; margin: 0; padding: 0 0 14px; background: var(--bg); color: var(--text);
@@ -19,6 +20,10 @@
     header img { width: 30px; height: 30px; border-radius: 8px; }
     header h1 { font-size: 15px; margin: 0; letter-spacing: .2px; }
     header .tag { color: var(--muted); font-size: 10.5px; margin: 1px 0 0; }
+    /* The version line doubles as the tribute's door: park the mouse on it and
+       the 2.5s color/glow transition IS the countdown — full mint = unlocked. */
+    header .ver { color: var(--muted); font-size: 10px; margin: 1px 0 0; transition: color 2.5s ease, text-shadow 2.5s ease; }
+    header .ver.arming { color: #7fe0b0; text-shadow: 0 0 9px rgba(127, 224, 176, .55); }
     header .spacer { flex: 1; }
 
     /* toggle switch */
@@ -34,15 +39,24 @@
     .lbl a { color: var(--accent); font-weight: 500; font-size: 11px; text-decoration: none; }
     .lbl a:hover { text-decoration: underline; }
     .hint { color: var(--muted); font-weight: 400; font-size: 11px; }
+    .info { display: inline-block; width: 14px; height: 14px; margin-left: 5px; flex: none;
+      border: 1px solid var(--border); border-radius: 50%; color: var(--muted);
+      font-size: 10px; line-height: 12px; text-align: center; font-weight: 600; cursor: help; }
+    .info:hover { color: var(--text); border-color: var(--muted); }
 
     input[type="password"], input[type="text"], select {
-      width: 100%; padding: 8px 9px; border-radius: 8px; border: 1px solid var(--border);
+      width: 100%; padding: 8px 9px; border-radius: var(--radius); border: 1px solid var(--border);
       background: var(--panel); color: var(--text); font-size: 13px; }
     input:focus, select:focus { outline: none; border-color: var(--accent); }
+    /* selects share the folds' line-art chevron, same 10px right inset — one axis */
+    select { appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%238b95a6' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 10px center; background-size: 10px 6px;
+      padding-right: 28px; }
 
     .keyrow { display: flex; gap: 7px; }
     .keyrow input { flex: 1; }
-    button { border: 0; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 12.5px; }
+    button { border: 0; border-radius: var(--radius); cursor: pointer; font-weight: 600; font-size: 12.5px; }
     .btn { padding: 8px 12px; background: var(--accent); color: #fff; }
     .btn:hover { background: var(--accent2); }
     .btn.ghost { background: var(--panel2); color: #cdd6e3; border: 1px solid var(--border); }
@@ -63,25 +77,33 @@
     .keydot.green { background: var(--green); }
     .keydot.red { background: var(--red); }
     .selwarn { color: var(--amber); font-size: 11px; margin: 5px 0 0; }
-    #keysSummaryDots { letter-spacing: 1px; }
-    #keysSummaryDots span { color: var(--muted); font-size: 9px; }
-    #keysSummaryDots span.green { color: var(--green); }
-    #keysSummaryDots span.red { color: var(--red); }
+    /* per-provider status pills in the collapsed keys bar: green = key stored,
+       red = failed verify, muted = missing. Hidden while open — the rows say it all. */
+    #keysPills { display: inline-flex; gap: 4px; min-width: 0; }
+    #keysPills span { padding: 1px 7px; border-radius: 8px; font-size: 9.5px; font-weight: 600;
+      color: var(--muted); background: var(--panel2); border: 1px solid var(--border); white-space: nowrap; }
+    #keysPills span.green { color: var(--green); border-color: rgba(127,224,176,.45); background: rgba(127,224,176,.08); }
+    #keysPills span.red { color: var(--red); border-color: rgba(255,154,154,.45); background: rgba(255,154,154,.08); }
+    details.customize[open] > summary #keysPills { display: none; }
 
     /* language chips + autocomplete */
     .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
-    .chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 6px 3px 8px;
-      background: var(--panel2); border: 1px solid var(--border); border-radius: 20px; font-size: 12px; }
+    .chip { display: inline-flex; align-items: center; gap: 7px; padding: 4px 9px 4px 11px;
+      background: #1b2330; border: 1px solid var(--border); border-radius: 20px; font-size: 12px; }
     .chip .fl { font-size: 13px; }
     .chip.primary { border-color: #2f5fb0; background: #14233c; }
-    .chip .star { color: var(--accent); font-size: 10px; }
-    .chip button { background: transparent; color: var(--muted); font-size: 14px; line-height: 1; padding: 0 2px; }
+    .chip .star { color: var(--accent); font-size: 10px; margin: 0 1px; }
+    .chip button { background: transparent; color: var(--muted); font-size: 14px; line-height: 1; padding: 0 3px; }
     .chip button:hover { color: var(--red); }
     .chips:empty::after { content: "No language yet — add one below"; color: var(--muted); font-size: 11px; }
 
     .ac { position: relative; }
+    /* real magnifier icon — it was an emoji inside the placeholder, so the caret landed on it */
+    #langSearch { padding-left: 31px;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14'%3E%3Ccircle cx='6' cy='6' r='4.2' fill='none' stroke='%238b95a6' stroke-width='1.5'/%3E%3Cpath d='M9.4 9.4L13 13' stroke='%238b95a6' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: left 10px center; background-size: 13px 13px; }
     .menu { position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 5; max-height: 196px; overflow-y: auto;
-      background: var(--panel); border: 1px solid var(--border); border-radius: 9px; box-shadow: 0 10px 30px rgba(0,0,0,.5);
+      background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 10px 30px rgba(0,0,0,.5);
       display: none; padding: 4px; }
     .menu.show { display: block; }
     .opt { display: flex; align-items: center; gap: 9px; padding: 7px 8px; border-radius: 7px; cursor: pointer; }
@@ -92,19 +114,37 @@
 
     .row { display: flex; align-items: center; gap: 9px; margin: 9px 0 0; }
     .row label { font-weight: 500; }
+    .rowlbl { min-width: 98px; color: var(--muted); flex: none; }
+    .seg2 { flex: 1; display: flex; gap: 6px; }
+    .segopt { flex: 1; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); color: var(--text); cursor: pointer; text-align: center; font-weight: 400; font-size: 12.5px; transition: border-color .18s ease, background .18s ease; }
+    .segopt b { display: block; font-weight: 600; }
+    .segopt small { display: block; margin-top: 1px; font-size: 10.5px; color: var(--muted); }
+    .segopt.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--panel)); }
+    /* Dimmed = engine isn't Claude: the whole row fades AND the accent lets go —
+       the border snapping back on is the "this is active now" cue, so the
+       dropdown needs no "(model below)" instruction text. */
+    #claudeModelRow { transition: opacity .18s ease; }
+    #claudeModelRow.dim { opacity: .4; }
+    #claudeModelRow.dim .segopt.on { border-color: var(--border); background: var(--panel); }
+
+    /* dub config dims + freezes while the master dub toggle is off */
+    #dubConfig { transition: opacity .15s; }
+    #dubConfig.off { opacity: .4; pointer-events: none; }
 
     /* appearance: preview strip + style preset tiles + size slider */
     /* Baloo 2 for the preview/tiles — a relative url() is fine here (extension
        page origin); the content script injects it with absolute URLs instead. */
     @font-face { font-family: "Baloo 2"; font-weight: 800; font-display: swap;
       src: url("fonts/Baloo2-ExtraBold-latin.woff2") format("woff2"); }
-    .prevwrap { height: 48px; border-radius: 9px; border: 1px solid var(--border); overflow: hidden;
+    .prevwrap { height: 48px; border-radius: var(--radius); border: 1px solid var(--border); overflow: hidden;
       display: flex; align-items: center; justify-content: center; margin-bottom: 8px;
       background: linear-gradient(135deg, #232c3d 0%, #0e1420 55%, #1b2436 100%); }
     .prevtext { font-size: 14px; white-space: nowrap; }
-    .presets { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 3px; scrollbar-width: thin; }
-    .presets button { flex: none; width: 62px; padding: 7px 0 5px; background: var(--panel);
-      border: 1px solid var(--border); display: flex; flex-direction: column; align-items: center; gap: 4px; }
+    .presets { display: flex; gap: 6px; overflow-x: auto; padding: 2px 0 5px; scrollbar-width: thin; }
+    .presets button { flex: none; width: 64px; padding: 8px 0 6px; background: var(--panel2);
+      border: 1px solid transparent; border-radius: var(--radius); box-shadow: 0 1px 2px rgba(0,0,0,.35);
+      display: flex; flex-direction: column; align-items: center; gap: 4px; }
+    .presets button:hover { background: #1b2330; border-color: var(--border); }
     .presets button .abc { font-size: 13px; line-height: 1.25; padding: 1px 6px; border-radius: 4px; }
     .presets button .pname { font-size: 9.5px; color: var(--muted); font-weight: 500; }
     .presets button.on { border-color: var(--accent); background: #14233c; }
@@ -114,14 +154,35 @@
       border-radius: 6px; background: var(--panel); flex: none; }
     .sizeval { min-width: 38px; text-align: right; color: var(--muted); font-weight: 600; font-size: 11.5px; }
     details.customize { border-top: 0; margin-top: 10px; }
-    details.customize summary { padding: 2px 0; font-size: 12px; color: var(--muted); }
-    details.customize summary::after { float: none; margin-left: 6px; }
+    details.customize > summary { display: flex; align-items: center; gap: 7px; padding: 8px 10px;
+      background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+      font-size: 12.5px; color: #cdd6e3; }
+    details.customize > summary:hover { background: var(--panel2); }
+    /* line-art chevron: points down when the fold will expand downward, up to collapse */
+    details.customize > summary::after { content: "❯"; float: none; margin-left: auto; color: var(--muted);
+      font-size: 10px; transform: rotate(90deg); transition: transform .15s; }
+    details.customize[open] > summary::after { content: "❯"; transform: rotate(-90deg); }
+    details.customize > summary .hint { font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* the value hint belongs to the collapsed bar; an open fold shows the controls themselves */
+    details.customize[open] > summary .hint { display: none; }
     .resetstyle { background: transparent; color: var(--muted); font-weight: 600; font-size: 11px; padding: 2px 0; }
     .resetstyle:hover { color: var(--accent); }
 
-    .sync { display: flex; align-items: center; gap: 10px; }
-    .sync button { padding: 7px 11px; background: var(--panel2); color: #cdd6e3; border: 1px solid var(--border); }
-    .sync .val { min-width: 56px; text-align: center; font-weight: 700; }
+    /* sync dock: − / typed delay / + with a reset underneath (− earlier, + later) */
+    .syncdock { margin-top: 7px; }
+    .synclbls { display: flex; justify-content: space-between; color: #e0e0e0; font-size: 11px; font-weight: 600; margin: 0 2px 5px; }
+    .syncrow { display: flex; align-items: center; gap: 7px; }
+    .syncrow .syncbtn { flex: none; padding: 8px 11px; background: var(--panel); color: var(--text); border: 1px solid var(--border); font-weight: 700; }
+    .syncrow .syncbtn:hover { background: var(--panel2); border-color: var(--accent); }
+    .syncval { position: relative; flex: 1; }
+    .syncval input { width: 100%; text-align: center; font-weight: 700;
+      padding: 8px 26px 8px 11px; background: var(--panel); } /* same skin as .syncbtn */
+    .syncval input:focus { border-color: #cdd6e3; } /* soft gray ring, not the accent blue */
+    .syncval input::-webkit-inner-spin-button, .syncval input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    .syncunit { position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+      color: var(--muted); font-size: 11px; pointer-events: none; }
+    .syncreset { display: block; margin: 8px auto 0; background: transparent; color: var(--muted); font-weight: 600; font-size: 11px; }
+    .syncreset:hover { color: var(--accent); }
 
     details { border-top: 1px solid #161b24; }
     summary { padding: 12px 14px; cursor: pointer; font-weight: 600; color: #cdd6e3; list-style: none; }
@@ -134,20 +195,29 @@
     .linkbtn:hover { color: var(--red); }
     .clipcache { display: flex; flex-wrap: wrap; gap: 6px 14px; }
     .clipcache.muted { color: var(--muted); font-size: 12px; }
+    #clipStats:empty { display: none; } /* don't reserve two lines when there's no per-video cost yet */
+    .sites { display: flex; flex-wrap: wrap; gap: 5px; width: 100%; }
+    .site { padding: 2px 8px; border: 1px solid var(--border); border-radius: 12px;
+      font-size: 11px; color: var(--muted); background: var(--panel); }
+    .site.on { color: var(--text); border-color: var(--accent); background: #14233c; }
     .clang { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; }
     .clang .fl { font-size: 14px; line-height: 1; }
     .clang .dot { font-size: 10px; }
     .dot.full { color: var(--green); }
     .dot.partial { color: var(--amber); }
 
-    .libbtn { display: flex; align-items: center; gap: 11px; width: 100%; text-align: left;
-      padding: 11px 12px; background: var(--panel); border: 1px solid var(--border); color: var(--text); }
+    /* bottom bar: today's spend at left, compact library entry at right */
+    .bottombar { display: flex; align-items: center; gap: 10px; }
+    .usage { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      color: var(--muted); font-size: 11px; cursor: pointer; }
+    .usage:hover { color: var(--text); }
+    .libbtn { display: inline-flex; align-items: center; gap: 6px; flex: none;
+      padding: 7px 10px; background: var(--panel); border: 1px solid var(--border); color: var(--text); }
     .libbtn:hover { background: var(--panel2); border-color: #2f5fb0; }
-    .libbtn .libico { font-size: 18px; }
-    .libbtn .libtxt { display: flex; flex-direction: column; line-height: 1.25; flex: 1; }
-    .libbtn .libtxt b { font-size: 13px; }
+    .libbtn b { font-size: 12px; }
+    .libbtn .libico { font-size: 14px; }
     .libbtn .libsub { color: var(--muted); font-size: 11px; font-weight: 500; }
-    .libbtn .libgo { color: var(--accent); font-weight: 700; font-size: 12px; }
+    .libbtn .libgo { color: var(--accent); font-weight: 700; font-size: 11px; margin-left: 2px; }
 
     footer { display: flex; align-items: center; gap: 10px; padding: 12px 14px 0; }
     #status { font-size: 11px; color: var(--green); min-height: 14px; flex: 1; }
@@ -164,14 +234,30 @@
     .scopelink:hover { text-decoration: underline; }
     .scopelink.muted { color: var(--muted); }
 
-    /* hidden tribute card — revealed by tapping the logo three times */
-    .memcard { position: fixed; inset: 0; z-index: 50; background: #0b0d12; display: flex;
-      flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 16px; }
+    /* tab bar — three workflows, pinned right under the header/scope bar; the
+       This-video strip and Library stay visible on every tab, below the nav */
+    .tabs { display: flex; gap: 5px; padding: 10px 14px; }
+    .tabs .tab { flex: 1; padding: 7px 0; background: var(--panel); border: 1px solid var(--border);
+      border-radius: var(--radius); color: var(--muted); font-weight: 600; font-size: 12px; }
+    .tabs .tab:hover { background: var(--panel2); color: var(--text); }
+    .tabs .tab.on { background: #14233c; border-color: var(--accent); color: var(--text); }
+
+    /* hidden tribute card — logo triple-tap, or hold the version line 2.5s.
+       The glow sits behind the text and the portrait's lower half (focal 62%),
+       melting to black at the edges; contents fade in over 1.5s; the whole
+       card is a close target, hinted at the very bottom. */
+    .memcard { position: fixed; inset: 0; z-index: 50; display: flex; cursor: default;
+      background: radial-gradient(circle at 50% 62%, #10261f 0%, #0a1712 46%, #000 84%);
+      flex-direction: column; align-items: center; justify-content: center; gap: 18px; padding: 16px;
+      opacity: 0; transition: opacity 1.5s ease; }
+    .memcard.show { opacity: 1; }
     .memcard[hidden] { display: none; }
     .memart { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 4px; line-height: 1.04;
       color: #cdd6e3; white-space: pre; margin: 0; letter-spacing: 0; max-width: 100%; overflow: hidden; }
-    .memname { color: #e7ecf3; font-weight: 700; font-size: 13px; letter-spacing: .3px; }
-    .memded { color: var(--green); font-size: 11px; text-align: center; line-height: 1.55; max-width: 290px; }
+    .memname { color: #ffffff; font-weight: 800; font-size: 13.5px; letter-spacing: .3px; margin-top: 4px; }
+    .memded { color: #a3c1b4; font-size: 11px; text-align: center; line-height: 1.65; max-width: 296px; }
+    .memhint { position: absolute; bottom: 14px; left: 0; right: 0; text-align: center;
+      color: rgba(139, 149, 166, .45); font-size: 10px; letter-spacing: .3px; }
     .memclose { position: absolute; top: 8px; right: 11px; background: transparent; color: var(--muted); font-size: 20px; line-height: 1; }
     .memclose:hover { color: var(--text); }
   </style>
@@ -182,6 +268,7 @@
     <div>
       <h1>SubVibe</h1>
       <p class="tag">AI subtitles · in sync · cached free</p>
+      <p class="ver" id="verTag"></p>
     </div>
     <span class="spacer"></span>
     <label class="switch" title="Turn SubVibe on/off">
@@ -197,30 +284,44 @@
     <button id="resetClip" class="scopelink muted" hidden title="Revert this video to your defaults">Reset</button>
   </div>
 
+  <nav class="tabs" id="tabBar">
+    <button class="tab on" data-tab="translate">Translate</button>
+    <button class="tab" data-tab="dub">Dub</button>
+    <button class="tab" data-tab="style">Style</button>
+  </nav>
+
   <!-- This video -->
   <section>
-    <div class="lbl">This video <button class="linkbtn" id="clearClip" hidden>Clear cache</button></div>
+    <div class="lbl"><span id="clipTitleLbl">This video</span> <button class="linkbtn" id="clearClip" hidden>Clear cache</button></div>
     <div id="clipCache" class="clipcache muted">Loading…</div>
     <div id="clipStats" class="hint" style="margin-top:6px; min-height:13px;"></div>
     <div class="row" id="clipExports" style="flex-wrap:wrap; gap:6px;" hidden></div>
   </section>
 
+  <div class="pane" data-pane="translate">
   <!-- Translation engine -->
   <section>
-    <details class="customize" id="engineFold">
-      <summary>Translation engine <span class="hint" id="engineVal"></span></summary>
-      <select id="translationProvider" style="margin-top:7px;">
+    <div class="row" style="margin-top:0;">
+      <span class="rowlbl">Translation engine</span>
+      <select id="translationProvider" style="flex:1;">
         <option value="openai">OpenAI GPT-4o-mini (cheapest)</option>
-        <option value="claude">Claude Sonnet 4.6 (best quality · ≈20× the price)</option>
+        <option value="claude">Claude</option>
       </select>
-      <div id="translationProviderWarn" class="selwarn" hidden></div>
-    </details>
+    </div>
+    <div id="translationProviderWarn" class="selwarn" hidden></div>
+    <div class="row" id="claudeModelRow">
+      <span class="rowlbl">Claude model</span>
+      <div class="seg2" role="radiogroup" aria-label="Claude model">
+        <button type="button" class="segopt" data-model="claude-sonnet-5"><b>Sonnet 5</b><small>best quality</small></button>
+        <button type="button" class="segopt" data-model="claude-haiku-4-5"><b>Haiku 4.5</b><small>fastest, ~3× cheaper</small></button>
+      </div>
+    </div>
   </section>
 
   <!-- API keys — all providers always visible; engine dropdowns above/below reflect which are usable -->
   <section>
     <details class="customize" id="keysDetails">
-      <summary>API keys <span id="keysSummaryDots"></span> <span class="hint">OpenAI · Anthropic · Google</span></summary>
+      <summary>API keys <span id="keysPills"></span></summary>
       <div class="keysection">
         <div class="keyhead"><span class="keyname"><span id="apiKeyDot" class="keydot"></span>OpenAI</span> <a id="getKey" href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">Get a key →</a></div>
         <div class="keyused">used for: translation · voices</div>
@@ -256,74 +357,76 @@
     <div class="lbl">Translate to <span class="hint">first = primary</span></div>
     <div class="chips" id="chips"></div>
     <div class="ac">
-      <input type="text" id="langSearch" placeholder="🔍  Add a language…" autocomplete="off" />
+      <input type="text" id="langSearch" placeholder="Add a language…" autocomplete="off" />
       <div class="menu" id="langMenu"></div>
     </div>
   </section>
 
-  <!-- Subtitle options -->
+  <!-- Translation options -->
   <section>
-    <details class="customize" id="subsFold">
-      <summary>Subtitle options <span class="hint" id="subsVal"></span></summary>
+    <details class="customize" id="transFold">
+      <summary>Translation options <span class="hint" id="transVal"></span></summary>
       <div class="row" style="margin-top:7px;">
-        <label class="switch"><input type="checkbox" id="showOriginal" /><span class="slider"></span></label>
-        <label for="showOriginal">Also show the original line <span class="hint">(dual subtitles)</span></label>
-      </div>
-      <div class="row" style="margin-top:11px;">
-        <label class="switch"><input type="checkbox" id="karaokeHl" /><span class="slider"></span></label>
-        <label for="karaokeHl">Highlight spoken words <span class="hint">(karaoke-style sweep as speech happens)</span></label>
-      </div>
-      <div class="row" style="margin-top:11px;">
         <label class="switch"><input type="checkbox" id="keepNames" /><span class="slider"></span></label>
-        <label for="keepNames">Keep names &amp; brands in the original language <span class="hint">(don't transliterate — e.g. MySQL stays MySQL)</span></label>
+        <label for="keepNames">Keep names &amp; brands untranslated</label>
+        <span class="info" title="Never transliterated — MySQL stays MySQL, Skyler stays Skyler">i</span>
       </div>
       <input type="text" id="keepTerms" placeholder="Extra specific terms (optional): Skyler, Wharton…" autocomplete="off" spellcheck="false" style="margin-top:8px;" />
     </details>
   </section>
+  </div>
 
+  <div class="pane" data-pane="dub" hidden>
   <!-- Dub — spoken translation -->
   <section>
-    <div class="lbl">Dub <span class="hint">speak the translation · original stays quiet under it</span></div>
     <div class="row" style="margin-top:0;">
       <label class="switch"><input type="checkbox" id="dubEnabled" /><span class="slider"></span></label>
       <label for="dubEnabled">Dub subtitles aloud</label>
+      <span class="info" title="Speaks the translation aloud — the original soundtrack stays quiet underneath">i</span>
     </div>
+    <div id="dubConfig" class="off" inert>
     <details class="customize" id="voiceFold">
-      <summary>Voice &amp; pace <span class="hint" id="voiceVal"></span></summary>
-      <select id="ttsProvider" style="margin-top:7px;">
-        <option value="openai">OpenAI gpt-4o-mini-tts</option>
-        <option value="gemini">Gemini 2.5 Flash TTS (native Persian voices)</option>
-      </select>
+      <summary>Voice <span class="hint" id="voiceVal"></span></summary>
+      <div class="row" style="margin-top:7px;">
+        <span class="rowlbl">TTS provider</span>
+        <select id="ttsProvider" style="flex:1;">
+          <option value="openai">OpenAI gpt-4o-mini-tts</option>
+          <option value="gemini">Gemini 2.5 Flash TTS (native Persian voices)</option>
+        </select>
+      </div>
       <div id="ttsProviderWarn" class="selwarn" hidden></div>
       <div class="row">
-        <span style="min-width:58px; color:var(--muted);">Voice</span>
+        <span class="rowlbl">Voice</span>
         <select id="dubVoice" style="flex:1;"></select>
         <select id="dubGeminiVoice" style="flex:1;" hidden></select>
       </div>
       <div class="row" id="dubMultiVoiceRow">
         <label class="switch"><input type="checkbox" id="dubMultiVoice" /><span class="slider"></span></label>
-        <label for="dubMultiVoice">Multi-voice <span class="hint">(beta — a voice per speaker)</span></label>
+        <label for="dubMultiVoice">Multi-voice</label>
+        <span class="info" title="Beta — a different voice per speaker (OpenAI voices only)">i</span>
       </div>
       <div class="row">
-        <span style="min-width:58px; color:var(--muted);">Original</span>
+        <span class="rowlbl">Original volume</span>
         <input type="range" id="dubDuck" min="0" max="60" step="5" style="flex:1;" title="How loud the original soundtrack stays under the dub" />
         <span class="sizeval" id="dubDuckVal"></span>
       </div>
       <div class="row">
-        <span style="min-width:58px; color:var(--muted);">Pace</span>
+        <span class="rowlbl">Pace</span>
         <input type="range" id="dubPace" min="90" max="130" step="5" style="flex:1;" title="Speech pace of the dub voice" />
         <span class="sizeval" id="dubPaceVal"></span>
       </div>
     </details>
     <button class="btn ghost" id="dubGenAll" style="width:100%; margin-top:9px;" hidden>Generate full dub</button>
+    </div>
     <div id="dubStatus" class="hint" style="margin-top:6px; min-height:13px;"></div>
     <div id="dubProg" style="height:4px; border-radius:2px; background:var(--panel2); margin-top:6px; overflow:hidden;" hidden>
       <div id="dubProgFill" style="height:100%; width:0%; background:var(--accent); transition:width .4s;"></div>
     </div>
     <div id="dubNow" class="hint" style="margin-top:5px; min-height:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></div>
-    <div id="dubSpend" class="hint" style="margin-top:3px; min-height:13px; cursor:pointer;" title="Open the Library → Activity for the full breakdown"></div>
   </section>
+  </div>
 
+  <div class="pane" data-pane="style" hidden>
   <!-- Appearance -->
   <section>
     <details class="customize" id="lookFold">
@@ -332,7 +435,8 @@
       <div class="presets" id="presetRow"></div>
       <div class="row" style="margin-top:10px;">
         <span style="min-width:58px; color:var(--muted);">Size</span>
-        <input type="range" id="sizeRange" min="12" max="50" step="1" style="flex:1;" />
+        <input type="range" id="sizeRange" min="12" max="50" step="1" style="flex:1;"
+          title="Relative to the standard subtitle size — scales with the video, so it stays right in fullscreen" />
         <span class="sizeval" id="sizeVal"></span>
       </div>
       <details class="customize">
@@ -368,11 +472,22 @@
           <option value="auto">Auto (opposite the original)</option>
           <option value="custom">Custom (dragged)</option>
         </select>
+        <span class="info" title="You can also drag each subtitle line on the video — original and translation can sit apart">i</span>
       </div>
-      <div class="hint" style="margin-top:7px;">Tip: drag each subtitle line on the video to place it — the original and translation can sit apart.</div>
       <div class="row">
         <label class="switch"><input type="checkbox" id="hideNative" /><span class="slider"></span></label>
-        <label for="hideNative">Hide the site's own captions <span class="hint">(avoid doubles)</span></label>
+        <label for="hideNative">Hide the site's own captions</label>
+        <span class="info" title="Prevents doubled subtitles when the site shows its own">i</span>
+      </div>
+      <div class="row">
+        <label class="switch"><input type="checkbox" id="showOriginal" /><span class="slider"></span></label>
+        <label for="showOriginal">Also show the original line</label>
+        <span class="info" title="Dual subtitles — the original sits right above the translation">i</span>
+      </div>
+      <div class="row">
+        <label class="switch"><input type="checkbox" id="karaokeHl" /><span class="slider"></span></label>
+        <label for="karaokeHl">Highlight spoken words</label>
+        <span class="info" title="Karaoke-style sweep across each word as it is spoken">i</span>
       </div>
     </details>
   </section>
@@ -381,21 +496,27 @@
   <section>
     <details class="customize" id="timeFold">
       <summary>Subtitle timing <span class="hint" id="timeVal"></span></summary>
-      <div class="sync" style="margin-top:7px;">
-        <button id="syncBack">−0.25s</button>
-        <span class="val" id="syncVal">0.00s</span>
-        <button id="syncFwd">+0.25s</button>
-        <span class="hint" style="flex:1;">+ earlier · − later</span>
+      <div class="syncdock">
+        <div class="synclbls"><span>Earlier</span><span>Later</span></div>
+        <div class="syncrow">
+          <button id="syncBack" class="syncbtn" title="Subtitles 0.25s earlier">−0.25s</button>
+          <span class="syncval">
+            <input id="syncInput" type="number" step="0.25" min="-15" max="15" placeholder="0.00" title="Subtitle delay in seconds — negative shows them earlier, positive later. Type a value like -1.5 or 8" />
+            <span class="syncunit">s</span>
+          </span>
+          <button id="syncFwd" class="syncbtn" title="Subtitles 0.25s later">+0.25s</button>
+        </div>
+        <button id="syncReset" class="syncreset">↺ Reset to 0.00s</button>
       </div>
     </details>
   </section>
+  </div>
 
-  <!-- Library -->
-  <section>
-    <button class="libbtn" id="openLibrary">
-      <span class="libico">📚</span>
-      <span class="libtxt"><b>Library</b><span class="libsub" id="libCount">…</span></span>
-      <span class="libgo">Open →</span>
+  <!-- Usage + Library — one compact bottom bar -->
+  <section class="bottombar">
+    <div id="dubSpend" class="usage" title="Open the Library → Activity for the full breakdown">📊 <span id="spendToday">…</span> <span>(est.)</span></div>
+    <button class="libbtn" id="openLibrary" title="Your cached videos — replays are free">
+      <span class="libico">📚</span><b>Library</b><span class="libsub" id="libCount">…</span><span class="libgo">Open →</span>
     </button>
   </section>
 
@@ -410,6 +531,7 @@
     <pre id="memArt" class="memart"></pre>
     <div id="memName" class="memname"></div>
     <div id="memDed" class="memded"></div>
+    <div class="memhint">Click anywhere to return</div>
   </div>
 
   <script src="shared/title.js"></script>
