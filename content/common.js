@@ -1173,7 +1173,8 @@
     // YouTube: right after a clip switch the reused <video>'s track can still
     // hold the previous clip's ROLLING cues — hold back so the real file (whose
     // fetch the CC nudge triggers) wins the race instead of junk native cues.
-    if (adapter && adapter.site === "youtube" && lastClipChangeAt && performance.now() - lastClipChangeAt < 8000) return null;
+    if (adapter && adapter.site === "youtube" && lastClipChangeAt && performance.now() - lastClipChangeAt < 8000) { dbgSub.hold = "clip-change hold " + Math.round((8000 - (performance.now() - lastClipChangeAt)) / 1000) + "s"; return null; }
+    dbgSub.hold = "";
     return readVideoCueList(video);
   }
   function onInterceptedCues(list) {
@@ -1327,7 +1328,7 @@
   }
   // Caption-file pipeline state for the on-video debug HUD — each stage writes
   // its outcome here so a single screenshot shows where adoption died.
-  const dbgSub = { spotted: "", fetch: "" };
+  const dbgSub = { spotted: "", fetch: "", adopt: "", hold: "", starts: 0 };
 
   async function fetchSubsByUrl(url) {
     const key = subDedupKey(url);
@@ -2035,7 +2036,8 @@
 
   async function start() {
     if (!extAlive()) return; // orphaned by a reload — don't touch chrome.* APIs
-    if (liveMode) return;    // Live Translate owns the overlay until LIVE_STATE ends it
+    if (liveMode) { dbgSub.adopt = "blocked: live mode"; return; } // Live owns the overlay
+    dbgSub.starts++;
     const settings = await getSettings();
     liveOffsetMs = Math.round((settings.syncOffset || 0) * 1000);
     const ad = pickAdapter();
@@ -2055,7 +2057,7 @@
       // which routinely lands after the first start()), plus ZDF/DW/Prime.
       cl: !!(interceptedCues && interceptedCues.length && interceptedClipId === currentClipId()),
     });
-    if (runKey === currentRunKey && document.getElementById("copilot-subs")) return;
+    if (runKey === currentRunKey && document.getElementById("copilot-subs")) { dbgSub.adopt = "deduped (run unchanged)"; return; }
     currentRunKey = runKey;
 
     teardown();
@@ -2078,7 +2080,8 @@
     // use it for perfect-sync pre-translation; otherwise scrape on-screen captions.
     if (adapter.stream) {
       const cueList = await waitFor(() => getAllCues(video), 3000);
-      if (cueList && cueList.length) { await runCueListMode(settings, video, cueList); return; }
+      if (cueList && cueList.length) { dbgSub.adopt = "cuelist(stream) " + cueList.length; await runCueListMode(settings, video, cueList); return; }
+      dbgSub.adopt = "scrape (stream: no track cues yet)";
       await startStream(settings, video);
       return;
     }
@@ -2091,7 +2094,8 @@
     // list for this clip, use it — full pre-translate lookahead, same as ZDF/DW.
     {
       const inter = getAllCues(video);
-      if (inter && inter.length) { await runCueListMode(settings, video, inter); return; }
+      if (inter && inter.length) { dbgSub.adopt = "cuelist(file) " + inter.length; await runCueListMode(settings, video, inter); return; }
+      dbgSub.adopt = "file not usable at start #" + dbgSub.starts + (dbgSub.hold ? " (" + dbgSub.hold + ")" : "");
     }
 
     setStatus("Loading captions…");
@@ -2112,6 +2116,7 @@
         // (with the token), which we intercept and upgrade to perfect-sync with
         // pre-translation. Until then, scrape the on-screen captions line by line.
         setStatus("Turn ON the player's CC (subtitles) — then I'll pre-translate the whole track in sync.", true);
+        dbgSub.adopt = "scrape (direct download empty) at start #" + dbgSub.starts;
         await startStream(settings, video);
         return;
       }
@@ -2128,6 +2133,7 @@
     // translated the ENTIRE track up front and called render() only after every
     // language finished — so each line lagged and even the original waited on the
     // (slow) translation. runCueListMode fixes both. (window.csDiag proves the lookahead.)
+    dbgSub.adopt = "cuelist(track) " + originalCues.length;
     await runCueListMode(settings, video, originalCues);
   }
 
@@ -2190,6 +2196,9 @@
       d.heard != null ? "scrape heard: " + JSON.stringify(String(d.heard).slice(0, 42)) : null,
       "file spotted: " + (dbgSub.spotted || "NONE"),
       "file fetch:   " + (dbgSub.fetch || "—"),
+      "intercepted:  " + (interceptedCues ? interceptedCues.length + " cues " + (interceptedClipId === currentClipId() ? "(clip ok)" : "(CLIP MISMATCH)") : "none held"),
+      "starts: " + dbgSub.starts + (dbgSub.hold ? "  " + dbgSub.hold : ""),
+      "last start:   " + (dbgSub.adopt || "—"),
     ].filter(Boolean).join("\n");
   }, 1000);
 
