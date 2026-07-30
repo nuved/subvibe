@@ -672,7 +672,14 @@ el("liveBtn").addEventListener("click", async () => {
 });
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg && msg.type === "LIVE_STATE") {
-    liveUI(msg.running, msg.error ? msg.error : msg.running ? "Live — listening and speaking…" : "Stopped.", !!msg.error);
+    // The stats line is the whole diagnosis: "sent" proves capture works,
+    // "heard/spoke" prove Gemini responds, "voice" proves playback scheduled.
+    let text;
+    if (msg.error) text = msg.error;
+    else if (!msg.running) text = "Stopped.";
+    else if (msg.stats) text = `Live ${Math.floor(msg.stats.secs / 60)}:${String(msg.stats.secs % 60).padStart(2, "0")} · sent ${msg.stats.upSecs}s audio · heard ${msg.stats.heard} · spoke ${msg.stats.spoke} (${msg.stats.voiceSecs}s voice)`;
+    else text = "Live — connected, waiting for audio…";
+    liveUI(msg.running, text, !!msg.error);
   }
 });
 

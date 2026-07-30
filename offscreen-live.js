@@ -18,6 +18,7 @@ let lvRunning = false, lvClosing = false, lvRetries = 0;
 let lvTurn = { orig: "", out: "" }, lvFlushT = 0, lvPartialT = 0;
 let lvChanMode = { orig: null, out: null }; // per-channel stream shape: null=unknown, "cum"=cumulative snapshots
 let lvDbgN = 0; // raw-chunk forensics counter (see the onmessage debug log)
+let lvStats = null, lvStatsT = 0; // popup-visible flow counters — no console spelunking
 let lvCfg = null; // {deviceId, target, model, key, sysAsContent}
 
 chrome.runtime.onMessage.addListener((msg) => {
@@ -26,7 +27,7 @@ chrome.runtime.onMessage.addListener((msg) => {
   else if (msg.type === "LIVE_STOP") liveStop("stopped");
 });
 
-const lvState = (running, error) => chrome.runtime.sendMessage({ type: "LIVE_STATE", running, error: error || null });
+const lvState = (running, error) => chrome.runtime.sendMessage({ type: "LIVE_STATE", running, error: error || null, stats: lvStats && running ? { secs: Math.round((Date.now() - lvStats.t0) / 1000), upSecs: Math.round(lvStats.upSamples / 16000), heard: lvStats.textIn, spoke: lvStats.textOut, voiceSecs: Math.round(lvStats.voiceMs / 1000) } : null });
 
 async function liveStart(msg) {
   if (lvRunning) return;
@@ -71,7 +72,14 @@ function connectLive() {
   lvWs.onmessage = async (e) => {
     let ev;
     try { ev = JSON.parse(typeof e.data === "string" ? e.data : await e.data.text()); } catch { return; }
-    if (ev.setupComplete) { lvRetries = 0; startLivePipe(); lvState(true); return; }
+    if (ev.setupComplete) {
+      lvRetries = 0;
+      if (!lvStats) lvStats = { t0: Date.now(), upSamples: 0, textIn: 0, textOut: 0, voiceMs: 0 };
+      startLivePipe();
+      lvState(true);
+      if (!lvStatsT) lvStatsT = setInterval(() => lvState(true), 2000); // popup heartbeat with flow counters
+      return;
+    }
     if (ev.error) {
       const m = JSON.stringify(ev.error).slice(0, 220);
       // One-shot fallback for the systemInstruction shape (see onopen).
@@ -98,8 +106,8 @@ function connectLive() {
       lvDbgN++;
       console.debug("[SubVibe live raw]", JSON.stringify({ in: sc.inputTranscription && sc.inputTranscription.text, out: sc.outputTranscription && sc.outputTranscription.text, turnComplete: !!sc.turnComplete }));
     }
-    if (sc.inputTranscription && sc.inputTranscription.text) lvTurn.orig = mergeStreamText("orig", lvTurn.orig, sc.inputTranscription.text);
-    if (sc.outputTranscription && sc.outputTranscription.text) lvTurn.out = mergeStreamText("out", lvTurn.out, sc.outputTranscription.text);
+    if (sc.inputTranscription && sc.inputTranscription.text) { lvTurn.orig = mergeStreamText("orig", lvTurn.orig, sc.inputTranscription.text); if (lvStats) lvStats.textIn++; }
+    if (sc.outputTranscription && sc.outputTranscription.text) { lvTurn.out = mergeStreamText("out", lvTurn.out, sc.outputTranscription.text); if (lvStats) lvStats.textOut++; }
     if (sc.turnComplete) flushLiveText();
     else if (lvTurn.orig || lvTurn.out) {
       // Smooth caption cadence: show the growing line at most twice a second
@@ -139,6 +147,7 @@ function startLivePipe() {
       const s = Math.max(-1, Math.min(1, f32[i]));
       i16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
     }
+    if (lvStats) lvStats.upSamples += i16.length;
     lvWs.send(JSON.stringify({ realtimeInput: { audio: { mimeType: "audio/pcm;rate=16000", data: pcmToBase64(i16) } } }));
   };
   lvSrc.connect(lvProc);
@@ -170,6 +179,7 @@ function scheduleLiveAudio(b64, mime) {
   const at = Math.max(lvCtxOut.currentTime, lvCursor);
   src.start(at);
   lvCursor = at + buf.duration;
+  if (lvStats) lvStats.voiceMs += buf.duration * 1000;
   lvScheduled.push(src);
   src.onended = () => { const i = lvScheduled.indexOf(src); if (i >= 0) lvScheduled.splice(i, 1); };
 }
@@ -235,6 +245,7 @@ function liveStop(reason) {
   lvRunning = false;
   clearTimeout(lvFlushT);
   clearTimeout(lvPartialT); lvPartialT = 0;
+  clearInterval(lvStatsT); lvStatsT = 0; lvStats = null;
   clearLiveAudio();
   try { lvProc && lvProc.disconnect(); } catch {}
   try { lvSrc && lvSrc.disconnect(); } catch {}

@@ -1969,27 +1969,34 @@
   // ready, so no TRANSLATE calls happen here. LIVE_STATE {running:false}
   // hands the overlay back to the normal engine.
   let liveMode = false, liveIdleT = 0;
+  // Enter live mode the moment the session STARTS (LIVE_STATE running:true) —
+  // not on the first transcript. Waiting for text left the scrape engine
+  // painting its rolling word-by-word captions straight through the live
+  // session (the operator's "appending words" was THAT, not the transcripts).
+  async function liveEnter() {
+    if (liveMode) return;
+    liveMode = true;
+    const settings = await getSettings();
+    // Full engine teardown: stops the tick AND the pump/reread intervals
+    // (no background billing on scrape fragments), detaches a running dub
+    // (no voice collision), clears the badge. ensureOverlay rebuilds fresh.
+    teardown();
+    currentRunKey = null;
+    const overlay = ensureOverlay();
+    applyAppearance(settings);
+    const stack = overlay.querySelector(".copilot-subs__stack");
+    stack.innerHTML = "";
+    for (const key of ["__orig", "__live"]) {
+      const row = document.createElement("div");
+      row.className = "copilot-subs__line" + (key === "__orig" ? " copilot-subs__line--orig" : "");
+      row.dataset.csKey = key;
+      stack.appendChild(row);
+    }
+    setStatus("Live Translate — listening…");
+  }
   async function liveShow(orig, out) {
     const settings = await getSettings();
-    if (!liveMode) {
-      liveMode = true;
-      // Full engine teardown: stops the tick AND the pump/reread intervals
-      // (no background billing), detaches a running dub (no voice collision),
-      // clears the badge. ensureOverlay below rebuilds the overlay fresh.
-      teardown();
-      currentRunKey = null;
-      const overlay = ensureOverlay();
-      applyAppearance(settings);
-      const stack = overlay.querySelector(".copilot-subs__stack");
-      stack.innerHTML = "";
-      for (const key of ["__orig", "__live"]) {
-        const row = document.createElement("div");
-        row.className = "copilot-subs__line" + (key === "__orig" ? " copilot-subs__line--orig" : "");
-        row.dataset.csKey = key;
-        stack.appendChild(row);
-      }
-      setStatus("Live Translate — experimental");
-    }
+    await liveEnter();
     const overlay = document.getElementById("copilot-subs");
     if (!overlay) return;
     const rows = overlay.querySelectorAll(".copilot-subs__line");
@@ -2161,6 +2168,7 @@
     else if (msg.type === "AUDIO_ERROR") setStatus("Audio: " + msg.error, true);
     else if (msg.type === "LIVE_LINE") liveShow(msg.original, msg.translated);
     else if (msg.type === "LIVE_STATE") {
+      if (msg.running) liveEnter();          // take the stage immediately — silence the scrape engine
       if (msg.error) setStatus("Live: " + msg.error, true);
       if (!msg.running) liveEnd();
     }
