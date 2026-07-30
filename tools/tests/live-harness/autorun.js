@@ -25,7 +25,8 @@ window.__run = async function () {
   check("LIVE_STATE running:true after setup", states.some((s) => s.running === true));
 
   const texts = F.sent.filter((m) => m.type === "LIVE_TEXT");
-  check("transcript pair emitted on turnComplete", texts.length === 1 && texts[0].original === "Guten Morgen, wie geht es dir?" && texts[0].translated === "صبح بخیر، حالت چطوره؟", texts[0]);
+  const fin = texts.find((t) => t.partial === false);
+  check("overlaps and snapshots merge without duplication", fin && fin.original === "Guten Morgen, wie geht es dir?" && fin.translated === "صبح بخیر، حالت چطوره؟", fin);
 
   F.dispatch({ type: "LIVE_STOP" });
   await sleep(100);

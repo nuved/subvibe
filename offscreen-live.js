@@ -15,7 +15,7 @@ const LIVE_WS_BASE = "wss://generativelanguage.googleapis.com/ws/google.ai.gener
 let lvStream = null, lvWs = null, lvCtxIn = null, lvSrc = null, lvProc = null;
 let lvCtxOut = null, lvCursor = 0, lvScheduled = [];
 let lvRunning = false, lvClosing = false, lvRetries = 0;
-let lvTurn = { orig: "", out: "" }, lvFlushT = 0;
+let lvTurn = { orig: "", out: "" }, lvFlushT = 0, lvPartialT = 0;
 let lvCfg = null; // {deviceId, target, model, key, sysAsContent}
 
 chrome.runtime.onMessage.addListener((msg) => {
@@ -87,10 +87,15 @@ function connectLive() {
       const d = p.inlineData;
       if (d && d.data && /audio\/pcm/.test(d.mimeType || "")) scheduleLiveAudio(d.data, d.mimeType);
     }
-    if (sc.inputTranscription && sc.inputTranscription.text) lvTurn.orig += sc.inputTranscription.text;
-    if (sc.outputTranscription && sc.outputTranscription.text) lvTurn.out += sc.outputTranscription.text;
+    if (sc.inputTranscription && sc.inputTranscription.text) lvTurn.orig = mergeStreamText(lvTurn.orig, sc.inputTranscription.text);
+    if (sc.outputTranscription && sc.outputTranscription.text) lvTurn.out = mergeStreamText(lvTurn.out, sc.outputTranscription.text);
     if (sc.turnComplete) flushLiveText();
-    else if (lvTurn.orig || lvTurn.out) { clearTimeout(lvFlushT); lvFlushT = setTimeout(flushLiveText, 2500); }
+    else if (lvTurn.orig || lvTurn.out) {
+      // Smooth caption cadence: show the growing line at most twice a second
+      // (partial), and finalize on turnComplete or 2.5s of silence.
+      if (!lvPartialT) lvPartialT = setTimeout(() => { lvPartialT = 0; sendLiveText(false); }, 500);
+      clearTimeout(lvFlushT); lvFlushT = setTimeout(flushLiveText, 2500);
+    }
   };
 
   lvWs.onclose = () => {
@@ -163,11 +168,39 @@ function clearLiveAudio() {
   lvCursor = 0;
 }
 
+// Streamed transcription chunks arrive as DELTAS, CUMULATIVE snapshots, or
+// overlapping fragments depending on the model's mood — blind += duplicated
+// words on screen (the operator's "appends words to the same word"). Merge by
+// overlap instead: snapshot replaces, overlap joins, true delta appends.
+function mergeStreamText(prev, add) {
+  if (!prev) return add;
+  if (!add) return prev;
+  if (add.startsWith(prev)) return add;                 // cumulative snapshot
+  const max = Math.min(prev.length, add.length);
+  for (let k = max; k > 0; k--) if (prev.endsWith(add.slice(0, k))) return prev + add.slice(k); // overlap join
+  return prev + add;                                    // pure delta
+}
+
+// Long monologues would wrap the overlay into a wall — display the tail only,
+// cut at a word boundary.
+function displayTail(s, cap) {
+  s = s.trim();
+  if (s.length <= cap) return s;
+  const cut = s.slice(s.length - cap);
+  const sp = cut.indexOf(" ");
+  return "…" + (sp > 0 ? cut.slice(sp + 1) : cut);
+}
+
+function sendLiveText(final) {
+  const orig = displayTail(lvTurn.orig, 180), out = displayTail(lvTurn.out, 180);
+  if (orig || out) chrome.runtime.sendMessage({ type: "LIVE_TEXT", original: orig, translated: out, partial: !final });
+  if (final) lvTurn = { orig: "", out: "" };
+}
+
 function flushLiveText() {
   clearTimeout(lvFlushT); lvFlushT = 0;
-  const orig = lvTurn.orig.trim(), out = lvTurn.out.trim();
-  lvTurn = { orig: "", out: "" };
-  if (orig || out) chrome.runtime.sendMessage({ type: "LIVE_TEXT", original: orig, translated: out });
+  clearTimeout(lvPartialT); lvPartialT = 0;
+  sendLiveText(true);
 }
 
 function pcmToBase64(i16) {
@@ -183,6 +216,7 @@ function liveStop(reason) {
   const wasRunning = lvRunning;
   lvRunning = false;
   clearTimeout(lvFlushT);
+  clearTimeout(lvPartialT); lvPartialT = 0;
   clearLiveAudio();
   try { lvProc && lvProc.disconnect(); } catch {}
   try { lvSrc && lvSrc.disconnect(); } catch {}
