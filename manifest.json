@@ -14,7 +14,8 @@
   "permissions": [
     "storage",
     "unlimitedStorage",
-    "offscreen"
+    "offscreen",
+    "tabCapture"
   ],
   "host_permissions": [
     "https://api.openai.com/*",

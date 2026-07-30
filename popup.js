@@ -642,7 +642,7 @@ async function livePopulateDevices() {
   const sel = el("liveDevice");
   sel.replaceChildren();
   const add = (v, t, selected) => { const o = document.createElement("option"); o.value = v; o.textContent = t; if (selected) o.selected = true; sel.appendChild(o); };
-  add("", "System default input", !state.audioDeviceId);
+  add("", "This tab's audio (no mic needed)", !state.audioDeviceId);
   try {
     const devs = await navigator.mediaDevices.enumerateDevices();
     devs.filter((d) => d.kind === "audioinput" && d.deviceId && d.deviceId !== "default")
@@ -669,27 +669,40 @@ el("liveBtn").addEventListener("click", async () => {
   let target = "English";
   try { target = new Intl.DisplayNames(["en"], { type: "language" }).of((state.targets && state.targets[0]) || "en") || "English"; } catch {}
   liveUI(true, "Connecting…" + note);
-  // The offscreen capture document is invisible — it can never SHOW a mic
-  // permission prompt, so an ungranted request over there just hangs (the
-  // eternal "Connecting…"). The popup is a visible extension page on the same
-  // origin: authorize here, and the grant carries over to offscreen.
-  try {
-    const probe = await navigator.mediaDevices.getUserMedia({ audio: true });
-    probe.getTracks().forEach((t) => t.stop());
-    livePopulateDevices(); // device NAMES unlock with the grant (e.g. BlackHole)
-  } catch (e) {
-    if (e && e.name === "NotAllowedError") {
-      // A previously denied permission REJECTS instantly without re-prompting —
-      // only a full tab can show the prompt again (or undo the block via the
-      // padlock menu). Open ours and point the user there.
-      chrome.tabs.create({ url: chrome.runtime.getURL("mic-permission.html") });
-      liveUI(false, "Microphone blocked — opened a page to grant access. Allow it there, then press Start again.", true);
-    } else {
-      liveUI(false, "Microphone blocked (" + (e.name || e) + "). Allow microphone access for the extension, then press Start again.", true);
+  let streamId = null;
+  if (!state.audioDeviceId) {
+    // Default: capture THIS TAB's audio straight from the browser — no
+    // microphone, no loopback device, works with headphones. The popup click
+    // is the user invocation tabCapture requires.
+    try {
+      streamId = await new Promise((res, rej) => chrome.tabCapture.getMediaStreamId({ targetTabId: tabId }, (id) => chrome.runtime.lastError ? rej(new Error(chrome.runtime.lastError.message)) : res(id)));
+    } catch (e) {
+      liveUI(false, "Tab audio capture failed: " + (e.message || e) + ". Try again on a normal website tab.", true);
+      return;
     }
-    return;
+  } else {
+    // A real input device was picked (mic / BlackHole) — that DOES need the mic
+    // permission, and the invisible offscreen page can never show the prompt.
+    // The popup is a visible extension page on the same origin: authorize here,
+    // and the grant carries over.
+    try {
+      const probe = await navigator.mediaDevices.getUserMedia({ audio: true });
+      probe.getTracks().forEach((t) => t.stop());
+      livePopulateDevices(); // device NAMES unlock with the grant (e.g. BlackHole)
+    } catch (e) {
+      if (e && e.name === "NotAllowedError") {
+        // A previously denied permission REJECTS instantly without re-prompting —
+        // only a full tab can show the prompt again (or undo the block via the
+        // padlock menu). Open ours and point the user there.
+        chrome.tabs.create({ url: chrome.runtime.getURL("mic-permission.html") });
+        liveUI(false, "Microphone blocked — opened a page to grant access. Allow it there, then press Start again.", true);
+      } else {
+        liveUI(false, "Microphone blocked (" + (e.name || e) + "). Allow microphone access for the extension, then press Start again.", true);
+      }
+      return;
+    }
   }
-  chrome.runtime.sendMessage({ type: "LIVE_START", tabId, deviceId: state.audioDeviceId || "", target, model: state.liveModel || "gemini-3.5-live-translate" });
+  chrome.runtime.sendMessage({ type: "LIVE_START", tabId, streamId, deviceId: state.audioDeviceId || "", origVol: typeof state.dubDuckLevel === "number" ? state.dubDuckLevel : 0.12, target, model: state.liveModel || "gemini-3.5-live-translate" });
 });
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg && msg.type === "LIVE_STATE") {

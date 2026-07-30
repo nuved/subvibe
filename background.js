@@ -964,7 +964,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           }
           liveActive = true;
           await ensureOffscreen();
-          chrome.runtime.sendMessage({ type: "LIVE_START", deviceId: msg.deviceId, target: msg.target, model: msg.model });
+          chrome.runtime.sendMessage({ type: "LIVE_START", streamId: msg.streamId, origVol: msg.origVol, deviceId: msg.deviceId, target: msg.target, model: msg.model });
           sendResponse({ ok: true });
           break;
         }

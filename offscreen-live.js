@@ -12,7 +12,7 @@
 
 const LIVE_WS_BASE = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent";
 
-let lvStream = null, lvWs = null, lvCtxIn = null, lvSrc = null, lvProc = null;
+let lvStream = null, lvWs = null, lvCtxIn = null, lvSrc = null, lvProc = null, lvCtxPass = null;
 let lvCtxOut = null, lvCursor = 0, lvScheduled = [];
 let lvRunning = false, lvClosing = false, lvRetries = 0;
 let lvTurn = { orig: "", out: "" }, lvFlushT = 0, lvPartialT = 0;
@@ -33,21 +33,33 @@ async function liveStart(msg) {
   if (lvRunning) return;
   const { geminiKey } = await chrome.storage.local.get("geminiKey");
   if (!geminiKey) { lvState(false, "No Gemini API key saved — add it in the popup's API keys."); return; }
-  lvCfg = { deviceId: msg.deviceId, target: msg.target || "English", model: msg.model || "gemini-3.5-live-translate", key: geminiKey, sysAsContent: false };
+  lvCfg = { deviceId: msg.deviceId, target: msg.target || "English", model: msg.model || "gemini-3.5-live-translate", key: geminiKey, sysAsContent: false,
+    // Passthrough only applies to tab capture (Chrome mutes a captured tab
+    // until someone routes it back out); a mic passthrough would just echo.
+    passVol: msg.streamId && typeof msg.origVol === "number" ? msg.origVol : 0 };
 
   try {
-    // This document is invisible, so an ungranted mic request has nowhere to
-    // prompt and can sit PENDING forever (the operator's eternal "Connecting…").
-    // The popup pre-authorizes before LIVE_START, but never trust that: an 8s
-    // race turns a silent hang into a named, popup-visible failure.
-    lvStream = await Promise.race([
-      navigator.mediaDevices.getUserMedia({
-        audio: lvCfg.deviceId ? { deviceId: { exact: lvCfg.deviceId } } : true,
-      }),
-      new Promise((_, rej) => setTimeout(() => rej(new Error("microphone permission pending — allow the mic for the extension, then Start again")), 8000)),
-    ]);
+    if (msg.streamId) {
+      // Default path: the tab's own audio, handed over by the popup's
+      // tabCapture.getMediaStreamId — no microphone, no permission prompt.
+      lvStream = await navigator.mediaDevices.getUserMedia({
+        audio: { mandatory: { chromeMediaSource: "tab", chromeMediaSourceId: msg.streamId } },
+      });
+    } else {
+      // Explicit input device (mic / BlackHole). This document is invisible, so
+      // an ungranted mic request has nowhere to prompt and can sit PENDING
+      // forever (the operator's eternal "Connecting…"). The popup pre-authorizes
+      // before LIVE_START, but never trust that: an 8s race turns a silent hang
+      // into a named, popup-visible failure.
+      lvStream = await Promise.race([
+        navigator.mediaDevices.getUserMedia({
+          audio: lvCfg.deviceId ? { deviceId: { exact: lvCfg.deviceId } } : true,
+        }),
+        new Promise((_, rej) => setTimeout(() => rej(new Error("microphone permission pending — allow the mic for the extension, then Start again")), 8000)),
+      ]);
+    }
   } catch (e) { lvState(false, "capture: " + (e.message || e)); return; }
-  lvState(true, null, "Mic OK — connecting to Google…");
+  lvState(true, null, (msg.streamId ? "Tab audio OK" : "Mic OK") + " — connecting to Google…");
 
   lvRunning = true; lvClosing = false; lvRetries = 0;
   lvTurn = { orig: "", out: "" };
@@ -156,6 +168,17 @@ function connectLive() {
 // Input side: 16kHz mono PCM16 (Gemini Live input format).
 function startLivePipe() {
   if (lvCtxIn) return; // reconnects reuse the running pipe
+  if (lvCfg.passVol > 0 && !lvCtxPass) {
+    // Keep the captured tab audible under the translation — at NATIVE sample
+    // rate (a separate context), not the 16kHz upload rate, so the original
+    // keeps its full quality.
+    lvCtxPass = new AudioContext();
+    const pSrc = lvCtxPass.createMediaStreamSource(lvStream);
+    const pGain = lvCtxPass.createGain();
+    pGain.gain.value = lvCfg.passVol;
+    pSrc.connect(pGain);
+    pGain.connect(lvCtxPass.destination);
+  }
   lvCtxIn = new AudioContext({ sampleRate: 16000 });
   lvSrc = lvCtxIn.createMediaStreamSource(lvStream);
   lvProc = lvCtxIn.createScriptProcessor(4096, 1, 1);
@@ -273,8 +296,9 @@ function liveStop(reason) {
   try { lvSrc && lvSrc.disconnect(); } catch {}
   try { lvCtxIn && lvCtxIn.close(); } catch {}
   try { lvCtxOut && lvCtxOut.close(); } catch {}
+  try { lvCtxPass && lvCtxPass.close(); } catch {}
   try { lvWs && lvWs.close(); } catch {}
-  lvCtxIn = lvSrc = lvProc = lvCtxOut = lvWs = null;
+  lvCtxIn = lvSrc = lvProc = lvCtxOut = lvCtxPass = lvWs = null;
   if (lvStream) { lvStream.getTracks().forEach((t) => t.stop()); lvStream = null; }
   if (wasRunning || reason === "stopped") lvState(false);
 }
