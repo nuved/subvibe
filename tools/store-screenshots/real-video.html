@@ -1,0 +1,80 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Store screenshot — real footage</title>
+<!--
+  Real-footage store shots: SubVibe's REAL overlay (styles/overlay.css + the
+  exact setLineText DOM) over genuine frames from the Blender Foundation's
+  Creative Commons open movies (streamed from Google's public sample bucket —
+  free to use with the attribution shown in-frame).
+  Open with ?clip=sintel|bunny&style=classic|tiktok&t=<seconds>,
+  viewport 1280×800, wait for the seek, screenshot, sips-downscale per README.
+-->
+<link rel="stylesheet" href="../../styles/overlay.css">
+<style>
+  @font-face { font-family: "Baloo 2"; font-weight: 800; font-display: block;
+    src: url("../../fonts/Baloo2-ExtraBold-latin.woff2") format("woff2"); }
+  @font-face { font-family: "Vazirmatn"; font-weight: 700; font-display: block;
+    src: url("../../fonts/Vazirmatn-Bold.woff2") format("woff2"); }
+  * { margin: 0; box-sizing: border-box; }
+  body { width: 1280px; height: 800px; overflow: hidden; background: #000;
+    font-family: -apple-system, "Segoe UI", system-ui, sans-serif; }
+  video { position: absolute; inset: 0; width: 1280px; height: 800px; object-fit: cover; }
+  .brand { position: absolute; top: 26px; left: 30px; z-index: 3; display: flex; align-items: center; gap: 10px;
+    background: rgba(8, 10, 14, .55); border: 1px solid rgba(255, 255, 255, .12); border-radius: 999px; padding: 8px 16px 8px 10px; }
+  .brand img { width: 22px; height: 22px; border-radius: 6px; }
+  .brand span { color: #e7ecf3; font-size: 14px; font-weight: 600; }
+  .brand b { color: #4f8cff; font-weight: 800; }
+  .attr { position: absolute; right: 14px; bottom: 10px; z-index: 3; color: rgba(255, 255, 255, .55);
+    font-size: 11px; text-shadow: 0 1px 3px rgba(0, 0, 0, .9); }
+  #copilot-subs { z-index: 2 !important; --cs-font: 32px; }
+  /* the engine injects Vazirmatn for RTL lines; mirror that here */
+  #copilot-subs .copilot-subs__line[dir="rtl"] { font-family: Vazirmatn, var(--cs-font-family, sans-serif); }
+</style>
+</head>
+<body>
+  <video id="v" muted playsinline preload="auto"></video>
+  <div class="brand"><img src="../../icons/icon-48.png" alt=""><span><b>SubVibe</b> · live-translated subtitles</span></div>
+  <div id="copilot-subs"><div class="copilot-subs__stack" id="stack"></div></div>
+  <div class="attr" id="attr"></div>
+  <script>
+    const CLIPS = {
+      sintel: { src: "https://download.blender.org/durian/trailer/sintel_trailer-720p.mp4", t: 32,
+        attr: "Film: Sintel — © Blender Foundation (CC-BY) · sintel.org",
+        lines: [
+          { dir: "ltr", orig: true, words: [["I've", 1], ["been", 1], ["searching", 1], ["for", 0], ["him", 0], ["for", 0], ["so", 0], ["long.", 0]] },
+          { dir: "rtl", orig: false, words: [["خیلی", 1], ["وقت", 1], ["است", 0], ["که", 0], ["دنبالش", 0], ["می‌گردم.", 0]] },
+        ] },
+      bunny: { src: "https://download.blender.org/peach/trailer/trailer_720p.mov", t: 20,
+        attr: "Film: Big Buck Bunny — © Blender Foundation (CC-BY) · bigbuckbunny.org",
+        lines: [
+          { dir: "ltr", orig: true, words: [["Was", 1], ["für", 1], ["ein", 1], ["wunderschöner", 0], ["Morgen!", 0]] },
+          { dir: "rtl", orig: false, words: [["چه", 1], ["صبح", 1], ["فوق‌العاده‌ای!", 0]] },
+        ] },
+    };
+    // Preset vars copied from shared/presets.js (classic = overlay.css fallbacks).
+    const STYLES = {
+      classic: {},
+      tiktok: { "--cs-font-family": '"Baloo 2", "Arial Rounded MT Bold", "Segoe UI", sans-serif', "--cs-weight": "800",
+        "--cs-bg": "transparent", "--cs-pad": "0.12em 0.35em", "--cs-lh": "1.25", "--cs-maxwidth": "min(80%, 18em)",
+        "--cs-shadow": "-.05em -.05em 0 #000, .05em -.05em 0 #000, -.05em .05em 0 #000, .05em .05em 0 #000, 0 .07em 0 #000, .07em 0 0 #000, 0 -.07em 0 #000, -.07em 0 0 #000" },
+    };
+    const q = new URLSearchParams(location.search);
+    const clip = CLIPS[q.get("clip") || "sintel"];
+    const styleVars = STYLES[q.get("style") || "classic"];
+    const ov = document.getElementById("copilot-subs");
+    for (const [k, v] of Object.entries(styleVars)) ov.style.setProperty(k, v);
+    document.getElementById("attr").textContent = clip.attr;
+    // Exact setLineText structure: line → text span → word spans joined by real spaces.
+    document.getElementById("stack").innerHTML = clip.lines.map((l) =>
+      '<div class="copilot-subs__line' + (l.orig ? " copilot-subs__line--orig" : "") + '" dir="' + l.dir + '" style="display:block"><span class="copilot-subs__text">' +
+      l.words.map(([w, sung]) => '<span class="copilot-subs__w' + (sung ? " sung" : "") + '">' + w + "</span>").join(" ") + "</span></div>").join("");
+    const v = document.getElementById("v");
+    v.src = clip.src;
+    const t = q.get("t") ? +q.get("t") : clip.t;
+    v.addEventListener("loadedmetadata", () => { v.currentTime = t; });
+    v.addEventListener("seeked", () => { v.pause(); document.title = "READY " + document.title; });
+  </script>
+</body>
+</html>
