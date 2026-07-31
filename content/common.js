@@ -2268,8 +2268,10 @@
         // Perfect-sync already on stage → keep it (text + karaoke) and let the
         // session speak. Otherwise the live transcripts take the overlay —
         // that's the only text source there is.
-        if (cueListActive && !liveMode) { liveVoiceOnly = true; setStatus("Live Translate — voice over your subtitles."); }
-        else liveEnter();                    // take the stage immediately — silence the scrape engine
+        // Heartbeats repeat running:true every 2s — announce the takeover ONCE
+        // (the re-announcing toast was flashing on the video every beat).
+        if (cueListActive && !liveMode) { if (!liveVoiceOnly) { liveVoiceOnly = true; setStatus("Live Translate — voice over your subtitles."); } }
+        else if (!liveVoiceOnly) liveEnter(); // take the stage immediately — silence the scrape engine
       }
       if (msg.error) setStatus("Live: " + msg.error, true);
       if (!msg.running) { liveVoiceOnly = false; liveEnd(); }

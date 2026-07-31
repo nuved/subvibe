@@ -19,6 +19,8 @@ let lvTurn = { orig: "", out: "" }, lvFlushT = 0, lvPartialT = 0;
 let lvChanMode = { orig: null, out: null }; // per-channel stream shape: null=unknown, "cum"=cumulative snapshots
 let lvDbgN = 0; // raw-chunk forensics counter (see the onmessage debug log)
 let lvStats = null, lvStatsT = 0; // popup-visible flow counters — no console spelunking
+let lvChunksN = 0, lvIntsN = 0;   // audio chunks scheduled / server "interrupted" signals — playback forensics
+let lvIsTranslate = false;        // translate models have their own setup contract (translationConfig, no text)
 let lvCfg = null; // {deviceId, target, model, key, sysAsContent}
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -28,7 +30,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   else if (msg.type === "LIVE_STOP") liveStop("stopped");
 });
 
-const lvState = (running, error, stage) => chrome.runtime.sendMessage({ type: "LIVE_STATE", running, error: error || null, stage: stage || null, stats: lvStats && running ? { secs: Math.round((Date.now() - lvStats.t0) / 1000), upSecs: Math.round(lvStats.upSamples / 16000), heard: lvStats.textIn, spoke: lvStats.textOut, voiceSecs: Math.round(lvStats.voiceMs / 1000) } : null });
+const lvState = (running, error, stage) => chrome.runtime.sendMessage({ type: "LIVE_STATE", running, error: error || null, stage: stage || null, stats: lvStats && running ? { secs: Math.round((Date.now() - lvStats.t0) / 1000), upSecs: Math.round(lvStats.upSamples / 16000), heard: lvStats.textIn, spoke: lvStats.textOut, voiceSecs: Math.round(lvStats.voiceMs / 1000), chunks: lvChunksN, ints: lvIntsN, ctx: lvCtxOut ? lvCtxOut.state : "—" } : null });
 
 async function liveStart(msg) {
   // lvRunning only latches AFTER capture succeeds — without lvStarting, two
@@ -43,7 +45,9 @@ async function liveStart(msg) {
   // REJECTED at setup (the server closes the socket, which looked like an
   // endless "reconnecting…"). Heal any stale stored value here.
   const model = (!msg.model || msg.model === "gemini-3.5-live-translate") ? "gemini-3.5-live-translate-preview" : msg.model;
-  lvCfg = { deviceId: msg.deviceId, target: msg.target || "English", model, key: geminiKey, sysAsContent: false,
+  lvIsTranslate = /live-translate/.test(model);
+  lvChunksN = 0; lvIntsN = 0;
+  lvCfg = { deviceId: msg.deviceId, target: msg.target || "English", targetCode: msg.targetCode || "en", model, key: geminiKey, sysAsContent: false,
     // Passthrough only applies to tab capture (Chrome mutes a captured tab
     // until someone routes it back out); a mic passthrough would just echo.
     passVol: msg.streamId && typeof msg.origVol === "number" ? msg.origVol : 0 };
@@ -102,6 +106,25 @@ function connectLive() {
   }, 12000);
 
   lvWs.onopen = () => {
+    if (lvIsTranslate) {
+      // Translate models have their OWN contract (ai.google.dev live-translate
+      // guide): translationConfig with a BCP-47 target inside generationConfig,
+      // transcription flags ALSO inside generationConfig (top-level placement
+      // left outputAudioTranscription ignored — the "spoke 0" symptom), and NO
+      // systemInstruction — text input isn't supported for translation at all.
+      lvWs.send(JSON.stringify({
+        setup: {
+          model: "models/" + lvCfg.model,
+          generationConfig: {
+            responseModalities: ["AUDIO"],
+            inputAudioTranscription: {},
+            outputAudioTranscription: {},
+            translationConfig: { targetLanguageCode: lvCfg.targetCode, echoTargetLanguage: true },
+          },
+        },
+      }));
+      return;
+    }
     // The reference documents systemInstruction as a STRING; some servers want
     // the Content object form. Start with string; on a setup rejection retry
     // ONCE with {parts:[{text}]} before giving up (spec: defensive on drift).
@@ -144,7 +167,15 @@ function connectLive() {
     }
     const sc = ev.serverContent;
     if (!sc) return;
-    if (sc.interrupted) { clearLiveAudio(); lvTurn = { orig: "", out: "" }; } // restart — drop stale audio AND stale turn text
+    if (sc.interrupted) {
+      lvIntsN++;
+      // Turn-based models: barge-in makes the scheduled audio stale — drop it.
+      // Translate models are CONTINUOUS ("translates as the speaker talks
+      // without waiting for turns") — a video never stops talking, so honoring
+      // interrupted here deleted every scheduled chunk: 25s of voice counted,
+      // zero heard. Ignore it for translate models.
+      if (!lvIsTranslate) { clearLiveAudio(); lvTurn = { orig: "", out: "" }; }
+    }
     const parts = (sc.modelTurn && sc.modelTurn.parts) || [];
     for (const p of parts) {
       const d = p.inlineData;
@@ -204,6 +235,7 @@ function startLivePipe() {
     // rate (a separate context), not the 16kHz upload rate, so the original
     // keeps its full quality.
     lvCtxPass = new AudioContext();
+    if (lvCtxPass.state === "suspended") lvCtxPass.resume().catch(() => {});
     const pSrc = lvCtxPass.createMediaStreamSource(lvStream);
     const pGain = lvCtxPass.createGain();
     pGain.gain.value = lvCfg.passVol;
@@ -233,7 +265,12 @@ function startLivePipe() {
 
 // Output side: sequential scheduling of 24kHz PCM16 chunks.
 function scheduleLiveAudio(b64, mime) {
-  if (!lvCtxOut) { lvCtxOut = new AudioContext({ sampleRate: 24000 }); lvCursor = 0; }
+  if (!lvCtxOut) {
+    lvCtxOut = new AudioContext({ sampleRate: 24000 });
+    lvCursor = 0;
+    // Belt and braces: a suspended context schedules silently forever.
+    if (lvCtxOut.state === "suspended") lvCtxOut.resume().catch(() => {});
+  }
   const rate = +((/rate=(\d+)/.exec(mime || "") || [])[1] || 24000);
   const bytes = atob(b64);
   const n = bytes.length >> 1;
@@ -255,6 +292,7 @@ function scheduleLiveAudio(b64, mime) {
   const at = Math.max(lvCtxOut.currentTime, lvCursor);
   src.start(at);
   lvCursor = at + buf.duration;
+  lvChunksN++;
   if (lvStats) lvStats.voiceMs += buf.duration * 1000;
   lvScheduled.push(src);
   src.onended = () => { const i = lvScheduled.indexOf(src); if (i >= 0) lvScheduled.splice(i, 1); };

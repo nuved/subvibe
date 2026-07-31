@@ -989,7 +989,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             // Hand the key over instead of letting the capture page read
             // storage itself — one less await over there that could stall.
             const { geminiKey } = await chrome.storage.local.get("geminiKey");
-            chrome.runtime.sendMessage({ type: "LIVE_START", key: geminiKey || "", streamId, origVol: msg.origVol, deviceId: msg.deviceId, target: msg.target, model: msg.model });
+            chrome.runtime.sendMessage({ type: "LIVE_START", key: geminiKey || "", streamId, origVol: msg.origVol, deviceId: msg.deviceId, target: msg.target, targetCode: msg.targetCode, model: msg.model });
           } catch (e) {
             liveActive = false;
             chrome.runtime.sendMessage({ type: "LIVE_STATE", running: false, error: "capture page: " + (e.message || e) });

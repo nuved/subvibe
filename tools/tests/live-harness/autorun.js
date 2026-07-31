@@ -7,15 +7,16 @@ window.__run = async function () {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const F = window.__fake;
 
-  F.dispatch({ type: "LIVE_START", deviceId: "", target: "Persian", model: "gemini-3.5-live-translate-preview" });
+  F.dispatch({ type: "LIVE_START", deviceId: "", target: "Persian", targetCode: "fa", model: "gemini-3.5-live-translate-preview" });
   await sleep(700); // open + setup + first audio chunks + scripted turn
 
   const ws = F.ws();
   const setup = ws && ws.frames.find((f) => f.setup);
   check("websocket opened with key in url", ws && /key=FAKE-KEY/.test(ws.url), ws && ws.url.slice(-40));
   check("setup names the model", setup && setup.setup.model === "models/gemini-3.5-live-translate-preview", setup && setup.setup.model);
-  check("setup asks for AUDIO + both transcriptions", setup && setup.setup.generationConfig.responseModalities[0] === "AUDIO" && "inputAudioTranscription" in setup.setup && "outputAudioTranscription" in setup.setup);
-  check("system instruction targets Persian", setup && /Persian/.test(JSON.stringify(setup.setup.systemInstruction)));
+  const gc = setup && setup.setup.generationConfig;
+  check("setup asks for AUDIO + both transcriptions IN generationConfig", gc && gc.responseModalities[0] === "AUDIO" && "inputAudioTranscription" in gc && "outputAudioTranscription" in gc);
+  check("translationConfig targets fa (BCP-47), no systemInstruction", gc && gc.translationConfig && gc.translationConfig.targetLanguageCode === "fa" && !("systemInstruction" in setup.setup), gc && gc.translationConfig);
 
   const audioFrames = ws ? ws.frames.filter((f) => f.realtimeInput) : [];
   const a0 = audioFrames[0] && audioFrames[0].realtimeInput.audio;

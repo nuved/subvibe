@@ -701,7 +701,7 @@ el("liveBtn").addEventListener("click", async () => {
       return;
     }
   }
-  chrome.runtime.sendMessage({ type: "LIVE_BEGIN", tabId, wantTab: !state.audioDeviceId, deviceId: state.audioDeviceId || "", origVol: typeof state.dubDuckLevel === "number" ? state.dubDuckLevel : 0.12, target, model: state.liveModel || "gemini-3.5-live-translate-preview" });
+  chrome.runtime.sendMessage({ type: "LIVE_BEGIN", tabId, wantTab: !state.audioDeviceId, deviceId: state.audioDeviceId || "", origVol: typeof state.dubDuckLevel === "number" ? state.dubDuckLevel : 0.12, target, targetCode: (state.targets && state.targets[0]) || "en", model: state.liveModel || "gemini-3.5-live-translate-preview" });
   // Total-silence watchdog: if NOTHING reports back within 10s, every layer's
   // own error path failed too — say so instead of sitting on "Connecting…".
   const sentAt = Date.now();
@@ -717,7 +717,8 @@ chrome.runtime.onMessage.addListener((msg) => {
     let text;
     if (msg.error) text = msg.error;
     else if (!msg.running) text = "Stopped.";
-    else if (msg.stats) text = `Live ${Math.floor(msg.stats.secs / 60)}:${String(msg.stats.secs % 60).padStart(2, "0")} · sent ${msg.stats.upSecs}s audio · heard ${msg.stats.heard} · spoke ${msg.stats.spoke} (${msg.stats.voiceSecs}s voice)`;
+    else if (msg.stats) text = `Live ${Math.floor(msg.stats.secs / 60)}:${String(msg.stats.secs % 60).padStart(2, "0")} · sent ${msg.stats.upSecs}s audio · heard ${msg.stats.heard} · spoke ${msg.stats.spoke} (${msg.stats.voiceSecs}s voice)`
+      + (msg.stats.chunks != null ? ` · out ${msg.stats.chunks}ch/${msg.stats.ints}int/${msg.stats.ctx}` : "");
     else if (msg.stage) text = msg.stage; // pre-session progress — a stall names its stage
     else text = "Live — connected, waiting for audio…";
     liveUI(msg.running, text, !!msg.error);
