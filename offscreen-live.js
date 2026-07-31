@@ -30,7 +30,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   else if (msg.type === "LIVE_STOP") liveStop("stopped");
 });
 
-const lvState = (running, error, stage) => chrome.runtime.sendMessage({ type: "LIVE_STATE", running, error: error || null, stage: stage || null, stats: lvStats && running ? { secs: Math.round((Date.now() - lvStats.t0) / 1000), upSecs: Math.round(lvStats.upSamples / 16000), heard: lvStats.textIn, spoke: lvStats.textOut, voiceSecs: Math.round(lvStats.voiceMs / 1000), chunks: lvChunksN, ints: lvIntsN, ctx: lvCtxOut ? lvCtxOut.state : "—" } : null });
+const lvState = (running, error, stage) => chrome.runtime.sendMessage({ type: "LIVE_STATE", running, error: error || null, stage: stage || null, stats: lvStats && running ? { secs: Math.round((Date.now() - lvStats.t0) / 1000), upSecs: Math.round(lvStats.upSamples / 16000), heard: lvStats.textIn, spoke: lvStats.textOut, voiceSecs: Math.round(lvStats.voiceMs / 1000), chunks: lvChunksN, ints: lvIntsN, ctx: lvCtxOut ? lvCtxOut.state : "—", tgt: lvCfg ? lvCfg.targetCode : "?" } : null });
 
 async function liveStart(msg) {
   // lvRunning only latches AFTER capture succeeds — without lvStarting, two
@@ -80,7 +80,7 @@ async function liveStart(msg) {
       ]);
     }
   } catch (e) { lvStarting = false; lvState(false, "capture: " + (e.message || e)); return; }
-  lvState(true, null, (msg.streamId ? "Tab audio OK" : "Mic OK") + " — connecting to Google…");
+  lvState(true, null, (msg.streamId ? "Tab audio OK" : "Mic OK") + " — connecting to Google… (→ " + lvCfg.targetCode + ")");
 
   lvStarting = false;
   lvRunning = true; lvClosing = false; lvRetries = 0;
@@ -119,7 +119,11 @@ function connectLive() {
             responseModalities: ["AUDIO"],
             inputAudioTranscription: {},
             outputAudioTranscription: {},
-            translationConfig: { targetLanguageCode: lvCfg.targetCode, echoTargetLanguage: true },
+            // echo=false is the documented default: input ALREADY in the target
+            // language gets silence, not a parrot. echo=true re-speaks the whole
+            // video whenever target == video language (with the "en" default
+            // target that meant an English video re-narrated in English).
+            translationConfig: { targetLanguageCode: lvCfg.targetCode, echoTargetLanguage: false },
           },
         },
       }));

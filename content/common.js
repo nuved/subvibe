@@ -2058,6 +2058,18 @@
       if (o && liveMode) o.querySelectorAll(".copilot-subs__line").forEach((r) => (r.style.display = "none"));
     }, 8000);
   }
+  // The engine reached PERFECT-SYNC while a live session runs: the cuelist
+  // takes the screen back (timed lines, karaoke, cache) and the session
+  // demotes itself to voice-only. This is what makes the pairing self-healing
+  // after a tab reload — the fresh page briefly goes full-live (no engine yet),
+  // then the file adopts and text returns.
+  function liveYieldToCuelist() {
+    if (!liveMode) return;
+    liveMode = false;
+    liveVoiceOnly = true;
+    clearTimeout(liveIdleT);
+    setStatus("Perfect-sync subtitles are back — Live keeps speaking the translation.");
+  }
   function liveEnd() {
     if (!liveMode) return;
     liveMode = false;
@@ -2070,7 +2082,11 @@
 
   async function start() {
     if (!extAlive()) return; // orphaned by a reload — don't touch chrome.* APIs
-    if (liveMode) { dbgSub.adopt = "blocked: live mode"; return; } // Live owns the overlay
+    // A running live session no longer blocks the engine. If this page can
+    // reach perfect-sync, the engine takes the screen and live demotes to
+    // voice-only (liveYieldToCuelist). Only the text-painting FALLBACKS
+    // (scrape, audio) stay suppressed — live's transcript overlay replaces
+    // exactly those.
     dbgSub.starts++;
     const settings = await getSettings();
     liveOffsetMs = Math.round((settings.syncOffset || 0) * 1000);
@@ -2101,9 +2117,12 @@
     // and the dedupe key. So: every await below is followed by a staleness
     // check, and a superseded start returns without touching anything.
     const gen = ++engineGen;
-    const stale = () => gen !== engineGen || liveMode;
+    const stale = () => gen !== engineGen;
 
-    teardown();
+    // Under a full-live overlay, DON'T tear down yet — if this start ends in a
+    // suppressed fallback, the live transcript lines must survive untouched.
+    // Any path that builds an engine tears down right before building.
+    if (!liveMode) teardown();
     applyHideNative(settings.enabled && settings.hideNative);
     if (!settings.enabled) return;
 
@@ -2125,7 +2144,8 @@
     if (adapter.stream) {
       const cueList = await waitFor(() => getAllCues(video), 3000);
       if (stale()) { dbgSub.stale = "start superseded (waiting for cues)"; return; }
-      if (cueList && cueList.length) { dbgSub.adopt = "cuelist(stream) " + cueList.length; await runCueListMode(settings, video, cueList, gen); return; }
+      if (cueList && cueList.length) { dbgSub.adopt = "cuelist(stream) " + cueList.length; liveYieldToCuelist(); await runCueListMode(settings, video, cueList, gen); return; }
+      if (liveMode) { dbgSub.adopt = "scrape suppressed (live voice active)"; return; }
       dbgSub.adopt = "scrape (stream: no track cues yet)";
       await startStream(settings, video, gen);
       return;
@@ -2139,7 +2159,7 @@
     // list for this clip, use it — full pre-translate lookahead, same as ZDF/DW.
     {
       const inter = getAllCues(video);
-      if (inter && inter.length) { dbgSub.adopt = "cuelist(file) " + inter.length; await runCueListMode(settings, video, inter, gen); return; }
+      if (inter && inter.length) { dbgSub.adopt = "cuelist(file) " + inter.length; liveYieldToCuelist(); await runCueListMode(settings, video, inter, gen); return; }
       dbgSub.adopt = "file not usable at start #" + dbgSub.starts + (dbgSub.hold ? " (" + dbgSub.hold + ")" : "");
     }
 
@@ -2165,10 +2185,12 @@
         // (with the token), which we intercept and upgrade to perfect-sync with
         // pre-translation. Until then, scrape the on-screen captions line by line.
         setStatus("Turn ON the player's CC (subtitles) — then I'll pre-translate the whole track in sync.", true);
+        if (liveMode) { dbgSub.adopt = "scrape suppressed (live voice active)"; return; }
         dbgSub.adopt = "scrape (direct download empty) at start #" + dbgSub.starts;
         await startStream(settings, video, gen);
         return;
       }
+      if (liveMode) return; // live transcript lines already cover the no-captions case
       if (!maybeOfferAudio(settings)) {
         setStatus(originalTrack
           ? "The caption file couldn't be downloaded for this video."
@@ -2183,6 +2205,7 @@
     // language finished — so each line lagged and even the original waited on the
     // (slow) translation. runCueListMode fixes both. (window.csDiag proves the lookahead.)
     dbgSub.adopt = "cuelist(track) " + originalCues.length;
+    liveYieldToCuelist();
     await runCueListMode(settings, video, originalCues, gen);
   }
 

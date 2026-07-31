@@ -718,7 +718,7 @@ chrome.runtime.onMessage.addListener((msg) => {
     if (msg.error) text = msg.error;
     else if (!msg.running) text = "Stopped.";
     else if (msg.stats) text = `Live ${Math.floor(msg.stats.secs / 60)}:${String(msg.stats.secs % 60).padStart(2, "0")} · sent ${msg.stats.upSecs}s audio · heard ${msg.stats.heard} · spoke ${msg.stats.spoke} (${msg.stats.voiceSecs}s voice)`
-      + (msg.stats.chunks != null ? ` · out ${msg.stats.chunks}ch/${msg.stats.ints}int/${msg.stats.ctx}` : "");
+      + (msg.stats.chunks != null ? ` · out ${msg.stats.chunks}ch/${msg.stats.ints}int/${msg.stats.ctx} → ${msg.stats.tgt}` : "");
     else if (msg.stage) text = msg.stage; // pre-session progress — a stall names its stage
     else text = "Live — connected, waiting for audio…";
     liveUI(msg.running, text, !!msg.error);
