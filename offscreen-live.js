@@ -112,19 +112,25 @@ function connectLive() {
       // transcription flags ALSO inside generationConfig (top-level placement
       // left outputAudioTranscription ignored — the "spoke 0" symptom), and NO
       // systemInstruction — text input isn't supported for translation at all.
+      // Wire placement per Google's own SDK converters (js-genai
+      // _live_converters.ts): translationConfig sits INSIDE generationConfig,
+      // the transcription flags sit at setup TOP LEVEL — the docs page shows
+      // the SDK's flattened config, which hides this split (server 1007
+      // "Unknown name inputAudioTranscription at setup.generation_config"
+      // taught us the hard way).
       lvWs.send(JSON.stringify({
         setup: {
           model: "models/" + lvCfg.model,
           generationConfig: {
             responseModalities: ["AUDIO"],
-            inputAudioTranscription: {},
-            outputAudioTranscription: {},
             // echo=false is the documented default: input ALREADY in the target
             // language gets silence, not a parrot. echo=true re-speaks the whole
             // video whenever target == video language (with the "en" default
             // target that meant an English video re-narrated in English).
             translationConfig: { targetLanguageCode: lvCfg.targetCode, echoTargetLanguage: false },
           },
+          inputAudioTranscription: {},
+          outputAudioTranscription: {},
         },
       }));
       return;

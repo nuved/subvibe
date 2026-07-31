@@ -14,9 +14,11 @@ window.__run = async function () {
   const setup = ws && ws.frames.find((f) => f.setup);
   check("websocket opened with key in url", ws && /key=FAKE-KEY/.test(ws.url), ws && ws.url.slice(-40));
   check("setup names the model", setup && setup.setup.model === "models/gemini-3.5-live-translate-preview", setup && setup.setup.model);
+  // Wire split per js-genai converters: transcriptions TOP-LEVEL in setup,
+  // translationConfig INSIDE generationConfig (server 1007s on any other mix).
   const gc = setup && setup.setup.generationConfig;
-  check("setup asks for AUDIO + both transcriptions IN generationConfig", gc && gc.responseModalities[0] === "AUDIO" && "inputAudioTranscription" in gc && "outputAudioTranscription" in gc);
-  check("translationConfig targets fa (BCP-47), no systemInstruction", gc && gc.translationConfig && gc.translationConfig.targetLanguageCode === "fa" && !("systemInstruction" in setup.setup), gc && gc.translationConfig);
+  check("setup: AUDIO in generationConfig, transcriptions at setup TOP level", gc && gc.responseModalities[0] === "AUDIO" && "inputAudioTranscription" in setup.setup && "outputAudioTranscription" in setup.setup && !("inputAudioTranscription" in gc));
+  check("translationConfig in generationConfig targets fa, echo off, no systemInstruction", gc && gc.translationConfig && gc.translationConfig.targetLanguageCode === "fa" && gc.translationConfig.echoTargetLanguage === false && !("systemInstruction" in setup.setup), gc && gc.translationConfig);
 
   const audioFrames = ws ? ws.frames.filter((f) => f.realtimeInput) : [];
   const a0 = audioFrames[0] && audioFrames[0].realtimeInput.audio;
