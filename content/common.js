@@ -19,6 +19,7 @@
 
   const DEFAULTS = {
     enabled: true,
+    translateOn: true,   // false = "Original" mode: style the native captions, no translation
     targets: ["en"],     // one or more languages to show (multiple subtitles)
     showOriginal: true,  // also show the original spoken line (dual subtitles) — also
                          // means there's always a line to show even before a key is added
@@ -34,6 +35,7 @@
                          // (exact per-word times on YouTube ASR tracks, estimated elsewhere)
     audioFallback: false, // transcribe audio ONLY when a video has no captions
     audioDeviceId: "",    // chosen input device (e.g. BlackHole)
+    debugHud: false,      // on-video debug panel (engine mode + caption-file pipeline)
   };
 
   const LANG_LABEL = {
@@ -113,10 +115,15 @@
   // layers this clip's own changes on top — so a tweak on one video (or live channel)
   // never bleeds onto another. sync defaults to 0 per clip.
   async function getSettings() {
-    const s = await chrome.storage.local.get(["enabled", "targets", "showOriginal", "hideNative", "position", "linePositions", "size", "stylePreset", "styleCustom", "syncOffset", "karaokeHl", "audioFallback", "audioDeviceId", "translationProvider", "clipOverrides"]);
+    const s = await chrome.storage.local.get(["enabled", "translateOn", "targets", "showOriginal", "hideNative", "position", "linePositions", "size", "stylePreset", "styleCustom", "syncOffset", "karaokeHl", "audioFallback", "audioDeviceId", "translationProvider", "debugHud", "clipOverrides"]);
     const { clipOverrides, ...flat } = s;
     const ov = (clipOverrides && clipOverrides[clipBaseId()]) || {};
-    return { ...DEFAULTS, ...flat, ...ov };
+    const merged = { ...DEFAULTS, ...flat, ...ov };
+    // "Original" mode (translateOn === false): drop every target so not a single
+    // line is sent to the translator (zero cost), and force the original line on
+    // so there's still something to style/karaoke/resync. One gate, read by all.
+    if (merged.translateOn === false) { merged.targets = []; merged.showOriginal = true; }
+    return merged;
   }
 
   function pickAdapter() {
@@ -266,6 +273,7 @@
   let activeLines = [];      // [{ lang, cues, idx, el }]
   let streamCleanup = null;  // stops a streaming (DOM-scrape) source
   let currentRunKey = null;  // dedupes redundant start() calls (event spam)
+  let engineGen = 0;         // bumped by every non-deduped start(); a start whose gen is stale after an await was SUPERSEDED and must die, not build
   let liveOffsetMs = 0;      // manual sync nudge (+ = earlier) — applied to LIVE streams only (recorded titles are exact)
   let liveOffsetChangedAt = -Infinity, liveClampNotedAt = -1; // when the nudge last changed (−∞ = never — early-page clamps must not read as a user action); which change already got its clamp note
   let liveAutoOffsetMs = 0;  // AUTO sync: shift so our cues coincide with the player's OWN on-screen caption
@@ -869,7 +877,7 @@
   // Read the site's own on-screen captions, translate each line to every target
   // (deduped by text, cached to disk), overlay the result, all keyed to
   // video.currentTime so replay reuses everything for free.
-  async function startStream(settings, video) {
+  async function startStream(settings, video, gen) {
     const site = adapter.site;
     const videoId = adapter.getVideoId();
     if (!videoId) return;
@@ -877,6 +885,11 @@
 
     const cacheKey = `${site}:${videoId}:stream`;
     const loaded = (await send({ type: "CACHE_GET", key: cacheKey }))?.track;
+    // A newer start() may have committed a cuelist engine while that cache read
+    // was in flight. Building the scrape engine now would bulldoze it (wipe its
+    // overlay stack, cancel its rAF) while leaving cueListActive stuck true —
+    // the exact deadlock the adopt-harness reproduces. Superseded → vanish.
+    if (gen !== undefined && (gen !== engineGen || liveMode)) { dbgSub.stale = "scrape build superseded (during cache read)"; return; }
     const track = loaded || {
       site, videoId, source: "auto", model: "gpt-4o-mini",
       createdAt: new Date().toISOString(), cues: [],
@@ -1083,6 +1096,18 @@
     // toggled off. Poll for it and, when present, upgrade from line-by-line
     // scraping to perfect-sync cue-list mode.
     const upgrade = setInterval(() => {
+      // THE RELEASE VALVE (found via the on-video HUD: "intercepted: 442 cues
+      // (clip ok)" + "last start: deduped (run unchanged)" + starts climbing —
+      // the file was held while every restart bounced off the dedupe gate).
+      // While scraping with a fetched file in hand, force adoption: null the
+      // run key so the dedupe CANNOT bounce, and retry every tick until
+      // cue-list mode actually takes over.
+      if (interceptedCues && interceptedCues.length && interceptedClipId === currentClipId() && !cueListActive) {
+        dbgSub.adopt = "upgrade→adopting file " + interceptedCues.length;
+        currentRunKey = null;
+        schedule();
+        return;
+      }
       // YouTube SPA nav: the reused <video>'s track list can still hold the
       // PREVIOUS clip's cues for a beat (their console showed a 150-cue run
       // from the prior video painting onto the next one). Give the real
@@ -1090,7 +1115,10 @@
       // before trusting the native track on a freshly switched clip.
       if (adapter && adapter.site === "youtube" && lastClipChangeAt && performance.now() - lastClipChangeAt < 8000) return;
       const full = readVideoCueList(video);
-      if (full && full.length > 3) onInterceptedCues(full);
+      // Never merge rolling native cues OVER a held file — that's the caption
+      // pollution the cue-list reread already guards against (fileCoversClip);
+      // the scrape upgrade path was missing the same guard.
+      if (!(interceptedCues && interceptedCues.length) && full && full.length > 3) onInterceptedCues(full);
     }, 2000);
     streamCleanup = () => { clearInterval(poll); clearTimeout(watchdog); clearInterval(upgrade); if (ccNudge) clearInterval(ccNudge); };
     applyHideNative(settings.hideNative);
@@ -1168,11 +1196,14 @@
   // hand back intercepted cues that belong to the CLIP NOW PLAYING — stale cues
   // from a previous clip (different URL/id) are ignored so they can't bleed across.
   function getAllCues(video) {
+    // HUD forensics: record what THIS call saw, so "file not usable" names its reason.
+    dbgSub.inter = interceptedCues ? (interceptedClipId === currentClipId() ? "ok:" + interceptedCues.length : "CLIP≠ " + interceptedClipId + " vs " + currentClipId()) : "null";
     if (interceptedCues && interceptedCues.length && interceptedClipId === currentClipId()) return interceptedCues;
     // YouTube: right after a clip switch the reused <video>'s track can still
     // hold the previous clip's ROLLING cues — hold back so the real file (whose
     // fetch the CC nudge triggers) wins the race instead of junk native cues.
-    if (adapter && adapter.site === "youtube" && lastClipChangeAt && performance.now() - lastClipChangeAt < 8000) return null;
+    if (adapter && adapter.site === "youtube" && lastClipChangeAt && performance.now() - lastClipChangeAt < 8000) { dbgSub.hold = "clip-change hold " + Math.round((8000 - (performance.now() - lastClipChangeAt)) / 1000) + "s"; return null; }
+    dbgSub.hold = "";
     return readVideoCueList(video);
   }
   function onInterceptedCues(list) {
@@ -1324,11 +1355,16 @@
     } catch {}
     return url;
   }
+  // Caption-file pipeline state for the on-video debug HUD — each stage writes
+  // its outcome here so a single screenshot shows where adoption died.
+  const dbgSub = { spotted: "", fetch: "", adopt: "", hold: "", starts: 0 };
+
   async function fetchSubsByUrl(url) {
     const key = subDedupKey(url);
     if (!url || url === interceptedUrl || fetchedSubUrls.has(key)) return; // already active / in flight / done
     fetchedSubUrls.add(key); // claim NOW so the 1.5s re-post (subs-intercept.js) can't launch a duplicate fetch
     console.info("[CopilotSubs] fetching subtitle file:", url);
+    dbgSub.fetch = "fetching…";
     // YouTube timedtext: the pot token validates against the SAME first-party
     // context the player fetched with (cookies included). The worker's cookieless
     // re-fetch comes back as an empty 200 body — so fetch it same-origin from THIS
@@ -1344,6 +1380,7 @@
       // times, then give up (leave it claimed) so we never hammer a dead URL forever.
       const n = (subFetchFails.get(key) || 0) + 1;
       subFetchFails.set(key, n);
+      dbgSub.fetch = "FAILED " + ((resp && (resp.error || (resp.status + (resp.text === "" ? " empty body" : "")))) || "no response") + ` (try ${n}/4)`;
       console.warn("[CopilotSubs] subtitle fetch failed:", resp && (resp.error || resp.status), `(try ${n}/4)`, url);
       if (n < 4) fetchedSubUrls.delete(key);
       return;
@@ -1353,9 +1390,11 @@
     // re-fetch loop (the re-post would otherwise hammer it ~every 1.5s forever).
     const cues = parseSubtitleFile(resp.text);
     if (!cues.length) {
+      dbgSub.fetch = "parsed 0 cues (" + resp.text.length + "B body)";
       console.warn("[CopilotSubs] subtitle file parsed to 0 cues (not TTML/VTT?):", url, resp.text.slice(0, 160));
       return;
     }
+    dbgSub.fetch = "OK " + cues.length + " cues";
     console.info(`[CopilotSubs] ${cues.length} cues from subtitle file → perfect-sync`);
     setStatus(`Loaded subtitle file (${cues.length} lines) — perfect sync.`);
     // A subtitle file IS this clip's full cue list — REPLACE, never merge across
@@ -1370,7 +1409,7 @@
 
   // Perfect-sync display: cues carry their own timing, and we translate a window
   // AHEAD of the playhead so each line is ready before it's needed.
-  async function runCueListMode(settings, video, cueList) {
+  async function runCueListMode(settings, video, cueList, gen) {
     adapter = pickAdapter();
     teardown();
     cueListActive = true; // claim the engine so streamed-in cues don't restart us
@@ -1401,6 +1440,10 @@
       cacheStarts[tg] = rows.map((c) => c.startMs).sort((a, b) => a - b);
       cacheTextMaps[tg] = new Map(rows.filter((c) => c.o).map((c) => [normCue(c.o), c]));
     }
+    // Same fence as startStream: if a newer start() superseded us while the
+    // cache reads were in flight, its teardown already revoked our claim —
+    // building the overlay/rAF now would fight the newer engine. Vanish.
+    if (gen !== undefined && (gen !== engineGen || liveMode)) { dbgSub.stale = "cuelist build superseded (during cache read)"; return; }
     // Nearest LEGACY cached row (no `o` field) within CACHE_NEAR_MS whose time
     // window overlaps the cue's. Rows that know their original are excluded on
     // purpose: the exact/text layers already serve them, and a near-in-time row
@@ -1963,10 +2006,94 @@
     schedule(); // resume caption scraping if the page has its own captions
   }
 
+  // ─── Live Translate (experimental) ───────────────────────────────────────────
+  // Transcript lines relayed from the Gemini Live session (offscreen document).
+  // Takes over the overlay like audio mode does; the translated text arrives
+  // ready, so no TRANSLATE calls happen here. LIVE_STATE {running:false}
+  // hands the overlay back to the normal engine.
+  let liveMode = false, liveIdleT = 0;
+  // Voice-only live: when the engine already runs PERFECT-SYNC subtitles
+  // (cueListActive), the live session contributes just the translated VOICE —
+  // the engine keeps the screen, its timing, and the karaoke sweep. The
+  // transcript lines paint only where no caption engine is running (unsupported
+  // sites, no-caption videos). Decided ONCE at session start, deliberately —
+  // flip-flopping mid-session would thrash the overlay.
+  let liveVoiceOnly = false;
+  // Enter live mode the moment the session STARTS (LIVE_STATE running:true) —
+  // not on the first transcript. Waiting for text left the scrape engine
+  // painting its rolling word-by-word captions straight through the live
+  // session (the operator's "appending words" was THAT, not the transcripts).
+  async function liveEnter() {
+    if (liveMode) return;
+    liveMode = true;
+    const settings = await getSettings();
+    // Full engine teardown: stops the tick AND the pump/reread intervals
+    // (no background billing on scrape fragments), detaches a running dub
+    // (no voice collision), clears the badge. ensureOverlay rebuilds fresh.
+    teardown();
+    currentRunKey = null;
+    const overlay = ensureOverlay();
+    applyAppearance(settings);
+    const stack = overlay.querySelector(".copilot-subs__stack");
+    stack.innerHTML = "";
+    for (const key of ["__orig", "__live"]) {
+      const row = document.createElement("div");
+      row.className = "copilot-subs__line" + (key === "__orig" ? " copilot-subs__line--orig" : "");
+      row.dataset.csKey = key;
+      stack.appendChild(row);
+    }
+    setStatus("Live Translate — listening…");
+  }
+  async function liveShow(orig, out) {
+    const settings = await getSettings();
+    await liveEnter();
+    const overlay = document.getElementById("copilot-subs");
+    if (!overlay) return;
+    const rows = overlay.querySelectorAll(".copilot-subs__line");
+    const ro = rows[0], rt = rows[1];
+    if (ro) {
+      if (settings.showOriginal && orig) { setLineText(ro, orig); ro.style.display = "block"; ro.dir = isRTL(orig) ? "rtl" : "ltr"; }
+      else ro.style.display = "none";
+    }
+    if (rt && out) { setLineText(rt, out); rt.style.display = "block"; rt.dir = isRTL(out) ? "rtl" : "ltr"; }
+    // A quiet room keeps the last line ~8s, then the overlay clears until the
+    // next spoken line — live has no cue end times to honor.
+    clearTimeout(liveIdleT);
+    liveIdleT = setTimeout(() => {
+      const o = document.getElementById("copilot-subs");
+      if (o && liveMode) o.querySelectorAll(".copilot-subs__line").forEach((r) => (r.style.display = "none"));
+    }, 8000);
+  }
+  // The engine reached PERFECT-SYNC while a live session runs: the cuelist
+  // takes the screen back (timed lines, karaoke, cache) and the session
+  // demotes itself to voice-only. This is what makes the pairing self-healing
+  // after a tab reload — the fresh page briefly goes full-live (no engine yet),
+  // then the file adopts and text returns.
+  function liveYieldToCuelist() {
+    if (!liveMode) return;
+    liveMode = false;
+    liveVoiceOnly = true;
+    clearTimeout(liveIdleT);
+    setStatus("Perfect-sync subtitles are back — Live keeps speaking the translation.");
+  }
+  function liveEnd() {
+    if (!liveMode) return;
+    liveMode = false;
+    clearTimeout(liveIdleT);
+    currentRunKey = null;
+    schedule(); // normal engine takes the overlay back
+  }
+
   // ─── orchestration ───────────────────────────────────────────────────────────
 
   async function start() {
     if (!extAlive()) return; // orphaned by a reload — don't touch chrome.* APIs
+    // A running live session no longer blocks the engine. If this page can
+    // reach perfect-sync, the engine takes the screen and live demotes to
+    // voice-only (liveYieldToCuelist). Only the text-painting FALLBACKS
+    // (scrape, audio) stay suppressed — live's transcript overlay replaces
+    // exactly those.
+    dbgSub.starts++;
     const settings = await getSettings();
     liveOffsetMs = Math.round((settings.syncOffset || 0) * 1000);
     const ad = pickAdapter();
@@ -1975,7 +2102,7 @@
     // Skip redundant restarts: if nothing relevant changed and we're already
     // showing an overlay, don't tear it all down (kills the live loop).
     const runKey = JSON.stringify({
-      en: settings.enabled, v: vid,
+      en: settings.enabled, tr: settings.translateOn, v: vid,
       t: settings.targets, o: settings.showOriginal, h: settings.hideNative,
       p: settings.position, s: settings.size, k: settings.karaokeHl,
       // Whether this clip's FULL cue list has been intercepted yet. Without this,
@@ -1986,10 +2113,22 @@
       // which routinely lands after the first start()), plus ZDF/DW/Prime.
       cl: !!(interceptedCues && interceptedCues.length && interceptedClipId === currentClipId()),
     });
-    if (runKey === currentRunKey && document.getElementById("copilot-subs")) return;
+    if (runKey === currentRunKey && document.getElementById("copilot-subs")) { dbgSub.adopt = "deduped (run unchanged)"; return; }
     currentRunKey = runKey;
+    // Reentrancy fence. start() awaits real network (getCaptionTracks, cache
+    // reads) — a NEWER start can complete an engine while an older one sleeps.
+    // The harness proved the older one then resumes and rebuilds scrape ON TOP
+    // of the fresh cuelist engine without a teardown, leaving cueListActive
+    // stuck true — which in turn disables the upgrade valve, onInterceptedCues
+    // and the dedupe key. So: every await below is followed by a staleness
+    // check, and a superseded start returns without touching anything.
+    const gen = ++engineGen;
+    const stale = () => gen !== engineGen;
 
-    teardown();
+    // Under a full-live overlay, DON'T tear down yet — if this start ends in a
+    // suppressed fallback, the live transcript lines must survive untouched.
+    // Any path that builds an engine tears down right before building.
+    if (!liveMode) teardown();
     applyHideNative(settings.enabled && settings.hideNative);
     if (!settings.enabled) return;
 
@@ -2003,14 +2142,18 @@
     // own videoId is unreliable on MSE players, so we don't key cues off it here.
 
     const video = await waitFor(() => adapter.getVideoEl());
+    if (stale()) { dbgSub.stale = "start superseded (waiting for video)"; return; }
     if (!video) { currentRunKey = null; return; } // not ready — allow a retry
 
     // Streaming sources: if the browser exposes the full caption track (e.g. ZDF),
     // use it for perfect-sync pre-translation; otherwise scrape on-screen captions.
     if (adapter.stream) {
       const cueList = await waitFor(() => getAllCues(video), 3000);
-      if (cueList && cueList.length) { await runCueListMode(settings, video, cueList); return; }
-      await startStream(settings, video);
+      if (stale()) { dbgSub.stale = "start superseded (waiting for cues)"; return; }
+      if (cueList && cueList.length) { dbgSub.adopt = "cuelist(stream) " + cueList.length; liveYieldToCuelist(); await runCueListMode(settings, video, cueList, gen); return; }
+      if (liveMode) { dbgSub.adopt = "scrape suppressed (live voice active)"; return; }
+      dbgSub.adopt = "scrape (stream: no track cues yet)";
+      await startStream(settings, video, gen);
       return;
     }
 
@@ -2022,12 +2165,16 @@
     // list for this clip, use it — full pre-translate lookahead, same as ZDF/DW.
     {
       const inter = getAllCues(video);
-      if (inter && inter.length) { await runCueListMode(settings, video, inter); return; }
+      if (inter && inter.length) { dbgSub.adopt = "cuelist(file) " + inter.length; liveYieldToCuelist(); await runCueListMode(settings, video, inter, gen); return; }
+      dbgSub.adopt = "file not usable at start #" + dbgSub.starts + (dbgSub.hold ? " (" + dbgSub.hold + ")" : "");
     }
 
     setStatus("Loading captions…");
     let tracks = [];
     try { tracks = await adapter.getCaptionTracks(videoId); } catch { tracks = []; }
+    // THE await that bit in production: getCaptionTracks is a real network call,
+    // and the intercepted caption file routinely lands while it's in flight.
+    if (stale()) { dbgSub.stale = "start superseded (during getCaptionTracks)"; return; }
     const originalTrack = pickOriginalTrack(tracks);
 
     // Try the direct download (still works on some sites / when logged in). If it
@@ -2036,6 +2183,7 @@
     if (originalTrack) {
       try { originalCues = await adapter.fetchCues(originalTrack.baseUrl); }
       catch (e) { console.warn("[CopilotSubs] fetchCues failed", e); originalCues = []; }
+      if (stale()) { dbgSub.stale = "start superseded (during fetchCues)"; return; }
     }
     if (!originalCues.length) {
       if (adapter.readNativeText) {
@@ -2043,9 +2191,12 @@
         // (with the token), which we intercept and upgrade to perfect-sync with
         // pre-translation. Until then, scrape the on-screen captions line by line.
         setStatus("Turn ON the player's CC (subtitles) — then I'll pre-translate the whole track in sync.", true);
-        await startStream(settings, video);
+        if (liveMode) { dbgSub.adopt = "scrape suppressed (live voice active)"; return; }
+        dbgSub.adopt = "scrape (direct download empty) at start #" + dbgSub.starts;
+        await startStream(settings, video, gen);
         return;
       }
+      if (liveMode) return; // live transcript lines already cover the no-captions case
       if (!maybeOfferAudio(settings)) {
         setStatus(originalTrack
           ? "The caption file couldn't be downloaded for this video."
@@ -2059,7 +2210,9 @@
     // translated the ENTIRE track up front and called render() only after every
     // language finished — so each line lagged and even the original waited on the
     // (slow) translation. runCueListMode fixes both. (window.csDiag proves the lookahead.)
-    await runCueListMode(settings, video, originalCues);
+    dbgSub.adopt = "cuelist(track) " + originalCues.length;
+    liveYieldToCuelist();
+    await runCueListMode(settings, video, originalCues, gen);
   }
 
   // ─── wiring ──────────────────────────────────────────────────────────────────
@@ -2069,7 +2222,7 @@
   // Appearance keys (position, drag coords, text size, style preset/tweaks) and
   // the sync nudge apply LIVE — re-style in place, no flicker. Anything else
   // (languages, key, enabled…) restarts the engine.
-  const LIVE_KEYS = ["syncOffset", "position", "linePositions", "size", "stylePreset", "styleCustom", "dubEnabled", "dubVoice", "dubGeminiVoice", "ttsProvider", "dubMultiVoice", "dubDuckLevel", "dubPace"];
+  const LIVE_KEYS = ["syncOffset", "position", "linePositions", "size", "stylePreset", "styleCustom", "dubEnabled", "dubVoice", "dubGeminiVoice", "ttsProvider", "dubMultiVoice", "dubDuckLevel", "dubPace", "debugHud"];
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
     const keys = Object.keys(changes);
@@ -2096,6 +2249,38 @@
       if (JSON.stringify(before.targets) !== JSON.stringify(after.targets) || !!before.showOriginal !== !!after.showOriginal) schedule();
     }
   });
+  // ── On-video debug HUD (popup: "Debug overlay") ────────────────────────────
+  // One screenshot = full diagnosis: engine mode, playhead, cue counts, and
+  // every stage of the caption-file pipeline (spotted → fetched → adopted).
+  setInterval(async () => {
+    let on = false;
+    try { on = (await getSettings()).debugHud; } catch {}
+    let hud = document.getElementById("copilot-subs-hud");
+    if (!on) { if (hud) hud.remove(); return; }
+    const parent = (adapter && adapter.getPlayerContainer && adapter.getPlayerContainer()) || document.body;
+    if (!hud) {
+      hud = document.createElement("div");
+      hud.id = "copilot-subs-hud";
+      hud.style.cssText = "position:absolute;top:8px;left:8px;z-index:2147483001;background:rgba(0,0,0,.78);color:#8fe3a8;font:11px/1.55 ui-monospace,Menlo,monospace;padding:7px 10px;border-radius:7px;pointer-events:none;white-space:pre;max-width:46%;";
+    }
+    if (hud.parentElement !== parent) parent.appendChild(hud);
+    let d = {};
+    try { d = JSON.parse(document.documentElement.dataset.csDiag || "{}"); } catch {}
+    hud.textContent = [
+      "SubVibe debug",
+      "mode: " + (liveMode ? "LIVE" : (d.mode || "—") + (liveVoiceOnly ? " + live voice" : "")) + (d.src ? " (" + d.src + ")" : ""),
+      "play: " + (d.play != null ? d.play : "—") + "  cues: " + (d.total != null ? d.total : d.cues != null ? d.cues : "—"),
+      d.live != null ? "live-stream: " + d.live + "  autoOff: " + d.autoOff : null,
+      d.heard != null ? "scrape heard: " + JSON.stringify(String(d.heard).slice(0, 42)) : null,
+      "file spotted: " + (dbgSub.spotted || "NONE"),
+      "file fetch:   " + (dbgSub.fetch || "—"),
+      "intercepted:  " + (interceptedCues ? interceptedCues.length + " cues " + (interceptedClipId === currentClipId() ? "(clip ok)" : "(CLIP MISMATCH)") : "none held"),
+      "starts: " + dbgSub.starts + (dbgSub.hold ? "  " + dbgSub.hold : "") + "  getAllCues: " + (dbgSub.inter || "—"),
+      "last start:   " + (dbgSub.adopt || "—"),
+      dbgSub.stale ? "superseded:   " + dbgSub.stale : null,
+    ].filter(Boolean).join("\n");
+  }, 1000);
+
   document.addEventListener("fullscreenchange", onFullscreenChange);
   setInterval(() => { if (autoPosEnabled) updateAutoPosition(); }, 600);
   setInterval(() => { if (hideNativeOn) { injectShadowHide(); hideNativeTextTracks(); } }, 2000);
@@ -2106,6 +2291,20 @@
     if (msg.type === "AUDIO_CUE") onAudioCue(msg.text);
     else if (msg.type === "AUDIO_STOP") stopAudio();
     else if (msg.type === "AUDIO_ERROR") setStatus("Audio: " + msg.error, true);
+    else if (msg.type === "LIVE_LINE") { if (!liveVoiceOnly) liveShow(msg.original, msg.translated); }
+    else if (msg.type === "LIVE_STATE") {
+      if (msg.running) {
+        // Perfect-sync already on stage → keep it (text + karaoke) and let the
+        // session speak. Otherwise the live transcripts take the overlay —
+        // that's the only text source there is.
+        // Heartbeats repeat running:true every 2s — announce the takeover ONCE
+        // (the re-announcing toast was flashing on the video every beat).
+        if (cueListActive && !liveMode) { if (!liveVoiceOnly) { liveVoiceOnly = true; setStatus("Live Translate — voice over your subtitles."); } }
+        else if (!liveVoiceOnly) liveEnter(); // take the stage immediately — silence the scrape engine
+      }
+      if (msg.error) setStatus("Live: " + msg.error, true);
+      if (!msg.running) { liveVoiceOnly = false; liveEnd(); }
+    }
   });
 
   // Full cue list / subtitle-file URL captured by subs-intercept.js (MAIN world).
@@ -2114,7 +2313,7 @@
     if (!d || !d.__copilotSubs) return;
     if (d.type === "SUBS_CUES") onInterceptedCues(d.cues);          // parsed full cue list (legacy path)
     else if (d.type === "SUBS_RESET") { dropInterceptedCues(); schedule(); } // live channel switched → drop the previous channel's cues + restart fresh
-    else if (d.type === "SUBS_URL") fetchSubsByUrl(d.url);          // discovered subtitle URL → fetch via worker
+    else if (d.type === "SUBS_URL") { dbgSub.spotted = "…" + String(d.url).replace(/\?.*/, "").slice(-34); fetchSubsByUrl(d.url); } // discovered subtitle URL
     else if (d.type === "SUBS_TEXT") {                              // raw subtitle file body (Netflix sniffer)
       try {
         const cues = parseSubtitleFile(d.text || "");

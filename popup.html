@@ -6,17 +6,29 @@
   <style>
     :root {
       color-scheme: dark;
-      --bg: #0b0d12; --panel: #11151c; --panel2: #161c26; --border: #28303d;
-      --text: #e7ecf3; --muted: #8b95a6; --accent: #4f8cff; --accent2: #3f7af0;
-      --green: #7fe0b0; --red: #ff9a9a; --amber: #ffcf8f;
-      --radius: 10px; /* one corner theme for every interactive box */
+      /* Premium dark indigo theme */
+      --bg: #0B0F19; --panel: #161D30; --panel2: #1C2438; --border: #24324F;
+      --text: #F9FAFB; --text2: #E5E7EB; --muted: #9CA3AF;
+      --accent: #4F46E5; --accent2: #4338CA;
+      --accent-soft: rgba(79, 70, 229, .16); --hover: #1F2A44; --divider: #1B2740; --toggle-off: #313A55;
+      --green: #34D399; --red: #F87171; --amber: #FBBF24;
+      --radius: 10px; /* cards & inputs; pills and buttons use 8px */
     }
     * { box-sizing: border-box; }
-    body { width: 340px; margin: 0; padding: 0 0 14px; background: var(--bg); color: var(--text);
-      font: 13px/1.45 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; }
-    .pad { padding: 0 14px; }
+    /* Chrome sizes the popup window from the <html> element's preferred width AT
+       LOAD. Before, only body had a width (340px) and html was unconstrained, so
+       any runtime-injected content wider than 340px let html expand toward
+       Chrome's 800px cap — the fixed body then sat left-aligned in the dead space
+       (the "truncation"). Pinning html AND body to one width and clipping the
+       horizontal axis makes the popup render at exactly 520px, every time.
+       A post-load JS width toggle cannot fix this: the window is already sized. */
+    html, body { width: 520px; min-width: 520px; max-width: 520px; overflow-x: hidden; box-sizing: border-box; }
+    html { background: var(--bg); }
+    body { margin: 0; padding: 0 0 16px; background: var(--bg); color: var(--text);
+      font: 13px/1.5 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    .pad { padding: 0 16px; }
 
-    header { display: flex; align-items: center; gap: 10px; padding: 13px 14px 11px; }
+    header { display: flex; align-items: center; gap: 12px; padding: 14px 16px 12px; }
     header img { width: 30px; height: 30px; border-radius: 8px; }
     header h1 { font-size: 15px; margin: 0; letter-spacing: .2px; }
     header .tag { color: var(--muted); font-size: 10.5px; margin: 1px 0 0; }
@@ -29,12 +41,12 @@
     /* toggle switch */
     .switch { position: relative; display: inline-block; width: 38px; height: 22px; flex: none; }
     .switch input { opacity: 0; width: 0; height: 0; }
-    .slider { position: absolute; inset: 0; cursor: pointer; background: #2a3340; border-radius: 22px; transition: .15s; }
-    .slider::before { content: ""; position: absolute; height: 16px; width: 16px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: .15s; }
+    .slider { position: absolute; inset: 0; cursor: pointer; background: var(--toggle-off); border-radius: 22px; transition: background .15s ease-in-out; }
+    .slider::before { content: ""; position: absolute; height: 16px; width: 16px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: transform .15s ease-in-out; box-shadow: 0 1px 2px rgba(0,0,0,.4); }
     .switch input:checked + .slider { background: var(--accent); }
     .switch input:checked + .slider::before { transform: translateX(16px); }
 
-    section { padding: 12px 14px; border-top: 1px solid #161b24; }
+    section { padding: 14px 16px; border-top: 1px solid var(--divider); }
     .lbl { display: flex; align-items: baseline; justify-content: space-between; font-weight: 600; margin: 0 0 7px; }
     .lbl a { color: var(--accent); font-weight: 500; font-size: 11px; text-decoration: none; }
     .lbl a:hover { text-decoration: underline; }
@@ -50,17 +62,17 @@
     input:focus, select:focus { outline: none; border-color: var(--accent); }
     /* selects share the folds' line-art chevron, same 10px right inset — one axis */
     select { appearance: none;
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%238b95a6' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%239CA3AF' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
       background-repeat: no-repeat; background-position: right 10px center; background-size: 10px 6px;
       padding-right: 28px; }
 
     .keyrow { display: flex; gap: 7px; }
     .keyrow input { flex: 1; }
-    button { border: 0; border-radius: var(--radius); cursor: pointer; font-weight: 600; font-size: 12.5px; }
+    button { border: 0; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 12.5px; }
     .btn { padding: 8px 12px; background: var(--accent); color: #fff; }
     .btn:hover { background: var(--accent2); }
-    .btn.ghost { background: var(--panel2); color: #cdd6e3; border: 1px solid var(--border); }
-    .btn.ghost:hover { background: #1b2330; }
+    .btn.ghost { background: var(--panel2); color: var(--text2); border: 1px solid var(--border); }
+    .btn.ghost:hover { background: var(--hover); }
     #keyStatus, #anthropicKeyStatus, #geminiKeyStatus { font-size: 11px; margin-top: 6px; min-height: 14px; color: var(--muted); }
     #keyStatus.ok, #anthropicKeyStatus.ok, #geminiKeyStatus.ok { color: var(--green); }
     #keyStatus.err, #anthropicKeyStatus.err, #geminiKeyStatus.err { color: var(--red); }
@@ -89,9 +101,9 @@
     /* language chips + autocomplete */
     .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
     .chip { display: inline-flex; align-items: center; gap: 7px; padding: 4px 9px 4px 11px;
-      background: #1b2330; border: 1px solid var(--border); border-radius: 20px; font-size: 12px; }
+      background: var(--hover); border: 1px solid var(--border); border-radius: 20px; font-size: 12px; }
     .chip .fl { font-size: 13px; }
-    .chip.primary { border-color: #2f5fb0; background: #14233c; }
+    .chip.primary { border-color: var(--accent); background: var(--accent-soft); }
     .chip .star { color: var(--accent); font-size: 10px; margin: 0 1px; }
     .chip button { background: transparent; color: var(--muted); font-size: 14px; line-height: 1; padding: 0 3px; }
     .chip button:hover { color: var(--red); }
@@ -99,8 +111,8 @@
 
     .ac { position: relative; }
     /* real magnifier icon — it was an emoji inside the placeholder, so the caret landed on it */
-    #langSearch { padding-left: 31px;
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14'%3E%3Ccircle cx='6' cy='6' r='4.2' fill='none' stroke='%238b95a6' stroke-width='1.5'/%3E%3Cpath d='M9.4 9.4L13 13' stroke='%238b95a6' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+    #langSearch, #liveLangSearch { padding-left: 31px;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14'%3E%3Ccircle cx='6' cy='6' r='4.2' fill='none' stroke='%239CA3AF' stroke-width='1.5'/%3E%3Cpath d='M9.4 9.4L13 13' stroke='%239CA3AF' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
       background-repeat: no-repeat; background-position: left 10px center; background-size: 13px 13px; }
     .menu { position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 5; max-height: 196px; overflow-y: auto;
       background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 10px 30px rgba(0,0,0,.5);
@@ -131,6 +143,39 @@
     #dubConfig { transition: opacity .15s; }
     #dubConfig.off { opacity: .4; pointer-events: none; }
 
+    /* ── Live Translate card — the bottom panel's highest-priority action ───── */
+    .livecard { display: flex; flex-direction: column; gap: 12px;
+      background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
+    .livecard .row { margin-top: 0; } /* the card's gap owns the spacing */
+    .livebtn { width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px;
+      padding: 13px 16px; border-radius: 8px; background: var(--accent); color: var(--text);
+      font-weight: 600; font-size: 14px; box-shadow: 0 4px 14px rgba(79, 70, 229, .4);
+      transition: background .15s ease, box-shadow .15s ease, transform .1s ease; }
+    .livebtn:hover { background: var(--accent2); box-shadow: 0 6px 18px rgba(79, 70, 229, .5); }
+    .livebtn:active { transform: translateY(1px); }
+    .livebtn.live-on { animation: livePulse 2s ease-in-out infinite; }
+    .livebtn .livedot { width: 9px; height: 9px; border-radius: 50%; background: #fff;
+      box-shadow: 0 0 8px rgba(255, 255, 255, .9); flex: none; }
+    .livebtn .livegrow { flex: 1 1 auto; } /* pushes the idle ring + Stop to the right edge */
+    .livebtn .liveidle { display: inline-flex; align-items: center; gap: 5px; }
+    .livebtn .idlering { width: 18px; height: 18px; transform: rotate(-90deg); flex: none; }
+    .livebtn .idlering-bg { fill: none; stroke: rgba(255, 255, 255, .28); stroke-width: 3; }
+    .livebtn .idlering-fg { fill: none; stroke: #FBBF24; stroke-width: 3; stroke-linecap: round; transition: stroke-dashoffset .5s linear; }
+    .livebtn .idletxt { font-size: 11.5px; font-weight: 700; font-variant-numeric: tabular-nums; color: #FBBF24; }
+    .livebtn .livestop { font-size: 11.5px; font-weight: 600; letter-spacing: .2px;
+      padding: 3px 10px; border-radius: 999px; background: rgba(255, 255, 255, .16); }
+    .livebtn.live-elsewhere { background: #475569; box-shadow: 0 4px 14px rgba(71, 85, 105, .45); } /* remote session — slate, click to stop */
+    .livebtn.live-elsewhere:hover { background: #3E4C60; }
+    .livebtn:hover .livestop { background: rgba(255, 255, 255, .26); }
+    @keyframes livePulse {
+      0%, 100% { box-shadow: 0 4px 14px rgba(79, 70, 229, .4); }
+      50% { box-shadow: 0 6px 26px rgba(79, 70, 229, .85); }
+    }
+    .liveperm { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+    .livesettings { margin-top: 10px; }
+    .livesettings > summary { font-size: 12px; color: var(--muted); }
+    @media (prefers-reduced-motion: reduce) { .livebtn.live-on { animation: none; } }
+
     /* appearance: preview strip + style preset tiles + size slider */
     /* Baloo 2 for the preview/tiles — a relative url() is fine here (extension
        page origin); the content script injects it with absolute URLs instead. */
@@ -144,10 +189,10 @@
     .presets button { flex: none; width: 64px; padding: 8px 0 6px; background: var(--panel2);
       border: 1px solid transparent; border-radius: var(--radius); box-shadow: 0 1px 2px rgba(0,0,0,.35);
       display: flex; flex-direction: column; align-items: center; gap: 4px; }
-    .presets button:hover { background: #1b2330; border-color: var(--border); }
+    .presets button:hover { background: var(--hover); border-color: var(--border); }
     .presets button .abc { font-size: 13px; line-height: 1.25; padding: 1px 6px; border-radius: 4px; }
     .presets button .pname { font-size: 9.5px; color: var(--muted); font-weight: 500; }
-    .presets button.on { border-color: var(--accent); background: #14233c; }
+    .presets button.on { border-color: var(--accent); background: var(--accent-soft); }
     .presets button.on .pname { color: var(--accent); }
     input[type="range"] { accent-color: var(--accent); margin: 0; }
     input[type="color"] { width: 32px; height: 26px; padding: 2px; border: 1px solid var(--border);
@@ -156,7 +201,7 @@
     details.customize { border-top: 0; margin-top: 10px; }
     details.customize > summary { display: flex; align-items: center; gap: 7px; padding: 8px 10px;
       background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
-      font-size: 12.5px; color: #cdd6e3; }
+      font-size: 12.5px; color: var(--text2); }
     details.customize > summary:hover { background: var(--panel2); }
     /* line-art chevron: points down when the fold will expand downward, up to collapse */
     details.customize > summary::after { content: "❯"; float: none; margin-left: auto; color: var(--muted);
@@ -170,22 +215,22 @@
 
     /* sync dock: − / typed delay / + with a reset underneath (− earlier, + later) */
     .syncdock { margin-top: 7px; }
-    .synclbls { display: flex; justify-content: space-between; color: #e0e0e0; font-size: 11px; font-weight: 600; margin: 0 2px 5px; }
+    .synclbls { display: flex; justify-content: space-between; color: var(--text2); font-size: 11px; font-weight: 600; margin: 0 2px 5px; }
     .syncrow { display: flex; align-items: center; gap: 7px; }
     .syncrow .syncbtn { flex: none; padding: 8px 11px; background: var(--panel); color: var(--text); border: 1px solid var(--border); font-weight: 700; }
     .syncrow .syncbtn:hover { background: var(--panel2); border-color: var(--accent); }
     .syncval { position: relative; flex: 1; }
     .syncval input { width: 100%; text-align: center; font-weight: 700;
       padding: 8px 26px 8px 11px; background: var(--panel); } /* same skin as .syncbtn */
-    .syncval input:focus { border-color: #cdd6e3; } /* soft gray ring, not the accent blue */
+    .syncval input:focus { border-color: var(--text2); } /* soft gray ring, not the accent blue */
     .syncval input::-webkit-inner-spin-button, .syncval input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
     .syncunit { position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
       color: var(--muted); font-size: 11px; pointer-events: none; }
     .syncreset { display: block; margin: 8px auto 0; background: transparent; color: var(--muted); font-weight: 600; font-size: 11px; }
     .syncreset:hover { color: var(--accent); }
 
-    details { border-top: 1px solid #161b24; }
-    summary { padding: 12px 14px; cursor: pointer; font-weight: 600; color: #cdd6e3; list-style: none; }
+    details { border-top: 1px solid var(--divider); }
+    summary { padding: 12px 14px; cursor: pointer; font-weight: 600; color: var(--text2); list-style: none; }
     summary::-webkit-details-marker { display: none; }
     summary::after { content: "▸"; float: right; color: var(--muted); }
     details[open] summary::after { content: "▾"; }
@@ -196,10 +241,10 @@
     .clipcache { display: flex; flex-wrap: wrap; gap: 6px 14px; }
     .clipcache.muted { color: var(--muted); font-size: 12px; }
     #clipStats:empty { display: none; } /* don't reserve two lines when there's no per-video cost yet */
-    .sites { display: flex; flex-wrap: wrap; gap: 5px; width: 100%; }
-    .site { padding: 2px 8px; border: 1px solid var(--border); border-radius: 12px;
-      font-size: 11px; color: var(--muted); background: var(--panel); }
-    .site.on { color: var(--text); border-color: var(--accent); background: #14233c; }
+    .sites { display: flex; flex-wrap: wrap; gap: 8px; width: 100%; }
+    .site { padding: 5px 11px; border: 1px solid var(--border); border-radius: 8px;
+      font-size: 11.5px; font-weight: 500; color: var(--muted); background: var(--panel); }
+    .site.on { color: var(--text); border-color: var(--accent); background: var(--accent-soft); }
     .clang { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; }
     .clang .fl { font-size: 14px; line-height: 1; }
     .clang .dot { font-size: 10px; }
@@ -211,24 +256,25 @@
     .usage { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
       color: var(--muted); font-size: 11px; cursor: pointer; }
     .usage:hover { color: var(--text); }
-    .libbtn { display: inline-flex; align-items: center; gap: 6px; flex: none;
-      padding: 7px 10px; background: var(--panel); border: 1px solid var(--border); color: var(--text); }
-    .libbtn:hover { background: var(--panel2); border-color: #2f5fb0; }
-    .libbtn b { font-size: 12px; }
+    .libbtn { display: inline-flex; align-items: center; gap: 7px; flex: none;
+      padding: 6px 10px; background: transparent; border: 0; color: var(--muted); border-radius: 8px;
+      transition: background .12s ease, color .12s ease; }
+    .libbtn:hover { background: var(--panel2); color: var(--text); }
+    .libbtn b { font-size: 12px; color: var(--text); font-weight: 600; }
     .libbtn .libico { font-size: 14px; }
     .libbtn .libsub { color: var(--muted); font-size: 11px; font-weight: 500; }
     .libbtn .libgo { color: var(--accent); font-weight: 700; font-size: 11px; margin-left: 2px; }
 
-    footer { display: flex; align-items: center; gap: 10px; padding: 12px 14px 0; }
+    footer { display: flex; align-items: center; gap: 10px; padding: 12px 16px 0; }
     #status { font-size: 11px; color: var(--green); min-height: 14px; flex: 1; }
     .saved { color: var(--green); font-size: 11px; opacity: 0; transition: opacity .2s; }
     .saved.show { opacity: 1; }
 
     /* per-clip scope bar */
-    .scopebar { display: flex; align-items: center; gap: 8px; padding: 7px 14px;
-      background: var(--panel2); border-bottom: 1px solid #161b24; font-size: 11px; color: var(--muted); }
+    .scopebar { display: flex; align-items: center; gap: 8px; padding: 8px 16px;
+      background: var(--panel2); border-bottom: 1px solid var(--divider); font-size: 11px; color: var(--muted); }
     .scopebar .spacer { flex: 1; }
-    .scopebar #scopeText { font-weight: 600; color: #cdd6e3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .scopebar #scopeText { font-weight: 600; color: var(--text2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .scopebar #scopeText .badge { color: var(--accent); }
     .scopelink { background: transparent; color: var(--accent); font-weight: 600; font-size: 11px; padding: 2px 4px; white-space: nowrap; }
     .scopelink:hover { text-decoration: underline; }
@@ -236,11 +282,13 @@
 
     /* tab bar — three workflows, pinned right under the header/scope bar; the
        This-video strip and Library stay visible on every tab, below the nav */
-    .tabs { display: flex; gap: 5px; padding: 10px 14px; }
-    .tabs .tab { flex: 1; padding: 7px 0; background: var(--panel); border: 1px solid var(--border);
-      border-radius: var(--radius); color: var(--muted); font-weight: 600; font-size: 12px; }
-    .tabs .tab:hover { background: var(--panel2); color: var(--text); }
-    .tabs .tab.on { background: #14233c; border-color: var(--accent); color: var(--text); }
+    .tabs { display: flex; gap: 8px; padding: 12px 16px; }
+    .tabs .tab { flex: 1; padding: 9px 0; background: transparent; border: 1px solid var(--border);
+      border-radius: 8px; color: var(--muted); font-weight: 600; font-size: 12.5px;
+      transition: background .15s ease, color .15s ease, border-color .15s ease; }
+    .tabs .tab:hover { background: var(--hover); color: var(--text); }
+    .tabs .tab.on { background: var(--accent); border-color: var(--accent); color: #fff;
+      box-shadow: 0 3px 12px -4px rgba(79, 70, 229, .75); }
 
     /* hidden tribute card — logo triple-tap, or hold the version line 2.5s.
        The glow sits behind the text and the portrait's lower half (focal 62%),
@@ -253,7 +301,7 @@
     .memcard.show { opacity: 1; }
     .memcard[hidden] { display: none; }
     .memart { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 4px; line-height: 1.04;
-      color: #cdd6e3; white-space: pre; margin: 0; letter-spacing: 0; max-width: 100%; overflow: hidden; }
+      color: var(--text2); white-space: pre; margin: 0; letter-spacing: 0; max-width: 100%; overflow: hidden; }
     .memname { color: #ffffff; font-weight: 800; font-size: 13.5px; letter-spacing: .3px; margin-top: 4px; }
     .memded { color: #a3c1b4; font-size: 11px; text-align: center; line-height: 1.65; max-width: 296px; }
     .memhint { position: absolute; bottom: 14px; left: 0; right: 0; text-align: center;
@@ -270,10 +318,6 @@
       <p class="tag">AI subtitles · in sync · cached free</p>
       <p class="ver" id="verTag"></p>
     </div>
-    <span class="spacer"></span>
-    <label class="switch" title="Turn SubVibe on/off">
-      <input type="checkbox" id="enabled" /><span class="slider"></span>
-    </label>
   </header>
 
   <!-- Scope: which video the language/appearance/timing settings below apply to -->
@@ -285,20 +329,29 @@
   </div>
 
   <nav class="tabs" id="tabBar">
-    <button class="tab on" data-tab="translate">Translate</button>
-    <button class="tab" data-tab="dub">Dub</button>
+    <button class="tab on" data-tab="dub">Dub</button>
+    <button class="tab" data-tab="translate">Translate</button>
     <button class="tab" data-tab="style">Style</button>
+    <button class="tab" data-tab="keys">Keys</button>
   </nav>
 
-  <!-- This video -->
+  <div class="pane" data-pane="translate" hidden>
+  <!-- One 3-way mode instead of a bare on/off. "Original" styles the video's own
+       captions for free (no translation), so people don't have to clear every
+       language to stop paying. Style/karaoke/timing ride whatever line shows. -->
   <section>
-    <div class="lbl"><span id="clipTitleLbl">This video</span> <button class="linkbtn" id="clearClip" hidden>Clear cache</button></div>
-    <div id="clipCache" class="clipcache muted">Loading…</div>
-    <div id="clipStats" class="hint" style="margin-top:6px; min-height:13px;"></div>
-    <div class="row" id="clipExports" style="flex-wrap:wrap; gap:6px;" hidden></div>
+    <div class="lbl">Subtitles</div>
+    <div class="seg2" id="subMode" role="radiogroup" aria-label="Subtitle mode">
+      <button type="button" class="segopt" data-mode="off"><b>Off</b><small>no subtitles</small></button>
+      <button type="button" class="segopt" data-mode="original"><b>Original</b><small>styled · free</small></button>
+      <button type="button" class="segopt" data-mode="translate"><b>Translate</b><small>uses your key</small></button>
+    </div>
+    <div class="hint" id="subModeHint" style="margin-top:7px;"></div>
   </section>
 
-  <div class="pane" data-pane="translate">
+  <!-- Everything translation-specific: hidden unless the mode is Translate. -->
+  <div id="translateOnly">
+
   <!-- Translation engine -->
   <section>
     <div class="row" style="margin-top:0;">
@@ -318,39 +371,7 @@
     </div>
   </section>
 
-  <!-- API keys — all providers always visible; engine dropdowns above/below reflect which are usable -->
-  <section>
-    <details class="customize" id="keysDetails">
-      <summary>API keys <span id="keysPills"></span></summary>
-      <div class="keysection">
-        <div class="keyhead"><span class="keyname"><span id="apiKeyDot" class="keydot"></span>OpenAI</span> <a id="getKey" href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">Get a key →</a></div>
-        <div class="keyused">used for: translation · voices</div>
-        <div class="keyrow">
-          <input type="password" id="apiKey" placeholder="sk-…" autocomplete="off" spellcheck="false" />
-          <button class="btn ghost" id="verify">Verify</button>
-        </div>
-        <div id="keyStatus">Stored only on this device · a few cents per hour · cached replays are free.</div>
-      </div>
-      <div class="keysection">
-        <div class="keyhead"><span class="keyname"><span id="anthropicKeyDot" class="keydot"></span>Anthropic</span> <a id="getAnthropicKey" href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">Get a key →</a></div>
-        <div class="keyused">used for: Claude translation</div>
-        <div class="keyrow">
-          <input type="password" id="anthropicKey" placeholder="sk-ant-…" autocomplete="off" spellcheck="false" />
-          <button class="btn ghost" id="verifyAnthropic">Verify</button>
-        </div>
-        <div id="anthropicKeyStatus">Stored only on this device. Applies to newly translated lines — cached lines keep their existing translation.</div>
-      </div>
-      <div class="keysection">
-        <div class="keyhead"><span class="keyname"><span id="geminiKeyDot" class="keydot"></span>Google</span> <a id="getGeminiKey" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Get a key →</a></div>
-        <div class="keyused">used for: Gemini voices</div>
-        <div class="keyrow">
-          <input type="password" id="geminiKey" placeholder="AIza…" autocomplete="off" spellcheck="false" />
-          <button class="btn ghost" id="verifyGemini">Verify</button>
-        </div>
-        <div id="geminiKeyStatus">Stored only on this device. Used only for text-to-speech (dub), never for translation.</div>
-      </div>
-    </details>
-  </section>
+  <!-- API keys live in their own "Keys" tab now (last tab). -->
 
   <!-- Languages -->
   <section>
@@ -374,12 +395,61 @@
       <input type="text" id="keepTerms" placeholder="Extra specific terms (optional): Skyler, Wharton…" autocomplete="off" spellcheck="false" style="margin-top:8px;" />
     </details>
   </section>
+  </div><!-- /#translateOnly -->
+
+  <!-- Advanced — the subtitle-engine debug overlay. Belongs with translation
+       (it inspects the caption/cuelist engine), so it lives in this tab. -->
+  <section>
+    <details class="customize" id="advFold">
+      <summary>Advanced <span class="hint">debug overlay</span></summary>
+      <div class="row" style="margin-top:7px;">
+        <label class="switch"><input type="checkbox" id="dbgHud" /><span class="slider"></span></label>
+        <label for="dbgHud">Debug overlay</label>
+        <span class="info" title="Shows the engine's internals on the video (mode, playhead, caption-file pipeline) — screenshot it when reporting a bug">i</span>
+      </div>
+    </details>
+  </section>
+
+  <!-- This video — cache + SRT for this clip. Bottom of the Translate tab, and
+       shown ONLY here (not global, not on the Style tab). -->
+  <section>
+    <div class="lbl"><span id="clipTitleLbl">This video</span> <button class="linkbtn" id="clearClip" hidden>Clear cache</button></div>
+    <div id="clipCache" class="clipcache muted">Loading…</div>
+    <div id="clipStats" class="hint" style="margin-top:6px; min-height:13px;"></div>
+    <div class="row" id="clipExports" style="flex-wrap:wrap; gap:6px;" hidden></div>
+  </section>
   </div>
 
-  <div class="pane" data-pane="dub" hidden>
-  <!-- Dub — spoken translation -->
+  <div class="pane" data-pane="dub">
+  <!-- PRIMARY tab: the quick, near-free way to HEAR the translation — powered by
+       Live Translate, not the expensive per-line TTS. Live moved here so anyone can
+       start audio translation in one click. -->
   <section>
-    <div class="row" style="margin-top:0;">
+    <div class="livecard">
+      <button class="livebtn" id="liveBtn">▶ Start Live Translate</button>
+      <p class="liveperm" id="livePerm">🔒 Capturing this tab's audio safely — no microphone access required.</p>
+      <div class="row liverow">
+        <span class="rowlbl">Audio language</span>
+        <div class="ac" style="flex:1;">
+          <input type="text" id="liveLangSearch" placeholder="Search a language…" autocomplete="off" spellcheck="false" />
+          <div class="menu" id="liveLangMenu"></div>
+        </div>
+      </div>
+      <div class="row liverow">
+        <span class="rowlbl">Input device</span>
+        <select id="liveDevice" style="flex:1;" title="Pick your loopback device (e.g. BlackHole) to hear the tab's audio — shared with the audio-transcription fallback"></select>
+        <span class="info" title="Experimental — hears the audio and speaks the translation a moment behind. Free on Gemini's live tier and works with any site's sound.">i</span>
+      </div>
+      <div id="liveStatus" class="hint" style="min-height:13px;"></div>
+    </div>
+  </section>
+
+  <!-- Expensive per-line TTS dub — kept in the DOM for its logic, but HIDDEN so it
+       can't be triggered by accident (it burns tokens on every line). -->
+  <section hidden>
+    <details class="customize" id="dubFold">
+      <summary>Dub subtitles aloud <span class="hint">spoken TTS · extra cost · lower quality than Live</span></summary>
+    <div class="row" style="margin-top:9px;">
       <label class="switch"><input type="checkbox" id="dubEnabled" /><span class="slider"></span></label>
       <label for="dubEnabled">Dub subtitles aloud</label>
       <span class="info" title="Speaks the translation aloud — the original soundtrack stays quiet underneath">i</span>
@@ -423,6 +493,7 @@
       <div id="dubProgFill" style="height:100%; width:0%; background:var(--accent); transition:width .4s;"></div>
     </div>
     <div id="dubNow" class="hint" style="margin-top:5px; min-height:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></div>
+    </details>
   </section>
   </div>
 
@@ -507,6 +578,43 @@
           <button id="syncFwd" class="syncbtn" title="Subtitles 0.25s later">+0.25s</button>
         </div>
         <button id="syncReset" class="syncreset">↺ Reset to 0.00s</button>
+      </div>
+    </details>
+  </section>
+  </div>
+
+  <div class="pane" data-pane="keys" hidden>
+  <!-- API keys — one place for every provider's key. The Dub and Translate tabs
+       point here when the key their feature needs is missing. -->
+  <section>
+    <details class="customize" id="keysDetails" open>
+      <summary>API keys <span id="keysPills"></span></summary>
+      <div class="keysection">
+        <div class="keyhead"><span class="keyname"><span id="apiKeyDot" class="keydot"></span>OpenAI</span> <a id="getKey" href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">Get a key →</a></div>
+        <div class="keyused">used for: translation · voices</div>
+        <div class="keyrow">
+          <input type="password" id="apiKey" placeholder="sk-…" autocomplete="off" spellcheck="false" />
+          <button class="btn ghost" id="verify">Verify</button>
+        </div>
+        <div id="keyStatus">Stored only on this device · a few cents per hour · cached replays are free.</div>
+      </div>
+      <div class="keysection">
+        <div class="keyhead"><span class="keyname"><span id="anthropicKeyDot" class="keydot"></span>Anthropic</span> <a id="getAnthropicKey" href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">Get a key →</a></div>
+        <div class="keyused">used for: Claude translation</div>
+        <div class="keyrow">
+          <input type="password" id="anthropicKey" placeholder="sk-ant-…" autocomplete="off" spellcheck="false" />
+          <button class="btn ghost" id="verifyAnthropic">Verify</button>
+        </div>
+        <div id="anthropicKeyStatus">Stored only on this device. Applies to newly translated lines — cached lines keep their existing translation.</div>
+      </div>
+      <div class="keysection">
+        <div class="keyhead"><span class="keyname"><span id="geminiKeyDot" class="keydot"></span>Google</span> <a id="getGeminiKey" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Get a key →</a></div>
+        <div class="keyused">used for: Live Translate / dub audio (Gemini)</div>
+        <div class="keyrow">
+          <input type="password" id="geminiKey" placeholder="AIza…" autocomplete="off" spellcheck="false" />
+          <button class="btn ghost" id="verifyGemini">Verify</button>
+        </div>
+        <div id="geminiKeyStatus">Stored only on this device. Used for Live Translate audio and TTS dub, never for text translation.</div>
       </div>
     </details>
   </section>

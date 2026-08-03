@@ -5,12 +5,17 @@
 // shared/langs.js (loaded first in popup.html) so the popup and the Library page
 // share one source of truth.
 const FA_FLAG = window.SV_FA_FLAG;
-const LANGS = window.SV_LANGS;
+const LANGS = window.SV_LANGS;                 // subtitle "Translate to" set (GPT/Claude)
+const LIVE_LANGS = window.SV_LIVE_LANGS;       // Dub set (Gemini live-translate, authoritative)
+const LIVE_CODES = new Set(LIVE_LANGS.map((l) => l[0]));
+const LIVE_ALIAS = window.SV_LIVE_ALIAS || {};
+// Coerce a code to one Gemini's live model accepts, or null if it can't voice it.
+const normLiveCode = (code) => (LIVE_CODES.has(code) ? code : (LIVE_CODES.has(LIVE_ALIAS[code]) ? LIVE_ALIAS[code] : null));
 
-const DEFAULTS = { enabled: true, targets: ["en"], showOriginal: true, hideNative: true, karaokeHl: true, apiKey: "", translationProvider: "openai", claudeModel: "claude-sonnet-5", anthropicKey: "", keepNames: true, keepTerms: "", position: "bottom", size: "md", stylePreset: "classic", styleCustom: {}, syncOffset: 0, dubEnabled: false, ttsProvider: "openai", geminiKey: "", dubVoice: "marin", dubGeminiVoice: "Kore", dubMultiVoice: false, dubDuckLevel: 0.12, dubPace: 1 };
+const DEFAULTS = { enabled: true, translateOn: true, targets: ["en"], showOriginal: true, hideNative: true, karaokeHl: true, apiKey: "", translationProvider: "openai", claudeModel: "claude-sonnet-5", anthropicKey: "", keepNames: true, keepTerms: "", position: "bottom", size: "md", stylePreset: "classic", styleCustom: {}, syncOffset: 0, dubEnabled: false, ttsProvider: "openai", geminiKey: "", dubVoice: "marin", dubGeminiVoice: "Kore", dubMultiVoice: false, dubDuckLevel: 0.12, dubPace: 1, liveModel: "gemini-3.5-live-translate-preview", audioDeviceId: "", liveTarget: "", debugHud: false };
 const el = (id) => document.getElementById(id);
 const fmtSync = (v) => (v > 0 ? "+" : "") + v.toFixed(2) + "s";
-const langMeta = (code) => LANGS.find((l) => l[0] === code) || [code, code.toUpperCase(), "🏳️"];
+const langMeta = (code) => window.svLangMeta(code);   // resolves a code from EITHER set
 
 let state = { ...DEFAULTS };
 let menuActive = -1;
@@ -172,7 +177,8 @@ async function initFolds() {
 
 // ── tabs: Translate / Dub / Style. Header, scope bar and the This-video strip
 // stay visible above whichever tab is open; the choice persists like uiFold.
-const TAB_NAMES = ["translate", "dub", "style"];
+// Live sits in the Translate tab; the Dub tab holds the collapsed spoken-dub fold.
+const TAB_NAMES = ["translate", "dub", "style", "keys"];
 function selectTab(name) {
   for (const b of el("tabBar").children) b.classList.toggle("on", b.dataset.tab === name);
   for (const p of document.querySelectorAll(".pane")) p.hidden = p.dataset.pane !== name;
@@ -357,7 +363,26 @@ el("ttsProvider").addEventListener("change", () => {
 });
 
 // ── simple toggles / selects (live) ──────────────────────────────────────────
-el("enabled").addEventListener("change", () => persist({ enabled: el("enabled").checked }));
+// Subtitle mode = the pair (enabled, translateOn) shown as ONE 3-way control.
+// Both are global (like the old master toggle), so the mode is a global preference
+// while languages/position/timing stay per-video.
+function currentMode() { return !state.enabled ? "off" : (state.translateOn === false ? "original" : "translate"); }
+function renderMode() {
+  const mode = currentMode();
+  [...el("subMode").children].forEach((b) => b.classList.toggle("on", b.dataset.mode === mode));
+  el("translateOnly").hidden = mode !== "translate";
+  el("subModeHint").textContent =
+    mode === "off" ? "SubVibe subtitles are off. Live Translate (Dub tab) still works on its own."
+    : mode === "original" ? "Styling the video's own captions — karaoke and timing work, nothing is sent to a translator. No cost."
+    : "Translated to the languages below, using your OpenAI/Claude key.";
+}
+function setMode(mode) {
+  state.enabled = mode !== "off";
+  state.translateOn = mode === "translate";
+  persist({ enabled: state.enabled, translateOn: state.translateOn });
+  renderMode();
+}
+[...el("subMode").children].forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
 el("showOriginal").addEventListener("change", () => saveSetting({ showOriginal: el("showOriginal").checked }));
 el("hideNative").addEventListener("change", () => persist({ hideNative: el("hideNative").checked }));
 el("karaokeHl").addEventListener("change", () => persist({ karaokeHl: el("karaokeHl").checked }));
@@ -625,6 +650,208 @@ el("styleBgOpacity").addEventListener("input", () => { clearTimeout(bgT); bgT = 
 el("styleFont").addEventListener("change", () => setCustom({ font: el("styleFont").value }));
 el("styleReset").addEventListener("click", () => { state.styleCustom = {}; persist({ styleCustom: {} }); updateStyleUI(); });
 
+// ── Live Translate (experimental) ─────────────────────────────────────────────
+// One Gemini Live session per run: session-based free tier (token budget, no
+// request counter), so it keeps running where the TTS dub rate-limits.
+let liveRunning = false;
+let liveStateAt = 0; // when the last LIVE_STATE arrived — silence after Start is itself a diagnosis
+let liveMyTabId = null, liveIsMine = false, liveElsewhere = false; // is the running session bound to THIS popup's tab?
+function liveUI(running, statusText, isErr) {
+  liveRunning = !!running;
+  const b = el("liveBtn");
+  b.classList.toggle("live-on", liveRunning);
+  b.setAttribute("aria-pressed", liveRunning ? "true" : "false");
+  if (liveRunning) {
+    // Build the button ONCE on the off→on transition — the 2s stats heartbeat
+    // re-calls liveUI, and rebuilding innerHTML each time would reset the idle
+    // ring mid-fill. Constant markup, XSS-safe. Clicking anywhere stops.
+    const wasOn = b.querySelector(".livelbl");
+    if (!wasOn) {
+      b.innerHTML = '<span class="livedot" aria-hidden="true"></span><span class="livelbl">Live Translating Audio…</span>' +
+        '<span class="livegrow"></span>' +
+        '<span class="liveidle" id="liveIdle" hidden title="Nothing to translate — auto-stops at 5:00 idle">' +
+        '<svg class="idlering" viewBox="0 0 24 24" aria-hidden="true"><circle class="idlering-bg" cx="12" cy="12" r="9"/><circle class="idlering-fg" cx="12" cy="12" r="9"/></svg>' +
+        '<span class="idletxt"></span></span>' +
+        '<span class="livestop">✕ Stop</span>';
+      b.title = "Stop live translation";
+    }
+  } else {
+    b.classList.remove("live-elsewhere");
+    b.textContent = "▶ Start Live Translate";
+    b.title = "";
+  }
+  if (statusText != null) {
+    const s = el("liveStatus");
+    s.textContent = statusText;
+    s.style.color = isErr ? "var(--red)" : "";
+  }
+}
+// Idle ring + countdown next to Stop. idleSecs comes from the offscreen stats
+// heartbeat; the amber ring fills toward 5:00, at which point the offscreen
+// auto-stops. Hidden while the model is actively hearing (idle ~0).
+function updateLiveIdle(idleSecs) {
+  const wrap = el("liveIdle");
+  if (!wrap) return;
+  const MAX = 300; // 5 minutes, matches LV_IDLE_MS in offscreen-live.js
+  wrap.hidden = false; // always visible while THIS tab's session runs — empty ring
+                       // + "5:00" while audio flows, fills + counts down when idle.
+  idleSecs = Math.max(0, idleSecs || 0);
+  const remain = Math.max(0, MAX - idleSecs);
+  wrap.querySelector(".idletxt").textContent = Math.floor(remain / 60) + ":" + String(remain % 60).padStart(2, "0");
+  const fg = wrap.querySelector(".idlering-fg");
+  const C = 2 * Math.PI * 9; // r = 9
+  fg.style.strokeDasharray = C.toFixed(2);
+  fg.style.strokeDashoffset = (C * (1 - Math.min(1, idleSecs / MAX))).toFixed(2);
+}
+// A live session is running on a DIFFERENT tab: show a slate "Stop" button so it
+// can be ended from here (LIVE_END stops the one global session, whatever tab it
+// captures) — otherwise a session you can hear becomes uncontrollable off-tab.
+function liveUIElsewhere() {
+  const b = el("liveBtn");
+  b.classList.remove("live-on");
+  b.classList.add("live-elsewhere");
+  b.setAttribute("aria-pressed", "true");
+  b.innerHTML = '<span class="livedot" aria-hidden="true"></span><span class="livelbl">Live running on another tab</span><span class="livegrow"></span><span class="livestop">✕ Stop</span>';
+  b.title = "Stop the live session (it is running on another tab)";
+}
+// The reassurance line under the Live button stays truthful: the default path
+// captures the tab (no mic), but a chosen input device DOES need microphone access.
+function updateLivePerm() {
+  const p = el("livePerm");
+  if (!p) return;
+  p.textContent = state.audioDeviceId
+    ? "🎙 Using a selected input device — microphone access required."
+    : "🔒 Capturing this tab's audio safely — no microphone access required.";
+}
+async function livePopulateDevices() {
+  const sel = el("liveDevice");
+  sel.replaceChildren();
+  const add = (v, t, selected) => { const o = document.createElement("option"); o.value = v; o.textContent = t; if (selected) o.selected = true; sel.appendChild(o); };
+  add("", "This tab's audio (no mic needed)", !state.audioDeviceId);
+  try {
+    const devs = await navigator.mediaDevices.enumerateDevices();
+    devs.filter((d) => d.kind === "audioinput" && d.deviceId && d.deviceId !== "default")
+      .forEach((d, i) => add(d.deviceId, d.label || "Input " + (i + 1), d.deviceId === state.audioDeviceId));
+  } catch {}
+}
+el("liveDevice").addEventListener("change", () => { state.audioDeviceId = el("liveDevice").value; persist({ audioDeviceId: state.audioDeviceId }); updateLivePerm(); });
+
+// ── Dub audio language: ONE searchable pick (not the subtitle multi-chip). Kept
+//    separate from `targets` so you can clear "Translate to" — styling the
+//    original captions for free — while Live still speaks your chosen language.
+function liveTargetCode() { return state.liveTarget || (state.targets && state.targets[0]) || "en"; }
+function renderLiveMenu(showAll) {
+  const menu = el("liveLangMenu");
+  // The box holds the CURRENT language's name, so treat a focus (showAll) as an
+  // empty query — otherwise the picker filters down to just the current pick.
+  const q = showAll ? "" : el("liveLangSearch").value.trim().toLowerCase();
+  const list = LIVE_LANGS.filter(([code, name]) => !q || name.toLowerCase().includes(q) || code.toLowerCase().includes(q)).slice(0, 100);
+  menu.innerHTML = "";
+  if (!list.length) { menu.innerHTML = '<div class="none">No match</div>'; menu.classList.add("show"); return; }
+  const cur = liveTargetCode();
+  list.forEach((l) => {
+    const row = document.createElement("div");
+    row.className = "opt" + (l[0] === cur ? " active" : "");
+    row.innerHTML = `<span class="fl">${l[2]}</span><span>${l[1]}</span><span class="code">${l[0]}</span>`;
+    row.onmousedown = (e) => { e.preventDefault(); setLiveTarget(l[0]); };
+    menu.appendChild(row);
+  });
+  menu.classList.add("show");
+}
+function setLiveTarget(code) {
+  state.liveTarget = code;
+  saveSetting({ liveTarget: code });
+  el("liveLangSearch").value = langMeta(code)[1];
+  el("liveLangMenu").classList.remove("show");
+}
+el("liveLangSearch").addEventListener("input", () => renderLiveMenu());
+el("liveLangSearch").addEventListener("focus", () => { el("liveLangSearch").select(); renderLiveMenu(true); });
+el("liveLangSearch").addEventListener("keydown", (e) => { if (e.key === "Escape") el("liveLangMenu").classList.remove("show"); });
+el("liveLangSearch").addEventListener("blur", () => setTimeout(() => { el("liveLangSearch").value = langMeta(liveTargetCode())[1]; el("liveLangMenu").classList.remove("show"); }, 150));
+document.addEventListener("click", (e) => { if (!el("liveLangSearch").contains(e.target) && !el("liveLangMenu").contains(e.target)) el("liveLangMenu").classList.remove("show"); });
+
+el("dbgHud").addEventListener("change", () => { state.debugHud = el("dbgHud").checked; persist({ debugHud: state.debugHud }); });
+el("liveBtn").addEventListener("click", async () => {
+  // LIVE_BEGIN/LIVE_END are popup→background ONLY. A runtime broadcast reaches
+  // every extension page — sending LIVE_START from here delivered it to the
+  // capture page TWICE (direct + background's forward), and the two parallel
+  // starts raced to consume the same single-use tab stream id.
+  if (liveRunning) { chrome.runtime.sendMessage({ type: "LIVE_END" }); liveIsMine = false; liveUI(false, "Stopped."); return; }
+  if (liveElsewhere) { chrome.runtime.sendMessage({ type: "LIVE_END" }); liveElsewhere = false; liveUI(false, "Stopped."); return; } // stop the other tab's session from here
+  if (!(state.geminiKey || el("geminiKey").value.trim())) { liveUI(false, "Add your Google (Gemini) key in the Keys tab first.", true); selectTab("keys"); return; }
+  // Two voices can't share the stage: a running dub would talk over the live
+  // translation (and both spend the same Gemini quota) — switch it off.
+  let note = "";
+  if (el("dubEnabled").checked) {
+    el("dubEnabled").checked = false;
+    state.dubEnabled = false;
+    persist({ dubEnabled: false });
+    syncDubConfig();
+    note = " (Dub switched off while Live runs)";
+  }
+  const tabs = await chrome.tabs.query({ active: true, currentWindow: true }).catch(() => []);
+  const tabId = tabs && tabs[0] ? tabs[0].id : null;
+  liveMyTabId = tabId; liveIsMine = true; liveElsewhere = false; // THIS tab is the captured one now
+  // Prefer the browser's own name; fall back to our table for codes Intl can't
+  // resolve (ceb/haw/fy…), so Gemini never gets handed a bare "English" default.
+  let target = "";
+  try { target = new Intl.DisplayNames(["en"], { type: "language" }).of(liveTargetCode()) || ""; } catch {}
+  if (!target || target === liveTargetCode()) target = langMeta(liveTargetCode())[1] || "English";
+  liveUI(true, "Connecting…" + note);
+  // NOTE: the tab-capture stream id is minted in the BACKGROUND worker, not
+  // here — an id minted without consumerTabId is only consumable in the
+  // caller's own render process (Chrome 116+), so a popup-minted id was dead
+  // on arrival at the offscreen capture page. The popup click still counts as
+  // the user invocation tabCapture requires.
+  if (state.audioDeviceId) {
+    // A real input device was picked (mic / BlackHole) — that DOES need the mic
+    // permission, and the invisible offscreen page can never show the prompt.
+    // The popup is a visible extension page on the same origin: authorize here,
+    // and the grant carries over.
+    try {
+      const probe = await navigator.mediaDevices.getUserMedia({ audio: true });
+      probe.getTracks().forEach((t) => t.stop());
+      livePopulateDevices(); // device NAMES unlock with the grant (e.g. BlackHole)
+    } catch (e) {
+      if (e && e.name === "NotAllowedError") {
+        // A previously denied permission REJECTS instantly without re-prompting —
+        // only a full tab can show the prompt again (or undo the block via the
+        // padlock menu). Open ours and point the user there.
+        chrome.tabs.create({ url: chrome.runtime.getURL("mic-permission.html") });
+        liveUI(false, "Microphone blocked — opened a page to grant access. Allow it there, then press Start again.", true);
+      } else {
+        liveUI(false, "Microphone blocked (" + (e.name || e) + "). Allow microphone access for the extension, then press Start again.", true);
+      }
+      return;
+    }
+  }
+  chrome.runtime.sendMessage({ type: "LIVE_BEGIN", tabId, wantTab: !state.audioDeviceId, deviceId: state.audioDeviceId || "", origVol: typeof state.dubDuckLevel === "number" ? state.dubDuckLevel : 0.12, target, targetCode: liveTargetCode(), model: state.liveModel || "gemini-3.5-live-translate-preview" });
+  // Total-silence watchdog: if NOTHING reports back within 10s, every layer's
+  // own error path failed too — say so instead of sitting on "Connecting…".
+  const sentAt = Date.now();
+  setTimeout(() => {
+    if (liveRunning && liveStateAt < sentAt) liveUI(false, "No answer from the capture page in 10s — reload the extension (chrome://extensions ↻), reload this tab, and press Start again.", true);
+  }, 10000);
+});
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg && msg.type === "LIVE_STATE") {
+    if (msg.running && !liveIsMine) return; // a live session bound to ANOTHER tab — don't reflect it here
+    liveStateAt = Date.now();
+    // The stats line is the whole diagnosis: "sent" proves capture works,
+    // "heard/spoke" prove Gemini responds, "voice" proves playback scheduled.
+    let text;
+    if (msg.error) text = msg.error;
+    else if (!msg.running) text = "Stopped.";
+    else if (msg.stats) text = `Live ${Math.floor(msg.stats.secs / 60)}:${String(msg.stats.secs % 60).padStart(2, "0")} · sent ${msg.stats.upSecs}s audio · heard ${msg.stats.heard} · spoke ${msg.stats.spoke} (${msg.stats.voiceSecs}s voice)`
+      + (msg.stats.chunks != null ? ` · out ${msg.stats.chunks}ch/${msg.stats.ints}int/${msg.stats.ctx} → ${msg.stats.tgt}` : "");
+    else if (msg.stage) text = msg.stage; // pre-session progress — a stall names its stage
+    else text = "Live — connected, waiting for audio…";
+    liveUI(msg.running, text, !!msg.error);
+    updateLiveIdle(msg.running && msg.stats ? msg.stats.idleSecs : 0);
+    if (!msg.running) { liveIsMine = false; liveElsewhere = false; }
+  }
+});
+
 // Sync dock — writes instantly so the overlay shifts without a reload.
 // The dock shows subtitle DELAY (standard player convention: − = earlier,
 // + = later); the STORED syncOffset is the engine's look-ahead where positive
@@ -683,6 +910,14 @@ el("setDefault").addEventListener("click", () => {
     targets: state.targets, showOriginal: el("showOriginal").checked, position: el("position").value,
     size: state.size, syncOffset: state.syncOffset, linePositions: state.linePositions || {},
   });
+  // This video IS the default now, so drop its per-video override — otherwise the
+  // override keeps masking the very default we just set, and nothing changes on
+  // screen, which reads as "it didn't work". Clearing it also hides Reset (visible
+  // proof it took), on top of the confirmation flashed on the button itself.
+  if (clipBase && clipOverrides[clipBase]) { delete clipOverrides[clipBase]; chrome.storage.local.set({ clipOverrides }); updateScope(); }
+  const b = el("setDefault"), was = b.textContent;
+  b.textContent = "Saved ✓"; b.disabled = true;
+  setTimeout(() => { b.textContent = was; b.disabled = false; }, 1500);
   flashStatus("Saved as the default for new videos.");
 });
 el("resetClip").addEventListener("click", () => {
@@ -794,7 +1029,7 @@ async function load() {
   state = { ...DEFAULTS, linePositions: {}, ...g, ...ov };  // effective = defaults ← global ← clip
   delete state.clipOverrides;
   if (!(state.targets && state.targets.length)) state.targets = ["en"];
-  el("enabled").checked = state.enabled;
+  renderMode();
   el("apiKey").value = state.apiKey || "";
   el("translationProvider").value = state.translationProvider === "claude" ? "claude" : "openai";
   updateClaudeModelUI();
@@ -814,6 +1049,24 @@ async function load() {
   el("geminiKey").value = state.geminiKey || "";
   updateTtsProviderUI();
   geminiKeyHint();
+  livePopulateDevices();
+  updateLivePerm();
+  // Keep liveTarget to a code Gemini can actually voice: inherit the subtitle
+  // primary on first run, and heal any stored value the model no longer supports.
+  {
+    const want = state.liveTarget || (state.targets && state.targets[0]) || "en";
+    const ok = normLiveCode(want) || normLiveCode((state.targets && state.targets[0]) || "en") || "en";
+    if (ok !== state.liveTarget) { state.liveTarget = ok; persist({ liveTarget: ok }); }
+  }
+  el("liveLangSearch").value = langMeta(liveTargetCode())[1];
+  el("dbgHud").checked = !!state.debugHud;
+  chrome.runtime.sendMessage({ type: "LIVE_QUERY" }, async (r) => {
+    if (!r || !r.running) return;
+    const t = await chrome.tabs.query({ active: true, currentWindow: true }).catch(() => []);
+    liveMyTabId = t && t[0] ? t[0].id : null;
+    if (r.tabId != null && r.tabId === liveMyTabId) { liveIsMine = true; liveUI(true, "Live — running."); } // this tab IS the captured one
+    else { liveElsewhere = true; liveUIElsewhere(); el("liveStatus").textContent = "Live is running on another tab — Stop it here, or open that tab."; }
+  });
   // Refresh all key dots only AFTER every key input is hydrated — an earlier
   // refresh saw the still-empty Google field and auto-opened the panel forever.
   refreshKeyDot();
@@ -840,7 +1093,7 @@ async function load() {
 // ── hidden tribute: tap the logo three times, or hold the version line ────────
 // In memory of Agha Mansoor. The portrait + words live in shared/tribute.js
 // (window.SV_TRIBUTE), loaded before this script. The header's version line
-// (v1330.1 · Mansoor — his year, his name) is the quiet door: park the mouse on
+// (v1330.2 · Mansoor — his year, his name) is the quiet door: park the mouse on
 // it for 2.5s; its slow shift to mint + glow IS the countdown (see header .ver).
 (function () {
   const logo = document.querySelector("header img");

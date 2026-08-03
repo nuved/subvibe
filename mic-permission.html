@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>SubVibe — microphone access</title>
+  <style>
+    body { margin: 0; background: #17191d; color: #e6e6e6; font: 15px/1.6 -apple-system, system-ui, sans-serif; display: grid; place-items: center; min-height: 100vh; }
+    main { max-width: 460px; padding: 32px; }
+    h1 { font-size: 20px; margin: 0 0 10px; }
+    p { color: #b9bec6; }
+    button { margin: 14px 0; padding: 12px 22px; font-size: 15px; font-weight: 600; color: #fff; background: #2f6fed; border: 0; border-radius: 10px; cursor: pointer; }
+    button:hover { background: #3d7bf0; }
+    #out.ok { color: #7fd79a; }
+    #out.err { color: #e08585; }
+    ol { color: #b9bec6; padding-left: 20px; }
+    li { margin: 8px 0; }
+    code { background: #22252b; padding: 1px 6px; border-radius: 5px; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>🎙 Microphone access for Live Translate</h1>
+    <p>Live Translate listens to the audio you choose and speaks the translation. The browser asks for microphone permission once per extension — the popup is too small a window to ask from, so this page does it.</p>
+    <button id="ask">Allow microphone</button>
+    <p id="out"></p>
+    <ol id="help" hidden>
+      <li>Click the padlock (or Brave lion) icon left of the address bar → <b>Site settings</b> → set <b>Microphone</b> to <b>Allow</b>, then reload this page and click the button again.</li>
+      <li>Brave: also check <code>brave://settings/content/microphone</code> — this page's address must not be under "Not allowed".</li>
+      <li>macOS: System Settings → Privacy &amp; Security → Microphone — your browser must be enabled there too.</li>
+    </ol>
+  </main>
+  <script src="mic-permission.js"></script>
+</body>
+</html>

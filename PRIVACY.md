@@ -46,6 +46,10 @@ to the provider you selected, authenticated with **your** API key:
 - **Captured audio**, only if you explicitly enable the optional “audio fallback”
   transcription feature for videos that have no captions (sent to OpenAI). This feature is
   **off by default**, requires a one‑time setup, and only runs while you have started it.
+- **Captured audio during Live Translate**, only while you have pressed Start: the current
+  tab’s audio (or, if you pick one, an input device) streams to Google’s Gemini Live API with
+  your key to produce translated speech and captions. Nothing is recorded or stored; the
+  stream ends the moment you press Stop or close the tab.
 
 This data is processed under the provider’s own API data‑usage policy:
 [OpenAI](https://openai.com/policies/), [Anthropic](https://www.anthropic.com/legal/privacy),
@@ -65,7 +69,10 @@ routes this data through no other party.
 - **api.openai.com / api.anthropic.com / generativelanguage.googleapis.com** — to send text
   (or, opt‑in, audio) for translation, speech generation, or transcription with your key.
 - **storage / unlimitedStorage** — your local settings and the local subtitle/audio cache.
-- **offscreen** — plays dub audio, and hosts the optional opt‑in audio‑fallback capture.
+- **offscreen** — plays dub audio, and hosts the optional opt‑in audio‑fallback and Live
+  Translate capture.
+- **tabCapture** — reads the current tab’s audio for Live Translate, only after you press
+  Start, and never in the background.
 
 ## Contact
 Questions or requests: support@nimanou.com

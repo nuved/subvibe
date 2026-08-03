@@ -642,10 +642,17 @@
         }
         batch.forEach((g, k) => {
           if (!resp.lines[k]) return;
-          g.t[hooks.target] = resp.lines[k];
+          // Whitespace-normalize EXACTLY like the engine's pump does: these
+          // writes land in the SAME cue objects the overlay renders, and the
+          // karaoke word-verify dies on any stray double space — un-normalized
+          // lines here silently killed the highlight for every line the dub
+          // translated ahead of the pump (visible the moment dub was enabled,
+          // "healed" once it was off and the pump's normalized lines took over).
+          const line = resp.lines[k].replace(/\s+/g, " ").trim();
+          g.t[hooks.target] = line;
           g.spk = { id: (resp.spk && resp.spk[k]) || 0, g: (resp.gen && resp.gen[k]) || "?" };
           g.d = (resp.dub && resp.dub[k]) || null; // condensed dub rendition (rebuildRuns falls back to g.t when null)
-          for (const cc of g.cues) { cc.t[hooks.target] = resp.lines[k]; cc.spk = g.spk; }
+          for (const cc of g.cues) { cc.t[hooks.target] = line; cc.spk = g.spk; }
         });
         genAll.done += batch.length;
         if (hooks.persist) hooks.persist();

@@ -24,8 +24,10 @@ const siteMeta = (s) => SITES[s] || OTHER;
 const SITE_ORDER = [...Object.keys(SITES), "__other"];
 
 let groupBy = "site"; // "site" | "date"
+let siteFilter = "all"; // "all" | a SITES key | "__other" — the sidebar platform filter
 let query = "";
 let allGroups = [];
+let logTotals = null; // running per-provider spend totals from the worker (survives the ring buffer)
 
 // ── data ──────────────────────────────────────────────────────────────────────
 function prettyBase(base) {
@@ -62,6 +64,7 @@ function groupTracks(tracks) {
 let logAgg = { byBase: new Map(), byTitle: new Map() };
 async function loadLogAgg() {
   const res = await chrome.runtime.sendMessage({ type: "LOG_LIST" }).catch(() => null);
+  logTotals = (res && res.totals) || null; // lifetime spend for the hero metric, not just the ring buffer
   const byBase = new Map(), byTitle = new Map();
   for (const c of ((res && res.calls) || [])) {
     const cost = window.SV_PRICING.estCost(c);
@@ -122,38 +125,52 @@ function flag(target) {
   return fl;
 }
 
+// Inline SVG icons (Lucide-style, currentColor). The markup is constant, so
+// assigning it via innerHTML is XSS-safe — the same pattern flag() already uses.
+const SVG = (inner) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
+const ICONS = {
+  activity: SVG('<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>'),
+  open: SVG('<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>'),
+  download: SVG('<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>'),
+  audio: SVG('<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>'),
+  trash: SVG('<path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/>'),
+  x: SVG('<path d="M18 6 6 18"/><path d="M6 6l12 12"/>'),
+};
+// One icon action button. `label` (a language code) is appended as text, never
+// interpolated into markup. `title` doubles as the accessible name.
+function iconBtn(name, label, title, onclick, variant) {
+  const b = document.createElement("button");
+  b.className = "iconbtn" + (variant ? " " + variant : "");
+  b.innerHTML = ICONS[name];
+  if (label) b.appendChild(document.createTextNode(label));
+  if (title) b.title = title;
+  b.setAttribute("aria-label", title || label || name);
+  if (onclick) b.onclick = onclick;
+  return b;
+}
+
 function card(g) {
   const c = document.createElement("div");
   c.className = "card";
+  c.style.setProperty("--spine", siteMeta(g.site).color); // platform-colored left spine
 
-  const top = document.createElement("div");
-  top.className = "top";
-  const sdot = document.createElement("span");
-  sdot.className = "sdot";
-  sdot.style.background = siteMeta(g.site).color;
-  top.appendChild(sdot);
-  const wrap = document.createElement("div");
-  wrap.style.minWidth = "0";
-  wrap.style.flex = "1";
   const ttl = document.createElement("div");
-  ttl.className = "ttl";
-  ttl.textContent = g.title;       // XSS-safe: titles come from arbitrary pages
+  ttl.className = "card__title";
+  ttl.textContent = g.title;         // XSS-safe: titles come from arbitrary pages
   ttl.title = g.url ? g.title + "\n" + g.url : g.title;
   if (g.url) ttl.onclick = () => chrome.tabs.create({ url: g.url });
-  else ttl.style.cursor = "default";
-  wrap.appendChild(ttl);
-  top.appendChild(wrap);
-  c.appendChild(top);
+  else ttl.classList.add("plain");
+  c.appendChild(ttl);
 
   const langs = document.createElement("div");
-  langs.className = "langs";
+  langs.className = "card__langs";
   for (const [target, stat] of g.langs) {
     const meta = langMeta(target);
     const chip = document.createElement("span");
     chip.className = "clang";
     chip.appendChild(flag(target));
     const nm = document.createElement("span");
-    nm.textContent = meta[1];       // XSS-safe language name
+    nm.textContent = meta[1];        // XSS-safe language name
     chip.appendChild(nm);
     const full = !stat.totalCues || stat.cueCount >= stat.totalCues * 0.95;
     const dot = document.createElement("span");
@@ -172,90 +189,72 @@ function card(g) {
 
   const agg = logAgg.byBase.get(g.base) || logAgg.byTitle.get(g.title);
   const stats = document.createElement("div");
-  stats.className = "stats";
+  stats.className = "card__stats";
   if (agg) stats.textContent = `~${fmtCost(agg.cost)} · ${agg.calls} call${agg.calls === 1 ? "" : "s"}`;
   c.appendChild(stats);
 
-  const foot = document.createElement("div");
-  foot.className = "foot";
+  // date + platform — margin-top:auto on .card__meta pins this and the actions
+  // to the bottom so every card's footer aligns regardless of language count.
+  const meta = document.createElement("div");
+  meta.className = "card__meta";
   const when = document.createElement("span");
   when.className = "when";
   when.textContent = fmtWhen(g.createdAt);
-  foot.appendChild(when);
-  const act = document.createElement("button");
-  act.className = "mini";
-  act.textContent = "Activity";
-  act.title = "This video's API calls, tokens and cost";
-  act.onclick = () => {
+  meta.appendChild(when);
+  const platform = document.createElement("span");
+  platform.className = "platform";
+  platform.textContent = siteMeta(g.site).label;
+  meta.appendChild(platform);
+  c.appendChild(meta);
+
+  // action footer: Activity · Open · SRT (per language) · [dub] · Delete
+  const act = document.createElement("div");
+  act.className = "card__actions";
+  act.appendChild(iconBtn("activity", "", "This video's API calls, tokens and cost", () => {
     actBase = g.base; actBaseTitle = g.title;
     el("actFilter").value = ""; actQuery = "";
-    actMode = "clip"; // the point of the jump is this video's summary — always land grouped
+    actMode = "clip"; // the jump is this video's summary — always land grouped
     el("actByClip").classList.add("on"); el("actAll").classList.remove("on");
     setView("activity");
-  };
-  foot.appendChild(act);
+  }));
   if (g.url) {
-    const open = document.createElement("button");
-    open.className = "mini open";
-    open.textContent = "Open ▶";
-    open.title = "Reopen this video — subtitles replay from cache, free";
-    open.onclick = () => chrome.tabs.create({ url: g.url });
-    foot.appendChild(open);
+    act.appendChild(iconBtn("open", "Open", "Reopen this video — subtitles replay from cache, free",
+      () => chrome.tabs.create({ url: g.url }), "primary"));
   }
-  c.appendChild(foot);
 
-  // Per-language export row: srt always; ▶ preview + ⬇ audio when dub clips
-  // exist. Destructive actions (✕ audio, Delete) sit quiet in the far right
-  // corner, after a flex spacer, so the eye lands on Open ▶ first.
-  const exp = document.createElement("div");
-  exp.className = "foot";
-  const spacer = document.createElement("span");
-  spacer.style.flex = "1";
-  exp.appendChild(spacer);
-  const del = document.createElement("button");
-  del.className = "mini quiet";
-  del.textContent = "Delete";
-  del.title = "Remove this video's cached subtitles";
-  del.onclick = async () => {
-    await chrome.runtime.sendMessage({ type: "CACHE_DELETE", prefix: g.base }).catch(() => null);
-    refresh();
-  };
-  exp.appendChild(del);
+  // flex spacer: srt/dub sit to its left, the quiet Delete to its right
+  const grow = document.createElement("span");
+  grow.className = "grow";
+
   for (const [target] of g.langs) {
-    const srtBtn = document.createElement("button");
-    srtBtn.className = "mini";
-    srtBtn.textContent = "⬇ srt · " + target;
-    srtBtn.title = "Download the translated subtitles (.srt)";
-    srtBtn.onclick = () => exportSrt(g, target);
-    exp.insertBefore(srtBtn, spacer);
+    act.appendChild(iconBtn("download", target, "Download the translated subtitles (.srt)", () => exportSrt(g, target)));
     audioRows(`${g.base}:auto:${target}:dub:`).then((rows) => {
       if (!rows.length) return;
       const ms = rows.reduce((a, r) => a + (r.ms || 0), 0);
       if (ms) stats.textContent += (stats.textContent ? " · " : "") + `${Math.round(ms / 60000)} min dub audio`;
+      // Play stays a text button so playDub can toggle ▶/⏸/… via textContent.
       const playBtn = document.createElement("button");
-      playBtn.className = "mini";
+      playBtn.className = "iconbtn";
       playBtn.textContent = `▶ ${target}`;
       playBtn.title = `Play the stitched dub (~${Math.round(ms / 60000)} min cached)`;
       playBtn.onclick = () => playDub(g, target, playBtn);
-      exp.insertBefore(playBtn, spacer);
-      const audBtn = document.createElement("button");
-      audBtn.className = "mini";
-      audBtn.textContent = "⬇";
-      audBtn.title = "Download the dub as one audio file";
-      audBtn.onclick = () => exportAudio(g, target);
-      exp.insertBefore(audBtn, spacer);
-      const rmBtn = document.createElement("button");
-      rmBtn.className = "mini quiet";
-      rmBtn.textContent = "✕ audio";
-      rmBtn.title = "Delete this language's dub audio (keeps the subtitles)";
-      rmBtn.onclick = async () => {
+      const audBtn = iconBtn("audio", "", "Download the dub as one audio file", () => exportAudio(g, target));
+      const rmBtn = iconBtn("x", "", "Delete this language's dub audio (keeps the subtitles)", async () => {
         await chrome.runtime.sendMessage({ type: "AUDIO_DELETE", prefix: `${g.base}:auto:${target}:dub:` }).catch(() => null);
         refresh();
-      };
-      exp.insertBefore(rmBtn, del);
+      }, "quiet");
+      act.insertBefore(playBtn, grow);
+      act.insertBefore(audBtn, grow);
+      act.insertBefore(rmBtn, grow);
     });
   }
-  c.appendChild(exp);
+
+  act.appendChild(grow);
+  act.appendChild(iconBtn("trash", "", "Remove this video's cached subtitles", async () => {
+    await chrome.runtime.sendMessage({ type: "CACHE_DELETE", prefix: g.base }).catch(() => null);
+    refresh();
+  }, "danger"));
+  c.appendChild(act);
   return c;
 }
 
@@ -336,11 +335,76 @@ function badgeFor(site) {
   return { txt, color: m.color, label: m.label };
 }
 
+// ── sidebar platform filter + hero metrics ──────────────────────────────────────
+function siteKey(g) { return SITES[g.site] ? g.site : "__other"; }
+function platformCounts() {
+  const counts = new Map();
+  for (const g of allGroups) counts.set(siteKey(g), (counts.get(siteKey(g)) || 0) + 1);
+  return counts;
+}
+function renderPlatformNav() {
+  const nav = el("platformNav");
+  const counts = platformCounts();
+  if (siteFilter !== "all" && !counts.get(siteFilter)) siteFilter = "all"; // filtered platform emptied out
+  nav.innerHTML = "";
+  const item = (key, label, color, count) => {
+    const b = document.createElement("button");
+    b.className = "pf" + (siteFilter === key ? " on" : "");
+    b.setAttribute("aria-pressed", siteFilter === key ? "true" : "false");
+    const sw = document.createElement("span"); sw.className = "swatch"; sw.style.background = color;
+    const nm = document.createElement("span"); nm.className = "pf-name"; nm.textContent = label;
+    const ct = document.createElement("span"); ct.className = "pf-count"; ct.textContent = String(count);
+    b.appendChild(sw); b.appendChild(nm); b.appendChild(ct);
+    b.onclick = () => { siteFilter = key; renderPlatformNav(); render(); };
+    nav.appendChild(b);
+  };
+  item("all", "All platforms", "#6366F1", allGroups.length);
+  for (const site of SITE_ORDER) {
+    const n = counts.get(site) || 0;
+    if (!n) continue;
+    const m = site === "__other" ? OTHER : siteMeta(site);
+    item(site, m.label, m.color, n);
+  }
+}
+
+function totalSpend() {
+  if (logTotals) {
+    let sum = 0;
+    for (const p of Object.keys(logTotals)) sum += (logTotals[p] && logTotals[p].all) || 0;
+    return sum;
+  }
+  let sum = 0; // fallback: sum the ring-buffer rows we do have
+  for (const a of logAgg.byBase.values()) sum += a.cost || 0;
+  return sum;
+}
+function metricCard(label, value, unit, sub, accent) {
+  const d = document.createElement("div"); d.className = "metric";
+  if (accent) d.style.setProperty("--accent", accent);
+  const l = document.createElement("div"); l.className = "metric__label"; l.textContent = label;
+  const v = document.createElement("div"); v.className = "metric__value"; v.textContent = value;
+  if (unit) { const s = document.createElement("small"); s.textContent = " " + unit; v.appendChild(s); }
+  d.appendChild(l); d.appendChild(v);
+  if (sub) { const su = document.createElement("div"); su.className = "metric__sub"; su.textContent = sub; d.appendChild(su); }
+  return d;
+}
+function renderLibStats() {
+  const wrap = el("libStats");
+  wrap.innerHTML = "";
+  if (!allGroups.length) return; // hero hides on the empty state — nothing to celebrate yet
+  const platforms = platformCounts().size;
+  const tracks = allGroups.reduce((a, g) => a + g.langs.size, 0);
+  wrap.appendChild(metricCard("Videos translated", String(allGroups.length), "", "cached for free replay", "#6366F1"));
+  wrap.appendChild(metricCard("Cached translations", String(tracks), tracks === 1 ? "track" : "tracks", "replay without re-charge", "#34D399"));
+  wrap.appendChild(metricCard("Active platforms", String(platforms), platforms === 1 ? "site" : "sites", "", "#F59E0B"));
+  wrap.appendChild(metricCard("Est. spent", "~" + fmtCost(totalSpend()), "", "one-time · replays are free", "#818CF8"));
+}
+
 function render() {
   stopDubPreview();
   const content = el("content");
   content.innerHTML = "";
-  const visible = allGroups.filter((g) => matches(g, query));
+  const visible = allGroups.filter((g) => matches(g, query) &&
+    (siteFilter === "all" || siteKey(g) === siteFilter));
 
   if (!allGroups.length) {
     const e = document.createElement("div");
@@ -360,7 +424,9 @@ function render() {
     const e = document.createElement("div");
     e.className = "empty";
     const p = document.createElement("p");
-    p.textContent = "No videos match “" + query + "”.";
+    const plat = siteFilter !== "all" ? (siteFilter === "__other" ? OTHER.label : siteMeta(siteFilter).label) : "";
+    p.textContent = query ? "No videos match “" + query + "”" + (plat ? " in " + plat : "") + "."
+      : plat ? "No videos from " + plat + " yet." : "No videos match your filters.";
     e.appendChild(p);
     content.appendChild(e);
     return;
@@ -401,6 +467,8 @@ async function refresh() {
   el("note").textContent = n
     ? `${n} video${n === 1 ? "" : "s"} cached · stored only on this device. Reopening any of them costs nothing.`
     : "";
+  renderPlatformNav();
+  renderLibStats();
   render();
 }
 
@@ -635,7 +703,8 @@ function setView(v) {
   el("viewActivity").hidden = vids;
   el("tabVideos").classList.toggle("on", vids);
   el("tabActivity").classList.toggle("on", !vids);
-  el("clearAll").style.visibility = vids ? "" : "hidden"; // "Clear all" is a videos action
+  el("videosNav").hidden = !vids;                       // sidebar search/platforms/group-by are library-only
+  el("clearAll").style.display = vids ? "" : "none";    // "Clear library" is a library action
   if (!vids) loadActivity();
 }
 el("tabVideos").addEventListener("click", () => setView("videos"));

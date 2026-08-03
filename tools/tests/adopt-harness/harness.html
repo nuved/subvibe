@@ -1,0 +1,30 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Adoption harness — scrape must upgrade to a fetched file</title>
+<!--
+  Reproduces the operator's deadlock with the REAL content/common.js:
+  1. engine starts in scrape mode (no tracks, rolling native text),
+  2. a 400-cue caption file arrives via SUBS_URL → FETCH_SUBS (stubbed),
+  3. EXPECT: mode flips to cuelist within seconds.
+  The on-video debug HUD (debugHud:true in the stubbed settings) is the
+  oracle — the same panel the operator screenshots.
+-->
+<link rel="stylesheet" href="../../../styles/overlay.css">
+<style>
+  body { background: #111; color: #ddd; font: 13px system-ui; margin: 0; }
+  #player { position: relative; width: 800px; height: 450px; background: #000; margin: 16px auto; }
+  #vid { width: 100%; height: 100%; background: #222; }
+  #nativecap { position: absolute; bottom: 4px; left: 0; right: 0; text-align: center; color: #fff; }
+</style>
+</head>
+<body>
+<div id="player"><video id="vid"></video><div id="nativecap"></div></div>
+<script src="fake-env.js"></script>
+<script src="../../../shared/title.js"></script>
+<script src="../../../shared/presets.js"></script>
+<script src="../../../content/common.js"></script>
+<script src="driver.js"></script>
+</body>
+</html>

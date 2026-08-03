@@ -69,6 +69,9 @@ const langName = (c) => LANG_NAMES[c] || LANG_NAMES[(c || "").split("-")[0]] || 
 // ─── Live audio capture (offscreen document) ─────────────────────────────────
 
 let audioTabId = null; // the tab whose overlay shows transcribed subtitles
+let audioActive = false; // transcription running (shares the offscreen doc with live)
+let liveTabId = null;  // the tab whose overlay shows LIVE_TRANSLATE transcript lines
+let liveActive = false; // live translate running — guards offscreen closeDocument
 
 // chrome.offscreen is Chrome-only (needs the "offscreen" permission in the
 // manifest) — Firefox has no offscreen API (its event page is a real DOM page
@@ -81,8 +84,8 @@ async function ensureOffscreen() {
   if (await chrome.offscreen.hasDocument()) return;
   await chrome.offscreen.createDocument({
     url: "offscreen.html",
-    reasons: ["USER_MEDIA"],
-    justification: "Capture audio to transcribe live subtitles.",
+    reasons: ["USER_MEDIA", "AUDIO_PLAYBACK"],
+    justification: "Capture audio to transcribe or live-translate it, and play translated speech.",
   });
 }
 
@@ -930,6 +933,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           break;
         }
         case "START_AUDIO":
+          audioActive = true;
           audioTabId = sender?.tab?.id ?? msg.tabId;
           if (!hasOffscreen) {
             // START_AUDIO is fire-and-forget in the content script, so an error
@@ -944,9 +948,77 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse({ ok: true });
           break;
         case "STOP_AUDIO":
+          audioActive = false;
           chrome.runtime.sendMessage({ type: "AUDIO_STOP" });
           if (audioTabId != null) chrome.tabs.sendMessage(audioTabId, { type: "AUDIO_STOP" }).catch(() => {});
-          try { await chrome.offscreen.closeDocument(); } catch {}
+          if (!liveActive) { try { await chrome.offscreen.closeDocument(); } catch {} } // live shares the doc
+          sendResponse({ ok: true });
+          break;
+        // ── Live Translate (experimental): popup ⇄ offscreen ⇄ content ──────
+        case "LIVE_BEGIN": { // popup→background; the offscreen page only ever hears background's LIVE_START
+          if (!hasOffscreen) { sendResponse({ error: "offscreen API unavailable in this browser" }); break; }
+          liveTabId = msg.tabId ?? null;
+          if (liveTabId == null) {
+            const tabs = await chrome.tabs.query({ active: true, currentWindow: true }).catch(() => []);
+            liveTabId = tabs && tabs[0] ? tabs[0].id : null;
+          }
+          liveActive = true;
+          try {
+            await ensureOffscreen();
+            // A just-created document may still be parsing its scripts when a
+            // broadcast goes out — a lost LIVE_START was an eternal
+            // "Connecting…". Ping until the live script answers, THEN forward.
+            let ready = false;
+            for (let i = 0; i < 10 && !ready; i++) {
+              ready = await new Promise((res) => chrome.runtime.sendMessage({ type: "LIVE_PING" }, (r) => res(!chrome.runtime.lastError && !!(r && r.pong))));
+              if (!ready) await new Promise((r) => setTimeout(r, 150));
+            }
+            if (!ready) throw new Error("loaded but never answered the ready ping");
+            let streamId = null;
+            if (msg.wantTab) {
+              // Minted HERE, not in the popup: without consumerTabId a stream
+              // id is only consumable in the caller's render process (Chrome
+              // 116+) — a popup-minted id was dead on arrival at the offscreen
+              // page. The worker mint is Google's own offscreen-recording
+              // pattern and is consumable extension-wide.
+              streamId = await Promise.race([
+                new Promise((res, rej) => chrome.tabCapture.getMediaStreamId({ targetTabId: liveTabId }, (id) => chrome.runtime.lastError ? rej(new Error(chrome.runtime.lastError.message)) : res(id))),
+                new Promise((_, rej) => setTimeout(() => rej(new Error("no tab stream id after 5s — the browser may be blocking tabCapture")), 5000)),
+              ]);
+            }
+            // Hand the key over instead of letting the capture page read
+            // storage itself — one less await over there that could stall.
+            const { geminiKey } = await chrome.storage.local.get("geminiKey");
+            chrome.runtime.sendMessage({ type: "LIVE_START", key: geminiKey || "", streamId, origVol: msg.origVol, deviceId: msg.deviceId, target: msg.target, targetCode: msg.targetCode, model: msg.model });
+          } catch (e) {
+            liveActive = false;
+            chrome.runtime.sendMessage({ type: "LIVE_STATE", running: false, error: "capture page: " + (e.message || e) });
+          }
+          sendResponse({ ok: true });
+          break;
+        }
+        case "LIVE_END": // popup→background; forwarded to the capture page as LIVE_STOP
+          liveActive = false;
+          chrome.runtime.sendMessage({ type: "LIVE_STOP" });
+          if (liveTabId != null) chrome.tabs.sendMessage(liveTabId, { type: "LIVE_STATE", running: false }).catch(() => {});
+          if (!audioActive) { try { await chrome.offscreen.closeDocument(); } catch {} }
+          sendResponse({ ok: true });
+          break;
+        case "LIVE_QUERY":
+          sendResponse({ running: liveActive, tabId: liveTabId }); // tabId lets the popup tell "this tab" from "another tab"
+          break;
+        case "LIVE_TEXT":
+          if (liveTabId != null) chrome.tabs.sendMessage(liveTabId, { type: "LIVE_LINE", original: msg.original, translated: msg.translated }).catch(() => {});
+          sendResponse({ ok: true });
+          break;
+        case "LIVE_STATE":
+          if (!msg.running) liveActive = false; // any terminal state — clean stop OR death-with-error
+          // Stage breadcrumbs ("opening audio…") are popup-only progress. The
+          // content script tears the subtitle engine down on ANY running:true —
+          // forwarding a breadcrumb killed subtitles/badge before a session
+          // even existed. Only real transitions reach the tab.
+          if (liveTabId != null && !(msg.running && msg.stage)) chrome.tabs.sendMessage(liveTabId, { type: "LIVE_STATE", running: msg.running, error: msg.error }).catch(() => {});
+          // popup (if open) listens on runtime for the same message — nothing to do
           sendResponse({ ok: true });
           break;
         case "AUDIO_TEXT":
