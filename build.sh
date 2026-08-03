@@ -27,6 +27,9 @@ fi
 rm -f "$OUT"
 
 # Everything EXCEPT dev-only files. What's left is exactly what ships.
+# The `.*` / `*/.*` excludes drop ALL hidden files — not just .git, but local
+# dev state (.claude, .playwright-mcp, .superpowers) that a clean CI checkout
+# never has but a local build would otherwise bake into the store package.
 zip -r -X "$OUT" . \
   -x "tools/*" \
   -x "*.md" \
@@ -35,6 +38,8 @@ zip -r -X "$OUT" . \
   -x ".github/*" \
   -x "build.sh" \
   -x "icons/icon.svg" \
+  -x ".*" \
+  -x "*/.*" \
   -x "*.zip" \
   -x "*.DS_Store" \
   -x "**/.DS_Store" >/dev/null
