@@ -7,21 +7,27 @@
   Renders ONE 1280×800 Chrome Web Store screenshot per popup tab.
   Open with ?tab=translate | dub | style, viewport exactly 1280×800, screenshot,
   then downscale the retina capture to 1280×800 (see README.md).
+
+  Board recolored to the 1330.2 indigo theme (bg #0B0F19, accent #4F46E5) to
+  match the redesigned popup. The popup is now 520px wide, so raw-*.png captures
+  are taken at a 520px viewport and the frame scales the whole width down — no
+  horizontal crop, so no brand chips or edges leak in.
 -->
 <style>
   * { margin: 0; box-sizing: border-box; }
   body { width: 1280px; height: 800px; overflow: hidden; display: flex; align-items: center;
-    font-family: -apple-system, "Segoe UI", system-ui, sans-serif; color: #e7ecf3;
-    background: #0b0d12 radial-gradient(circle at 78% 55%, #10261f 0%, #0b1712 38%, #0b0d12 75%); }
+    font-family: -apple-system, "Segoe UI", system-ui, sans-serif; color: #F9FAFB;
+    background: #0B0F19 radial-gradient(circle at 80% 50%, #1b2050 0%, #12162e 40%, #0B0F19 78%); }
   .left { flex: 1; padding: 0 40px 0 84px; }
-  .mark { font-size: 22px; font-weight: 800; letter-spacing: .3px; color: #4f8cff; margin-bottom: 26px; }
-  h1 { font-size: 46px; line-height: 1.16; font-weight: 800; margin-bottom: 30px; max-width: 560px; }
-  li { list-style: none; font-size: 21px; color: #b8c2d1; margin: 15px 0; padding-left: 26px; position: relative; }
-  li::before { content: ""; position: absolute; left: 0; top: 9px; width: 10px; height: 10px; border-radius: 50%; background: #7fe0b0; }
-  .right { flex: none; width: 470px; display: flex; justify-content: center; }
-  .frame { width: 344px; height: 676px; overflow: hidden; border-radius: 14px; border: 2px solid #28303d;
-    box-shadow: 0 24px 70px rgba(0,0,0,.65), 0 0 0 1px rgba(127,224,176,.08); background: #0b0d12; }
-  .frame img { width: 500px; height: auto; margin: 2px 0 0 2px; display: block; } /* crop the 500px viewport to the 340px popup */
+  .mark { font-size: 22px; font-weight: 800; letter-spacing: .3px; color: #8b93f8; margin-bottom: 26px; }
+  h1 { font-size: 46px; line-height: 1.16; font-weight: 800; margin-bottom: 30px; max-width: 560px; letter-spacing: -.5px; }
+  li { list-style: none; font-size: 21px; color: #c3cad8; margin: 15px 0; padding-left: 26px; position: relative; }
+  li::before { content: ""; position: absolute; left: 0; top: 9px; width: 10px; height: 10px; border-radius: 50%;
+    background: #6d6af5; box-shadow: 0 0 12px rgba(109,106,245,.7); }
+  .right { flex: none; width: 486px; display: flex; justify-content: center; }
+  .frame { width: 400px; height: 664px; overflow: hidden; border-radius: 16px; border: 2px solid #24324F;
+    box-shadow: 0 24px 70px rgba(0,0,0,.62), 0 0 0 1px rgba(79,70,229,.18); background: #0B0F19; }
+  .frame img { width: 400px; height: auto; display: block; } /* whole 520px popup scaled to width */
 </style>
 </head>
 <body>
@@ -36,15 +42,15 @@
       translate: { h: "AI subtitles in your language — in sync", b: [
         "Pre-translated ahead of the playhead, never lagging",
         "OpenAI or Claude — your key, your choice of model",
-        "Watched once? Replays are cached and free" ] },
-      dub: { h: "Or let SubVibe speak it for you", b: [
-        "AI voices read the translation over the ducked original",
-        "One voice per speaker, adjustable pace and volume",
-        "Full-video dubs with the cost shown before you pay" ] },
+        "Or just style the video's own captions, free" ] },
+      dub: { h: "Or hear it — live, in your language", b: [
+        "Real-time voice translation, powered by Gemini",
+        "Keeps the original speaker's own voice",
+        "70+ languages, one click to start" ] },
       style: { h: "Subtitles that look the way you want", b: [
         "Presets from Classic to Cinema to Pill",
         "Custom font, color, background and outline",
-        "Size and position remembered per video" ] },
+        "Karaoke highlight, sized and placed per video" ] },
     };
     const tab = new URLSearchParams(location.search).get("tab") || "translate";
     document.getElementById("h").textContent = TABS[tab].h;
