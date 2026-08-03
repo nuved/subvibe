@@ -5,117 +5,213 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>SubVibe Library</title>
   <style>
+    /* Baloo 2 (bundled) — the wordmark and the big metric numbers only. A
+       relative url() resolves against this extension page (chrome-extension://),
+       same pattern popup.html uses. Body/UI stays on the system stack. */
+    @font-face { font-family: "Baloo 2"; font-weight: 800; font-display: swap;
+      src: url("fonts/Baloo2-ExtraBold-latin.woff2") format("woff2");
+      unicode-range: U+0000-00FF, U+2000-206F, U+2212; }
+    @font-face { font-family: "Baloo 2"; font-weight: 800; font-display: swap;
+      src: url("fonts/Baloo2-ExtraBold-latin-ext.woff2") format("woff2");
+      unicode-range: U+0100-024F, U+1E00-1EFF; }
+
     :root {
       color-scheme: dark;
-      --bg: #0b0d12; --panel: #11151c; --panel2: #161c26; --border: #28303d;
-      --text: #e7ecf3; --muted: #8b95a6; --accent: #4f8cff; --accent2: #3f7af0;
-      --green: #7fe0b0; --red: #ff9a9a; --amber: #ffcf8f;
+      /* Premium indigo dark theme — base palette pinned by spec */
+      --bg: #0B0F19; --surface: #161D30; --brand: #4F46E5; --text: #F9FAFB; --muted: #9CA3AF;
+      /* derived tones the UI needs beyond the five pinned values */
+      --sidebar: #0E1424; --surface-2: #1C2438; --surface-3: #26304A;
+      --border: #262F49; --border-soft: #1E2740;
+      --brand-2: #6366F1; --brand-3: #818CF8; --brand-soft: rgba(99,102,241,.13);
+      --muted-2: #6B7280;
+      --green: #34D399; --red: #F87171; --amber: #FBBF24;
+      --shadow: 0 12px 30px -12px rgba(0,0,0,.6);
+      --ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+      --display: "Baloo 2", var(--ui);
     }
     * { box-sizing: border-box; }
-    body { margin: 0; background: var(--bg); color: var(--text);
-      font: 14px/1.5 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; }
+    [hidden] { display: none !important; } /* beats class-set display (e.g. .side-controls{display:flex}) so hidden wins */
+    html, body { height: 100%; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 var(--ui);
+      -webkit-font-smoothing: antialiased; }
     a { color: inherit; }
-    .wrap { max-width: 980px; margin: 0 auto; padding: 0 22px 60px; }
+    button { font-family: inherit; }
+    ::selection { background: rgba(99,102,241,.35); }
+    :focus-visible { outline: 2px solid var(--brand-3); outline-offset: 2px; border-radius: 6px; }
 
-    header { display: flex; align-items: center; gap: 13px; padding: 26px 0 18px; }
-    header img { width: 38px; height: 38px; border-radius: 9px; }
-    header h1 { font-size: 21px; margin: 0; letter-spacing: .2px; }
-    header .tag { color: var(--muted); font-size: 12.5px; margin: 2px 0 0; }
-    header .spacer { flex: 1; }
-    .btn { border: 0; border-radius: 9px; cursor: pointer; font-weight: 600; font-size: 13px;
-      padding: 9px 14px; background: var(--accent); color: #fff; }
-    .btn:hover { background: var(--accent2); }
-    .btn.ghost { background: var(--panel2); color: #cdd6e3; border: 1px solid var(--border); }
-    .btn.ghost:hover { background: #1b2330; }
-    .btn.danger:hover { background: #3a1d22; color: var(--red); border-color: #5a2a30; }
+    /* ── app shell: fixed sidebar + fluid canvas ──────────────────────────── */
+    .app { display: flex; align-items: flex-start; min-height: 100vh; }
 
-    /* toolbar */
-    .toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-      padding: 12px 0 22px; border-bottom: 1px solid #161b24; }
-    .search { flex: 1; min-width: 220px; position: relative; }
-    .search input { width: 100%; padding: 10px 12px 10px 34px; border-radius: 10px;
-      border: 1px solid var(--border); background: var(--panel); color: var(--text); font-size: 14px; }
-    .search input:focus { outline: none; border-color: var(--accent); }
-    .search::before { content: "🔍"; position: absolute; left: 11px; top: 9px; opacity: .7; font-size: 13px; }
-    .seg { display: inline-flex; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
-    .seg button { border: 0; background: transparent; color: #cdd6e3; padding: 9px 15px; cursor: pointer; font-weight: 600; font-size: 13px; }
-    .seg button.on { background: var(--accent); color: #fff; }
-    .seg .lbl { color: var(--muted); padding: 9px 4px 9px 12px; font-size: 12px; }
+    .sidebar { flex: none; width: 240px; align-self: stretch; position: sticky; top: 0;
+      height: 100vh; overflow-y: auto; background: var(--sidebar);
+      border-right: 1px solid var(--border-soft); padding: 22px 16px 18px;
+      display: flex; flex-direction: column; gap: 20px; }
 
-    /* category groups */
-    .group { margin-top: 30px; }
-    .group:first-of-type { margin-top: 10px; }
-    .ghead { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; }
+    .brand { display: flex; align-items: center; gap: 11px; padding: 2px 6px; }
+    .brand__logo { width: 34px; height: 34px; border-radius: 9px; }
+    .brand__name { font-family: var(--display); font-size: 20px; line-height: 1; letter-spacing: .2px; }
+    .brand__sub { color: var(--muted); font-size: 11.5px; margin-top: 3px; letter-spacing: .35px; text-transform: uppercase; }
+
+    .nav { display: flex; flex-direction: column; gap: 3px; }
+    .navlink { display: flex; align-items: center; gap: 11px; width: 100%; text-align: left;
+      border: 0; background: transparent; color: var(--muted); cursor: pointer;
+      font-weight: 600; font-size: 13.5px; padding: 9px 11px; border-radius: 10px;
+      position: relative; transition: background .12s, color .12s; }
+    .navlink svg { width: 18px; height: 18px; flex: none; }
+    .navlink:hover { background: var(--surface-2); color: var(--text); }
+    .navlink.on { background: var(--brand-soft); color: var(--text); }
+    .navlink.on::before { content: ""; position: absolute; left: -16px; top: 8px; bottom: 8px;
+      width: 3px; border-radius: 0 3px 3px 0; background: var(--brand-2); }
+
+    .side-controls { display: flex; flex-direction: column; gap: 20px; }
+    .side-block { display: flex; flex-direction: column; gap: 9px; }
+    .side-label { color: var(--muted-2); font-size: 10.5px; font-weight: 700; letter-spacing: .7px;
+      text-transform: uppercase; padding: 0 4px; }
+
+    .search { position: relative; display: flex; align-items: center; }
+    .search svg { position: absolute; left: 11px; width: 15px; height: 15px; color: var(--muted-2); pointer-events: none; }
+    .search input { width: 100%; padding: 9px 11px 9px 33px; border-radius: 10px; font-size: 13px;
+      border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+    .search input::placeholder { color: var(--muted-2); }
+    .search input:focus { outline: none; border-color: var(--brand); background: #12182a; }
+
+    .platforms { display: flex; flex-direction: column; gap: 2px; }
+    .pf { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+      border: 0; background: transparent; color: var(--muted); cursor: pointer;
+      font-size: 13px; font-weight: 600; padding: 7px 10px; border-radius: 9px; transition: background .12s, color .12s; }
+    .pf:hover { background: var(--surface-2); color: var(--text); }
+    .pf.on { background: var(--surface-2); color: var(--text); }
+    .pf .swatch { flex: none; width: 9px; height: 9px; border-radius: 3px; background: var(--muted-2); box-shadow: 0 0 0 3px rgba(255,255,255,.02); }
+    .pf .pf-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pf .pf-count { color: var(--muted-2); font-size: 11.5px; font-variant-numeric: tabular-nums;
+      background: var(--surface); border: 1px solid var(--border-soft); border-radius: 999px; padding: 1px 8px; }
+    .pf.on .pf-count { color: var(--muted); }
+
+    .seg { display: inline-flex; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+    .seg.full { display: flex; }
+    .seg button { flex: 1; border: 0; background: transparent; color: var(--muted); padding: 8px 13px; cursor: pointer; font-weight: 600; font-size: 12.5px; transition: background .12s, color .12s; }
+    .seg button:hover { color: var(--text); }
+    .seg button.on { background: var(--brand); color: #fff; }
+
+    .side-foot { margin-top: auto; padding-top: 8px; }
+    .btn-danger { display: flex; align-items: center; gap: 9px; width: 100%; justify-content: center;
+      border: 1px solid var(--border); background: var(--surface); color: var(--muted);
+      border-radius: 10px; padding: 9px 12px; font-weight: 600; font-size: 12.5px; cursor: pointer; transition: .12s; }
+    .btn-danger svg { width: 15px; height: 15px; }
+    .btn-danger:hover { color: var(--red); border-color: #5a2b34; background: #2a141a; }
+
+    /* ── main canvas ──────────────────────────────────────────────────────── */
+    .canvas { flex: 1 1 auto; min-width: 0; width: 100%; padding: 26px 40px 64px; }
+
+    /* hero metrics banner */
+    .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px; margin-bottom: 30px; }
+    .metric { position: relative; background: var(--surface); border: 1px solid var(--border);
+      border-radius: 16px; padding: 17px 19px; overflow: hidden; }
+    .metric::after { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--accent, var(--brand-2)); opacity: .9; }
+    .metric__label { color: var(--muted); font-size: 11.5px; font-weight: 600; letter-spacing: .3px; margin-bottom: 9px; }
+    .metric__value { font-family: var(--display); font-size: 32px; line-height: 1; color: var(--text); font-variant-numeric: tabular-nums; }
+    .metric__value small { font-family: var(--ui); font-size: 12.5px; font-weight: 600; color: var(--muted); letter-spacing: 0; }
+    .metric__sub { color: var(--muted-2); font-size: 11.5px; margin-top: 8px; }
+
+    /* category / date group */
+    .group { margin-top: 34px; }
+    .group:first-of-type { margin-top: 4px; }
+    .ghead { display: flex; align-items: center; gap: 11px; margin: 0 0 16px; }
     .badge { display: inline-flex; align-items: center; justify-content: center; min-width: 30px; height: 24px;
-      padding: 0 7px; border-radius: 7px; font-size: 11.5px; font-weight: 800; color: #fff; letter-spacing: .3px; }
-    .ghead h2 { font-size: 15px; margin: 0; }
+      padding: 0 8px; border-radius: 7px; font-size: 11px; font-weight: 800; color: #fff; letter-spacing: .3px; }
+    .ghead h2 { font-size: 15px; margin: 0; letter-spacing: .1px; }
     .ghead .cnt { color: var(--muted); font-size: 12.5px; }
-    .ghead .rule { flex: 1; height: 1px; background: #161b24; }
+    .ghead .rule { flex: 1; height: 1px; background: var(--border-soft); }
 
-    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 13px; }
+    /* auto-responsive card grid: 3 → 6 columns as the screen widens */
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; }
 
-    .card { background: var(--panel); border: 1px solid var(--border); border-radius: 13px; padding: 14px; display: flex; flex-direction: column; gap: 9px; }
-    .card .top { display: flex; align-items: flex-start; gap: 9px; }
-    .card .sdot { flex: none; width: 9px; height: 9px; border-radius: 50%; margin-top: 6px; }
-    .card .ttl { flex: 1; min-width: 0; font-weight: 650; font-size: 14px; cursor: pointer;
+    /* elevated card: flex column, action footer pinned to bottom, platform spine */
+    .card { position: relative; background: var(--surface); border: 1px solid var(--border);
+      border-radius: 16px; padding: 16px 18px 14px 20px; display: flex; flex-direction: column; gap: 11px;
+      overflow: hidden; transition: transform .14s ease, border-color .14s ease, box-shadow .14s ease; }
+    .card::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+      background: var(--spine, var(--brand)); }
+    .card:hover { transform: translateY(-3px); border-color: var(--surface-3); box-shadow: var(--shadow); }
+
+    .card__title { font-weight: 650; font-size: 14.5px; line-height: 1.35; cursor: pointer;
       display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-    .card .ttl:hover { color: var(--accent); }
-    .card .langs { display: flex; flex-wrap: wrap; gap: 5px 12px; margin-top: 2px; }
-    .clang { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; }
-    .clang .fl { font-size: 14px; line-height: 1; }
-    .clang .dot { font-size: 10px; }
+    .card__title:hover { color: var(--brand-3); }
+    .card__title.plain { cursor: default; }
+
+    .card__langs { display: flex; flex-wrap: wrap; gap: 6px; }
+    .clang { display: inline-flex; align-items: center; gap: 5px; font-size: 12px;
+      background: var(--surface-2); border: 1px solid var(--border-soft); border-radius: 999px; padding: 3px 9px; }
+    .clang .fl { font-size: 13px; line-height: 1; }
+    .clang .dot { font-size: 9px; }
     .dot.full { color: var(--green); } .dot.partial { color: var(--amber); }
-    .clang .ct { color: var(--muted); font-size: 11px; }
-    .card .foot { display: flex; align-items: center; gap: 8px; margin-top: 3px; padding-top: 10px; border-top: 1px solid #151a23; }
-    .card .when { color: var(--muted); font-size: 11.5px; flex: 1; }
-    .card .mini { border: 0; border-radius: 7px; cursor: pointer; font-weight: 600; font-size: 12px; padding: 6px 11px;
-      background: var(--panel2); color: #cdd6e3; border: 1px solid var(--border); }
-    .card .mini.open:hover { background: #15263f; color: #cfe0ff; border-color: #2f5fb0; }
-    .card .mini.del:hover { background: #3a1d22; color: var(--red); border-color: #5a2a30; }
-    .card .stats { color: var(--muted); font-size: 11px; font-family: ui-monospace, Menlo, Consolas, monospace; min-height: 13px; }
-    .card .mini.quiet { background: transparent; border-color: transparent; color: var(--muted); font-size: 11px; padding: 6px 6px; }
-    .card .mini.quiet:hover { color: var(--red); background: #3a1d22; }
+    .clang .ct { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 
-    .empty { text-align: center; color: var(--muted); padding: 80px 20px; }
-    .empty .big { font-size: 40px; margin-bottom: 10px; opacity: .8; }
+    .card__stats { color: var(--muted); font-size: 11.5px; font-family: var(--mono); min-height: 14px; }
+    .card__meta { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 11.5px; margin-top: auto; }
+    .card__meta .when { font-variant-numeric: tabular-nums; }
+    .card__meta .platform { color: var(--muted-2); }
+    .card__meta .platform::before { content: "·"; margin-right: 8px; color: var(--muted-2); }
+
+    .card__actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+      padding-top: 12px; border-top: 1px solid var(--border-soft); }
+    .card__actions .grow { flex: 1; }
+
+    /* icon buttons — Lucide-style stroke icons, currentColor */
+    .iconbtn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border);
+      background: var(--surface-2); color: var(--muted); border-radius: 9px; cursor: pointer;
+      height: 32px; padding: 0 9px; font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums;
+      transition: background .12s, color .12s, border-color .12s; }
+    .iconbtn svg { width: 16px; height: 16px; flex: none; }
+    .iconbtn:hover { background: var(--surface-3); color: var(--text); }
+    .iconbtn.primary:hover { color: var(--brand-3); border-color: #35408a; background: #1a2142; }
+    .iconbtn.danger:hover { color: var(--red); border-color: #5a2b34; background: #2a141a; }
+    .iconbtn.quiet { background: transparent; border-color: transparent; color: var(--muted-2); padding: 0 7px; }
+    .iconbtn.quiet:hover { color: var(--red); background: #2a141a; }
+
+    .empty { text-align: center; color: var(--muted); padding: 90px 20px; }
+    .empty .big { font-size: 44px; margin-bottom: 12px; opacity: .85; }
     .empty p { margin: 6px 0 0; }
-    .note { color: var(--muted); font-size: 12px; margin: 18px 0 0; }
+    .note { color: var(--muted); font-size: 12px; margin: 22px 2px 0; }
 
-    /* tabs */
-    .tabs { display: flex; gap: 4px; margin: 4px 0 18px; border-bottom: 1px solid #161b24; }
-    .tabs button { border: 0; background: transparent; color: var(--muted); padding: 10px 16px; cursor: pointer;
-      font-weight: 700; font-size: 14px; border-bottom: 2px solid transparent; margin-bottom: -1px; }
-    .tabs button.on { color: var(--text); border-bottom-color: var(--accent); }
+    /* ── Activity view ────────────────────────────────────────────────────── */
+    .view-head { display: flex; align-items: baseline; gap: 12px; margin: 0 0 20px; }
+    .view-head h1 { font-family: var(--display); font-size: 22px; margin: 0; }
+    .view-head .sub { color: var(--muted); font-size: 12.5px; }
 
-    /* activity: stat cards */
-    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }
-    .stat { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 13px 15px; }
-    .stat .k { color: var(--muted); font-size: 11.5px; margin-bottom: 5px; }
-    .stat .v { font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; }
-    .stat .v small { font-size: 12px; font-weight: 600; color: var(--muted); }
+    #actFilter { width: 100%; margin-bottom: 12px; padding: 10px 13px; border-radius: 10px; font-size: 13px;
+      border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+    #actFilter::placeholder { color: var(--muted-2); }
+    #actFilter:focus { outline: none; border-color: var(--brand); }
+
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 13px; margin-bottom: 18px; }
+    .stat { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; }
+    .stat .k { color: var(--muted); font-size: 11.5px; margin-bottom: 6px; }
+    .stat .v { font-family: var(--display); font-size: 22px; line-height: 1; font-variant-numeric: tabular-nums; }
+    .stat .v small { font-family: var(--ui); font-size: 12px; font-weight: 600; color: var(--muted); }
     .stat.cost .v { color: var(--green); }
 
-    .actnote { color: var(--muted); font-size: 12px; background: var(--panel); border: 1px solid var(--border);
-      border-radius: 10px; padding: 10px 13px; margin: 0; }
-    .actnote b { color: #cfe0ff; }
-    .acthead { display: flex; align-items: center; justify-content: space-between; margin: 22px 0 8px; font-weight: 700; }
+    .actnote { color: var(--muted); font-size: 12px; background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 12px 15px; margin: 0; line-height: 1.55; }
+    .actnote b { color: var(--brand-3); }
+    .acthead { display: flex; align-items: center; gap: 12px; margin: 26px 0 10px; font-weight: 700; }
+    .acthead #actListTitle { flex: 1; }
 
     #actList:empty::after { content: "No calls yet — play a video and the requests will show up here."; color: var(--muted); font-size: 12px; }
-    .callrow, .callhead { display: grid; grid-template-columns: 116px 1fr 56px 64px 92px 60px 64px 20px; gap: 10px; align-items: center;
-      padding: 9px 6px; border-bottom: 1px solid #151a23; font-size: 12.5px; }
-    .callhead { color: var(--muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; border-bottom-color: #1c2330; padding: 6px; }
+    .callrow, .callhead { display: grid; grid-template-columns: 116px 1fr 56px 64px 96px 60px 66px 20px; gap: 10px; align-items: center;
+      padding: 9px 8px; border-bottom: 1px solid var(--border-soft); font-size: 12.5px; }
+    .callhead { color: var(--muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; border-bottom-color: var(--border); padding: 6px 8px; }
     .callrow .ct, .callrow .ctok, .callrow .cms, .callrow .cprov, .callrow .ccost { color: var(--muted); font-variant-numeric: tabular-nums; }
     .callrow .cs { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .callrow .cprov { text-align: center; font-size: 11px; }
     .callrow .cms, .callrow .ccost, .callhead .cms, .callhead .ccost, .callhead .ctok { text-align: right; }
     .callrow .cok { text-align: center; font-weight: 800; }
     .callrow .ok { color: var(--green); } .callrow .err { color: var(--red); }
-    /* per-call failure reason, under its row */
-    .cerrline { color: var(--red); font-size: 11.5px; padding: 0 6px 8px 132px; border-bottom: 1px solid #151a23; }
+    .cerrline { color: var(--red); font-size: 11.5px; padding: 0 8px 8px 132px; border-bottom: 1px solid var(--border-soft); }
     .cerrline + .callrow { border-top: 0; }
-    /* one collapsible group per video */
-    .cgroup { border: 1px solid #151a23; border-radius: 10px; margin-bottom: 10px; background: rgba(255,255,255,0.012); }
-    .cgroup summary { display: flex; gap: 12px; align-items: baseline; padding: 11px 12px; cursor: pointer; list-style: none; }
+    .cgroup { border: 1px solid var(--border-soft); border-radius: 12px; margin-bottom: 10px; background: rgba(255,255,255,0.012); }
+    .cgroup summary { display: flex; gap: 12px; align-items: baseline; padding: 12px 14px; cursor: pointer; list-style: none; }
     .cgroup summary::-webkit-details-marker { display: none; }
     .cgroup summary::before { content: "▸"; color: var(--muted); font-size: 11px; }
     .cgroup[open] summary::before { content: "▾"; }
@@ -123,64 +219,120 @@
     .cgroup .gs { color: var(--muted); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
     .cgroup .gcost { color: var(--green); }
     .cgroup .gfail { color: var(--red); }
-    .cgroup .gbody { padding: 0 8px 6px; }
-    /* "showing one video" chip */
-    #actChip { display: none; margin: 0 0 10px; }
-    #actChip.on { display: inline-flex; align-items: center; gap: 8px; background: #17202e; border: 1px solid #263243;
-      border-radius: 999px; padding: 5px 11px; font-size: 12.5px; max-width: 100%; }
+    .cgroup .gbody { padding: 0 10px 6px; }
+    #actChip { display: none; margin: 0 0 12px; }
+    #actChip.on { display: inline-flex; align-items: center; gap: 8px; background: var(--surface-2); border: 1px solid var(--border);
+      border-radius: 999px; padding: 5px 12px; font-size: 12.5px; max-width: 100%; }
     #actChip .x { cursor: pointer; color: var(--muted); font-weight: 800; }
     #actChip .x:hover { color: #fff; }
     #actMore { height: 1px; }
+
+    /* ── responsive: collapse the sidebar to a top bar on narrow screens ───── */
+    @media (max-width: 880px) {
+      .app { flex-direction: column; }
+      .sidebar { position: static; width: 100%; height: auto; flex-direction: row; flex-wrap: wrap;
+        align-items: center; gap: 12px 16px; border-right: 0; border-bottom: 1px solid var(--border-soft); }
+      .brand { flex: 1; }
+      .nav { flex-direction: row; }
+      .navlink.on::before { display: none; }
+      .side-controls { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 12px; width: 100%; }
+      .side-block { flex: 1; min-width: 180px; }
+      .platforms { flex-direction: row; flex-wrap: wrap; }
+      .pf { width: auto; }
+      .side-foot { margin: 0; padding: 0; }
+      .btn-danger { width: auto; }
+      .canvas { padding: 22px 20px 56px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { transition: none !important; }
+      .card:hover { transform: none; }
+    }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <header>
-      <img src="icons/icon-48.png" alt="" />
-      <div>
-        <h1>SubVibe Library</h1>
-        <p class="tag">Every video you've translated — reopen any to replay its subtitles instantly, free, no API cost.</p>
-      </div>
-      <span class="spacer"></span>
-      <button class="btn ghost danger" id="clearAll">Clear all</button>
-    </header>
-
-    <nav class="tabs">
-      <button id="tabVideos" class="on">Videos</button>
-      <button id="tabActivity">Activity</button>
-    </nav>
-
-    <div id="viewVideos">
-      <div class="toolbar">
-        <label class="search"><input type="text" id="search" placeholder="Search title, URL or language…" autocomplete="off" /></label>
-        <span class="seg" role="group" aria-label="Group by">
-          <span class="lbl">Group by</span>
-          <button id="bySite" class="on">Site</button>
-          <button id="byDate">Date</button>
-        </span>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <img class="brand__logo" src="icons/icon-48.png" alt="" />
+        <div>
+          <div class="brand__name">SubVibe</div>
+          <div class="brand__sub">Library</div>
+        </div>
       </div>
 
-      <div id="content"></div>
-      <p class="note" id="note"></p>
-    </div>
+      <nav class="nav">
+        <button id="tabVideos" class="navlink on">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+          Library
+        </button>
+        <button id="tabActivity" class="navlink">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+          Activity
+        </button>
+      </nav>
 
-    <div id="viewActivity" hidden>
-      <input type="text" id="actFilter" placeholder="🔍  Filter by video title, site, or language…" autocomplete="off"
-        style="width:100%; margin-bottom:10px;" />
-      <span id="actChip"><span id="actChipTitle"></span><span class="x" id="actChipClear" title="Show all videos">✕</span></span>
-      <div class="stats" id="actStats"></div>
-      <p class="actnote">Every request goes <b>directly from this browser to the engine you selected</b> — <b>api.openai.com</b> (gpt-4o-mini · gpt-4o-mini-tts), <b>api.anthropic.com</b> (Claude Sonnet 4.6), or <b>generativelanguage.googleapis.com</b> (Gemini 2.5 Flash TTS) — using your own key. Nothing is sent to us, and this log lives only on this device. Costs are estimated from each provider's price list; your provider's billing dashboard is the source of truth.</p>
-      <div class="acthead">
-        <span id="actListTitle">Calls</span>
-        <span class="seg" role="group" aria-label="Activity view">
-          <button id="actByClip" class="on">By video</button>
-          <button id="actAll">All calls</button>
-        </span>
-        <button class="btn ghost danger" id="clearLog">Clear log</button>
+      <div class="side-controls" id="videosNav">
+        <div class="side-block">
+          <label class="search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+            <input type="text" id="search" placeholder="Search title, URL or language…" autocomplete="off" />
+          </label>
+        </div>
+
+        <div class="side-block">
+          <div class="side-label">Platforms</div>
+          <nav class="platforms" id="platformNav" aria-label="Filter by platform"></nav>
+        </div>
+
+        <div class="side-block">
+          <div class="side-label">Group by</div>
+          <div class="seg full" role="group" aria-label="Group by">
+            <button id="bySite" class="on">Platform</button>
+            <button id="byDate">Date</button>
+          </div>
+        </div>
       </div>
-      <div id="actList"></div>
-      <div id="actMore"></div>
-    </div>
+
+      <div class="side-foot">
+        <button class="btn-danger" id="clearAll">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+          Clear library
+        </button>
+      </div>
+    </aside>
+
+    <main class="canvas">
+      <section id="viewVideos">
+        <div class="metrics" id="libStats"></div>
+        <div id="content"></div>
+        <p class="note" id="note"></p>
+      </section>
+
+      <section id="viewActivity" hidden>
+        <div class="view-head">
+          <h1>Activity</h1>
+          <span class="sub">Every provider call, logged on this device only.</span>
+        </div>
+        <input type="text" id="actFilter" placeholder="🔍  Filter by video title, site, or language…" autocomplete="off" />
+        <span id="actChip"><span id="actChipTitle"></span><span class="x" id="actChipClear" title="Show all videos">✕</span></span>
+        <div class="stats" id="actStats"></div>
+        <p class="actnote">Every request goes <b>directly from this browser to the engine you selected</b> — <b>api.openai.com</b> (gpt-4o-mini · gpt-4o-mini-tts), <b>api.anthropic.com</b> (Claude Sonnet 4.6), or <b>generativelanguage.googleapis.com</b> (Gemini 2.5 Flash TTS) — using your own key. Nothing is sent to us, and this log lives only on this device. Costs are estimated from each provider's price list; your provider's billing dashboard is the source of truth.</p>
+        <div class="acthead">
+          <span id="actListTitle">Calls</span>
+          <span class="seg" role="group" aria-label="Activity view">
+            <button id="actByClip" class="on">By video</button>
+            <button id="actAll">All calls</button>
+          </span>
+          <button class="btn-danger" id="clearLog" style="width:auto;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+            Clear log
+          </button>
+        </div>
+        <div id="actList"></div>
+        <div id="actMore"></div>
+      </section>
+    </main>
   </div>
 
   <script src="shared/title.js"></script>

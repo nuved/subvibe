@@ -19,6 +19,8 @@ let lvTurn = { orig: "", out: "" }, lvFlushT = 0, lvPartialT = 0;
 let lvChanMode = { orig: null, out: null }; // per-channel stream shape: null=unknown, "cum"=cumulative snapshots
 let lvDbgN = 0; // raw-chunk forensics counter (see the onmessage debug log)
 let lvStats = null, lvStatsT = 0; // popup-visible flow counters — no console spelunking
+let lvLastActivityAt = 0;         // ts of the last heard/spoken audio — idle = now − this
+const LV_IDLE_MS = 5 * 60 * 1000; // auto-stop after 5 min with nothing heard/spoken (video ended/paused)
 let lvChunksN = 0, lvIntsN = 0;   // audio chunks scheduled / server "interrupted" signals — playback forensics
 let lvIsTranslate = false;        // translate models have their own setup contract (translationConfig, no text)
 let lvCfg = null; // {deviceId, target, model, key, sysAsContent}
@@ -30,7 +32,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   else if (msg.type === "LIVE_STOP") liveStop("stopped");
 });
 
-const lvState = (running, error, stage) => chrome.runtime.sendMessage({ type: "LIVE_STATE", running, error: error || null, stage: stage || null, stats: lvStats && running ? { secs: Math.round((Date.now() - lvStats.t0) / 1000), upSecs: Math.round(lvStats.upSamples / 16000), heard: lvStats.textIn, spoke: lvStats.textOut, voiceSecs: Math.round(lvStats.voiceMs / 1000), chunks: lvChunksN, ints: lvIntsN, ctx: lvCtxOut ? lvCtxOut.state : "—", tgt: lvCfg ? lvCfg.targetCode : "?" } : null });
+const lvState = (running, error, stage) => chrome.runtime.sendMessage({ type: "LIVE_STATE", running, error: error || null, stage: stage || null, stats: lvStats && running ? { secs: Math.round((Date.now() - lvStats.t0) / 1000), upSecs: Math.round(lvStats.upSamples / 16000), heard: lvStats.textIn, spoke: lvStats.textOut, voiceSecs: Math.round(lvStats.voiceMs / 1000), chunks: lvChunksN, ints: lvIntsN, ctx: lvCtxOut ? lvCtxOut.state : "—", tgt: lvCfg ? lvCfg.targetCode : "?", idleSecs: lvLastActivityAt ? Math.round((Date.now() - lvLastActivityAt) / 1000) : 0 } : null });
+
+// 2s heartbeat: report flow counters to the popup AND self-terminate after
+// LV_IDLE_MS with no heard/spoken audio. Runs entirely in the offscreen page
+// that owns the session — no tab-lifecycle listeners, so it can't race startup.
+function lvHeartbeat() {
+  if (lvRunning && lvLastActivityAt && Date.now() - lvLastActivityAt >= LV_IDLE_MS) {
+    liveStop("idle");
+    return;
+  }
+  lvState(true);
+}
 
 async function liveStart(msg) {
   // lvRunning only latches AFTER capture succeeds — without lvStarting, two
@@ -158,10 +171,10 @@ function connectLive() {
       setupSeen = true;
       clearTimeout(watchdog);
       lvRetries = 0;
-      if (!lvStats) lvStats = { t0: Date.now(), upSamples: 0, textIn: 0, textOut: 0, voiceMs: 0 };
+      if (!lvStats) { lvStats = { t0: Date.now(), upSamples: 0, textIn: 0, textOut: 0, voiceMs: 0 }; lvLastActivityAt = Date.now(); }
       startLivePipe();
       lvState(true);
-      if (!lvStatsT) lvStatsT = setInterval(() => lvState(true), 2000); // popup heartbeat with flow counters
+      if (!lvStatsT) lvStatsT = setInterval(lvHeartbeat, 2000); // popup heartbeat + idle auto-stop
       return;
     }
     if (ev.error) {
@@ -198,8 +211,8 @@ function connectLive() {
       lvDbgN++;
       console.debug("[SubVibe live raw]", JSON.stringify({ in: sc.inputTranscription && sc.inputTranscription.text, out: sc.outputTranscription && sc.outputTranscription.text, turnComplete: !!sc.turnComplete }));
     }
-    if (sc.inputTranscription && sc.inputTranscription.text) { lvTurn.orig = mergeStreamText("orig", lvTurn.orig, sc.inputTranscription.text); if (lvStats) lvStats.textIn++; }
-    if (sc.outputTranscription && sc.outputTranscription.text) { lvTurn.out = mergeStreamText("out", lvTurn.out, sc.outputTranscription.text); if (lvStats) lvStats.textOut++; }
+    if (sc.inputTranscription && sc.inputTranscription.text) { lvTurn.orig = mergeStreamText("orig", lvTurn.orig, sc.inputTranscription.text); if (lvStats) lvStats.textIn++; lvLastActivityAt = Date.now(); }
+    if (sc.outputTranscription && sc.outputTranscription.text) { lvTurn.out = mergeStreamText("out", lvTurn.out, sc.outputTranscription.text); if (lvStats) lvStats.textOut++; lvLastActivityAt = Date.now(); }
     if (sc.turnComplete) flushLiveText();
     else if (lvTurn.orig || lvTurn.out) {
       // Smooth caption cadence: show the growing line at most twice a second
@@ -285,6 +298,10 @@ function scheduleLiveAudio(b64, mime) {
   const bytes = atob(b64);
   const n = bytes.length >> 1;
   if (!n) return;
+  // NOTE: do NOT reset the idle timer here. The model keeps emitting audio chunks
+  // even after it stops translating (heard/spoke freeze), so resetting on audio
+  // pinned idle at 0 forever — counter stuck, stale session never stopped. Idle
+  // resets ONLY on heard/spoke (real transcription activity).
   const buf = lvCtxOut.createBuffer(1, Math.max(1, Math.round(n * lvCtxOut.sampleRate / rate)), lvCtxOut.sampleRate);
   // Fill via an intermediate Float32 at the SOURCE rate, then let the buffer's
   // simple nearest-sample copy handle the (usually 1:1) rate difference.
@@ -370,7 +387,7 @@ function liveStop(reason) {
   lvStarting = false;
   clearTimeout(lvFlushT);
   clearTimeout(lvPartialT); lvPartialT = 0;
-  clearInterval(lvStatsT); lvStatsT = 0; lvStats = null;
+  clearInterval(lvStatsT); lvStatsT = 0; lvStats = null; lvLastActivityAt = 0;
   clearLiveAudio();
   try { lvProc && lvProc.disconnect(); } catch {}
   try { lvSrc && lvSrc.disconnect(); } catch {}
@@ -380,5 +397,5 @@ function liveStop(reason) {
   try { lvWs && lvWs.close(); } catch {}
   lvCtxIn = lvSrc = lvProc = lvCtxOut = lvCtxPass = lvWs = null;
   if (lvStream) { lvStream.getTracks().forEach((t) => t.stop()); lvStream = null; }
-  if (wasRunning || reason === "stopped") lvState(false);
+  if (wasRunning || reason === "stopped") lvState(false, reason === "idle" ? "Auto-stopped — 5 min with no audio to translate. Press Start to resume." : null);
 }

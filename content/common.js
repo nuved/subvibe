@@ -19,6 +19,7 @@
 
   const DEFAULTS = {
     enabled: true,
+    translateOn: true,   // false = "Original" mode: style the native captions, no translation
     targets: ["en"],     // one or more languages to show (multiple subtitles)
     showOriginal: true,  // also show the original spoken line (dual subtitles) — also
                          // means there's always a line to show even before a key is added
@@ -114,10 +115,15 @@
   // layers this clip's own changes on top — so a tweak on one video (or live channel)
   // never bleeds onto another. sync defaults to 0 per clip.
   async function getSettings() {
-    const s = await chrome.storage.local.get(["enabled", "targets", "showOriginal", "hideNative", "position", "linePositions", "size", "stylePreset", "styleCustom", "syncOffset", "karaokeHl", "audioFallback", "audioDeviceId", "translationProvider", "debugHud", "clipOverrides"]);
+    const s = await chrome.storage.local.get(["enabled", "translateOn", "targets", "showOriginal", "hideNative", "position", "linePositions", "size", "stylePreset", "styleCustom", "syncOffset", "karaokeHl", "audioFallback", "audioDeviceId", "translationProvider", "debugHud", "clipOverrides"]);
     const { clipOverrides, ...flat } = s;
     const ov = (clipOverrides && clipOverrides[clipBaseId()]) || {};
-    return { ...DEFAULTS, ...flat, ...ov };
+    const merged = { ...DEFAULTS, ...flat, ...ov };
+    // "Original" mode (translateOn === false): drop every target so not a single
+    // line is sent to the translator (zero cost), and force the original line on
+    // so there's still something to style/karaoke/resync. One gate, read by all.
+    if (merged.translateOn === false) { merged.targets = []; merged.showOriginal = true; }
+    return merged;
   }
 
   function pickAdapter() {
@@ -2096,7 +2102,7 @@
     // Skip redundant restarts: if nothing relevant changed and we're already
     // showing an overlay, don't tear it all down (kills the live loop).
     const runKey = JSON.stringify({
-      en: settings.enabled, v: vid,
+      en: settings.enabled, tr: settings.translateOn, v: vid,
       t: settings.targets, o: settings.showOriginal, h: settings.hideNative,
       p: settings.position, s: settings.size, k: settings.karaokeHl,
       // Whether this clip's FULL cue list has been intercepted yet. Without this,

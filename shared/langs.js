@@ -20,9 +20,57 @@
     ["vi", "Vietnamese", "🇻🇳"], ["el", "Greek", "🇬🇷"], ["he", "Hebrew", "🇮🇱"], ["ro", "Romanian", "🇷🇴"],
     ["cs", "Czech", "🇨🇿"], ["da", "Danish", "🇩🇰"], ["fi", "Finnish", "🇫🇮"], ["no", "Norwegian", "🇳🇴"],
     ["hu", "Hungarian", "🇭🇺"], ["bn", "Bengali", "🇧🇩"], ["ur", "Urdu", "🇵🇰"], ["ta", "Tamil", "🇮🇳"],
+    ["ms", "Malay", "🇲🇾"], ["tl", "Filipino", "🇵🇭"], ["sw", "Swahili", "🇰🇪"], ["af", "Afrikaans", "🇿🇦"],
+    ["bg", "Bulgarian", "🇧🇬"], ["hr", "Croatian", "🇭🇷"], ["sk", "Slovak", "🇸🇰"], ["sl", "Slovenian", "🇸🇮"],
+    ["sr", "Serbian", "🇷🇸"], ["lt", "Lithuanian", "🇱🇹"], ["lv", "Latvian", "🇱🇻"], ["et", "Estonian", "🇪🇪"],
+    ["is", "Icelandic", "🇮🇸"], ["sq", "Albanian", "🇦🇱"], ["mk", "Macedonian", "🇲🇰"], ["hy", "Armenian", "🇦🇲"],
+    ["ka", "Georgian", "🇬🇪"], ["az", "Azerbaijani", "🇦🇿"], ["kk", "Kazakh", "🇰🇿"], ["ne", "Nepali", "🇳🇵"],
+    ["si", "Sinhala", "🇱🇰"], ["km", "Khmer", "🇰🇭"], ["my", "Burmese", "🇲🇲"], ["lo", "Lao", "🇱🇦"],
+    ["mr", "Marathi", "🇮🇳"], ["te", "Telugu", "🇮🇳"], ["ml", "Malayalam", "🇮🇳"], ["kn", "Kannada", "🇮🇳"],
+    ["gu", "Gujarati", "🇮🇳"], ["pa", "Punjabi", "🇮🇳"], ["am", "Amharic", "🇪🇹"], ["cy", "Welsh", "🏴󠁧󠁢󠁷󠁬󠁳󠁿"],
   ];
 
+  // Dub / Live-Translate target set — the EXACT list Gemini's live-translate model
+  // documents as supported (ai.google.dev/gemini-api/docs/live-api/live-translate,
+  // 70+ languages, bidirectional). Codes are Google's own BCP-47 (zh-Hans/zh-Hant,
+  // pt-BR/pt-PT, fil), so the code we hand the model is one it actually speaks.
+  // This is deliberately its OWN list, not the subtitle set: it adds languages the
+  // text translator doesn't offer (Basque, Catalan, Akan…) and drops ones Gemini
+  // can't voice (e.g. Welsh). Keep it in sync with the doc, not with SV_LANGS.
+  const LIVE_LANGS = [
+    ["af", "Afrikaans", "🇿🇦"], ["ak", "Akan", "🇬🇭"], ["sq", "Albanian", "🇦🇱"], ["am", "Amharic", "🇪🇹"],
+    ["ar", "Arabic", "🇸🇦"], ["hy", "Armenian", "🇦🇲"], ["az", "Azerbaijani", "🇦🇿"], ["eu", "Basque", "🏳️"],
+    ["be", "Belarusian", "🇧🇾"], ["bn", "Bengali", "🇧🇩"], ["bg", "Bulgarian", "🇧🇬"], ["my", "Burmese", "🇲🇲"],
+    ["ca", "Catalan", "🏳️"], ["zh-Hans", "Chinese (Simplified)", "🇨🇳"], ["zh-Hant", "Chinese (Traditional)", "🇹🇼"],
+    ["hr", "Croatian", "🇭🇷"], ["cs", "Czech", "🇨🇿"], ["da", "Danish", "🇩🇰"], ["nl", "Dutch", "🇳🇱"],
+    ["en", "English", "🇬🇧"], ["et", "Estonian", "🇪🇪"], ["fil", "Filipino", "🇵🇭"], ["fi", "Finnish", "🇫🇮"],
+    ["fr", "French", "🇫🇷"], ["gl", "Galician", "🏳️"], ["ka", "Georgian", "🇬🇪"], ["de", "German", "🇩🇪"],
+    ["el", "Greek", "🇬🇷"], ["gu", "Gujarati", "🇮🇳"], ["ha", "Hausa", "🇳🇬"], ["he", "Hebrew", "🇮🇱"],
+    ["hi", "Hindi", "🇮🇳"], ["hu", "Hungarian", "🇭🇺"], ["is", "Icelandic", "🇮🇸"], ["id", "Indonesian", "🇮🇩"],
+    ["it", "Italian", "🇮🇹"], ["ja", "Japanese", "🇯🇵"], ["jv", "Javanese", "🇮🇩"], ["kn", "Kannada", "🇮🇳"],
+    ["kk", "Kazakh", "🇰🇿"], ["km", "Khmer", "🇰🇭"], ["rw", "Kinyarwanda", "🇷🇼"], ["ko", "Korean", "🇰🇷"],
+    ["lo", "Lao", "🇱🇦"], ["lv", "Latvian", "🇱🇻"], ["lt", "Lithuanian", "🇱🇹"], ["mk", "Macedonian", "🇲🇰"],
+    ["ms", "Malay", "🇲🇾"], ["ml", "Malayalam", "🇮🇳"], ["mr", "Marathi", "🇮🇳"], ["mn", "Mongolian", "🇲🇳"],
+    ["ne", "Nepali", "🇳🇵"], ["no", "Norwegian", "🇳🇴"], ["fa", "Persian", FA_FLAG], ["pl", "Polish", "🇵🇱"],
+    ["pt-BR", "Portuguese (Brazil)", "🇧🇷"], ["pt-PT", "Portuguese (Portugal)", "🇵🇹"], ["pa", "Punjabi", "🇮🇳"],
+    ["ro", "Romanian", "🇷🇴"], ["ru", "Russian", "🇷🇺"], ["sr", "Serbian", "🇷🇸"], ["sd", "Sindhi", "🇵🇰"],
+    ["si", "Sinhala", "🇱🇰"], ["sk", "Slovak", "🇸🇰"], ["sl", "Slovenian", "🇸🇮"], ["es", "Spanish", "🇪🇸"],
+    ["su", "Sundanese", "🇮🇩"], ["sw", "Swahili", "🇰🇪"], ["sv", "Swedish", "🇸🇪"], ["ta", "Tamil", "🇮🇳"],
+    ["te", "Telugu", "🇮🇳"], ["th", "Thai", "🇹🇭"], ["tr", "Turkish", "🇹🇷"], ["uk", "Ukrainian", "🇺🇦"],
+    ["ur", "Urdu", "🇵🇰"], ["uz", "Uzbek", "🇺🇿"], ["vi", "Vietnamese", "🇻🇳"], ["zu", "Zulu", "🇿🇦"],
+  ];
+
+  // Old simple codes → Google's live-translate code, so a subtitle target inherited
+  // by Dub (or a saved pick from before) maps to something the model recognises.
+  const LIVE_ALIAS = { zh: "zh-Hans", "zh-CN": "zh-Hans", "zh-TW": "zh-Hant", pt: "pt-BR", tl: "fil", nb: "no" };
+
+  const META = {};
+  LANGS.concat(LIVE_LANGS).forEach((l) => { if (!META[l[0]]) META[l[0]] = l; });
+
   g.SV_FA_FLAG = FA_FLAG;
-  g.SV_LANGS = LANGS;
-  g.svLangMeta = (code) => LANGS.find((l) => l[0] === code) || [code, (code || "").toUpperCase(), "🏳️"];
+  g.SV_LANGS = LANGS;             // subtitle "Translate to" set (GPT/Claude)
+  g.SV_LIVE_LANGS = LIVE_LANGS;   // Dub set (Gemini live-translate, authoritative)
+  g.SV_LIVE_ALIAS = LIVE_ALIAS;
+  // Resolve a code from EITHER set so both pickers can name any stored value.
+  g.svLangMeta = (code) => META[code] || [code, (code || "").toUpperCase(), "🏳️"];
 })(window);
