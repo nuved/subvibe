@@ -1,8 +1,10 @@
 # SubVibe — AI subtitles for streaming video
 
+[![Chrome Web Store](https://img.shields.io/chrome-web-store/v/lmlnalcdaojhipggkcgdpibobbolbfne?label=Chrome%20Web%20Store&color=4F46E5)](https://chromewebstore.google.com/detail/lmlnalcdaojhipggkcgdpibobbolbfne)
+
 Overlay **AI-translated subtitles** on streaming video, in your language — pre-translated
 *ahead* of the playhead so there's no lag, perfectly synced to playback, and **cached
-locally** so re-watching costs nothing.
+locally** so re-watching costs nothing. Or **hear it translated aloud, live**, in your language.
 
 **Supported:** YouTube · Netflix · ZDF · Deutsche Welle · Amazon Prime Video · Udemy
 
@@ -11,31 +13,37 @@ locally** so re-watching costs nothing.
   translates the upcoming lines before you reach them. A toolbar badge shows how far ahead
   it's ready.
 - **Perfect sync** — cues are keyed to the exact playback time; scrub, pause, rewatch — they follow.
+- **Live Translate** — hear the video in your language *as it plays*, in real time, powered by
+  Google Gemini. Keeps the original speaker's own voice; 70+ languages; one click, no microphone.
+- **Style the original, free** — apply your style and the karaoke highlight to the video's *own*
+  captions, with no translation and no cost (also handy just to resync captions to the picture).
 - **Cached & free on replay** — generated once, stored locally (IndexedDB); replays cost nothing.
 - **Dual subtitles** — show the translation, the original line, or both stacked (great for learning).
-- **30+ languages**, right-to-left support (Persian, Arabic, Hebrew, Urdu) + a bundled Persian font.
+- **Karaoke highlight** — words light up as they're spoken; word-exact on auto-captions,
+  closely estimated elsewhere.
+- **60+ subtitle languages** (70+ for Live Translate), right-to-left support (Persian, Arabic,
+  Hebrew, Urdu) + a bundled Persian font.
 - **Per-video settings** — language(s), position (drag each line), size, and a sync nudge,
   remembered per video.
 - **Style presets & custom looks** — Classic, YouTube, TikTok, Pill, Snapchat, Cinema and
-  Minimal (no background) presets, plus custom font, text color, background color/opacity,
-  outline/shadow — and a free size slider (much smaller than before, if you like).
-- **Dub Mode** — speaks the translation over the quieted original (voice-over style): one steady
-  voice, a duration-fitted spoken script, per-speaker voices (beta), an on-player start/pause button
-  with the cost shown before a cent is spent, cached clips free on replay, and export as `.srt` +
-  a stitched audio track. ~$1/hour of watched video.
-- **Bring your own key (BYOK)** — uses *your* OpenAI key, stored only on your device. **No
-  SubVibe servers, no accounts, no ads, no tracking.**
+  Minimal presets, plus custom font, text color, background color/opacity, outline/shadow —
+  and a free size slider.
+- **Bring your own key (BYOK)** — uses *your* OpenAI, Anthropic, or Google key, stored only on
+  your device. **No SubVibe servers, no accounts, no ads, no tracking.**
 
 ## Install
-**From source (until the Chrome Web Store listing is live):**
+**From the Chrome Web Store:**
+👉 **[Install SubVibe](https://chromewebstore.google.com/detail/lmlnalcdaojhipggkcgdpibobbolbfne)** — then click the icon, add your API key, and pick your language.
+
+**From source:**
 1. `chrome://extensions` → enable **Developer mode**.
-2. **Load unpacked** → select this `extension/` folder.
-3. Click the icon → paste your **OpenAI API key**, pick your language(s).
+2. **Load unpacked** → select this folder.
+3. Click the icon → paste your API key (OpenAI, Anthropic, or Google), pick your language(s).
 
 **Firefox (experimental):** `./build.sh --firefox` builds a Firefox package (same source,
 two manifest tweaks). Load it via `about:debugging#/runtime/this-firefox` → **Load Temporary
 Add-on** — an AMO listing is planned, which Firefox needs for permanent installs. The live
-audio-transcription fallback is Chrome-only (Firefox has no offscreen API).
+audio features are Chrome-only (Firefox has no offscreen API).
 
 ### On Android?
 Chrome for Android can't run extensions — no extension can work there. What does work:
@@ -47,15 +55,17 @@ Chrome for Android can't run extensions — no extension can work there. What do
 
 ## Use
 1. Play a video (turn the player's own captions **on** once, so SubVibe can read the track).
-2. Subtitles appear over the player, pre-translating ahead.
-3. Re-watch anytime — it replays from cache, free (DevTools ▸ Network shows no `api.openai.com` calls).
+2. Subtitles appear over the player, pre-translating ahead — or start **Live Translate** from the
+   popup's Dub tab to hear it spoken in your language.
+3. Re-watch anytime — it replays from cache, free (DevTools ▸ Network shows no provider calls).
 
 ## Privacy & BYOK
-SubVibe has **no servers of its own.** Your OpenAI key is stored locally and used to call
-OpenAI **directly from your browser**; only the video's caption text is sent there, to
-translate it. Nothing else leaves your device. → **[Privacy policy](https://nimanou.com/subvibe/privacy)**
+SubVibe has **no servers of its own.** Your API key (OpenAI, Anthropic, or Google) is stored
+locally and used to call that provider **directly from your browser**; only the video's caption
+or audio text is sent there, to translate it. Nothing else leaves your device.
+→ **[Privacy policy](https://nimanou.com/subvibe/privacy)**
 
-## Open source &amp; verifiable builds
+## Open source & verifiable builds
 SubVibe has **no build step** — it's vanilla JS/HTML/CSS, nothing minified or bundled. **The
 files in this repo are exactly what ships and runs.**
 
@@ -66,19 +76,20 @@ files in this repo are exactly what ships and runs.**
 
 **Verify the published extension matches this source:**
 1. Chrome installs extensions *unpacked* at `…/Chrome/Default/Extensions/<id>/<version>/`.
-2. `diff -r` that folder against this repo at the matching release tag (e.g. `v1330.0.0`).
+2. `diff -r` that folder against this repo at the matching release tag (e.g. `v1330.2.0`).
 3. A clean diff means identical code — and because nothing is minified, the diff is human-readable.
 
 > Note: the `.crx` Google *serves* is re-signed/re-packaged, so it isn't byte-identical to the
 > upload — but the file **contents** are, which is exactly what the `diff` confirms.
 
 ## Project structure
-- `manifest.json` — MV3 config &amp; permissions.
-- `background.js` — service worker: IndexedDB cache + OpenAI calls (cross-origin lives here, never in a content script).
-- `content/common.js` — the engine: detect source, build per-language cues, render &amp; sync the overlay.
+- `manifest.json` — MV3 config & permissions.
+- `background.js` — service worker: IndexedDB cache + provider calls (cross-origin lives here, never in a content script).
+- `content/common.js` — the engine: detect source, build per-language cues, render & sync the overlay.
 - `content/adapters/*` — per-site caption acquisition (YouTube, Netflix, ZDF, DW, Prime, Udemy).
 - `content/subs-intercept.js` — MAIN-world subtitle/segment sniffer + page-world playhead relay.
-- `popup.html` / `popup.js` — settings (key, languages, appearance, per-video).
+- `offscreen-live.js` — the Live Translate audio session (tab capture ↔ Gemini ↔ playback).
+- `popup.html` / `popup.js` — settings (keys, languages, appearance, per-video).
 - `shared/`, `styles/`, `fonts/`, `icons/` — shared data, overlay styling, RTL font, icons.
 
 ## License
