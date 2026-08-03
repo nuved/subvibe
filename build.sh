@@ -60,8 +60,11 @@ m["browser_specific_settings"] = {
     "gecko": {"id": "subvibe@nimanou.com", "strict_min_version": "128.0"},
     "gecko_android": {},
 }
-# Chrome-only permission; Firefox would warn on it (background.js feature-detects anyway)
-m["permissions"] = [p for p in m["permissions"] if p != "offscreen"]
+# Strip the Chrome-only manifest bits Firefox warns on: the offscreen + tabCapture
+# permissions (both gated behind hasOffscreen in background.js, so live audio is
+# Chrome-only regardless), and version_name (a Chrome-ism — Firefox uses "version").
+m["permissions"] = [p for p in m["permissions"] if p not in ("offscreen", "tabCapture")]
+m.pop("version_name", None)
 with open(os.path.join(sys.argv[1], "manifest.json"), "w") as f:
     json.dump(m, f, indent=2, ensure_ascii=False)
     f.write("\n")
