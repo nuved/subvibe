@@ -1005,7 +1005,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse({ ok: true });
           break;
         case "LIVE_QUERY":
-          sendResponse({ running: liveActive, tabId: liveTabId }); // tabId lets the popup tell "this tab" from "another tab"
+          sendResponse({ running: liveActive, tabId: liveTabId, hasOffscreen }); // hasOffscreen=false on Firefox (no offscreen API) → popup marks Live as Chrome-only
           break;
         case "LIVE_TEXT":
           if (liveTabId != null) chrome.tabs.sendMessage(liveTabId, { type: "LIVE_LINE", original: msg.original, translated: msg.translated }).catch(() => {});

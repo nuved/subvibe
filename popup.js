@@ -656,6 +656,18 @@ el("styleReset").addEventListener("click", () => { state.styleCustom = {}; persi
 let liveRunning = false;
 let liveStateAt = 0; // when the last LIVE_STATE arrived — silence after Start is itself a diagnosis
 let liveMyTabId = null, liveIsMine = false, liveElsewhere = false; // is the running session bound to THIS popup's tab?
+let liveNoOffscreen = false; // true where there's no offscreen audio API (Firefox) — Live can't run
+// Live Translate needs the offscreen document (capture tab audio + play the voice).
+// Firefox has no offscreen API, so say so plainly instead of letting Start fail with
+// the 10s "no answer from the capture page" timeout.
+function liveDisableNoOffscreen() {
+  liveNoOffscreen = true;
+  const btn = el("liveBtn");
+  btn.disabled = true;
+  btn.textContent = "Live Translate (Chrome only)";
+  el("livePerm").textContent = "Live Translate needs Chrome — Firefox has no offscreen audio API. Subtitles still work in the Translate tab.";
+  const s = el("liveStatus"); s.textContent = ""; s.className = "hint";
+}
 function liveUI(running, statusText, isErr) {
   liveRunning = !!running;
   const b = el("liveBtn");
@@ -772,6 +784,7 @@ document.addEventListener("click", (e) => { if (!el("liveLangSearch").contains(e
 
 el("dbgHud").addEventListener("change", () => { state.debugHud = el("dbgHud").checked; persist({ debugHud: state.debugHud }); });
 el("liveBtn").addEventListener("click", async () => {
+  if (liveNoOffscreen) return; // disabled here (no offscreen API) — belt-and-suspenders
   // LIVE_BEGIN/LIVE_END are popup→background ONLY. A runtime broadcast reaches
   // every extension page — sending LIVE_START from here delivered it to the
   // capture page TWICE (direct + background's forward), and the two parallel
@@ -1061,6 +1074,7 @@ async function load() {
   el("liveLangSearch").value = langMeta(liveTargetCode())[1];
   el("dbgHud").checked = !!state.debugHud;
   chrome.runtime.sendMessage({ type: "LIVE_QUERY" }, async (r) => {
+    if (r && r.hasOffscreen === false) { liveDisableNoOffscreen(); return; } // Firefox: mark Live as Chrome-only
     if (!r || !r.running) return;
     const t = await chrome.tabs.query({ active: true, currentWindow: true }).catch(() => []);
     liveMyTabId = t && t[0] ? t[0].id : null;

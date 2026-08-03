@@ -153,6 +153,7 @@
       transition: background .15s ease, box-shadow .15s ease, transform .1s ease; }
     .livebtn:hover { background: var(--accent2); box-shadow: 0 6px 18px rgba(79, 70, 229, .5); }
     .livebtn:active { transform: translateY(1px); }
+    .livebtn:disabled, .livebtn:disabled:hover { opacity: .5; cursor: not-allowed; box-shadow: none; animation: none; background: var(--panel2); transform: none; }
     .livebtn.live-on { animation: livePulse 2s ease-in-out infinite; }
     .livebtn .livedot { width: 9px; height: 9px; border-radius: 50%; background: #fff;
       box-shadow: 0 0 8px rgba(255, 255, 255, .9); flex: none; }
