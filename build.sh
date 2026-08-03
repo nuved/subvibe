@@ -32,6 +32,7 @@ rm -f "$OUT"
 # never has but a local build would otherwise bake into the store package.
 zip -r -X "$OUT" . \
   -x "tools/*" \
+  -x "docs/*" \
   -x "*.md" \
   -x ".gitignore" \
   -x ".git/*" \
