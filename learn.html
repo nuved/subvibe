@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SubVibe Learn</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      /* Same premium indigo dark palette as library.html */
+      --bg: #0B0F19; --surface: #161D30; --brand: #4F46E5; --text: #F9FAFB; --muted: #9CA3AF;
+      --surface-2: #1C2438; --border: #262F49; --border-soft: #1E2740;
+      --brand-2: #6366F1; --brand-3: #818CF8; --brand-soft: rgba(99,102,241,.13);
+      --green: #34D399; --red: #F87171; --amber: #FBBF24;
+      --ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 var(--ui); -webkit-font-smoothing: antialiased; }
+    button { font-family: inherit; cursor: pointer; }
+    :focus-visible { outline: 2px solid var(--brand-3); outline-offset: 2px; border-radius: 6px; }
+
+    .wrap { max-width: 880px; margin: 0 auto; padding: 26px 20px 60px; }
+    header { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+    header img { width: 34px; height: 34px; border-radius: 9px; }
+    header h1 { font-size: 19px; margin: 0; }
+    header .sub { color: var(--muted); font-size: 12px; }
+
+    .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border-soft); margin-bottom: 18px; }
+    .tab { border: 0; background: transparent; color: var(--muted); font-weight: 600; font-size: 13.5px;
+      padding: 9px 14px; border-radius: 9px 9px 0 0; }
+    .tab.on { color: var(--text); background: var(--surface); }
+    .tab .n { color: var(--brand-3); }
+
+    .card { background: var(--surface); border: 1px solid var(--border-soft); border-radius: 14px; padding: 18px; margin-bottom: 14px; }
+    .muted { color: var(--muted); }
+    .btn { border: 0; border-radius: 10px; padding: 9px 16px; font-weight: 700; font-size: 13.5px;
+      background: var(--surface-2); color: var(--text); }
+    .btn.primary { background: var(--brand); }
+    .btn.primary:hover { background: var(--brand-2); }
+    .btn:disabled { opacity: .45; cursor: default; }
+    .btn.small { padding: 5px 10px; font-size: 12px; font-weight: 600; }
+
+    /* Today / review */
+    .due-big { font-size: 40px; font-weight: 800; line-height: 1.1; }
+    .review { text-align: center; padding: 30px 18px; }
+    .review .word { font-size: 34px; font-weight: 800; margin: 8px 0 2px; }
+    .review .sentence { color: var(--muted); margin: 10px auto 0; max-width: 560px; }
+    .review .back { border-top: 1px solid var(--border-soft); margin-top: 18px; padding-top: 16px; }
+    .review .meaning { font-size: 20px; font-weight: 700; }
+    .review .extra { color: var(--muted); font-size: 13px; margin-top: 6px; }
+    .grade { display: flex; gap: 10px; justify-content: center; margin-top: 18px; }
+    .again { background: #7f1d1d; }
+    .good { background: #14532d; }
+    .arts { display: flex; gap: 10px; justify-content: center; margin: 14px 0 4px; }
+    .art { min-width: 74px; font-size: 15px; }
+    .art.right { background: #14532d; }
+    .art.wrong { background: #7f1d1d; }
+    .progress { color: var(--muted); font-size: 12px; margin-top: 14px; }
+
+    /* Boxes */
+    .boxes { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+    .box { background: var(--surface-2); border-radius: 12px; padding: 14px 10px; text-align: center; }
+    .box .cnt { font-size: 26px; font-weight: 800; }
+    .box .lbl { color: var(--muted); font-size: 12px; }
+    .box .nxt { color: var(--muted); font-size: 11px; margin-top: 4px; min-height: 14px; }
+
+    /* Inbox */
+    .vid { margin-bottom: 6px; }
+    .vid summary { cursor: pointer; font-weight: 700; padding: 8px 4px; }
+    .vid summary .muted { font-weight: 400; }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 2px 4px; }
+    .chip { border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
+      border-radius: 999px; padding: 4px 11px; font-size: 13px; }
+    .chip .n { color: var(--muted); font-size: 11px; }
+    .chip.sel { background: var(--brand-soft); border-color: var(--brand-2); color: var(--brand-3); }
+    .vid .acts { display: flex; gap: 8px; padding: 8px 2px; }
+
+    /* Browse */
+    .filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+    .filters select { background: var(--surface-2); color: var(--text); border: 1px solid var(--border);
+      border-radius: 8px; padding: 6px 8px; font: inherit; font-size: 13px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+    th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+    th { color: var(--muted); font-size: 12px; font-weight: 600; }
+    td .art-tag { color: var(--brand-3); font-weight: 700; }
+    .lvl { display: inline-block; min-width: 26px; text-align: center; border-radius: 6px; padding: 1px 5px;
+      font-size: 11px; font-weight: 700; background: var(--surface-2); }
+
+    /* Conjugation modal */
+    .modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; }
+    .modal .inner { background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+      padding: 20px; max-width: 520px; width: 92%; max-height: 80vh; overflow: auto; }
+    .modal h2 { margin: 0 0 10px; font-size: 18px; }
+    .modal table { font-size: 13px; }
+
+    .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+      background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
+      padding: 9px 16px; border-radius: 10px; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <img src="icons/icon-48.png" alt="" />
+      <div>
+        <h1>Learn</h1>
+        <div class="sub">Vocabulary from the videos you watched · everything local</div>
+      </div>
+    </header>
+
+    <nav class="tabs" id="tabs">
+      <button class="tab on" data-tab="today">Today <span class="n" id="nDue"></span></button>
+      <button class="tab" data-tab="boxes">Boxes</button>
+      <button class="tab" data-tab="inbox">Inbox <span class="n" id="nInbox"></span></button>
+      <button class="tab" data-tab="browse">Browse <span class="n" id="nCards"></span></button>
+    </nav>
+
+    <div id="enrichBar" class="card" hidden>
+      <span id="enrichText"></span>
+      <button class="btn primary" id="enrichBtn" style="margin-left:10px;"></button>
+      <div class="muted" style="font-size:12px; margin-top:6px;">One batched request per 50 words on your selected translation provider — never automatic, logged in the Library's Activity meter.</div>
+    </div>
+
+    <section data-pane="today">
+      <div class="card" id="todayCard">
+        <div class="due-big" id="dueBig">0</div>
+        <div class="muted" id="dueSub">cards due for review</div>
+        <div style="margin-top:14px;"><button class="btn primary" id="startBtn">Start review</button></div>
+      </div>
+      <div class="card review" id="reviewCard" hidden></div>
+    </section>
+
+    <section data-pane="boxes" hidden>
+      <div class="card"><div class="boxes" id="boxCols"></div>
+        <div class="muted" style="font-size:12px; margin-top:10px;">Right → next box (reviews spread to 1 · 2 · 4 · 8 · 16 days). Wrong → back to box 1.</div>
+      </div>
+    </section>
+
+    <section data-pane="inbox" hidden>
+      <div class="card">
+        <div class="muted" style="margin-bottom:8px;">Every watched video's words, collected free from your subtitle cache. Tap words to select, then promote them into the trainer — or dismiss what you already know.</div>
+        <div id="inboxList"></div>
+      </div>
+    </section>
+
+    <section data-pane="browse" hidden>
+      <div class="card">
+        <div class="filters">
+          <select id="fLevel"><option value="">Level: all</option><option>A1</option><option>A2</option><option>B1</option><option>B2</option><option>C1</option><option>C2</option><option value="?">?</option></select>
+          <select id="fArt"><option value="">Article: all</option><option>der</option><option>die</option><option>das</option></select>
+          <select id="fPos"><option value="">Type: all</option><option value="noun">Nouns</option><option value="verb">Verbs</option><option value="adj">Adjectives</option><option value="adv">Adverbs</option><option value="phrase">Phrases</option><option value="other">Other</option></select>
+        </div>
+        <div id="browseWrap"></div>
+      </div>
+    </section>
+  </div>
+
+  <script src="shared/pricing.js"></script>
+  <script src="shared/leitner.js"></script>
+  <script src="learn.js"></script>
+</body>
+</html>
