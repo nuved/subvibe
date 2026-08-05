@@ -50,6 +50,40 @@ const TRANSLATE_SCHEMA = {
     required: ["t", "s", "g", "d"],
   },
 };
+// Vocabulary enrichment — batched (50 words/request, the spec's economy
+// contract), strict-schema like TRANSLATE_SCHEMA. Strict mode requires every
+// property; "-" marks not-applicable (mergeEnrichment turns it into null).
+const ENRICH_BATCH = 50;
+const ENRICH_SCHEMA = {
+  name: "vocab_enrichment",
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      e: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            lemma: { type: "string" },
+            pos: { type: "string", enum: ["noun", "verb", "adj", "adv", "phrase", "other"] },
+            art: { type: "string" },
+            plural: { type: "string" },
+            cefr: { type: "string", enum: ["A1", "A2", "B1", "B2", "C1", "C2"] },
+            meaning: { type: "string" },
+            phrase: { type: "string" },
+            note: { type: "string" },
+          },
+          required: ["lemma", "pos", "art", "plural", "cefr", "meaning", "phrase", "note"],
+        },
+      },
+    },
+    required: ["e"],
+  },
+};
+
 // HTTP statuses worth retrying: OpenAI/Cloudflare blips (520/52x), gateway errors,
 // and rate limits are transient — a short backoff usually clears them.
 const TRANSIENT_HTTP = new Set([429, 500, 502, 503, 504, 520, 521, 522, 523, 524, 529]);
@@ -658,6 +692,117 @@ async function translateAll(lines, source, target, context) {
   return { out, spk, gen, dub, inTok, outTok, cacheR, cacheW, provider, model };
 }
 
+// ─── Vocabulary enrichment + conjugation calls ───────────────────────────────
+
+// CACHE-STABLE per (source, target) — same rule as systemPrompt(): nothing
+// per-call in here, so provider prompt caching can serve repeat batches.
+function enrichPrompt(source, target) {
+  return `You are a precise lexicographer helping a learner of ${langName(source)}. The user message carries ` +
+    `{"words":[{"w":"<word>","s":"<the sentence it appeared in>"}, …]}.\n` +
+    `Return STRICT JSON {"e":[…]} with EXACTLY one entry per input word, in the same order:\n` +
+    `- lemma: the dictionary form (infinitive for verbs, nominative singular for nouns).\n` +
+    `- pos: noun|verb|adj|adv|phrase|other — the word's role in the given sentence.\n` +
+    `- art: for German nouns the article "der", "die" or "das"; otherwise "-".\n` +
+    `- plural: for nouns the plural form; otherwise "-".\n` +
+    `- cefr: the word's CEFR level, A1–C2.\n` +
+    `- meaning: a concise meaning in ${langName(target)}, matching the sentence's sense.\n` +
+    `- phrase: ONE short, natural ${langName(source)} example phrase using the word.\n` +
+    `- note: a short usage or irregularity note when genuinely useful, else "-".`;
+}
+
+// Conjugation (verbs, on demand; cached forever on the card). Keys are display
+// labels — German gets the canonical five rows; other languages fill equivalent
+// tense rows. Free-keyed object, so this call uses json_object, not a strict schema.
+function conjPrompt(source) {
+  return `You are a ${langName(source)} verb conjugation table generator. The user message carries {"verb":"…"}.\n` +
+    `Return STRICT JSON {"forms":{…}}. For German verbs exactly these keys:\n` +
+    `{"forms":{"präsens":["ich …","du …","er/sie/es …","wir …","ihr …","sie/Sie …"],` +
+    `"präteritum":[6 forms in the same person order],"perfekt":"er/sie/es form, e.g. \\"hat gemacht\\",` +
+    `"imperativ":["du form","ihr form"],"konjunktivII":"ich form"}}.\n` +
+    `For other languages: the equivalent core tense rows — each key a display label in that language, ` +
+    `each value a string or an array of person-forms. Table content only, no commentary.`;
+}
+
+// One structured-JSON call on the user's selected TRANSLATION provider — the
+// enrichment/conjugation twin of translateChunk/translateChunkClaude, sharing
+// their retry, schema and error-shaping rules. schema=null → plain JSON mode
+// (json_object on OpenAI, prompt-dictated JSON on Claude).
+async function llmJSON(system, userPayload, schema) {
+  const { apiKey, anthropicKey, translationProvider, claudeModel } =
+    await chrome.storage.local.get(["apiKey", "anthropicKey", "translationProvider", "claudeModel"]);
+  const provider = translationProvider === "claude" ? "claude" : "openai";
+  const key = provider === "claude" ? anthropicKey : apiKey;
+  if (!key) {
+    throw new Error(provider === "claude"
+      ? "No Anthropic API key yet — open the SubVibe popup and paste your key."
+      : "No OpenAI API key yet — open the SubVibe popup and paste your key.");
+  }
+  const model = provider === "claude" ? resolveClaudeModel(claudeModel) : TRANSLATE_MODEL;
+  const user = JSON.stringify(userPayload);
+  let body, url, headers;
+  if (provider === "claude") {
+    url = ANTHROPIC_MESSAGES;
+    headers = { "x-api-key": key, "anthropic-version": ANTHROPIC_VERSION, "content-type": "application/json", "anthropic-dangerous-direct-browser-access": "true" };
+    body = {
+      model, max_tokens: 8192,
+      system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
+      messages: [{ role: "user", content: user }],
+    };
+    if (schema) body.output_config = { format: { type: "json_schema", schema: schema.schema } };
+    if (!/haiku/.test(model)) body.thinking = { type: "disabled" }; // same rule as translateChunkClaude
+  } else {
+    url = OPENAI_CHAT;
+    headers = { Authorization: "Bearer " + key, "Content-Type": "application/json" };
+    body = {
+      model, temperature: 0,
+      response_format: schema ? { type: "json_schema", json_schema: schema } : { type: "json_object" },
+      messages: [{ role: "system", content: system }, { role: "user", content: user }],
+    };
+  }
+  let lastStatus = 0, lastBody = "", waitMs = 0;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt) await new Promise((r) => setTimeout(r, waitMs || 500 * attempt));
+    const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
+    waitMs = res.status === 429 ? retryAfterMs(res) : 0;
+    const txt = await res.text();
+    if (res.ok) {
+      if (!txt) throw new Error("the provider returned an empty response");
+      let data;
+      try { data = JSON.parse(txt); } catch { throw new Error("the provider returned a non-JSON response"); }
+      let content, usage;
+      if (provider === "claude") {
+        if (data.stop_reason === "refusal") throw new Error("Claude declined this request (refusal)");
+        if (data.stop_reason === "max_tokens") throw new Error("Claude truncated the response (max_tokens)");
+        const blk = (data.content || []).find((b) => b && b.type === "text");
+        content = (blk && blk.text) || "{}";
+        usage = data.usage ? { prompt_tokens: data.usage.input_tokens || 0, completion_tokens: data.usage.output_tokens || 0,
+          cache_r: data.usage.cache_read_input_tokens || 0, cache_w: data.usage.cache_creation_input_tokens || 0 } : null;
+      } else {
+        content = data?.choices?.[0]?.message?.content || "{}";
+        usage = data.usage || null;
+      }
+      let parsed;
+      try { parsed = JSON.parse(content); } catch { throw new Error("the model returned malformed JSON"); }
+      return { parsed, usage, provider, model };
+    }
+    lastStatus = res.status; lastBody = txt;
+    // Same fallback as translateChunkClaude: a model generation that rejects
+    // output_config drops to schema-in-prompt once (the prompt dictates the shape).
+    if (provider === "claude" && res.status === 400 && body.output_config && /output_config|output_format/i.test(txt || "")) {
+      console.info("[SubVibe] " + model + " rejected output_config — retrying schema-in-prompt");
+      delete body.output_config;
+      continue;
+    }
+    if (!TRANSIENT_HTTP.has(res.status)) break;
+  }
+  const who = provider === "claude" ? "Claude" : "OpenAI";
+  const detail = lastStatus >= 500 ? `${who} is temporarily unavailable — retrying`
+    : lastStatus === 429 ? `rate limited by ${who}`
+    : /^\s*<(?:!doctype|html|\?xml)/i.test(lastBody || "") ? "unexpected non-JSON response"
+    : (lastBody || "").replace(/\s+/g, " ").slice(0, 140);
+  throw new Error(`${who} ${lastStatus}: ${detail}`);
+}
+
 // ─── TTS (dub speech) ────────────────────────────────────────────────────────
 
 const OPENAI_TTS = "https://api.openai.com/v1/audio/speech";
@@ -1202,6 +1347,71 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         case "VOCAB_DUE_COUNT": {
           const cards = (await idbVocabList("")).filter((r) => isCardKey(r.key)).map((r) => r.value);
           sendResponse({ due: SV_LEITNER.dueCards(cards, Date.now()).length, total: cards.length });
+          break;
+        }
+        case "VOCAB_ENRICH": {
+          // Batches of 50, grouped by the cards' language (one prompt per
+          // source language), merged via SV_VOCAB.mergeEnrichment (short-array
+          // back-fill included), one Activity row for the whole run.
+          const { targets } = await chrome.storage.local.get(["targets"]);
+          const target = (Array.isArray(targets) && targets[0]) || "en";
+          const started = Date.now();
+          const loaded = [];
+          for (const k of msg.keys || []) { const c = await idbVocabGet(k); if (c) loaded.push({ key: k, card: c }); }
+          const byLang = new Map();
+          for (const it of loaded) {
+            if (!byLang.has(it.card.lang)) byLang.set(it.card.lang, []);
+            byLang.get(it.card.lang).push(it);
+          }
+          let enriched = 0, inTok = 0, outTok = 0, cacheR = 0, cacheW = 0, provider = null, model = null, lastErr = null;
+          for (const [lang, items] of byLang) {
+            for (let i = 0; i < items.length; i += ENRICH_BATCH) {
+              const batch = items.slice(i, i + ENRICH_BATCH);
+              try {
+                const r = await llmJSON(enrichPrompt(lang === "xx" ? "auto" : lang, target),
+                  { words: batch.map((b) => ({ w: b.card.word, s: (b.card.sentence || "").slice(0, 160) })) }, ENRICH_SCHEMA);
+                provider = r.provider; model = r.model;
+                if (r.usage) { inTok += r.usage.prompt_tokens || 0; outTok += r.usage.completion_tokens || 0; cacheR += r.usage.cache_r || 0; cacheW += r.usage.cache_w || 0; }
+                const merged = SV_VOCAB.mergeEnrichment(batch.map((b) => b.card), (r.parsed && r.parsed.e) || []);
+                for (let j = 0; j < batch.length; j++) { await idbVocabPut(batch[j].key, merged[j]); enriched++; }
+              } catch (e) { lastErr = e; }
+            }
+          }
+          if (!provider) {
+            const { translationProvider } = await chrome.storage.local.get("translationProvider");
+            provider = translationProvider === "claude" ? "claude" : "openai";
+          }
+          await logCall({ ts: started, site: "learn", title: "Vocabulary enrichment", kind: "enrich", lines: loaded.length,
+            ms: Date.now() - started, inTok, outTok, cacheR, cacheW, ok: !lastErr,
+            err: lastErr ? String((lastErr && lastErr.message) || lastErr) : undefined, provider, model });
+          if (!enriched && lastErr) { sendResponse({ error: String((lastErr && lastErr.message) || lastErr) }); break; }
+          sendResponse({ ok: true, enriched, usd: SV_PRICING.estCost({ provider, model, inTok, outTok, cacheR, cacheW }) });
+          break;
+        }
+        case "VOCAB_CONJUGATE": {
+          const card = await idbVocabGet(msg.key);
+          if (!card) { sendResponse({ error: "no such card: " + msg.key }); break; }
+          if (card.conj) { sendResponse({ ok: true, conj: card.conj, cached: true }); break; } // cached forever — free
+          const started = Date.now();
+          const label = "Conjugation: " + (card.lemma || card.word);
+          try {
+            const r = await llmJSON(conjPrompt(card.lang === "xx" ? "auto" : card.lang), { verb: card.lemma || card.word }, null);
+            const forms = r.parsed && r.parsed.forms;
+            if (!forms || typeof forms !== "object" || Array.isArray(forms)) throw new Error("the model returned no conjugation table");
+            card.conj = forms;
+            await idbVocabPut(msg.key, card);
+            await logCall({ ts: started, site: "learn", title: label, kind: "enrich", lines: 1, ms: Date.now() - started,
+              inTok: (r.usage && r.usage.prompt_tokens) || 0, outTok: (r.usage && r.usage.completion_tokens) || 0,
+              cacheR: (r.usage && r.usage.cache_r) || 0, cacheW: (r.usage && r.usage.cache_w) || 0,
+              ok: true, provider: r.provider, model: r.model });
+            sendResponse({ ok: true, conj: forms });
+          } catch (e) {
+            const { translationProvider } = await chrome.storage.local.get("translationProvider");
+            await logCall({ ts: started, site: "learn", title: label, kind: "enrich", lines: 1, ms: Date.now() - started,
+              inTok: 0, outTok: 0, ok: false, err: String((e && e.message) || e),
+              provider: translationProvider === "claude" ? "claude" : "openai" });
+            sendResponse({ error: String((e && e.message) || e) });
+          }
           break;
         }
         default:
