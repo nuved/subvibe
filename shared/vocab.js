@@ -12,6 +12,20 @@
   // count and the FIRST sentence they appeared in (plus that sentence's cached
   // translation). `dismissed`/`known` are Sets of lowercased words to skip —
   // tombstoned words and words already in the trainer never re-inbox.
+  // The engine translates whole sentence GROUPS: several consecutive cues share
+  // ONE translation, while each cue's `o` is only its fragment. Rebuild the
+  // pairs: consecutive entries with the same non-empty translation merge into
+  // one sentence (fragments joined), so original and translation always match.
+  function mergeCueSentences(list) {
+    const out = [];
+    for (const s of list || []) {
+      const prev = out[out.length - 1];
+      if (prev && s.t && prev.t === s.t) prev.o = (prev.o + " " + s.o).replace(/\s+/g, " ").trim();
+      else out.push({ o: s.o, t: s.t });
+    }
+    return out;
+  }
+
   // maxSamples > 1 additionally collects up to that many DISTINCT sentences
   // per word into `samples: [{o, st}]` (the first one stays in sentence/st) —
   // the popup's word-detail view shows real context beyond one line. The inbox
@@ -93,5 +107,5 @@
     return usable[0];
   }
 
-  g.SV_VOCAB = { tokenize, extractInboxWords, mergeEnrichment, pickClipTrack };
+  g.SV_VOCAB = { tokenize, mergeCueSentences, extractInboxWords, mergeEnrichment, pickClipTrack };
 })(globalThis);

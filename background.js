@@ -323,9 +323,9 @@ async function clipWordData(base, limit) {
   const targets = Array.isArray(cfg) && cfg.length ? cfg : [];
   const pick = SV_VOCAB.pickClipTrack(trRows, targets);
   if (!pick || !pick.o) return { words: [], reason: !trRows.length ? "not-cached" : !pick ? "no-target" : "no-originals" };
-  const sentences = pick.row.cues
+  const sentences = SV_VOCAB.mergeCueSentences(pick.row.cues
     .map((c) => ({ o: c.o || c.original || "", t: pick.row.tg ? (c.text || "") : ((c.t && c.t[pick.tg]) || "") }))
-    .filter((s) => s.o);
+    .filter((s) => s.o));
   const lang = SV_STOPWORDS.detect(sentences.flatMap((s) => SV_VOCAB.tokenize(s.o))) || "xx";
   if (targets.includes(lang)) return { words: [], reason: "native" };
   // "Learning: German" set → ONLY German-original clips count; a video in any
@@ -393,8 +393,12 @@ async function vocabInboxBuild() {
   // is one of the user's targets (words they already speak), or — with a
   // "Learning: X" language set — any row NOT in that language. Delete so the
   // loop below re-evaluates (and re-skips) the clip under today's rules.
+  // v2 marks rows built with matched sentence pairs (mergeCueSentences) —
+  // older rows carried fragment-vs-full-translation mismatches; rebuilding is
+  // safe because dismissals (tombstones) and promoted words (cards) live
+  // outside the inbox row.
   for (const { key, value } of vocabRows) {
-    if (key.startsWith("inbox:") && value && (targets.includes(value.lang) || (learnLang && value.lang !== learnLang))) {
+    if (key.startsWith("inbox:") && value && (targets.includes(value.lang) || (learnLang && value.lang !== learnLang) || value.v !== 2)) {
       await idbVocabDelete(key);
       inboxed.delete(key);
     }
@@ -405,9 +409,9 @@ async function vocabInboxBuild() {
     const pick = SV_VOCAB.pickClipTrack(trRows, targets);
     if (!pick) { noTarget++; continue; }
     if (!pick.o) { noOrig++; continue; }
-    const sentences = pick.row.cues
+    const sentences = SV_VOCAB.mergeCueSentences(pick.row.cues
       .map((c) => ({ o: c.o || c.original || "", t: pick.row.tg ? (c.text || "") : ((c.t && c.t[pick.tg]) || "") }))
-      .filter((s) => s.o);
+      .filter((s) => s.o));
     const lang = SV_STOPWORDS.detect(sentences.flatMap((s) => SV_VOCAB.tokenize(s.o)))
       || (pick.row.source && pick.row.source !== "auto" ? pick.row.source : "xx");
     // The learning direction is original → target: a clip whose ORIGINAL is a
@@ -417,7 +421,7 @@ async function vocabInboxBuild() {
     if (learnLang && lang !== learnLang) { otherLang++; continue; }
     const words = SV_VOCAB.extractInboxWords(sentences, lang, dismissed[lang], known[lang]);
     if (!words.length) continue;
-    await idbVocabPut("inbox:" + base, { base, lang, videoTitle: pick.row.title, url: pick.row.url, at: Date.now(), words });
+    await idbVocabPut("inbox:" + base, { base, lang, videoTitle: pick.row.title, url: pick.row.url, at: Date.now(), words, v: 2 });
     built++;
   }
   return { built, clips: byBase.size, noOrig, noTarget, natives, otherLang, learnLang: learnLang || "", targets };

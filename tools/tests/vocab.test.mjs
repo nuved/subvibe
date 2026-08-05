@@ -54,6 +54,21 @@ test("extractInboxWords: dismissed and already-known words never appear", () => 
   assert.deepEqual(out.map((e) => e.w), ["läuft"]);
 });
 
+test("mergeCueSentences: cues sharing one group translation re-join into the full sentence", () => {
+  const merged = V.mergeCueSentences([
+    { o: "wenn der Morgen kommt", t: "وقتی صبح می‌رسد و اولین نور روز نامت را دارد." },
+    { o: "und selbst das erste Tageslicht", t: "وقتی صبح می‌رسد و اولین نور روز نامت را دارد." },
+    { o: "deinen Namen trägt.", t: "وقتی صبح می‌رسد و اولین نور روز نامت را دارد." },
+    { o: "Nächster Satz.", t: "جملهٔ بعدی." },
+    { o: "ohne Übersetzung", t: "" },
+    { o: "auch ohne", t: "" }, // empty translations never merge — no mega-sentences
+  ]);
+  assert.equal(merged.length, 4);
+  assert.equal(merged[0].o, "wenn der Morgen kommt und selbst das erste Tageslicht deinen Namen trägt.");
+  assert.equal(merged[1].o, "Nächster Satz.");
+  assert.equal(merged[2].o, "ohne Übersetzung");
+});
+
 test("extractInboxWords: maxSamples collects extra DISTINCT sentences, capped, first stays put", () => {
   const sentences = [
     { o: "Der Hund bellt laut.", t: "fa1" },
