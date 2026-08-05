@@ -1088,7 +1088,21 @@ function lnRenderRows() {
   const addAll = el("lnAddAll");
   addAll.hidden = !rows.length;
   if (!rows.length) {
-    foot.textContent = min ? "No words at that level in this video." : "No words to show.";
+    if (min) {
+      // Say what the filter hid and hand back the way out — never a dead end.
+      foot.textContent = `${r.words.length} word${r.words.length === 1 ? " is" : "s are"} below ${lnMin} or unleveled — `;
+      const a = document.createElement("button");
+      a.className = "linkbtn";
+      a.textContent = "show all";
+      a.addEventListener("click", () => {
+        lnMin = "";
+        [...el("lnLvls").children].forEach((x) => x.classList.toggle("on", !x.dataset.min));
+        lnRenderRows();
+      });
+      foot.appendChild(a);
+    } else {
+      foot.textContent = "No words to show.";
+    }
     return;
   }
   foot.textContent = "Tap a word for details (article, plural, examples) and to add it to your Leitner box";

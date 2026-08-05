@@ -15,6 +15,9 @@
       --radius: 10px; /* cards & inputs; pills and buttons use 8px */
     }
     * { box-sizing: border-box; }
+    /* Beats class-set display (e.g. .lnlvls{display:flex}) so hidden always wins —
+       without this, [hidden] elements with a display class render as EMPTY UI. */
+    [hidden] { display: none !important; }
     /* Chrome sizes the popup window from the <html> element's preferred width AT
        LOAD. Before, only body had a width (340px) and html was unconstrained, so
        any runtime-injected content wider than 340px let html expand toward
