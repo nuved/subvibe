@@ -45,3 +45,4 @@ two harnesses this is the engine regression suite:
 - `tools/tests/live-shift-harness/harness.html?autorun=1` — ZDF live sync (13 checks)
 - `tools/tests/live-harness/harness.html?autorun=1` — Gemini Live transcript merge (10 checks, needs the RUN click)
 - `tools/tests/adopt-harness/harness.html?autorun=1` — this file (7 checks)
+- `tools/tests/vocab-harness/harness.html?autorun=1` — click-to-save vocabulary (9 checks)

@@ -1556,6 +1556,37 @@
     for (const d of defs) { const row = document.createElement("div"); row.className = "copilot-subs__line" + (d.target ? "" : " copilot-subs__line--orig"); row.dataset.csKey = d.key; els[d.key] = row; stack.appendChild(row); }
     layoutCustomLines(); // if Position is "custom", anchor each line at its own saved spot
 
+    // ── Click-to-save vocabulary ────────────────────────────────────────────
+    // Karaoke words in the ORIGINAL line are save targets: one click sends the
+    // word + its real sentence + the primary target's cached translation to the
+    // trainer (VOCAB_ADD). Capture phase on the stack; never pauses the video
+    // (overlay clicks don't reach the player). A drag is not a click: pointer
+    // travel > 6px vetoes the save, so grabbing a line to move it stays clean.
+    const vocabTg = (settings.targets || [])[0] || null;
+    let curCue = null; // the cue on screen — stamped by tick each frame
+    let vocabDownX = 0, vocabDownY = 0;
+    stack.addEventListener("pointerdown", (e) => { vocabDownX = e.clientX; vocabDownY = e.clientY; }, true);
+    stack.addEventListener("click", (e) => {
+      const w = e.target && e.target.closest && e.target.closest(".copilot-subs__w");
+      if (!w) return;
+      const row = w.closest(".copilot-subs__line");
+      if (!row || row.dataset.csKey !== "__orig") return; // original words only
+      if (Math.hypot(e.clientX - vocabDownX, e.clientY - vocabDownY) > 6) return; // that was a drag
+      const c = curCue;
+      if (!c) return;
+      const sentence = c.grp ? c.grp.orig : c.original;
+      const sentenceT = !vocabTg ? "" : c.grp
+        ? c.grp.cues.map((q) => q.t[vocabTg] || "").join(" ").trim()
+        : (c.t[vocabTg] || "");
+      const langHint = /[?&]lang=([a-z-]+)/i.exec(interceptedUrl || "");
+      send({ type: "VOCAB_ADD", word: w.textContent, sentence, translation: sentenceT,
+        lang: langHint ? langHint[1].toLowerCase() : null, videoTitle: pageTitle, base, ms: c.startMs });
+      w.classList.remove("saved");
+      void w.offsetWidth; // restart the pulse on a repeat click
+      w.classList.add("saved");
+      w.addEventListener("animationend", () => w.classList.remove("saved"), { once: true });
+    }, true);
+
     cancelAnimationFrame(rafId);
     let diagAt = 0;
     // Becomes true once this clip has actually played. Lets us keep pre-translating
@@ -1629,6 +1660,7 @@
         }
       }
       const c = i >= 0 ? cues[i] : null;
+      curCue = c; // click-to-save reads the on-screen cue from here
       const kar = settings.karaokeHl !== false;
       for (const d of defs) {
         const el = els[d.key];

@@ -198,6 +198,20 @@
 }
 #copilot-subs .copilot-subs__cta:hover { background: #3f7af0; }
 
+/* Click-to-save (vocabulary trainer): original-line karaoke words are save
+   targets — pointer cursor, and a brief green pulse confirms the save. */
+#copilot-subs .copilot-subs__line--orig .copilot-subs__w { cursor: pointer; }
+@keyframes cs-saved-pulse {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.3); color: #7cfc9a; }
+  100% { transform: scale(1); }
+}
+#copilot-subs .copilot-subs__w.saved {
+  display: inline-block; /* transform needs a box; a one-word span never re-wraps */
+  animation: cs-saved-pulse 0.45s ease;
+  color: #7cfc9a;
+}
+
 /* Dub Mode's consent-gated transport: shows cost/percent, toggles play↔pause. */
 .copilot-subs__dubctl { position: absolute; top: 8px; right: 8px; z-index: 5; padding: 4px 10px;
   border: 0; border-radius: 14px; background: rgba(8,10,14,.72); color: #e7ecf3; font: 600 12px/1.4 system-ui, sans-serif;
