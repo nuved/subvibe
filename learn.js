@@ -206,10 +206,14 @@ function clipCard(row) {
   const head = document.createElement("div");
   head.className = "clip__head";
   // Titled rows link to the video; rows cached without a title show the raw
-  // clip id — the link is how you find out which video that was.
-  const title = document.createElement(row.url ? "a" : "div");
+  // clip id — the link is how you find out which video that was. Only http(s)
+  // URLs become links: the store is long-lived and this page is privileged, so
+  // a non-web scheme (javascript:, data:) renders as plain text, never a href.
+  let safeUrl = null;
+  try { const u = new URL(row.url || ""); if (u.protocol === "http:" || u.protocol === "https:") safeUrl = u.href; } catch {}
+  const title = document.createElement(safeUrl ? "a" : "div");
   title.className = "clip__title";
-  if (row.url) { title.href = row.url; title.target = "_blank"; title.rel = "noopener"; }
+  if (safeUrl) { title.href = safeUrl; title.target = "_blank"; title.rel = "noopener noreferrer"; }
   title.textContent = row.videoTitle;
   title.title = row.videoTitle;
   const lang = document.createElement("span");
