@@ -1629,6 +1629,7 @@
     // learning", the meaning as a tooltip once the clip was enriched. Built
     // from the cache the worker already owns; zero network, zero cost.
     let vocabPool = null; // lowercased word → meaning ("" until enriched)
+    let vocabPoolLang = "xx";
     const markLearnWords = (row) => {
       for (const sp of row.__svW.spans) {
         const lw = sp.textContent.toLowerCase().replace(/^[^\p{L}]+|[^\p{L}]+$/gu, "");
@@ -1637,6 +1638,7 @@
     };
     send({ type: "VOCAB_CLIP_WORDS", base, limit: 150 }).then((r) => {
       if (r && Array.isArray(r.words) && r.words.length) {
+        vocabPoolLang = r.lang || "xx";
         vocabPool = new Map(r.words.map((x) => [x.w.toLowerCase(), x.meaning || ""]));
         // The line on screen rendered before the pool arrived — mark it now,
         // not on the next cue change.
@@ -1653,14 +1655,10 @@
       wtip.className = "copilot-subs__wtip";
       overlay.appendChild(wtip);
     }
-    stack.addEventListener("mouseover", (e) => {
-      const w = e.target && e.target.closest && e.target.closest(".copilot-subs__w.lw");
-      if (!w || !vocabPool) return;
-      const row = w.closest(".copilot-subs__line");
-      if (!row || row.dataset.csKey !== "__orig") return;
-      const lw = w.textContent.toLowerCase().replace(/^[^\p{L}]+|[^\p{L}]+$/gu, "");
-      const meaning = vocabPool.get(lw);
-      wtip.textContent = meaning || "no translation yet — Translate & level in the popup's Learn tab";
+    const wtipFetching = new Set(); // words already being looked up
+    let wtipTimer = 0;
+    const placeWtip = (w, text) => {
+      wtip.textContent = text;
       wtip.dir = "auto";
       const or = overlay.getBoundingClientRect(), wr = w.getBoundingClientRect();
       // Show first (display:none boxes measure 0), then clamp the center into
@@ -1670,9 +1668,43 @@
       const cx = wr.left + wr.width / 2 - or.left;
       wtip.style.left = Math.round(Math.max(half, Math.min(or.width - half, cx))) + "px";
       wtip.style.top = Math.round(wr.top - or.top) + "px";
+    };
+    stack.addEventListener("mouseover", (e) => {
+      const w = e.target && e.target.closest && e.target.closest(".copilot-subs__w.lw");
+      if (!w || !vocabPool) return;
+      const row = w.closest(".copilot-subs__line");
+      if (!row || row.dataset.csKey !== "__orig") return;
+      const surface = w.textContent.replace(/^[^\p{L}]+|[^\p{L}]+$/gu, "");
+      const lw = surface.toLowerCase();
+      wtip._word = lw;
+      const meaning = vocabPool.get(lw);
+      if (meaning) { placeWtip(w, meaning); return; }
+      // No meaning cached: a LINGERING hover (350ms = intent, not a sweep) is
+      // the user's request — fetch this one word on demand, cache it forever.
+      placeWtip(w, "…");
+      clearTimeout(wtipTimer);
+      wtipTimer = setTimeout(() => {
+        if (wtip._word !== lw) return;
+        placeWtip(w, "translating…");
+        if (wtipFetching.has(lw)) return;
+        wtipFetching.add(lw);
+        send({ type: "VOCAB_WORD_ENRICH", base, w: surface, lang: vocabPoolLang, s: row.textContent })
+          .then((r) => {
+            wtipFetching.delete(lw);
+            const m = r && r.e && r.e.meaning;
+            if (m) vocabPool.set(lw, m);
+            if (wtip._word === lw && wtip.classList.contains("show")) {
+              wtip.textContent = m || ((r && r.error) ? "couldn't translate — check the provider key in the popup" : "no meaning returned");
+            }
+          });
+      }, 350);
     }, true);
     stack.addEventListener("mouseout", (e) => {
-      if (e.target && e.target.closest && e.target.closest(".copilot-subs__w.lw")) wtip.classList.remove("show");
+      if (e.target && e.target.closest && e.target.closest(".copilot-subs__w.lw")) {
+        clearTimeout(wtipTimer);
+        wtip._word = null;
+        wtip.classList.remove("show");
+      }
     }, true);
 
     cancelAnimationFrame(rafId);

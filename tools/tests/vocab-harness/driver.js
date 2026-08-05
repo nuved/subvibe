@@ -67,6 +67,13 @@
     await new Promise((r) => setTimeout(r, 50));
     check("mouseout hides the tooltip", !!(tip && !tip.classList.contains("show")), tip && tip.className);
 
+    // On-demand hover translation: "Straße" is in the pool WITHOUT a meaning —
+    // a lingering hover (350ms intent) fetches it and the bubble updates.
+    const w2 = spans.find((s) => /Straße/.test(s.textContent));
+    if (w2) w2.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 650));
+    check("lingering hover fetches the missing meaning on demand", !!(tip && tip.classList.contains("show") && tip.textContent === "خیابان"), tip && tip.textContent);
+
     const passed = results.filter((r) => r.ok).length;
     document.title = (passed === results.length ? "PASS " : "FAIL ") + passed + "/" + results.length;
     const out = document.createElement("pre");

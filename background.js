@@ -1513,6 +1513,37 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse(data);
           break;
         }
+        case "VOCAB_WORD_ENRICH": {
+          // ONE word, on demand — a deliberate hover IS the user trigger.
+          // Merged into the clip's permanent enrichment cache and logged like
+          // every other provider call; costs a rounding error.
+          const base = String(msg.base || ""), word = String(msg.w || "").trim();
+          if (!base || !word) { sendResponse({ error: "missing word" }); break; }
+          const wkey = word.toLowerCase();
+          const ce = (await idbVocabGet("clipenrich:" + base)) || { base, lang: msg.lang || "xx", at: Date.now(), e: {} };
+          const have = ce.e[wkey];
+          if (have && !(have.cefr === "?" && !have.meaning)) { sendResponse({ ok: true, e: have, cached: true }); break; }
+          const { targets: cfgW } = await chrome.storage.local.get(["targets"]);
+          const target = (Array.isArray(cfgW) && cfgW[0]) || "en";
+          const started = Date.now();
+          try {
+            const r = await llmJSON(enrichPrompt(msg.lang && msg.lang !== "xx" ? msg.lang : "auto", target),
+              { words: [{ w: word, s: String(msg.s || "").slice(0, 160) }] }, ENRICH_SCHEMA);
+            const [m] = SV_VOCAB.mergeEnrichment([{ word }], (r.parsed && r.parsed.e) || []);
+            const entry = { lemma: m.lemma, pos: m.pos, art: m.art, plural: m.plural, cefr: m.cefr, meaning: m.meaning, phrase: m.phrase, note: m.note, tl: target };
+            ce.e[wkey] = entry;
+            ce.target = target;
+            ce.at = Date.now();
+            await idbVocabPut("clipenrich:" + base, ce);
+            await logCall({ ts: started, site: "learn", title: "Word: " + word, kind: "enrich", lines: 1, ms: Date.now() - started,
+              inTok: (r.usage && r.usage.prompt_tokens) || 0, outTok: (r.usage && r.usage.completion_tokens) || 0,
+              cacheR: (r.usage && r.usage.cache_r) || 0, cacheW: (r.usage && r.usage.cache_w) || 0, ok: true, provider: r.provider, model: r.model });
+            sendResponse({ ok: true, e: entry });
+          } catch (e2) {
+            sendResponse({ error: String((e2 && e2.message) || e2) });
+          }
+          break;
+        }
         case "VOCAB_CLIP_ENRICH": {
           // One batched request for THIS clip's top words — meaning in the
           // user's primary target, CEFR level, article. Cached FOREVER under
