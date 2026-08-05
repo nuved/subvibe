@@ -79,6 +79,11 @@
     .lnlvl { border: 1px solid var(--border); background: transparent; color: var(--muted); border-radius: 999px;
       padding: 3px 11px; font: 600 11px/1.4 inherit; cursor: pointer; }
     .lnlvl.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .lnlvls select { margin-left: auto; background: transparent; color: var(--muted); border: 1px solid var(--border);
+      border-radius: 999px; padding: 2px 8px; font: 600 11px/1.4 inherit; }
+    .lnw .t { flex: none; margin-left: auto; color: var(--muted); font-size: 10.5px; font-variant-numeric: tabular-nums;
+      border: 1px solid var(--border); border-radius: 6px; padding: 0 5px; cursor: pointer; }
+    .lnw .t:hover { color: #818cf8; border-color: #6366f1; }
     .lnenrich { display: block; width: 100%; margin-top: 8px; border: 0; border-radius: 10px;
       background: var(--accent); color: #fff; font: 700 12.5px/1 inherit; padding: 10px; cursor: pointer; }
     .lnenrich:disabled { opacity: .5; cursor: default; }
@@ -650,9 +655,13 @@
     <div class="row" style="margin: 2px 0 8px; gap: 8px;">
       <span style="color:var(--muted); font-size:12px; flex:none;">Learning</span>
       <select id="lnLang" style="flex:1;">
+        <!-- Every language the stopword detector recognizes qualifies here —
+             learning direction is fully generic (a Persian learner picks
+             Persian; their base language is simply the translation target). -->
         <option value="">Auto (any language)</option>
         <option value="de">German</option>
         <option value="en">English</option>
+        <option value="fa">Persian</option>
       </select>
       <span class="hint" id="lnDir" style="flex:none;"></span>
     </div>
@@ -660,6 +669,14 @@
       <button class="lnlvl on" data-min="">All</button>
       <button class="lnlvl" data-min="A2">A2+</button>
       <button class="lnlvl" data-min="B1">B1+</button>
+      <select id="lnPos" title="Word type">
+        <option value="">All types</option>
+        <option value="verb">Verbs</option>
+        <option value="noun">Nouns</option>
+        <option value="adj">Adjectives</option>
+        <option value="adv">Adverbs</option>
+        <option value="phrase">Phrases</option>
+      </select>
     </div>
     <button class="lnaddall" id="lnAddAll" hidden></button>
     <div id="lnWords" class="lnwords"></div>

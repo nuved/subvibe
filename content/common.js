@@ -2327,6 +2327,13 @@
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (!msg) return;
     if (msg.type === "GET_CLIP") { sendResponse({ base: lastCacheBase || clipBaseId(), title: SV_TITLE.clean(document.title) }); return; } // popup → "this video" cache + per-clip settings
+    if (msg.type === "SV_SEEK") {
+      // Learn tab time chip → jump the video to where a word was said (shadowing).
+      const v = adapter?.getVideoEl?.() || document.querySelector("video");
+      if (v && typeof msg.ms === "number") { v.currentTime = Math.max(0, msg.ms / 1000 - 1); v.play?.(); } // 1s of run-up
+      sendResponse({ ok: !!v });
+      return;
+    }
     if (msg.type === "AUDIO_CUE") onAudioCue(msg.text);
     else if (msg.type === "AUDIO_STOP") stopAudio();
     else if (msg.type === "AUDIO_ERROR") setStatus("Audio: " + msg.error, true);

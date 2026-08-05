@@ -117,6 +117,25 @@ test("mergeEnrichment: short array back-fills pos:'other', cefr:'?' — still en
   assert.equal(merged[1].cefr, "?");
 });
 
+test("mergeCueSentences + extract carry the START time — the shadowing jump point", () => {
+  const merged = V.mergeCueSentences([
+    { o: "wenn der Morgen", t: "صبح", ms: 61000 },
+    { o: "kommt", t: "صبح", ms: 62500 },
+    { o: "Neuer Satz.", t: "نو", ms: 70000 },
+  ]);
+  assert.equal(merged[0].ms, 61000); // group keeps its FIRST cue's time
+  const words = V.extractInboxWords(merged, "de", null, null, 3);
+  const kommt = words.find((e) => e.w === "kommt");
+  assert.equal(kommt.ms, 61000);
+});
+
+test("parseLooseJSON: verbatim, fenced, and prose-wrapped JSON all parse; garbage throws", () => {
+  assert.deepEqual(V.parseLooseJSON('{"e":[1]}'), { e: [1] });
+  assert.deepEqual(V.parseLooseJSON('```json\n{"e":[1]}\n```'), { e: [1] });
+  assert.deepEqual(V.parseLooseJSON('Here is the table:\n{"forms":{"a":"b"}}\nHope this helps!'), { forms: { a: "b" } });
+  assert.throws(() => V.parseLooseJSON("no json here"));
+});
+
 test("rankLearnable: content words beat high-frequency filler", () => {
   const ranked = V.rankLearnable([
     { w: "going", n: 40 },        // frequent filler: 5 + 2*5 = 15

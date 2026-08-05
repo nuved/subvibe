@@ -1075,14 +1075,28 @@ function lnSentence(sentence, word) {
 }
 let lnData = null; // last VOCAB_CLIP_WORDS response
 let lnMin = "";    // level filter: "" | "A2" | "B1"
+let lnPos = "";    // word-type filter: "" | verb | noun | adj | adv | phrase
 const LN_LVL = { A1: 1, A2: 2, B1: 3, B2: 4, C1: 5, C2: 6 };
+
+// 4631200 → "1:17:11" — the shadowing jump chip's label.
+function lnTime(ms) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = String(s % 60).padStart(2, "0");
+  return h ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${m}:${ss}`;
+}
+
+function lnSeek(ms) {
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    if (tabs && tabs[0]) chrome.tabs.sendMessage(tabs[0].id, { type: "SV_SEEK", ms }, () => chrome.runtime.lastError);
+  });
+}
 
 function lnRenderRows() {
   const box = el("lnWords"), foot = el("lnFoot");
   box.textContent = "";
   const r = lnData;
   const min = LN_LVL[lnMin] || 0;
-  let rows = (r.words || []).filter((w) => !min || (LN_LVL[w.cefr] || 0) >= min);
+  let rows = (r.words || []).filter((w) => (!min || (LN_LVL[w.cefr] || 0) >= min) && (!lnPos || w.pos === lnPos));
   // Enriched → important-first: highest level, then how often the video says it.
   if (r.enriched) rows = rows.slice().sort((a, b) => (LN_LVL[b.cefr] || 0) - (LN_LVL[a.cefr] || 0) || b.n - a.n);
   const addAll = el("lnAddAll");
@@ -1112,7 +1126,7 @@ function lnRenderRows() {
     addAll.disabled = true;
     addAll.textContent = "Adding…";
     chrome.runtime.sendMessage({ type: "VOCAB_ADD_MANY", lang: r.lang, videoTitle: r.title || "", base: clipBase,
-      items: rows.map((w) => ({ word: w.w, sentence: w.sentence, translation: w.st || "" })) }, (resp) => {
+      items: rows.map((w) => ({ word: w.w, sentence: w.sentence, translation: w.st || "", ms: w.ms || 0 })) }, (resp) => {
       if (chrome.runtime.lastError || !resp || resp.error) {
         addAll.disabled = false;
         addAll.textContent = "Failed — try again";
@@ -1153,6 +1167,15 @@ function lnWordRow(w, r) {
     mn.dir = "auto"; // Persian meanings flow RTL
     mn.textContent = w.meaning;
     top.appendChild(mn);
+  }
+  if (typeof w.ms === "number" && w.ms > 0) {
+    // Jump chip: seek the video 1s before the word — listen, pause, shadow.
+    const t = document.createElement("span");
+    t.className = "t";
+    t.textContent = "▶ " + lnTime(w.ms);
+    t.title = "Jump the video to this line";
+    t.addEventListener("click", (e) => { e.stopPropagation(); lnSeek(w.ms); });
+    top.appendChild(t);
   }
   head.appendChild(top);
   head.appendChild(lnSentence(w.sentence, w.w));
@@ -1196,6 +1219,15 @@ function lnWordDetail(w, r, row, nEl) {
   for (const s of w.samples || []) {
     const wrap = document.createElement("div");
     wrap.className = "sample";
+    if (typeof s.ms === "number" && s.ms > 0) {
+      const t = document.createElement("span");
+      t.className = "t";
+      t.style.cssText = "float:right; margin-left:6px;";
+      t.textContent = "▶ " + lnTime(s.ms);
+      t.title = "Jump the video to this line";
+      t.addEventListener("click", (e) => { e.stopPropagation(); lnSeek(s.ms); });
+      wrap.appendChild(t);
+    }
     wrap.appendChild(lnSentence(s.o, w.w));
     if (s.st) {
       const fa = document.createElement("span");
@@ -1219,7 +1251,7 @@ function lnWordDetail(w, r, row, nEl) {
     if (row.classList.contains("added")) return;
     add.disabled = true;
     chrome.runtime.sendMessage({ type: "VOCAB_ADD", word: w.w, sentence: w.sentence, translation: w.st || "",
-      lang: r.lang, videoTitle: r.title || "", base: clipBase, ms: 0 }, (resp) => {
+      lang: r.lang, videoTitle: r.title || "", base: clipBase, ms: w.ms || 0 }, (resp) => {
       if (chrome.runtime.lastError || !resp || resp.error) { add.disabled = false; return; }
       row.classList.add("added");
       nEl.textContent = "✓ saved";
@@ -1253,7 +1285,14 @@ function renderLearnWords() {
       return;
     }
     lvls.hidden = !r.enriched; // level filter only means something once levels exist
-    if (r.enrichable) {
+    if (r.enriching) {
+      // A run is underway worker-side (survives the popup closing) — show state,
+      // never a second pay button. Poll until it lands.
+      enrich.hidden = false;
+      enrich.disabled = true;
+      enrich.textContent = "Translating & leveling — keep watching, this finishes on its own…";
+      setTimeout(renderLearnWords, 4000);
+    } else if (r.enrichable) {
       // Meaning + level come from batched requests (50 words each), cached
       // forever for this clip — price up front, never automatic. Delta-aware:
       // a clip enriched when the pool was smaller offers just the missing words.
@@ -1370,6 +1409,7 @@ async function load() {
     state.learnLang = el("lnLang").value;
     renderLearnWords();
   });
+  el("lnPos").addEventListener("change", () => { lnPos = el("lnPos").value; lnRenderRows(); });
   chrome.runtime.sendMessage({ type: "VOCAB_DUE_COUNT" }, (r) => {
     if (chrome.runtime.lastError || !r) return;
     el("learnDue").textContent = r.total ? `${r.due} due` : "Learn";

@@ -21,9 +21,20 @@
     for (const s of list || []) {
       const prev = out[out.length - 1];
       if (prev && s.t && prev.t === s.t) prev.o = (prev.o + " " + s.o).replace(/\s+/g, " ").trim();
-      else out.push({ o: s.o, t: s.t });
+      else out.push({ o: s.o, t: s.t, ms: s.ms }); // ms = the merged sentence's START — the jump-to point
     }
     return out;
+  }
+
+  // Model output that SHOULD be JSON but arrived wrapped: markdown fences,
+  // a prose preamble, a trailing note. Try verbatim first, then the outermost
+  // {...} slice. Returns the parsed object or throws.
+  function parseLooseJSON(text) {
+    const t = String(text || "").trim();
+    try { return JSON.parse(t); } catch {}
+    const a = t.indexOf("{"), b = t.lastIndexOf("}");
+    if (a >= 0 && b > a) return JSON.parse(t.slice(a, b + 1));
+    throw new Error("no JSON object found");
   }
 
   // maxSamples > 1 additionally collects up to that many DISTINCT sentences
@@ -45,10 +56,10 @@
         if (e) {
           e.n++;
           if (extra && e.samples.length < extra && s.o !== e.sentence && !e.samples.some((x) => x.o === s.o)) {
-            e.samples.push({ o: s.o, st: s.t || "" });
+            e.samples.push({ o: s.o, st: s.t || "", ms: s.ms });
           }
         } else {
-          const entry = { w, n: 1, sentence: s.o, st: s.t || "" };
+          const entry = { w, n: 1, sentence: s.o, st: s.t || "", ms: s.ms }; // ms → jump the video to the word
           if (extra) entry.samples = [];
           seen.set(lw, entry);
         }
@@ -116,5 +127,5 @@
     return usable[0];
   }
 
-  g.SV_VOCAB = { tokenize, mergeCueSentences, extractInboxWords, rankLearnable, mergeEnrichment, pickClipTrack };
+  g.SV_VOCAB = { tokenize, mergeCueSentences, parseLooseJSON, extractInboxWords, rankLearnable, mergeEnrichment, pickClipTrack };
 })(globalThis);

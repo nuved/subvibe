@@ -324,7 +324,7 @@ async function clipWordData(base, limit) {
   const pick = SV_VOCAB.pickClipTrack(trRows, targets);
   if (!pick || !pick.o) return { words: [], reason: !trRows.length ? "not-cached" : !pick ? "no-target" : "no-originals" };
   const sentences = SV_VOCAB.mergeCueSentences(pick.row.cues
-    .map((c) => ({ o: c.o || c.original || "", t: pick.row.tg ? (c.text || "") : ((c.t && c.t[pick.tg]) || "") }))
+    .map((c) => ({ o: c.o || c.original || "", t: pick.row.tg ? (c.text || "") : ((c.t && c.t[pick.tg]) || ""), ms: c.startMs || 0 }))
     .filter((s) => s.o));
   const lang = SV_STOPWORDS.detect(sentences.flatMap((s) => SV_VOCAB.tokenize(s.o))) || "xx";
   if (targets.includes(lang)) return { words: [], reason: "native" };
@@ -800,7 +800,9 @@ function enrichPrompt(source, target) {
   return `You are a precise lexicographer helping a learner of ${langName(source)}. The user message carries ` +
     `{"words":[{"w":"<word>","s":"<the sentence it appeared in>"}, …]}.\n` +
     `Return STRICT JSON {"e":[…]} with EXACTLY one entry per input word, in the same order:\n` +
-    `- lemma: the dictionary form (infinitive for verbs, nominative singular for nouns).\n` +
+    `- lemma: the dictionary form (infinitive for verbs, nominative singular for nouns). ` +
+    `When the sentence uses the word as part of a PHRASAL or separable verb, lemma is the FULL phrase ` +
+    `("give up", "aufgeben" for a separated "gibt ... auf").\n` +
     `- pos: noun|verb|adj|adv|phrase|other — the word's role in the given sentence.\n` +
     `- art: for German nouns the article "der", "die" or "das"; otherwise "-".\n` +
     `- plural: for nouns the plural form; otherwise "-".\n` +
@@ -882,7 +884,9 @@ async function llmJSON(system, userPayload, schema) {
         usage = data.usage || null;
       }
       let parsed;
-      try { parsed = JSON.parse(content); } catch { throw new Error("the model returned malformed JSON"); }
+      // Loose parse: Haiku's schema-in-prompt fallback may fence or preface the
+      // JSON — the outermost {...} still parses instead of failing the batch.
+      try { parsed = SV_VOCAB.parseLooseJSON(content); } catch { throw new Error("the model returned malformed JSON"); }
       return { parsed, usage, provider, model };
     }
     lastStatus = res.status; lastBody = txt;
@@ -1406,7 +1410,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           for (const it of msg.items || []) {
             try {
               await vocabAdd({ word: it.word, sentence: it.sentence, translation: it.translation,
-                lang: msg.lang, videoTitle: msg.videoTitle, base: msg.base, ms: 0 });
+                lang: msg.lang, videoTitle: msg.videoTitle, base: msg.base, ms: it.ms || 0 });
               added++;
             } catch {}
           }
@@ -1489,6 +1493,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             // How many pool words still lack a level — the enrich button's unit.
             // A grown pool re-opens enrichment for a clip cached with fewer words.
             data.enrichable = data.words.filter((w) => !w.cefr).length;
+            data.enriching = clipEnrichInFlight.has(String(msg.base)); // a run is underway — the popup shows progress, not a pay button
           }
           sendResponse(data);
           break;
