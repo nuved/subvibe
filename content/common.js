@@ -1594,6 +1594,27 @@
       w.addEventListener("animationend", () => w.classList.remove("saved"), { once: true });
     }, true);
 
+    // On-video hints: the trainer's word pool for this clip marks its words in
+    // the ORIGINAL line with a dotted gold underline — glanceable "worth
+    // learning", the meaning as a tooltip once the clip was enriched. Built
+    // from the cache the worker already owns; zero network, zero cost.
+    let vocabPool = null; // lowercased word → meaning ("" until enriched)
+    send({ type: "VOCAB_CLIP_WORDS", base, limit: 150 }).then((r) => {
+      if (r && Array.isArray(r.words) && r.words.length) {
+        vocabPool = new Map(r.words.map((x) => [x.w.toLowerCase(), x.meaning || ""]));
+      }
+    }).catch(() => {});
+    const markLearnWords = (row) => {
+      for (const sp of row.__svW.spans) {
+        const lw = sp.textContent.toLowerCase().replace(/^[^\p{L}]+|[^\p{L}]+$/gu, "");
+        if (vocabPool.has(lw)) {
+          sp.classList.add("lw");
+          const m = vocabPool.get(lw);
+          if (m) sp.title = m;
+        }
+      }
+    };
+
     cancelAnimationFrame(rafId);
     let diagAt = 0;
     // Becomes true once this clip has actually played. Lets us keep pre-translating
@@ -1680,6 +1701,7 @@
           el.__svUk = uk;
           el.style.display = txt ? "block" : "none";
           el.dir = (d.target ? isRTLLang(d.target) : isRTL(txt)) ? "rtl" : "ltr";
+          if (!d.target && vocabPool && el.__svW) markLearnWords(el); // learn-pool hint underline
         }
         if (kar) updateSung(el, t);
       }

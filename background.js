@@ -1490,9 +1490,24 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               for (const w of data.words) Object.assign(w, ce.e[w.w.toLowerCase()] || {});
               data.enriched = true;
             }
-            // How many pool words still lack a level — the enrich button's unit.
-            // A grown pool re-opens enrichment for a clip cached with fewer words.
-            data.enrichable = data.words.filter((w) => !w.cefr).length;
+            // Lemma dedup: once enrichment knows lemmas, inflected forms
+            // ("geht/ging/gegangen") collapse onto one entry — counts add up,
+            // the highest-ranked surface form stays visible.
+            if (data.enriched) {
+              const byLemma = new Map();
+              const out = [];
+              for (const w of data.words) {
+                const k = (w.lemma || w.w).toLowerCase();
+                const prev = byLemma.get(k);
+                if (prev) prev.n += w.n;
+                else { byLemma.set(k, w); out.push(w); }
+              }
+              data.words = out;
+            }
+            // How many pool words still lack USABLE enrichment — junk back-fill
+            // rows from a failed run ("?" level, no meaning) count as missing,
+            // so a broken batch is re-buyable instead of frozen.
+            data.enrichable = data.words.filter((w) => !w.cefr || (w.cefr === "?" && !w.meaning)).length;
             data.enriching = clipEnrichInFlight.has(String(msg.base)); // a run is underway — the popup shows progress, not a pay button
           }
           sendResponse(data);
@@ -1512,7 +1527,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             const data = await clipWordData(base, 150);
             if (!data.words.length) return { error: "no words to enrich for this video" };
             const cached0 = (await idbVocabGet("clipenrich:" + base)) || { base, lang: data.lang, at: Date.now(), e: {} };
-            const todo = data.words.filter((w) => !cached0.e[w.w.toLowerCase()]);
+            // Junk back-fill from a failed earlier run is retryable, not "covered".
+            const junk = (e) => e && e.cefr === "?" && !e.meaning;
+            const todo = data.words.filter((w) => { const e = cached0.e[w.w.toLowerCase()]; return !e || junk(e); });
             if (!todo.length) return { ok: true, cached: true };
             const { targets: cfg2 } = await chrome.storage.local.get(["targets"]);
             const target = (Array.isArray(cfg2) && cfg2[0]) || "en";
@@ -1527,7 +1544,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 if (r.usage) { inTok += r.usage.prompt_tokens || 0; outTok += r.usage.completion_tokens || 0; cacheR += r.usage.cache_r || 0; cacheW += r.usage.cache_w || 0; }
                 const merged = SV_VOCAB.mergeEnrichment(batch.map((w) => ({ word: w.w })), (r.parsed && r.parsed.e) || []);
                 merged.forEach((m, j) => {
-                  cached0.e[batch[j].w.toLowerCase()] = { lemma: m.lemma, pos: m.pos, art: m.art, plural: m.plural, cefr: m.cefr, meaning: m.meaning, phrase: m.phrase, note: m.note };
+                  // tl = the meaning's language: De→Fa data is a different pair
+                  // than De→En and must never masquerade as it.
+                  cached0.e[batch[j].w.toLowerCase()] = { lemma: m.lemma, pos: m.pos, art: m.art, plural: m.plural, cefr: m.cefr, meaning: m.meaning, phrase: m.phrase, note: m.note, tl: target };
                 });
                 enriched += merged.length;
               } catch (e2) { lastErr = e2; }
@@ -1572,7 +1591,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 provider = r.provider; model = r.model;
                 if (r.usage) { inTok += r.usage.prompt_tokens || 0; outTok += r.usage.completion_tokens || 0; cacheR += r.usage.cache_r || 0; cacheW += r.usage.cache_w || 0; }
                 const merged = SV_VOCAB.mergeEnrichment(batch.map((b) => b.card), (r.parsed && r.parsed.e) || []);
-                for (let j = 0; j < batch.length; j++) { await idbVocabPut(batch[j].key, merged[j]); enriched++; }
+                for (let j = 0; j < batch.length; j++) { await idbVocabPut(batch[j].key, { ...merged[j], tl: target }); enriched++; }
               } catch (e) { lastErr = e; }
             }
           }

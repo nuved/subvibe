@@ -1097,20 +1097,30 @@ function lnRenderRows() {
   const r = lnData;
   const min = LN_LVL[lnMin] || 0;
   let rows = (r.words || []).filter((w) => (!min || (LN_LVL[w.cefr] || 0) >= min) && (!lnPos || w.pos === lnPos));
+  // Type filter honesty: each option carries its count, so "Verbs (0)" is
+  // visible BEFORE selecting it instead of a surprise empty list.
+  if (r.enriched) {
+    const LBL = { verb: "Verbs", noun: "Nouns", adj: "Adjectives", adv: "Adverbs", phrase: "Phrases" };
+    const counts = {};
+    for (const w of r.words || []) counts[w.pos] = (counts[w.pos] || 0) + 1;
+    for (const o of el("lnPos").options) if (o.value) o.textContent = `${LBL[o.value]} (${counts[o.value] || 0})`;
+  }
   // Enriched → important-first: highest level, then how often the video says it.
   if (r.enriched) rows = rows.slice().sort((a, b) => (LN_LVL[b.cefr] || 0) - (LN_LVL[a.cefr] || 0) || b.n - a.n);
   const addAll = el("lnAddAll");
   addAll.hidden = !rows.length;
   if (!rows.length) {
-    if (min) {
-      // Say what the filter hid and hand back the way out — never a dead end.
-      foot.textContent = `${r.words.length} word${r.words.length === 1 ? " is" : "s are"} below ${lnMin} or unleveled — `;
+    if (min || lnPos) {
+      // Say what the filters hid and hand back the way out — never a dead end.
+      foot.textContent = `The ${[lnMin && lnMin + "+", lnPos].filter(Boolean).join(" · ")} filter hides all ${r.words.length} words — `;
       const a = document.createElement("button");
       a.className = "linkbtn";
       a.textContent = "show all";
       a.addEventListener("click", () => {
         lnMin = "";
-        [...el("lnLvls").children].forEach((x) => x.classList.toggle("on", !x.dataset.min));
+        lnPos = "";
+        el("lnPos").value = "";
+        [...el("lnLvls").children].forEach((x) => x.classList.toggle("on", !x.dataset.min && x.classList.contains("lnlvl")));
         lnRenderRows();
       });
       foot.appendChild(a);

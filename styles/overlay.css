@@ -227,6 +227,14 @@
   }
 }
 
+/* Learn-pool hint: a word from this clip's trainer pool carries a dotted gold
+   underline in the original line (hover = meaning once enriched) — the
+   trainer's hints, directly on the video. */
+#copilot-subs .copilot-subs__w.lw {
+  text-decoration: underline dotted rgba(255, 212, 121, 0.75);
+  text-underline-offset: 0.18em;
+}
+
 /* Click-to-save (vocabulary trainer): original-line karaoke words are save
    targets — pointer cursor, and a brief green pulse confirms the save. */
 #copilot-subs .copilot-subs__line--orig .copilot-subs__w { cursor: pointer; }
