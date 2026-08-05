@@ -826,14 +826,19 @@ const WORD_SCHEMA = {
 
 // CACHE-STABLE per (source, target), like enrichPrompt.
 function wordPrompt(source, target) {
+  const fa = (target || "").split("-")[0] === "fa";
   return `You are a precise lexicographer for a learner of ${langName(source)}. The user message carries {"w":"<word>","s":"<the sentence it appeared in>"}.\n` +
     `Return STRICT JSON {"e":{…},"g":"…"}:\n` +
     `- e: { lemma (dictionary form; the FULL phrasal/separable form when the sentence uses one, e.g. "give up", "aufgeben"), ` +
     `pos (noun|verb|adj|adv|phrase|other), art ("der"/"die"/"das" for German nouns else "-"), plural (nouns else "-"), ` +
     `cefr (A1–C2), meaning (concise, in ${langName(target)}, matching this sentence's sense), ` +
     `phrase (ONE short natural ${langName(source)} example), note (short usage note or "-") }.\n` +
-    `- g: the SENTENCE's grammar explained in ${langName(target)}, 1–2 short sentences: tense/mood, notable constructions ` +
-    `(passive, relative clause, separable verb, conditional…), and any word-order point a learner needs.`;
+    `- g: the SENTENCE's grammar explained in ${langName(target)}, 1–2 short sentences: tense/mood, notable constructions, ` +
+    `and any word-order point a learner needs. Use SIMPLE everyday ${langName(target)} a learner reads at a glance — ` +
+    `NEVER formal or textbook grammar register. Name grammar concepts by their common ${langName(source)} term ` +
+    `(clause, passive, relative clause) followed by a plain ${langName(target)} explanation.` +
+    (fa ? `\nPersian register for "g": فارسی سادهٔ روزمره، مثل «این جمله دو بخش دارد که با and به هم وصل شده‌اند» — ` +
+      `هرگز واژه‌های ادبی و دستوریِ سنگین مانند «معاطفه»، «جملهٔ حاضر»، «تشدید می‌کند» به کار نبر.` : "");
 }
 
 // CACHE-STABLE per (source, target) — same rule as systemPrompt(): nothing
@@ -1567,7 +1572,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           // djb2 — stable, tiny key for the sentence cache.
           let h = 5381;
           for (let i = 0; i < sent.length; i++) h = ((h << 5) + h + sent.charCodeAt(i)) | 0;
-          const skey = "s" + (h >>> 0).toString(36);
+          const skey = "s2" + (h >>> 0).toString(36); // s2 = plain-register prompt; old stiff-register entries regenerate on next hover
           const ce = (await idbVocabGet("clipenrich:" + base)) || { base, lang: msg.lang || "xx", at: Date.now(), e: {} };
           const cg = (await idbVocabGet("clipgram:" + base)) || { base, at: Date.now(), e: {} };
           const have = ce.e[wkey];
