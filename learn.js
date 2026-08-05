@@ -287,7 +287,9 @@ async function renderEnrichBar() {
     const r = await send({ type: "VOCAB_ENRICH", keys: todo.map((c) => c.key) });
     btn.disabled = false;
     if (r.error) { toast(r.error); renderEnrichBar(); return; }
-    toast(`${r.enriched} enriched · $${(r.usd || 0).toFixed(4)} (logged in Activity)`);
+    toast(r.failed
+      ? `${r.enriched} enriched, ${r.failed} failed (${r.err || "provider error"}) — the rest stay enrichable`
+      : `${r.enriched} enriched · $${(r.usd || 0).toFixed(4)} (logged in Activity)`);
     refresh();
   };
 }

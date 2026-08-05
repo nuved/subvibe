@@ -1586,7 +1586,8 @@
         : (c.t[vocabTg] || "");
       const langHint = /[?&]lang=([a-z-]+)/i.exec(interceptedUrl || "");
       send({ type: "VOCAB_ADD", word: w.textContent, sentence, translation: sentenceT,
-        lang: langHint ? langHint[1].toLowerCase() : null, videoTitle: pageTitle, base, ms: c.startMs });
+        lang: langHint ? langHint[1].toLowerCase() : null, videoTitle: pageTitle, base, ms: c.startMs })
+        .then((r) => { if (r && r.error) setStatus("Couldn't save the word — " + r.error, true); }); // the pulse is optimistic; a failed save must not stay silent
       w.classList.remove("saved");
       void w.offsetWidth; // restart the pulse on a repeat click
       w.classList.add("saved");

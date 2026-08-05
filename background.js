@@ -6,7 +6,12 @@
 // permission and is exempt). Everything is request/response over
 // chrome.runtime messaging.
 
-importScripts("shared/pricing.js", "shared/leitner.js", "shared/stopwords.js", "shared/vocab.js"); // SV_PRICING + SV_LEITNER + SV_STOPWORDS + SV_VOCAB — pure modules shared with pages and node tests
+// SV_PRICING + SV_LEITNER + SV_STOPWORDS + SV_VOCAB — pure modules shared with
+// pages and node tests. Chrome runs this file as a service WORKER (importScripts
+// exists); the Firefox build runs it as an EVENT PAGE (importScripts is a
+// worker-only API) where build.sh lists these files in background.scripts
+// instead — same globalThis globals either way, so guard rather than crash.
+if (typeof importScripts === "function") importScripts("shared/pricing.js", "shared/leitner.js", "shared/stopwords.js", "shared/vocab.js");
 
 const OPENAI_CHAT = "https://api.openai.com/v1/chat/completions";
 const TRANSLATE_MODEL = "gpt-4o-mini";
@@ -1385,7 +1390,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             ms: Date.now() - started, inTok, outTok, cacheR, cacheW, ok: !lastErr,
             err: lastErr ? String((lastErr && lastErr.message) || lastErr) : undefined, provider, model });
           if (!enriched && lastErr) { sendResponse({ error: String((lastErr && lastErr.message) || lastErr) }); break; }
-          sendResponse({ ok: true, enriched, usd: SV_PRICING.estCost({ provider, model, inTok, outTok, cacheR, cacheW }) });
+          // Partial failure is still a failure the user must see: report how many
+          // batches' words missed out and why, not just the success count.
+          sendResponse({ ok: true, enriched, failed: loaded.length - enriched,
+            err: lastErr ? String((lastErr && lastErr.message) || lastErr) : undefined,
+            usd: SV_PRICING.estCost({ provider, model, inTok, outTok, cacheR, cacheW }) });
           break;
         }
         case "VOCAB_CONJUGATE": {
