@@ -1658,6 +1658,7 @@
       overlay.appendChild(wtip);
     }
     const wtipFetching = new Set(); // words already being looked up
+    const vocabGram = new Map();    // sentence text → grammar note (session-local; the worker caches per clip)
     let wtipTimer = 0;
     // A string = status text; an entry object = the mini dictionary card:
     // "der Verzicht · pl. Verzichte · noun · B2" / meaning / „example phrase“.
@@ -1689,6 +1690,13 @@
           p.textContent = "„" + content.phrase + "“";
           wtip.appendChild(p);
         }
+        if (content.gram) {
+          const g = document.createElement("div");
+          g.className = "wt-gram";
+          g.dir = "auto";
+          g.textContent = content.gram;
+          wtip.appendChild(g);
+        }
       }
       wtip.dir = "auto";
       const or = overlay.getBoundingClientRect(), wr = w.getBoundingClientRect();
@@ -1709,23 +1717,30 @@
       const lw = surface.toLowerCase();
       wtip._word = lw;
       const entry = vocabPool.get(lw);
-      if (entry && entry.meaning) { placeWtip(w, entry); return; }
-      // No meaning cached: a LINGERING hover (350ms = intent, not a sweep) is
-      // the user's request — fetch this one word on demand, cache it forever.
-      placeWtip(w, "…");
+      const sentText = row.textContent;
+      const gram = vocabGram.get(sentText);
+      // Fully cached (word card + sentence grammar) → instant, free.
+      if (entry && entry.meaning && gram !== undefined) { placeWtip(w, { ...entry, gram }); return; }
+      // Show what we have now; a LINGERING hover (350ms = intent, not a sweep)
+      // fetches the rest — ONE call returns the word card AND the sentence's
+      // grammar, both cached forever.
+      if (entry && entry.meaning) placeWtip(w, entry);
+      else placeWtip(w, "…");
       clearTimeout(wtipTimer);
       wtipTimer = setTimeout(() => {
         if (wtip._word !== lw) return;
-        placeWtip(w, "translating…");
+        if (!(entry && entry.meaning)) placeWtip(w, "translating…");
         if (wtipFetching.has(lw)) return;
         wtipFetching.add(lw);
-        send({ type: "VOCAB_WORD_ENRICH", base, w: surface, lang: vocabPoolLang, s: row.textContent })
+        send({ type: "VOCAB_WORD_ENRICH", base, w: surface, lang: vocabPoolLang, s: sentText })
           .then((r) => {
             wtipFetching.delete(lw);
             const e2 = r && r.e;
             if (e2 && e2.meaning) vocabPool.set(lw, { ...(vocabPool.get(lw) || {}), ...e2 });
+            if (r && typeof r.g === "string") vocabGram.set(sentText, r.g);
             if (wtip._word === lw && wtip.classList.contains("show")) {
-              if (e2 && e2.meaning) placeWtip(w, vocabPool.get(lw));
+              const cur = vocabPool.get(lw);
+              if (cur && cur.meaning) placeWtip(w, { ...cur, gram: vocabGram.get(sentText) || "" });
               else placeWtip(w, (r && r.error) ? "couldn't translate — check the provider key in the popup" : "no meaning returned");
             }
           });

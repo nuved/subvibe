@@ -265,7 +265,7 @@ async function idbVocabList(prefix) {
   });
 }
 
-const isCardKey = (k) => !k.startsWith("inbox:") && !k.startsWith("dismissed:") && !k.startsWith("clipenrich:");
+const isCardKey = (k) => !k.startsWith("inbox:") && !k.startsWith("dismissed:") && !k.startsWith("clipenrich:") && !k.startsWith("clipgram:");
 
 // Upsert one card. Language: explicit > stopword-detected from the sentence >
 // "xx" bucket. A repeat save bumps the seen-count and fills gaps (sentence,
@@ -793,6 +793,48 @@ async function translateAll(lines, source, target, context) {
 }
 
 // ─── Vocabulary enrichment + conjugation calls ───────────────────────────────
+
+// One hover = one call = the word's full card PLUS the sentence's grammar —
+// batching two results into every request instead of two requests.
+const WORD_SCHEMA = {
+  name: "word_card",
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      e: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          lemma: { type: "string" },
+          pos: { type: "string", enum: ["noun", "verb", "adj", "adv", "phrase", "other"] },
+          art: { type: "string" },
+          plural: { type: "string" },
+          cefr: { type: "string", enum: ["A1", "A2", "B1", "B2", "C1", "C2"] },
+          meaning: { type: "string" },
+          phrase: { type: "string" },
+          note: { type: "string" },
+        },
+        required: ["lemma", "pos", "art", "plural", "cefr", "meaning", "phrase", "note"],
+      },
+      g: { type: "string" },
+    },
+    required: ["e", "g"],
+  },
+};
+
+// CACHE-STABLE per (source, target), like enrichPrompt.
+function wordPrompt(source, target) {
+  return `You are a precise lexicographer for a learner of ${langName(source)}. The user message carries {"w":"<word>","s":"<the sentence it appeared in>"}.\n` +
+    `Return STRICT JSON {"e":{…},"g":"…"}:\n` +
+    `- e: { lemma (dictionary form; the FULL phrasal/separable form when the sentence uses one, e.g. "give up", "aufgeben"), ` +
+    `pos (noun|verb|adj|adv|phrase|other), art ("der"/"die"/"das" for German nouns else "-"), plural (nouns else "-"), ` +
+    `cefr (A1–C2), meaning (concise, in ${langName(target)}, matching this sentence's sense), ` +
+    `phrase (ONE short natural ${langName(source)} example), note (short usage note or "-") }.\n` +
+    `- g: the SENTENCE's grammar explained in ${langName(target)}, 1–2 short sentences: tense/mood, notable constructions ` +
+    `(passive, relative clause, separable verb, conditional…), and any word-order point a learner needs.`;
+}
 
 // CACHE-STABLE per (source, target) — same rule as systemPrompt(): nothing
 // per-call in here, so provider prompt caching can serve repeat batches.
@@ -1514,31 +1556,47 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           break;
         }
         case "VOCAB_WORD_ENRICH": {
-          // ONE word, on demand — a deliberate hover IS the user trigger.
-          // Merged into the clip's permanent enrichment cache and logged like
-          // every other provider call; costs a rounding error.
+          // ONE word + its sentence's GRAMMAR — one call, two results, both
+          // cached forever (clipenrich for the word, clipgram for the
+          // sentence). A deliberate hover IS the user trigger; every call is
+          // logged; a fully-cached pair costs nothing.
           const base = String(msg.base || ""), word = String(msg.w || "").trim();
           if (!base || !word) { sendResponse({ error: "missing word" }); break; }
           const wkey = word.toLowerCase();
+          const sent = String(msg.s || "").slice(0, 200);
+          // djb2 — stable, tiny key for the sentence cache.
+          let h = 5381;
+          for (let i = 0; i < sent.length; i++) h = ((h << 5) + h + sent.charCodeAt(i)) | 0;
+          const skey = "s" + (h >>> 0).toString(36);
           const ce = (await idbVocabGet("clipenrich:" + base)) || { base, lang: msg.lang || "xx", at: Date.now(), e: {} };
+          const cg = (await idbVocabGet("clipgram:" + base)) || { base, at: Date.now(), e: {} };
           const have = ce.e[wkey];
-          if (have && !(have.cefr === "?" && !have.meaning)) { sendResponse({ ok: true, e: have, cached: true }); break; }
+          const haveG = cg.e[skey];
+          if (have && !(have.cefr === "?" && !have.meaning) && haveG !== undefined) {
+            sendResponse({ ok: true, e: have, g: haveG, cached: true });
+            break;
+          }
           const { targets: cfgW } = await chrome.storage.local.get(["targets"]);
           const target = (Array.isArray(cfgW) && cfgW[0]) || "en";
           const started = Date.now();
           try {
-            const r = await llmJSON(enrichPrompt(msg.lang && msg.lang !== "xx" ? msg.lang : "auto", target),
-              { words: [{ w: word, s: String(msg.s || "").slice(0, 160) }] }, ENRICH_SCHEMA);
-            const [m] = SV_VOCAB.mergeEnrichment([{ word }], (r.parsed && r.parsed.e) || []);
+            const r = await llmJSON(wordPrompt(msg.lang && msg.lang !== "xx" ? msg.lang : "auto", target),
+              { w: word, s: sent }, WORD_SCHEMA);
+            const [m] = SV_VOCAB.mergeEnrichment([{ word }], [(r.parsed && r.parsed.e) || null]);
             const entry = { lemma: m.lemma, pos: m.pos, art: m.art, plural: m.plural, cefr: m.cefr, meaning: m.meaning, phrase: m.phrase, note: m.note, tl: target };
+            const gram = (r.parsed && typeof r.parsed.g === "string") ? r.parsed.g.trim() : "";
             ce.e[wkey] = entry;
             ce.target = target;
             ce.at = Date.now();
             await idbVocabPut("clipenrich:" + base, ce);
+            cg.e[skey] = gram;
+            cg.target = target;
+            cg.at = Date.now();
+            await idbVocabPut("clipgram:" + base, cg);
             await logCall({ ts: started, site: "learn", title: "Word: " + word, kind: "enrich", lines: 1, ms: Date.now() - started,
               inTok: (r.usage && r.usage.prompt_tokens) || 0, outTok: (r.usage && r.usage.completion_tokens) || 0,
               cacheR: (r.usage && r.usage.cache_r) || 0, cacheW: (r.usage && r.usage.cache_w) || 0, ok: true, provider: r.provider, model: r.model });
-            sendResponse({ ok: true, e: entry });
+            sendResponse({ ok: true, e: entry, g: gram });
           } catch (e2) {
             sendResponse({ error: String((e2 && e2.message) || e2) });
           }

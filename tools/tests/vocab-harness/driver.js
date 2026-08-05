@@ -80,6 +80,7 @@
     if (w3) w3.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
     await new Promise((r) => setTimeout(r, 650));
     check("non-pool words hover-translate too", !!(w3 && tip.classList.contains("show") && tip.textContent.includes("خیابان")), (w3 ? "" : "no un-pooled span found; ") + (tip && tip.textContent));
+    check("the card carries the sentence's grammar from the same call", !!(tip && tip.textContent.includes("زمان حال ساده")), tip && tip.textContent);
 
     const passed = results.filter((r) => r.ok).length;
     document.title = (passed === results.length ? "PASS " : "FAIL ") + passed + "/" + results.length;
