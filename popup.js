@@ -1090,51 +1090,112 @@ function lnRenderRows() {
     return;
   }
   foot.textContent = "Tap a word to add it to your Leitner box · sentences are from this video";
-  for (const w of rows) {
-    const b = document.createElement("button");
-    b.className = "lnw";
-    const top = document.createElement("span");
-    top.className = "top";
-    const word = document.createElement("b");
-    word.textContent = w.art ? `${w.art} ${w.w}` : w.w;
-    const n = document.createElement("span");
-    n.className = "n";
-    n.textContent = "×" + w.n;
-    top.append(word, n);
-    if (w.cefr && w.cefr !== "?") {
-      const lv = document.createElement("span");
-      lv.className = "lvl";
-      lv.textContent = w.cefr;
-      top.appendChild(lv);
-    }
-    if (w.meaning) {
-      const mn = document.createElement("span");
-      mn.className = "mean";
-      mn.dir = "auto"; // Persian meanings flow RTL
-      mn.textContent = w.meaning;
-      top.appendChild(mn);
-    }
-    b.appendChild(top);
-    b.appendChild(lnSentence(w.sentence, w.w));
-    if (w.st) {
+  for (const w of rows) box.appendChild(lnWordRow(w, r));
+}
+
+// One word row: the header line collapses/expands a detail view — article +
+// plural + lemma, the enrichment phrase, every collected sentence from the
+// video (with its Persian line), and a deliberate "Add to Leitner" button.
+function lnWordRow(w, r) {
+  const b = document.createElement("div");
+  b.className = "lnw";
+  const head = document.createElement("button");
+  head.className = "head";
+  const top = document.createElement("span");
+  top.className = "top";
+  const word = document.createElement("b");
+  word.textContent = w.art ? `${w.art} ${w.w}` : w.w;
+  const n = document.createElement("span");
+  n.className = "n";
+  n.textContent = "×" + w.n;
+  top.append(word, n);
+  if (w.cefr && w.cefr !== "?") {
+    const lv = document.createElement("span");
+    lv.className = "lvl";
+    lv.textContent = w.cefr;
+    top.appendChild(lv);
+  }
+  if (w.meaning) {
+    const mn = document.createElement("span");
+    mn.className = "mean";
+    mn.dir = "auto"; // Persian meanings flow RTL
+    mn.textContent = w.meaning;
+    top.appendChild(mn);
+  }
+  head.appendChild(top);
+  head.appendChild(lnSentence(w.sentence, w.w));
+  if (w.st) {
+    const fa = document.createElement("span");
+    fa.className = "fa";
+    fa.dir = "auto";
+    fa.textContent = w.st;
+    fa.title = w.st;
+    head.appendChild(fa);
+  }
+  b.appendChild(head);
+  let detail = null;
+  head.addEventListener("click", () => {
+    if (!detail) { detail = lnWordDetail(w, r, b, n); b.appendChild(detail); }
+    b.classList.toggle("open");
+  });
+  return b;
+}
+
+function lnWordDetail(w, r, row, nEl) {
+  const d = document.createElement("div");
+  d.className = "detail";
+  const gramBits = [];
+  if (w.art) gramBits.push(`${w.art} ${w.lemma || w.w}`);
+  else if (w.lemma && w.lemma !== w.w) gramBits.push(w.lemma);
+  if (w.plural) gramBits.push("pl. " + w.plural);
+  if (w.pos) gramBits.push(w.pos);
+  if (gramBits.length) {
+    const g = document.createElement("div");
+    g.className = "gram";
+    g.textContent = gramBits.join(" · ");
+    d.appendChild(g);
+  }
+  if (w.phrase) {
+    const p = document.createElement("div");
+    p.className = "phrase";
+    p.textContent = "„" + w.phrase + "“";
+    d.appendChild(p);
+  }
+  for (const s of w.samples || []) {
+    const wrap = document.createElement("div");
+    wrap.className = "sample";
+    wrap.appendChild(lnSentence(s.o, w.w));
+    if (s.st) {
       const fa = document.createElement("span");
       fa.className = "fa";
       fa.dir = "auto";
-      fa.textContent = w.st;
-      fa.title = w.st;
-      b.appendChild(fa);
+      fa.textContent = s.st;
+      wrap.appendChild(fa);
     }
-    b.addEventListener("click", () => {
-      if (b.classList.contains("added")) return;
-      chrome.runtime.sendMessage({ type: "VOCAB_ADD", word: w.w, sentence: w.sentence, translation: w.st || "",
-        lang: r.lang, videoTitle: r.title || "", base: clipBase, ms: 0 }, (resp) => {
-        if (chrome.runtime.lastError || !resp || resp.error) return;
-        b.classList.add("added");
-        n.textContent = "✓ saved";
-      });
-    });
-    box.appendChild(b);
+    d.appendChild(wrap);
   }
+  if (w.note) {
+    const nt = document.createElement("div");
+    nt.className = "note";
+    nt.textContent = w.note;
+    d.appendChild(nt);
+  }
+  const add = document.createElement("button");
+  add.className = "lnadd";
+  add.textContent = "Add to Leitner box";
+  add.addEventListener("click", () => {
+    if (row.classList.contains("added")) return;
+    add.disabled = true;
+    chrome.runtime.sendMessage({ type: "VOCAB_ADD", word: w.w, sentence: w.sentence, translation: w.st || "",
+      lang: r.lang, videoTitle: r.title || "", base: clipBase, ms: 0 }, (resp) => {
+      if (chrome.runtime.lastError || !resp || resp.error) { add.disabled = false; return; }
+      row.classList.add("added");
+      nEl.textContent = "✓ saved";
+      add.textContent = "In the box ✓";
+    });
+  });
+  d.appendChild(add);
+  return d;
 }
 
 function renderLearnWords() {

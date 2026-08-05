@@ -54,6 +54,23 @@ test("extractInboxWords: dismissed and already-known words never appear", () => 
   assert.deepEqual(out.map((e) => e.w), ["läuft"]);
 });
 
+test("extractInboxWords: maxSamples collects extra DISTINCT sentences, capped, first stays put", () => {
+  const sentences = [
+    { o: "Der Hund bellt laut.", t: "fa1" },
+    { o: "Der Hund bellt laut.", t: "fa1" },        // duplicate — never a sample
+    { o: "Ein Hund schläft hier.", t: "fa2" },
+    { o: "Der Hund frisst gern.", t: "fa3" },
+    { o: "Mein Hund tanzt.", t: "fa4" },            // over the cap of 3 total
+  ];
+  const [hund] = V.extractInboxWords(sentences, "de", null, null, 3);
+  assert.equal(hund.w, "Hund");
+  assert.equal(hund.sentence, "Der Hund bellt laut.");
+  assert.deepEqual(hund.samples.map((s) => s.o), ["Ein Hund schläft hier.", "Der Hund frisst gern."]);
+  // default keeps entries lean — no samples array at all
+  const [lean] = V.extractInboxWords(sentences, "de");
+  assert.equal(lean.samples, undefined);
+});
+
 test("extractInboxWords: bracketed non-speech tags never become words", () => {
   const out = V.extractInboxWords([{ o: "[musik] Herz [singen] schlägt [applaus]", t: "" }], "de");
   assert.deepEqual(out.map((e) => e.w).sort(), ["Herz", "schlägt"]);

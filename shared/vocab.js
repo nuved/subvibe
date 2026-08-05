@@ -12,8 +12,13 @@
   // count and the FIRST sentence they appeared in (plus that sentence's cached
   // translation). `dismissed`/`known` are Sets of lowercased words to skip —
   // tombstoned words and words already in the trainer never re-inbox.
-  function extractInboxWords(sentences, lang, dismissed, known) {
+  // maxSamples > 1 additionally collects up to that many DISTINCT sentences
+  // per word into `samples: [{o, st}]` (the first one stays in sentence/st) —
+  // the popup's word-detail view shows real context beyond one line. The inbox
+  // build keeps the default 1 so 15k-word inbox rows stay light.
+  function extractInboxWords(sentences, lang, dismissed, known, maxSamples) {
     const stop = g.SV_STOPWORDS.set(lang);
+    const extra = Math.max(0, (maxSamples || 1) - 1);
     const seen = new Map(); // lowercased → entry
     for (const s of sentences || []) {
       // Bracketed non-speech tags ([musik], [applaus]) are annotations, not
@@ -23,8 +28,16 @@
         if (lw.length < 2 || stop.has(lw)) continue;
         if ((dismissed && dismissed.has(lw)) || (known && known.has(lw))) continue;
         const e = seen.get(lw);
-        if (e) e.n++;
-        else seen.set(lw, { w, n: 1, sentence: s.o, st: s.t || "" });
+        if (e) {
+          e.n++;
+          if (extra && e.samples.length < extra && s.o !== e.sentence && !e.samples.some((x) => x.o === s.o)) {
+            e.samples.push({ o: s.o, st: s.t || "" });
+          }
+        } else {
+          const entry = { w, n: 1, sentence: s.o, st: s.t || "" };
+          if (extra) entry.samples = [];
+          seen.set(lw, entry);
+        }
       }
     }
     return [...seen.values()].sort((a, b) => b.n - a.n);
