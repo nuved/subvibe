@@ -69,11 +69,12 @@
   }
 
   // Learnability ranking for a clip's word pool. Raw frequency favors filler
-  // ("going", "say" top every interview); content words are LONGER and still
-  // benefit from repetition. Score = capped length + capped repeat bonus —
-  // crude, but transparent and local. Returns a NEW sorted array.
+  // ("going", "bit" top every interview); content words are LONGER and only
+  // mildly helped by repetition. Length carries DOUBLE weight so a short
+  // frequent word can never outrank a long rare one ("bit" ×40 = 11,
+  // "fallible" ×1 = 17). Transparent and local. Returns a NEW sorted array.
   function rankLearnable(entries) {
-    const score = (e) => Math.min(String(e.w).length, 12) + 2 * Math.min(e.n || 1, 5);
+    const score = (e) => 2 * Math.min(String(e.w).length, 12) + Math.min(e.n || 1, 5);
     return (entries || []).slice().sort((a, b) => score(b) - score(a) || b.n - a.n || String(a.w).localeCompare(String(b.w)));
   }
 

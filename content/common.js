@@ -1637,7 +1637,9 @@
       }
     };
     send({ type: "VOCAB_CLIP_WORDS", base, limit: 150 }).then((r) => {
-      if (r && Array.isArray(r.words) && r.words.length) {
+      // A valid pool (even a small one) arms the hover for EVERY original-line
+      // word: underlines are the ranked recommendations, not a permission.
+      if (r && Array.isArray(r.words) && !r.reason) {
         vocabPoolLang = r.lang || "xx";
         vocabPool = new Map(r.words.map((x) => [x.w.toLowerCase(), x])); // full entries — the tooltip card shows lemma/article/level/phrase too
         // The line on screen rendered before the pool arrived — mark it now,
@@ -1699,7 +1701,7 @@
       wtip.style.top = Math.round(wr.top - or.top) + "px";
     };
     stack.addEventListener("mouseover", (e) => {
-      const w = e.target && e.target.closest && e.target.closest(".copilot-subs__w.lw");
+      const w = e.target && e.target.closest && e.target.closest(".copilot-subs__w");
       if (!w || !vocabPool) return;
       const row = w.closest(".copilot-subs__line");
       if (!row || row.dataset.csKey !== "__orig") return;
@@ -1730,7 +1732,7 @@
       }, 350);
     }, true);
     stack.addEventListener("mouseout", (e) => {
-      if (e.target && e.target.closest && e.target.closest(".copilot-subs__w.lw")) {
+      if (e.target && e.target.closest && e.target.closest(".copilot-subs__w")) {
         clearTimeout(wtipTimer);
         wtip._word = null;
         wtip.classList.remove("show");

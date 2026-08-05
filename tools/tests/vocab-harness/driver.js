@@ -74,6 +74,13 @@
     await new Promise((r) => setTimeout(r, 650));
     check("lingering hover fetches the missing meaning on demand (card shows type+level too)", !!(tip && tip.classList.contains("show") && tip.textContent.includes("خیابان") && tip.textContent.includes("A1")), tip && tip.textContent);
 
+    // The underline is a recommendation, not a permission: a word OUTSIDE the
+    // pool ("läuft" — no .lw) must hover-translate on demand exactly the same.
+    const w3 = spans.find((s) => /läuft/.test(s.textContent) && !s.classList.contains("lw"));
+    if (w3) w3.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 650));
+    check("non-pool words hover-translate too", !!(w3 && tip.classList.contains("show") && tip.textContent.includes("خیابان")), (w3 ? "" : "no un-pooled span found; ") + (tip && tip.textContent));
+
     const passed = results.filter((r) => r.ok).length;
     document.title = (passed === results.length ? "PASS " : "FAIL ") + passed + "/" + results.length;
     const out = document.createElement("pre");
