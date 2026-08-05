@@ -54,6 +54,11 @@ test("extractInboxWords: dismissed and already-known words never appear", () => 
   assert.deepEqual(out.map((e) => e.w), ["läuft"]);
 });
 
+test("extractInboxWords: bracketed non-speech tags never become words", () => {
+  const out = V.extractInboxWords([{ o: "[musik] Herz [singen] schlägt [applaus]", t: "" }], "de");
+  assert.deepEqual(out.map((e) => e.w).sort(), ["Herz", "schlägt"]);
+});
+
 test("extractInboxWords: unknown language passes everything through (no stopword list)", () => {
   const out = V.extractInboxWords([{ o: "el perro corre", t: "" }], "es");
   assert.deepEqual(out.map((e) => e.w).sort(), ["corre", "el", "perro"]);

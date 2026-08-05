@@ -167,6 +167,7 @@ function renderInbox() {
       ? `${b.noTarget} ha${b.noTarget === 1 ? "s" : "ve"} no cached ${tgLabel} translation (watch them with your target language on to include them)`
       : `${b.noTarget} skipped because no target language is configured (Original mode)`);
     if (b.natives) reasons.push(`${b.natives} ${b.natives === 1 ? "is" : "are"} in ${tgLabel} — a language you already read, nothing to learn`);
+    if (b.otherLang) reasons.push(`${b.otherLang} ${b.otherLang === 1 ? "is" : "are"} not in ${b.learnLang || "your learning language"} (the "Learning" choice in the popup)`);
     if (b.noOrig) reasons.push(`${b.noOrig} predate${b.noOrig === 1 ? "s" : ""} the original-sentence field (2026-07-29)`);
     d.textContent = !b.clips
       ? "Nothing here yet — watch a subtitled video, then reopen this page."
@@ -264,13 +265,25 @@ function clipCard(row) {
     const b = document.createElement("button");
     b.className = "wrow";
     b.dataset.w = w.w;
+    const top = document.createElement("span");
+    top.className = "wrow__top";
     const word = document.createElement("span");
     word.className = "wrow__word";
     word.textContent = w.w;
     const n = document.createElement("span");
     n.className = "wrow__n";
     n.textContent = "×" + w.n;
-    b.append(word, n, sentenceWithMark(w.sentence, w.w));
+    top.append(word, n, sentenceWithMark(w.sentence, w.w));
+    b.appendChild(top);
+    if (w.st) {
+      // The sentence's cached translation — the De→Fa tie, already paid for.
+      const fa = document.createElement("span");
+      fa.className = "wrow__fa";
+      fa.dir = "auto";
+      fa.textContent = w.st;
+      fa.title = w.st;
+      b.appendChild(fa);
+    }
     b.addEventListener("click", () => b.classList.toggle("sel"));
     return b;
   };

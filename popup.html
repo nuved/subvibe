@@ -36,18 +36,34 @@
       background: transparent; color: var(--text, #f9fafb); border-radius: 999px; padding: 5px 11px;
       font: 600 12px/1 inherit; cursor: pointer; white-space: nowrap; }
     .learnchip:hover { border-color: #6366f1; color: #818cf8; }
-    /* Learn tab — this video's words, sentence with the word in karaoke gold */
-    .lnwords { display: flex; flex-direction: column; gap: 1px; max-height: 340px; overflow-y: auto; }
-    .lnw { display: flex; align-items: baseline; gap: 8px; width: 100%; text-align: left; border: 0;
-      background: transparent; color: var(--text); border-radius: 8px; padding: 5px 8px; font: inherit; cursor: pointer; }
+    /* Learn tab — this video's words: word · level · Persian meaning on the
+       first line, the German sentence (word in karaoke gold) and its Persian
+       translation stacked below. */
+    .lnwords { display: flex; flex-direction: column; gap: 1px; max-height: 330px; overflow-y: auto; }
+    .lnw { display: block; width: 100%; text-align: left; border: 0; background: transparent; color: var(--text);
+      border-radius: 8px; padding: 6px 8px; font: inherit; cursor: pointer; }
     .lnw:hover { background: var(--hover); }
+    .lnw .top { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
     .lnw b { font-size: 13.5px; flex: none; }
     .lnw .n { color: var(--muted); font-size: 10.5px; flex: none; }
-    .lnw .s { color: var(--muted); font-size: 11.5px; font-style: italic; overflow: hidden;
-      text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+    .lnw .lvl { flex: none; border-radius: 5px; padding: 0 5px; font-size: 10px; font-weight: 700;
+      background: rgba(99, 102, 241, .18); color: #818cf8; }
+    .lnw .mean { color: var(--text); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis;
+      white-space: nowrap; min-width: 0; }
+    .lnw .s { display: block; color: var(--muted); font-size: 11.5px; font-style: italic; overflow: hidden;
+      text-overflow: ellipsis; white-space: nowrap; margin-top: 1px; }
     .lnw .s mark { background: transparent; color: #ffd479; font-style: normal; font-weight: 600; }
+    .lnw .fa { display: block; color: var(--muted); font-size: 11.5px; overflow: hidden;
+      text-overflow: ellipsis; white-space: nowrap; margin-top: 1px; }
     .lnw.added { opacity: .6; cursor: default; }
     .lnw.added b { color: #34d399; }
+    .lnlvls { display: flex; gap: 6px; margin: 2px 0 7px; }
+    .lnlvl { border: 1px solid var(--border); background: transparent; color: var(--muted); border-radius: 999px;
+      padding: 3px 11px; font: 600 11px/1.4 inherit; cursor: pointer; }
+    .lnlvl.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .lnenrich { display: block; width: 100%; margin-top: 8px; border: 0; border-radius: 10px;
+      background: var(--accent); color: #fff; font: 700 12.5px/1 inherit; padding: 10px; cursor: pointer; }
+    .lnenrich:disabled { opacity: .5; cursor: default; }
     /* The version line doubles as the tribute's door: park the mouse on it and
        the 2.5s color/glow transition IS the countdown — full mint = unlocked. */
     header .ver { color: var(--muted); font-size: 10px; margin: 1px 0 0; transition: color 2.5s ease, text-shadow 2.5s ease; }
@@ -613,7 +629,22 @@
        inbox and dictionary live on learn.html (the Open trainer link). -->
   <section>
     <div class="lbl">This video's words <button class="linkbtn" id="lnOpenFull">Open trainer</button></div>
+    <div class="row" style="margin: 2px 0 8px; gap: 8px;">
+      <span style="color:var(--muted); font-size:12px; flex:none;">Learning</span>
+      <select id="lnLang" style="flex:1;">
+        <option value="">Auto (any language)</option>
+        <option value="de">German</option>
+        <option value="en">English</option>
+      </select>
+      <span class="hint" id="lnDir" style="flex:none;"></span>
+    </div>
+    <div class="lnlvls" id="lnLvls" hidden>
+      <button class="lnlvl on" data-min="">All</button>
+      <button class="lnlvl" data-min="A2">A2+</button>
+      <button class="lnlvl" data-min="B1">B1+</button>
+    </div>
     <div id="lnWords" class="lnwords"></div>
+    <button class="lnenrich" id="lnEnrich" hidden></button>
     <div class="hint" id="lnFoot" style="margin-top:7px;"></div>
   </section>
   </div>

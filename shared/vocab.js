@@ -16,7 +16,9 @@
     const stop = g.SV_STOPWORDS.set(lang);
     const seen = new Map(); // lowercased → entry
     for (const s of sentences || []) {
-      for (const w of tokenize(s.o)) {
+      // Bracketed non-speech tags ([musik], [applaus]) are annotations, not
+      // vocabulary — a song's [musik] tag repeated 400× is not a word to learn.
+      for (const w of tokenize(String(s.o).replace(/\[[^\]]*\]/g, " "))) {
         const lw = w.toLowerCase();
         if (lw.length < 2 || stop.has(lw)) continue;
         if ((dismissed && dismissed.has(lw)) || (known && known.has(lw))) continue;

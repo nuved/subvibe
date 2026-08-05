@@ -265,7 +265,7 @@ async function idbVocabList(prefix) {
   });
 }
 
-const isCardKey = (k) => !k.startsWith("inbox:") && !k.startsWith("dismissed:");
+const isCardKey = (k) => !k.startsWith("inbox:") && !k.startsWith("dismissed:") && !k.startsWith("clipenrich:");
 
 // Upsert one card. Language: explicit > stopword-detected from the sentence >
 // "xx" bucket. A repeat save bumps the seen-count and fills gaps (sentence,
@@ -287,8 +287,54 @@ async function vocabAdd({ word, sentence, translation, lang, videoTitle, base, m
     n: 1, lemma: null, pos: null, art: null, plural: null, cefr: null, meaning: null, phrase: null, note: null,
     conj: null, history: [],
   };
+  // A clip that was already enriched (VOCAB_CLIP_ENRICH) hands its data to the
+  // new card for free — no second request for a word the batch already covered.
+  if ((!card.cefr || card.cefr === "?") && card.base) {
+    const ce = await idbVocabGet("clipenrich:" + card.base);
+    const e = ce && ce.e && ce.e[card.word.toLowerCase()];
+    if (e) Object.assign(card, e);
+  }
   await idbVocabPut(key, card);
   return { key, card };
+}
+
+// ONE clip's learnable words from the cache — the popup Learn tab and the
+// per-clip enrichment both feed from this. Same scoping as the inbox build:
+// a track in a configured target language, original not in one, zero network.
+async function clipWordData(base, limit) {
+  if (!base) return { words: [] };
+  const d = await db();
+  const trRows = await new Promise((resolve) => {
+    const store = d.transaction("tracks", "readonly").objectStore("tracks");
+    const out = [];
+    store.openCursor().onsuccess = (e) => {
+      const c = e.target.result;
+      if (!c) return resolve(out);
+      const key = String(c.key);
+      let tg = null, hit = false;
+      if (key === base + ":stream") hit = true;
+      else if (key.startsWith(base + ":auto:")) { hit = true; tg = key.slice(base.length + 6); }
+      if (hit) { const t = c.value || {}; out.push({ tg, cues: t.cues || [], title: t.title || t.videoId || base, source: t.source, url: t.url || "" }); }
+      c.continue();
+    };
+    store.transaction.onerror = () => resolve(out);
+  });
+  const { targets: cfg, learnLang } = await chrome.storage.local.get(["targets", "learnLang"]);
+  const targets = Array.isArray(cfg) && cfg.length ? cfg : [];
+  const pick = SV_VOCAB.pickClipTrack(trRows, targets);
+  if (!pick || !pick.o) return { words: [], reason: !trRows.length ? "not-cached" : !pick ? "no-target" : "no-originals" };
+  const sentences = pick.row.cues
+    .map((c) => ({ o: c.o || c.original || "", t: pick.row.tg ? (c.text || "") : ((c.t && c.t[pick.tg]) || "") }))
+    .filter((s) => s.o);
+  const lang = SV_STOPWORDS.detect(sentences.flatMap((s) => SV_VOCAB.tokenize(s.o))) || "xx";
+  if (targets.includes(lang)) return { words: [], reason: "native" };
+  // "Learning: German" set → ONLY German-original clips count; a video in any
+  // other (or undetectable) language has no material for this learner.
+  if (learnLang && lang !== learnLang) return { words: [], reason: "other-lang", lang };
+  const known = new Set((await idbVocabList(lang + ":")).map((r) => r.key.slice(lang.length + 1)));
+  const dismissed = new Set((((await idbVocabGet("dismissed:" + lang)) || {}).words) || []);
+  const words = SV_VOCAB.extractInboxWords(sentences, lang, dismissed, known).slice(0, limit || 25);
+  return { words, lang, title: pick.row.title };
 }
 
 // Build the FREE per-video inbox from the subtitle cache the worker already
@@ -336,18 +382,19 @@ async function vocabInboxBuild() {
   // language a video happened to be cached in. Count every skip reason (no
   // silent caps): out-of-scope clips, and clips cached before the `o` field
   // shipped (2026-07-29, no original text).
-  const { targets: cfgTargets } = await chrome.storage.local.get(["targets"]);
+  const { targets: cfgTargets, learnLang } = await chrome.storage.local.get(["targets", "learnLang"]);
   const targets = Array.isArray(cfgTargets) && cfgTargets.length ? cfgTargets : [];
-  // Heal rows built before the native-language rule: an inbox row whose
-  // ORIGINAL language is one of the user's targets holds words they already
-  // speak — delete it so the loop below re-evaluates (and skips) the clip.
+  // Heal rows the current rules exclude: an inbox row whose ORIGINAL language
+  // is one of the user's targets (words they already speak), or — with a
+  // "Learning: X" language set — any row NOT in that language. Delete so the
+  // loop below re-evaluates (and re-skips) the clip under today's rules.
   for (const { key, value } of vocabRows) {
-    if (key.startsWith("inbox:") && value && targets.includes(value.lang)) {
+    if (key.startsWith("inbox:") && value && (targets.includes(value.lang) || (learnLang && value.lang !== learnLang))) {
       await idbVocabDelete(key);
       inboxed.delete(key);
     }
   }
-  let built = 0, noOrig = 0, noTarget = 0, natives = 0;
+  let built = 0, noOrig = 0, noTarget = 0, natives = 0, otherLang = 0;
   for (const [base, trRows] of byBase) {
     if (inboxed.has("inbox:" + base)) continue;
     const pick = SV_VOCAB.pickClipTrack(trRows, targets);
@@ -361,12 +408,14 @@ async function vocabInboxBuild() {
     // The learning direction is original → target: a clip whose ORIGINAL is a
     // language the user already reads (their target) has nothing to teach.
     if (targets.includes(lang)) { natives++; continue; }
+    // With "Learning: X" set, only X-original clips feed the trainer.
+    if (learnLang && lang !== learnLang) { otherLang++; continue; }
     const words = SV_VOCAB.extractInboxWords(sentences, lang, dismissed[lang], known[lang]);
     if (!words.length) continue;
     await idbVocabPut("inbox:" + base, { base, lang, videoTitle: pick.row.title, url: pick.row.url, at: Date.now(), words });
     built++;
   }
-  return { built, clips: byBase.size, noOrig, noTarget, natives, targets };
+  return { built, clips: byBase.size, noOrig, noTarget, natives, otherLang, learnLang: learnLang || "", targets };
 }
 
 async function idbList() {
@@ -1401,43 +1450,55 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         case "VOCAB_CLIP_WORDS": {
           // The popup's Learn tab: THIS video's words + their sentences,
           // extracted on demand from the cache — same scoping rules as the
-          // inbox build (target-language track, non-native original), zero
-          // network, no inbox row required.
-          const base = String(msg.base || "");
-          if (!base) { sendResponse({ words: [] }); break; }
-          const d2 = await db();
-          const trRows = await new Promise((resolve) => {
-            const store = d2.transaction("tracks", "readonly").objectStore("tracks");
-            const out = [];
-            store.openCursor().onsuccess = (e) => {
-              const c = e.target.result;
-              if (!c) return resolve(out);
-              const key = String(c.key);
-              let tg = null, hit = false;
-              if (key === base + ":stream") hit = true;
-              else if (key.startsWith(base + ":auto:")) { hit = true; tg = key.slice(base.length + 6); }
-              if (hit) { const t = c.value || {}; out.push({ tg, cues: t.cues || [], title: t.title || t.videoId || base, source: t.source, url: t.url || "" }); }
-              c.continue();
-            };
-            store.transaction.onerror = () => resolve(out);
-          });
-          const { targets: cfg } = await chrome.storage.local.get(["targets"]);
-          const targets = Array.isArray(cfg) && cfg.length ? cfg : [];
-          const pick = SV_VOCAB.pickClipTrack(trRows, targets);
-          if (!pick || !pick.o) {
-            sendResponse({ words: [], reason: !trRows.length ? "not-cached" : !pick ? "no-target" : "no-originals" });
-            break;
+          // inbox build, zero network. A cached clip enrichment (see
+          // VOCAB_CLIP_ENRICH) rides along: meaning/level/article per word.
+          const data = await clipWordData(String(msg.base || ""), (msg.limit | 0) > 0 ? (msg.limit | 0) : 25);
+          if (data.words.length) {
+            const ce = await idbVocabGet("clipenrich:" + msg.base);
+            if (ce && ce.e) {
+              for (const w of data.words) Object.assign(w, ce.e[w.w.toLowerCase()] || {});
+              data.enriched = true;
+            }
           }
-          const sentences = pick.row.cues
-            .map((c) => ({ o: c.o || c.original || "", t: pick.row.tg ? (c.text || "") : ((c.t && c.t[pick.tg]) || "") }))
-            .filter((s) => s.o);
-          const lang = SV_STOPWORDS.detect(sentences.flatMap((s) => SV_VOCAB.tokenize(s.o))) || "xx";
-          if (targets.includes(lang)) { sendResponse({ words: [], reason: "native" }); break; }
-          const known = new Set((await idbVocabList(lang + ":")).map((r) => r.key.slice(lang.length + 1)));
-          const dismissed = new Set((((await idbVocabGet("dismissed:" + lang)) || {}).words) || []);
-          const limit = (msg.limit | 0) > 0 ? (msg.limit | 0) : 25;
-          const words = SV_VOCAB.extractInboxWords(sentences, lang, dismissed, known).slice(0, limit);
-          sendResponse({ words, lang, title: pick.row.title });
+          sendResponse(data);
+          break;
+        }
+        case "VOCAB_CLIP_ENRICH": {
+          // One batched request for THIS clip's top words — meaning in the
+          // user's primary target, CEFR level, article. Cached FOREVER under
+          // clipenrich:${base}: the list display, the level filter, and every
+          // card later saved from this clip reuse it for free.
+          const base = String(msg.base || "");
+          const cached0 = await idbVocabGet("clipenrich:" + base);
+          if (cached0) { sendResponse({ ok: true, cached: true }); break; }
+          const data = await clipWordData(base, ENRICH_BATCH);
+          if (!data.words.length) { sendResponse({ error: "no words to enrich for this video" }); break; }
+          const { targets: cfg2 } = await chrome.storage.local.get(["targets"]);
+          const target = (Array.isArray(cfg2) && cfg2[0]) || "en";
+          const started = Date.now();
+          try {
+            const r = await llmJSON(enrichPrompt(data.lang === "xx" ? "auto" : data.lang, target),
+              { words: data.words.map((w) => ({ w: w.w, s: (w.sentence || "").slice(0, 160) })) }, ENRICH_SCHEMA);
+            const merged = SV_VOCAB.mergeEnrichment(data.words.map((w) => ({ word: w.w })), (r.parsed && r.parsed.e) || []);
+            const e = {};
+            merged.forEach((m, i) => {
+              e[data.words[i].w.toLowerCase()] = { lemma: m.lemma, pos: m.pos, art: m.art, plural: m.plural, cefr: m.cefr, meaning: m.meaning, phrase: m.phrase, note: m.note };
+            });
+            await idbVocabPut("clipenrich:" + base, { base, lang: data.lang, target, at: Date.now(), e });
+            await logCall({ ts: started, site: "learn", title: "Words: " + (data.title || base), kind: "enrich", lines: data.words.length,
+              ms: Date.now() - started, inTok: (r.usage && r.usage.prompt_tokens) || 0, outTok: (r.usage && r.usage.completion_tokens) || 0,
+              cacheR: (r.usage && r.usage.cache_r) || 0, cacheW: (r.usage && r.usage.cache_w) || 0, ok: true, provider: r.provider, model: r.model });
+            sendResponse({ ok: true, enriched: merged.length,
+              usd: SV_PRICING.estCost({ provider: r.provider, model: r.model,
+                inTok: (r.usage && r.usage.prompt_tokens) || 0, outTok: (r.usage && r.usage.completion_tokens) || 0,
+                cacheR: (r.usage && r.usage.cache_r) || 0, cacheW: (r.usage && r.usage.cache_w) || 0 }) });
+          } catch (e2) {
+            const { translationProvider } = await chrome.storage.local.get("translationProvider");
+            await logCall({ ts: started, site: "learn", title: "Words: " + (data.title || base), kind: "enrich", lines: data.words.length,
+              ms: Date.now() - started, inTok: 0, outTok: 0, ok: false, err: String((e2 && e2.message) || e2),
+              provider: translationProvider === "claude" ? "claude" : "openai" });
+            sendResponse({ error: String((e2 && e2.message) || e2) });
+          }
           break;
         }
         case "VOCAB_ENRICH": {

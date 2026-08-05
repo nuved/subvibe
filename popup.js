@@ -12,7 +12,7 @@ const LIVE_ALIAS = window.SV_LIVE_ALIAS || {};
 // Coerce a code to one Gemini's live model accepts, or null if it can't voice it.
 const normLiveCode = (code) => (LIVE_CODES.has(code) ? code : (LIVE_CODES.has(LIVE_ALIAS[code]) ? LIVE_ALIAS[code] : null));
 
-const DEFAULTS = { enabled: true, translateOn: true, targets: ["en"], showOriginal: true, hideNative: true, karaokeHl: true, karaokeStyle: "classic", apiKey: "", translationProvider: "openai", claudeModel: "claude-sonnet-5", anthropicKey: "", keepNames: true, keepTerms: "", position: "bottom", size: "md", stylePreset: "classic", styleCustom: {}, syncOffset: 0, dubEnabled: false, ttsProvider: "openai", geminiKey: "", dubVoice: "marin", dubGeminiVoice: "Kore", dubMultiVoice: false, dubDuckLevel: 0.12, dubPace: 1, liveModel: "gemini-3.5-live-translate-preview", audioDeviceId: "", liveTarget: "", debugHud: false };
+const DEFAULTS = { enabled: true, translateOn: true, targets: ["en"], showOriginal: true, hideNative: true, karaokeHl: true, karaokeStyle: "classic", learnLang: "", apiKey: "", translationProvider: "openai", claudeModel: "claude-sonnet-5", anthropicKey: "", keepNames: true, keepTerms: "", position: "bottom", size: "md", stylePreset: "classic", styleCustom: {}, syncOffset: 0, dubEnabled: false, ttsProvider: "openai", geminiKey: "", dubVoice: "marin", dubGeminiVoice: "Kore", dubMultiVoice: false, dubDuckLevel: 0.12, dubPace: 1, liveModel: "gemini-3.5-live-translate-preview", audioDeviceId: "", liveTarget: "", debugHud: false };
 const el = (id) => document.getElementById(id);
 const fmtSync = (v) => (v > 0 ? "+" : "") + v.toFixed(2) + "s";
 const langMeta = (code) => window.svLangMeta(code);   // resolves a code from EITHER set
@@ -1073,44 +1073,120 @@ function lnSentence(sentence, word) {
   s.title = txt;
   return s;
 }
-function renderLearnWords() {
+let lnData = null; // last VOCAB_CLIP_WORDS response
+let lnMin = "";    // level filter: "" | "A2" | "B1"
+const LN_LVL = { A1: 1, A2: 2, B1: 3, B2: 4, C1: 5, C2: 6 };
+
+function lnRenderRows() {
   const box = el("lnWords"), foot = el("lnFoot");
   box.textContent = "";
+  const r = lnData;
+  const min = LN_LVL[lnMin] || 0;
+  let rows = (r.words || []).filter((w) => !min || (LN_LVL[w.cefr] || 0) >= min);
+  // Enriched → important-first: highest level, then how often the video says it.
+  if (r.enriched) rows = rows.slice().sort((a, b) => (LN_LVL[b.cefr] || 0) - (LN_LVL[a.cefr] || 0) || b.n - a.n);
+  if (!rows.length) {
+    foot.textContent = min ? "No words at that level in this video." : "No words to show.";
+    return;
+  }
+  foot.textContent = "Tap a word to add it to your Leitner box · sentences are from this video";
+  for (const w of rows) {
+    const b = document.createElement("button");
+    b.className = "lnw";
+    const top = document.createElement("span");
+    top.className = "top";
+    const word = document.createElement("b");
+    word.textContent = w.art ? `${w.art} ${w.w}` : w.w;
+    const n = document.createElement("span");
+    n.className = "n";
+    n.textContent = "×" + w.n;
+    top.append(word, n);
+    if (w.cefr && w.cefr !== "?") {
+      const lv = document.createElement("span");
+      lv.className = "lvl";
+      lv.textContent = w.cefr;
+      top.appendChild(lv);
+    }
+    if (w.meaning) {
+      const mn = document.createElement("span");
+      mn.className = "mean";
+      mn.dir = "auto"; // Persian meanings flow RTL
+      mn.textContent = w.meaning;
+      top.appendChild(mn);
+    }
+    b.appendChild(top);
+    b.appendChild(lnSentence(w.sentence, w.w));
+    if (w.st) {
+      const fa = document.createElement("span");
+      fa.className = "fa";
+      fa.dir = "auto";
+      fa.textContent = w.st;
+      fa.title = w.st;
+      b.appendChild(fa);
+    }
+    b.addEventListener("click", () => {
+      if (b.classList.contains("added")) return;
+      chrome.runtime.sendMessage({ type: "VOCAB_ADD", word: w.w, sentence: w.sentence, translation: w.st || "",
+        lang: r.lang, videoTitle: r.title || "", base: clipBase, ms: 0 }, (resp) => {
+        if (chrome.runtime.lastError || !resp || resp.error) return;
+        b.classList.add("added");
+        n.textContent = "✓ saved";
+      });
+    });
+    box.appendChild(b);
+  }
+}
+
+function renderLearnWords() {
+  const box = el("lnWords"), foot = el("lnFoot"), enrich = el("lnEnrich"), lvls = el("lnLvls");
+  box.textContent = "";
+  enrich.hidden = true;
+  lvls.hidden = true;
   if (!clipBase) {
     foot.textContent = "Open a video with subtitles — its words show up here to learn from.";
     return;
   }
-  chrome.runtime.sendMessage({ type: "VOCAB_CLIP_WORDS", base: clipBase, limit: 25 }, (r) => {
+  chrome.runtime.sendMessage({ type: "VOCAB_CLIP_WORDS", base: clipBase, limit: 50 }, (r) => {
     if (chrome.runtime.lastError || !r) return;
+    lnData = r;
     if (!r.words || !r.words.length) {
       foot.textContent = r.reason === "native"
         ? "This video is in a language you already read — nothing to learn here."
-        : r.reason === "no-target"
-          ? "No translation in your target language cached yet — watch a bit with subtitles on."
-          : "No words cached for this video yet — play it with subtitles on, then reopen.";
+        : r.reason === "other-lang"
+          ? `This video isn't in the language you're learning (detected: ${r.lang || "unknown"}) — switch "Learning" above to include it.`
+          : r.reason === "no-target"
+            ? "No translation in your target language cached yet — watch a bit with subtitles on."
+            : "No words cached for this video yet — play it with subtitles on, then reopen.";
       return;
     }
-    foot.textContent = "Tap a word to add it to your Leitner box · sentences are from this video";
-    for (const w of r.words) {
-      const b = document.createElement("button");
-      b.className = "lnw";
-      const word = document.createElement("b");
-      word.textContent = w.w;
-      const n = document.createElement("span");
-      n.className = "n";
-      n.textContent = "×" + w.n;
-      b.append(word, n, lnSentence(w.sentence, w.w));
-      b.addEventListener("click", () => {
-        if (b.classList.contains("added")) return;
-        chrome.runtime.sendMessage({ type: "VOCAB_ADD", word: w.w, sentence: w.sentence, translation: w.st || "",
-          lang: r.lang, videoTitle: r.title || "", base: clipBase, ms: 0 }, (resp) => {
-          if (chrome.runtime.lastError || !resp || resp.error) return;
-          b.classList.add("added");
-          n.textContent = "✓ saved";
-        });
+    lvls.hidden = !r.enriched; // level filter only means something once levels exist
+    if (!r.enriched) {
+      // Meaning + level come from ONE batched request, cached forever for this
+      // clip — price up front, never automatic (the SubVibe economy contract).
+      const nW = r.words.length;
+      const usd = window.SV_PRICING.estCost({
+        provider: state.translationProvider === "claude" ? "claude" : "openai",
+        model: state.translationProvider === "claude" ? (state.claudeModel || "claude-sonnet-5") : "gpt-4o-mini",
+        inTok: nW * 35 + 260, outTok: nW * 45,
       });
-      box.appendChild(b);
+      enrich.hidden = false;
+      enrich.disabled = false;
+      enrich.textContent = `Translate & level these ${nW} words · ~$${usd < 0.005 ? usd.toFixed(4) : usd.toFixed(2)}`;
+      enrich.onclick = () => {
+        enrich.disabled = true;
+        enrich.textContent = "Translating…";
+        chrome.runtime.sendMessage({ type: "VOCAB_CLIP_ENRICH", base: clipBase }, (resp) => {
+          if (chrome.runtime.lastError || !resp || resp.error) {
+            enrich.disabled = false;
+            enrich.textContent = "Failed — try again";
+            el("lnFoot").textContent = (resp && resp.error) || "The provider call failed.";
+            return;
+          }
+          renderLearnWords(); // refetch: words come back with meaning/level merged
+        });
+      };
     }
+    lnRenderRows();
   });
 }
 
@@ -1181,6 +1257,24 @@ async function load() {
   const openLearn = () => chrome.tabs.create({ url: chrome.runtime.getURL("learn.html") });
   el("learnChip").addEventListener("click", openLearn);
   el("lnOpenFull").addEventListener("click", openLearn);
+  el("lnLvls").addEventListener("click", (e) => {
+    const b = e.target.closest(".lnlvl");
+    if (!b) return;
+    lnMin = b.dataset.min;
+    [...el("lnLvls").children].forEach((x) => x.classList.toggle("on", x === b));
+    lnRenderRows();
+  });
+  // Learning language (the SOURCE side of the direction; the target side
+  // follows the translation setting). Options = the languages the stopword
+  // detector actually recognizes — offering more would silently match nothing.
+  el("lnLang").value = state.learnLang || "";
+  const tgLang = (LANGS.find((l) => l[0] === (state.targets && state.targets[0])) || [])[1];
+  el("lnDir").textContent = tgLang ? "→ " + tgLang : "";
+  el("lnLang").addEventListener("change", () => {
+    persist({ learnLang: el("lnLang").value });
+    state.learnLang = el("lnLang").value;
+    renderLearnWords();
+  });
   chrome.runtime.sendMessage({ type: "VOCAB_DUE_COUNT" }, (r) => {
     if (chrome.runtime.lastError || !r) return;
     el("learnDue").textContent = r.total ? `${r.due} due` : "Learn";
