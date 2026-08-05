@@ -171,59 +171,110 @@ function renderInbox() {
     list.appendChild(d);
   }
   for (const row of inbox) {
-    const d = document.createElement("details");
-    d.className = "vid";
-    d.open = inbox.length <= 3;
-    const sum = document.createElement("summary");
-    sum.textContent = row.videoTitle + " ";
-    const meta = document.createElement("span");
-    meta.className = "muted";
-    meta.textContent = `· ${row.words.length} words · ${row.lang}`;
-    sum.appendChild(meta);
-    d.appendChild(sum);
-    const chips = document.createElement("div");
-    chips.className = "chips";
-    for (const w of row.words) {
-      const c = document.createElement("button");
-      c.className = "chip";
-      c.title = w.sentence || "";
-      c.textContent = w.w + " ";
-      const n = document.createElement("span");
-      n.className = "n";
-      n.textContent = "×" + w.n;
-      c.appendChild(n);
-      c.addEventListener("click", () => c.classList.toggle("sel"));
-      c.dataset.w = w.w;
-      chips.appendChild(c);
-    }
-    d.appendChild(chips);
-    const acts = document.createElement("div");
-    acts.className = "acts";
-    const selected = () => [...chips.querySelectorAll(".chip.sel")].map((c) => c.dataset.w);
-    const mk = (label, cls, fn) => {
-      const b = document.createElement("button");
-      b.className = "btn small " + cls;
-      b.textContent = label;
-      b.addEventListener("click", fn);
-      return b;
-    };
-    acts.appendChild(mk("Promote selected", "primary", async () => {
-      const words = selected();
-      if (!words.length) return toast("Tap some words first");
-      const r = await send({ type: "VOCAB_PROMOTE", base: row.base, words });
-      toast(`${r.promoted || 0} word${r.promoted === 1 ? "" : "s"} promoted → box 1`);
-      refresh();
-    }));
-    acts.appendChild(mk("Dismiss selected", "", async () => {
-      const words = selected();
-      if (!words.length) return toast("Tap some words first");
-      await send({ type: "VOCAB_DISMISS", base: row.base, words });
-      refresh();
-    }));
-    acts.appendChild(mk("Select all", "", () => chips.querySelectorAll(".chip").forEach((c) => c.classList.add("sel"))));
-    d.appendChild(acts);
-    list.appendChild(d);
+    list.appendChild(clipCard(row));
   }
+}
+
+// The word inside its sentence, lit like the karaoke fill it was born from.
+function sentenceWithMark(sentence, word) {
+  const span = document.createElement("span");
+  span.className = "wrow__sent";
+  const s = sentence || "";
+  const i = s.toLowerCase().indexOf(String(word).toLowerCase());
+  if (i < 0) { span.textContent = s; return span; }
+  span.appendChild(document.createTextNode(s.slice(0, i)));
+  const m = document.createElement("mark");
+  m.className = "wmark";
+  m.textContent = s.slice(i, i + word.length);
+  span.appendChild(m);
+  span.appendChild(document.createTextNode(s.slice(i + word.length)));
+  span.title = s; // full sentence when the row clamps
+  return span;
+}
+
+const CLIP_PREVIEW = 30; // rows shown before "Show all" — a talky video can carry hundreds
+
+function clipCard(row) {
+  const card = document.createElement("div");
+  card.className = "clip";
+
+  const head = document.createElement("div");
+  head.className = "clip__head";
+  const title = document.createElement("div");
+  title.className = "clip__title";
+  title.textContent = row.videoTitle;
+  title.title = row.videoTitle;
+  const lang = document.createElement("span");
+  lang.className = "clip__lang";
+  lang.textContent = row.lang;
+  const meta = document.createElement("div");
+  meta.className = "clip__meta";
+  meta.textContent = `${row.words.length} word${row.words.length === 1 ? "" : "s"}`;
+  head.append(title, lang, meta);
+  card.appendChild(head);
+
+  const acts = document.createElement("div");
+  acts.className = "clip__acts";
+  const grid = document.createElement("div");
+  grid.className = "wgrid";
+  const selected = () => [...grid.querySelectorAll(".wrow.sel")].map((b) => b.dataset.w);
+  const mk = (label, cls, fn) => {
+    const b = document.createElement("button");
+    b.className = "btn small " + cls;
+    b.textContent = label;
+    b.addEventListener("click", fn);
+    return b;
+  };
+  acts.appendChild(mk("Promote selected", "primary", async () => {
+    const words = selected();
+    if (!words.length) return toast("Tap some words first");
+    const r = await send({ type: "VOCAB_PROMOTE", base: row.base, words });
+    toast(`${r.promoted || 0} word${r.promoted === 1 ? "" : "s"} promoted → box 1`);
+    refresh();
+  }));
+  acts.appendChild(mk("Dismiss selected", "", async () => {
+    const words = selected();
+    if (!words.length) return toast("Tap some words first");
+    await send({ type: "VOCAB_DISMISS", base: row.base, words });
+    refresh();
+  }));
+  const allBtn = mk("Select all", "", () => {
+    const rows = [...grid.querySelectorAll(".wrow")];
+    const on = rows.some((b) => !b.classList.contains("sel"));
+    rows.forEach((b) => b.classList.toggle("sel", on));
+    allBtn.textContent = on ? "Select none" : "Select all";
+  });
+  acts.appendChild(allBtn);
+  card.appendChild(acts);
+  card.appendChild(grid);
+
+  const wordRow = (w) => {
+    const b = document.createElement("button");
+    b.className = "wrow";
+    b.dataset.w = w.w;
+    const word = document.createElement("span");
+    word.className = "wrow__word";
+    word.textContent = w.w;
+    const n = document.createElement("span");
+    n.className = "wrow__n";
+    n.textContent = "×" + w.n;
+    b.append(word, n, sentenceWithMark(w.sentence, w.w));
+    b.addEventListener("click", () => b.classList.toggle("sel"));
+    return b;
+  };
+  for (const w of row.words.slice(0, CLIP_PREVIEW)) grid.appendChild(wordRow(w));
+
+  if (row.words.length > CLIP_PREVIEW) {
+    const more = document.createElement("button");
+    more.className = "clip__more";
+    more.textContent = `Show all ${row.words.length} words`;
+    more.addEventListener("click", () => {
+      for (const w of row.words.slice(CLIP_PREVIEW)) grid.appendChild(wordRow(w));
+      more.remove();
+    });
+    card.appendChild(more);
+  }
+  return card;
 }
 
 // ── Browse ───────────────────────────────────────────────────────────────────

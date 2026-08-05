@@ -65,16 +65,35 @@
     .box .lbl { color: var(--muted); font-size: 12px; }
     .box .nxt { color: var(--muted); font-size: 11px; margin-top: 4px; min-height: 14px; }
 
-    /* Inbox */
-    .vid { margin-bottom: 6px; }
-    .vid summary { cursor: pointer; font-weight: 700; padding: 8px 4px; }
-    .vid summary .muted { font-weight: 400; }
-    .chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 2px 4px; }
-    .chip { border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
-      border-radius: 999px; padding: 4px 11px; font-size: 13px; }
-    .chip .n { color: var(--muted); font-size: 11px; }
-    .chip.sel { background: var(--brand-soft); border-color: var(--brand-2); color: var(--brand-3); }
-    .vid .acts { display: flex; gap: 8px; padding: 8px 2px; }
+    /* Inbox — one card per clip; each word is a row whose first sentence reads
+       like a subtitle line with the word lit in karaoke gold. */
+    .clip { background: var(--surface-2); border: 1px solid var(--border-soft); border-radius: 12px;
+      padding: 0 0 10px; margin-bottom: 14px; overflow: hidden; }
+    .clip__head { display: flex; align-items: baseline; gap: 10px; padding: 12px 14px 10px;
+      border-bottom: 1px solid var(--border-soft); }
+    .clip__title { font-weight: 700; font-size: 14.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .clip__meta { color: var(--muted); font-size: 12px; flex: none; margin-left: auto; }
+    .clip__lang { display: inline-block; background: var(--brand-soft); color: var(--brand-3);
+      border-radius: 6px; padding: 1px 7px; font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .4px; vertical-align: 1px; }
+    .clip__acts { display: flex; gap: 8px; padding: 9px 14px 2px; }
+    .wgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 14px; padding: 8px 8px 2px; }
+    @media (max-width: 700px) { .wgrid { grid-template-columns: 1fr; } }
+    .wrow { display: flex; align-items: baseline; gap: 8px; width: 100%; text-align: left;
+      border: 0; background: transparent; color: var(--text); border-radius: 8px; padding: 5px 8px;
+      font: inherit; transition: background .1s; }
+    .wrow:hover { background: rgba(99, 102, 241, .07); }
+    .wrow.sel { background: var(--brand-soft); box-shadow: inset 2px 0 0 var(--brand-2); }
+    .wrow__word { font-weight: 650; font-size: 14px; flex: none; }
+    .wrow.sel .wrow__word { color: var(--brand-3); }
+    .wrow__n { color: var(--muted); font-size: 11px; flex: none; }
+    .wrow__sent { color: var(--muted); font-size: 12px; font-style: italic; overflow: hidden;
+      text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+    .wrow__sent .wmark { background: transparent; color: var(--amber); font-style: normal; font-weight: 600; } /* the karaoke fill, at rest — reset <mark>'s default highlighter */
+    .clip__more { display: block; width: calc(100% - 16px); margin: 6px 8px 0; border: 0; border-radius: 8px;
+      background: transparent; color: var(--brand-3); font: 600 12px/1 var(--ui); padding: 8px; }
+    .clip__more:hover { background: var(--brand-soft); }
+    @media (prefers-reduced-motion: reduce) { .wrow { transition: none; } }
 
     /* Browse */
     .filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
