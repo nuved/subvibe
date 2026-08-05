@@ -1085,11 +1085,29 @@ function lnRenderRows() {
   let rows = (r.words || []).filter((w) => !min || (LN_LVL[w.cefr] || 0) >= min);
   // Enriched → important-first: highest level, then how often the video says it.
   if (r.enriched) rows = rows.slice().sort((a, b) => (LN_LVL[b.cefr] || 0) - (LN_LVL[a.cefr] || 0) || b.n - a.n);
+  const addAll = el("lnAddAll");
+  addAll.hidden = !rows.length;
   if (!rows.length) {
     foot.textContent = min ? "No words at that level in this video." : "No words to show.";
     return;
   }
-  foot.textContent = "Tap a word to add it to your Leitner box · sentences are from this video";
+  foot.textContent = "Tap a word for details (article, plural, examples) and to add it to your Leitner box";
+  addAll.disabled = false;
+  addAll.textContent = `Add ${lnMin ? "all " + lnMin + "+ " : "all "}${rows.length} word${rows.length === 1 ? "" : "s"} to the Leitner box`;
+  addAll.onclick = () => {
+    addAll.disabled = true;
+    addAll.textContent = "Adding…";
+    chrome.runtime.sendMessage({ type: "VOCAB_ADD_MANY", lang: r.lang, videoTitle: r.title || "", base: clipBase,
+      items: rows.map((w) => ({ word: w.w, sentence: w.sentence, translation: w.st || "" })) }, (resp) => {
+      if (chrome.runtime.lastError || !resp || resp.error) {
+        addAll.disabled = false;
+        addAll.textContent = "Failed — try again";
+        return;
+      }
+      addAll.textContent = `✓ ${resp.added} in your box — review them on the Learn page`;
+      [...box.querySelectorAll(".lnw")].forEach((x) => x.classList.add("added"));
+    });
+  };
   for (const w of rows) box.appendChild(lnWordRow(w, r));
 }
 

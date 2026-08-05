@@ -1391,6 +1391,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         case "VOCAB_ADD":
           sendResponse({ ok: true, ...(await vocabAdd(msg)) });
           break;
+        case "VOCAB_ADD_MANY": {
+          // Bulk save — "add all A2+ words of this clip" in one message. Each
+          // card still goes through vocabAdd (dedupe, clipenrich adoption).
+          let added = 0;
+          for (const it of msg.items || []) {
+            try {
+              await vocabAdd({ word: it.word, sentence: it.sentence, translation: it.translation,
+                lang: msg.lang, videoTitle: msg.videoTitle, base: msg.base, ms: 0 });
+              added++;
+            } catch {}
+          }
+          sendResponse({ ok: true, added });
+          break;
+        }
         case "VOCAB_LIST":
           sendResponse({ cards: (await idbVocabList("")).filter((r) => isCardKey(r.key)).map((r) => ({ key: r.key, ...r.value })) });
           break;

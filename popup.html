@@ -53,6 +53,11 @@
     .lnadd { margin-top: 8px; border: 0; border-radius: 8px; background: var(--accent); color: #fff;
       font: 700 11.5px/1 inherit; padding: 7px 12px; cursor: pointer; }
     .lnadd:disabled { opacity: .6; cursor: default; }
+    .lnaddall { display: block; width: 100%; margin: 0 0 7px; border: 1px solid var(--accent);
+      background: transparent; color: #818cf8; font: 700 12px/1 inherit; padding: 8px;
+      border-radius: 10px; cursor: pointer; }
+    .lnaddall:hover { background: rgba(99, 102, 241, .12); }
+    .lnaddall:disabled { opacity: .55; cursor: default; }
     .lnw .top { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
     .lnw b { font-size: 13.5px; flex: none; }
     .lnw .n { color: var(--muted); font-size: 10.5px; flex: none; }
@@ -653,6 +658,7 @@
       <button class="lnlvl" data-min="A2">A2+</button>
       <button class="lnlvl" data-min="B1">B1+</button>
     </div>
+    <button class="lnaddall" id="lnAddAll" hidden></button>
     <div id="lnWords" class="lnwords"></div>
     <button class="lnenrich" id="lnEnrich" hidden></button>
     <div class="hint" id="lnFoot" style="margin-top:7px;"></div>
