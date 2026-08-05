@@ -33,6 +33,7 @@
     syncOffset: 0,       // seconds; + shows subtitles earlier, − later
     karaokeHl: true,     // karaoke fill: words already spoken light up in --cs-hl
                          // (exact per-word times on YouTube ASR tracks, estimated elsewhere)
+    karaokeStyle: "classic", // karaoke highlight look: classic | neon-cyan | neon-magenta | ember | aurora
     audioFallback: false, // transcribe audio ONLY when a video has no captions
     audioDeviceId: "",    // chosen input device (e.g. BlackHole)
     debugHud: false,      // on-video debug panel (engine mode + caption-file pipeline)
@@ -115,7 +116,7 @@
   // layers this clip's own changes on top — so a tweak on one video (or live channel)
   // never bleeds onto another. sync defaults to 0 per clip.
   async function getSettings() {
-    const s = await chrome.storage.local.get(["enabled", "translateOn", "targets", "showOriginal", "hideNative", "position", "linePositions", "size", "stylePreset", "styleCustom", "syncOffset", "karaokeHl", "audioFallback", "audioDeviceId", "translationProvider", "debugHud", "clipOverrides"]);
+    const s = await chrome.storage.local.get(["enabled", "translateOn", "targets", "showOriginal", "hideNative", "position", "linePositions", "size", "stylePreset", "styleCustom", "syncOffset", "karaokeHl", "karaokeStyle", "audioFallback", "audioDeviceId", "translationProvider", "debugHud", "clipOverrides"]);
     const { clipOverrides, ...flat } = s;
     const ov = (clipOverrides && clipOverrides[clipBaseId()]) || {};
     const merged = { ...DEFAULTS, ...flat, ...ov };
@@ -720,6 +721,11 @@
       el.classList.toggle("copilot-style-banner", style.banner);
       ensureFont(style.fonts);
     }
+    // Karaoke highlight style: one overlay class drives the .sung look
+    // (styles/overlay.css). Unknown/missing values render classic.
+    const HL_KEYS = ["classic", "neon-cyan", "neon-magenta", "ember", "aurora"];
+    const hl = HL_KEYS.includes(settings.karaokeStyle) ? settings.karaokeStyle : "classic";
+    for (const k of HL_KEYS) el.classList.toggle("copilot-hl-" + k, k === hl);
     sizeOverlay(); // size the font to the video now (a 1s timer keeps it in sync on resize/fullscreen)
     initDrag(el);  // make the subtitles grabbable (idempotent)
     if (autoPosEnabled) updateAutoPosition();
@@ -2254,7 +2260,7 @@
   // Appearance keys (position, drag coords, text size, style preset/tweaks) and
   // the sync nudge apply LIVE — re-style in place, no flicker. Anything else
   // (languages, key, enabled…) restarts the engine.
-  const LIVE_KEYS = ["syncOffset", "position", "linePositions", "size", "stylePreset", "styleCustom", "dubEnabled", "dubVoice", "dubGeminiVoice", "ttsProvider", "dubMultiVoice", "dubDuckLevel", "dubPace", "debugHud"];
+  const LIVE_KEYS = ["syncOffset", "position", "linePositions", "size", "stylePreset", "styleCustom", "karaokeStyle", "dubEnabled", "dubVoice", "dubGeminiVoice", "ttsProvider", "dubMultiVoice", "dubDuckLevel", "dubPace", "debugHud"];
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
     const keys = Object.keys(changes);

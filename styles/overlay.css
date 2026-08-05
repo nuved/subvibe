@@ -198,6 +198,35 @@
 }
 #copilot-subs .copilot-subs__cta:hover { background: #3f7af0; }
 
+/* Karaoke highlight styles (karaokeStyle global setting) — pure CSS on .sung.
+   Classic = the existing gold var(--cs-hl) rule above; the other four override
+   it per overlay class. Aurora paints an animated gradient through the glyphs
+   (background-clip: text) and falls back to classic gold where unsupported —
+   outside the @supports block no aurora rule exists, so the base rule wins. */
+#copilot-subs.copilot-hl-neon-cyan .copilot-subs__w.sung {
+  color: #7df9ff;
+  text-shadow: 0 0 0.3em rgba(0, 229, 255, 0.9), 0 0 0.7em rgba(0, 229, 255, 0.45);
+}
+#copilot-subs.copilot-hl-neon-magenta .copilot-subs__w.sung {
+  color: #ff5ce1;
+  text-shadow: 0 0 0.3em rgba(255, 0, 200, 0.9), 0 0 0.7em rgba(255, 0, 200, 0.45);
+}
+#copilot-subs.copilot-hl-ember .copilot-subs__w.sung {
+  color: #ff9d4d;
+  text-shadow: 0 0 0.25em rgba(255, 94, 0, 0.85), 0 0.05em 0.5em rgba(255, 60, 0, 0.4);
+}
+@keyframes cs-aurora { to { background-position: 200% 50%; } }
+@supports ((-webkit-background-clip: text) or (background-clip: text)) {
+  #copilot-subs.copilot-hl-aurora .copilot-subs__w.sung {
+    background: linear-gradient(90deg, #4ade80, #22d3ee, #a78bfa, #f472b6, #4ade80) 0 50% / 200% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+    animation: cs-aurora 3s linear infinite;
+  }
+}
+
 /* Click-to-save (vocabulary trainer): original-line karaoke words are save
    targets — pointer cursor, and a brief green pulse confirms the save. */
 #copilot-subs .copilot-subs__line--orig .copilot-subs__w { cursor: pointer; }

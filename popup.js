@@ -12,7 +12,7 @@ const LIVE_ALIAS = window.SV_LIVE_ALIAS || {};
 // Coerce a code to one Gemini's live model accepts, or null if it can't voice it.
 const normLiveCode = (code) => (LIVE_CODES.has(code) ? code : (LIVE_CODES.has(LIVE_ALIAS[code]) ? LIVE_ALIAS[code] : null));
 
-const DEFAULTS = { enabled: true, translateOn: true, targets: ["en"], showOriginal: true, hideNative: true, karaokeHl: true, apiKey: "", translationProvider: "openai", claudeModel: "claude-sonnet-5", anthropicKey: "", keepNames: true, keepTerms: "", position: "bottom", size: "md", stylePreset: "classic", styleCustom: {}, syncOffset: 0, dubEnabled: false, ttsProvider: "openai", geminiKey: "", dubVoice: "marin", dubGeminiVoice: "Kore", dubMultiVoice: false, dubDuckLevel: 0.12, dubPace: 1, liveModel: "gemini-3.5-live-translate-preview", audioDeviceId: "", liveTarget: "", debugHud: false };
+const DEFAULTS = { enabled: true, translateOn: true, targets: ["en"], showOriginal: true, hideNative: true, karaokeHl: true, karaokeStyle: "classic", apiKey: "", translationProvider: "openai", claudeModel: "claude-sonnet-5", anthropicKey: "", keepNames: true, keepTerms: "", position: "bottom", size: "md", stylePreset: "classic", styleCustom: {}, syncOffset: 0, dubEnabled: false, ttsProvider: "openai", geminiKey: "", dubVoice: "marin", dubGeminiVoice: "Kore", dubMultiVoice: false, dubDuckLevel: 0.12, dubPace: 1, liveModel: "gemini-3.5-live-translate-preview", audioDeviceId: "", liveTarget: "", debugHud: false };
 const el = (id) => document.getElementById(id);
 const fmtSync = (v) => (v > 0 ? "+" : "") + v.toFixed(2) + "s";
 const langMeta = (code) => window.svLangMeta(code);   // resolves a code from EITHER set
@@ -612,6 +612,30 @@ function buildPresetRow() {
     fontSel.appendChild(o);
   }
 }
+const HL_STYLES = window.SV_HL_STYLES;
+function buildHlRow() {
+  const row = el("hlRow");
+  row.innerHTML = "";
+  for (const [key, h] of Object.entries(HL_STYLES)) {
+    const b = document.createElement("button");
+    b.dataset.hl = key;
+    b.title = h.label + " karaoke highlight";
+    const abc = document.createElement("span");
+    abc.className = "abc";
+    abc.textContent = "Abc";
+    abc.style.cssText = "font-weight:800;" + h.css;
+    const name = document.createElement("span");
+    name.className = "pname";
+    name.textContent = h.label;
+    b.append(abc, name);
+    b.addEventListener("click", () => {
+      state.karaokeStyle = key;
+      persist({ karaokeStyle: key }); // GLOBAL — taste follows the user, like stylePreset
+      updateStyleUI();
+    });
+    row.appendChild(b);
+  }
+}
 // Merge a tweak into styleCustom (null/"" clears that key back to the preset).
 function setCustom(patch) {
   const c = { ...(state.styleCustom || {}) };
@@ -625,6 +649,7 @@ function setCustom(patch) {
 }
 function updateStyleUI() {
   [...el("presetRow").children].forEach((b) => b.classList.toggle("on", b.dataset.preset === state.stylePreset));
+  [...el("hlRow").children].forEach((b) => b.classList.toggle("on", b.dataset.hl === (state.karaokeStyle || "classic")));
   const c = state.styleCustom || {};
   const r = resolveStyle(state);
   paintStyled(el("stylePrevText"), r);
@@ -1149,6 +1174,7 @@ async function load() {
 })();
 
 buildPresetRow();
+buildHlRow();
 load();
 initFolds();
 initTabs();
