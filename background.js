@@ -319,13 +319,17 @@ async function vocabInboxBuild() {
     if (!m) continue;
     if (!byBase.has(m[1]) || withOrig(t) > withOrig(byBase.get(m[1]))) byBase.set(m[1], t);
   }
-  let built = 0;
+  // Count what was SKIPPED, not just what was built — clips cached before the
+  // `o` field shipped (2026-07-29) carry no original text and can never feed
+  // the inbox; the Learn page must be able to say that instead of implying the
+  // user never watched anything (no silent caps).
+  let built = 0, noOrig = 0;
   for (const [base, t] of byBase) {
     if (inboxed.has("inbox:" + base)) continue;
     const sentences = (t.cues || [])
       .map((c) => ({ o: c.o || c.original || "", t: c.text || (c.t && t.target && c.t[t.target]) || "" }))
       .filter((s) => s.o);
-    if (!sentences.length) continue;
+    if (!sentences.length) { noOrig++; continue; }
     const lang = SV_STOPWORDS.detect(sentences.flatMap((s) => SV_VOCAB.tokenize(s.o)))
       || (t.source && t.source !== "auto" ? t.source : "xx");
     const words = SV_VOCAB.extractInboxWords(sentences, lang, dismissed[lang], known[lang]);
@@ -333,7 +337,7 @@ async function vocabInboxBuild() {
     await idbVocabPut("inbox:" + base, { base, lang, videoTitle: t.title || t.videoId || base, at: Date.now(), words });
     built++;
   }
-  return built;
+  return { built, clips: byBase.size, noOrig };
 }
 
 async function idbList() {
@@ -1311,7 +1315,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse({ inbox: (await idbVocabList("inbox:")).map((r) => r.value) });
           break;
         case "VOCAB_INBOX_BUILD":
-          sendResponse({ ok: true, built: await vocabInboxBuild() });
+          sendResponse({ ok: true, ...(await vocabInboxBuild()) });
           break;
         case "VOCAB_PROMOTE": {
           const row = await idbVocabGet("inbox:" + msg.base);

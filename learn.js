@@ -9,6 +9,7 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 
 let cards = [];   // [{key, word, lang, box, nextDueAt, …}]
 let inbox = [];   // [{base, lang, videoTitle, at, words:[{w,n,sentence,st}]}]
+let lastBuild = null; // VOCAB_INBOX_BUILD result — the empty state explains itself from this
 
 // ── tabs ─────────────────────────────────────────────────────────────────────
 el("tabs").addEventListener("click", (e) => {
@@ -152,7 +153,13 @@ function renderInbox() {
   if (!inbox.length) {
     const d = document.createElement("div");
     d.className = "muted";
-    d.textContent = "Nothing here yet — watch a subtitled video, then reopen this page.";
+    // Say WHY it's empty: no cache at all, cache too old to carry original
+    // sentences, or everything already promoted/dismissed.
+    d.textContent = !lastBuild || !lastBuild.clips
+      ? "Nothing here yet — watch a subtitled video, then reopen this page."
+      : lastBuild.noOrig
+        ? `${lastBuild.noOrig} cached video${lastBuild.noOrig === 1 ? "" : "s"} were saved before SubVibe kept the original sentence text (2026-07-29), so they can't feed the inbox. Videos you watch from now on will show up here — and clicking words on the video itself always works.`
+        : "All caught up — every cached video's words are already in the trainer or dismissed.";
     list.appendChild(d);
   }
   for (const row of inbox) {
@@ -296,6 +303,6 @@ async function renderEnrichBar() {
 
 // ── boot: build the inbox (free, local scan of the subtitle cache), then render ──
 (async () => {
-  await send({ type: "VOCAB_INBOX_BUILD" });
+  lastBuild = await send({ type: "VOCAB_INBOX_BUILD" });
   await refresh();
 })();
