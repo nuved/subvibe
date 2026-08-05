@@ -72,6 +72,41 @@ test("mergeEnrichment: short array back-fills pos:'other', cefr:'?' — still en
   assert.equal(merged[1].cefr, "?");
 });
 
+test("pickClipTrack: a clip cached only in a non-target language is out of scope", () => {
+  const rows = [{ tg: "en", cues: [{ o: "Der Hund.", text: "The dog." }] }];
+  assert.equal(V.pickClipTrack(rows, ["fa"]), null);
+});
+
+test("pickClipTrack: primary target beats a secondary-target row with more originals", () => {
+  const fa = { tg: "fa", cues: [{ o: "Der Hund.", text: "سگ." }] };
+  const en = { tg: "en", cues: [{ o: "Der Hund.", text: "The dog." }, { o: "Die Katze.", text: "The cat." }] };
+  const pick = V.pickClipTrack([en, fa], ["fa", "en"]);
+  assert.equal(pick.tg, "fa");
+  assert.equal(pick.row, fa);
+});
+
+test("pickClipTrack: falls back to the secondary target when the primary row has no originals", () => {
+  const fa = { tg: "fa", cues: [{ text: "سگ." }] }; // pre-`o` row
+  const en = { tg: "en", cues: [{ o: "Der Hund.", text: "The dog." }] };
+  const pick = V.pickClipTrack([fa, en], ["fa", "en"]);
+  assert.equal(pick.tg, "en");
+  assert.equal(pick.o, 1);
+});
+
+test("pickClipTrack: a stream row qualifies via any cue's t-map and resolves its target", () => {
+  const stream = { tg: null, cues: [{ original: "Der Hund.", t: { fa: "سگ." } }] };
+  const pick = V.pickClipTrack([stream], ["fa"]);
+  assert.equal(pick.tg, "fa");
+  assert.equal(pick.o, 1);
+});
+
+test("pickClipTrack: no configured targets → nothing qualifies; all-o-less clips report o:0", () => {
+  const fa = { tg: "fa", cues: [{ text: "سگ." }] };
+  assert.equal(V.pickClipTrack([fa], []), null);
+  const pick = V.pickClipTrack([fa], ["fa"]); // in scope, but no original text
+  assert.equal(pick.o, 0);
+});
+
 test("mergeEnrichment: garbage enums are sanitized, never stored raw", () => {
   const [m] = V.mergeEnrichment([{ word: "a" }],
     [{ lemma: "a", pos: "verbish", art: "los", plural: "-", cefr: "Z9", meaning: "x", phrase: "y", note: "-" }]);

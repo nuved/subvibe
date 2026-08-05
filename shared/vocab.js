@@ -52,5 +52,30 @@
     });
   }
 
-  g.SV_VOCAB = { tokenize, extractInboxWords, mergeEnrichment };
+  // Choose which cached track row feeds a clip's inbox. Only rows translated
+  // into one of the user's TARGET languages qualify — the trainer's sentence
+  // translations must be in a language the user actually reads; a clip cached
+  // only in some other language is out of scope. Preference: primary target
+  // first, then the row with the most original text. A `tg: null` row is a
+  // stream row (one row, all targets inside each cue's `t` map) — it qualifies
+  // when any cue carries any configured target.
+  // Returns { row, tg, o } (o = count of cues with original text; the caller
+  // treats o === 0 as "in scope but no original sentences"), or null when the
+  // clip has no track in a configured target.
+  function pickClipTrack(rows, targets) {
+    const prim = (targets || [])[0];
+    const has = new Set(targets || []);
+    const withOrig = (r) => (r.cues || []).filter((c) => c.o || c.original).length;
+    const resolveTg = (r) => r.tg || (targets || []).find((tg) => (r.cues || []).some((c) => c.t && c.t[tg])) || null;
+    const cand = (rows || [])
+      .map((r) => ({ row: r, tg: resolveTg(r), o: withOrig(r) }))
+      .filter((x) => x.tg && has.has(x.tg));
+    if (!cand.length) return null;
+    const usable = cand.filter((x) => x.o > 0);
+    if (!usable.length) return cand[0]; // caller counts this clip as noOrig
+    usable.sort((a, b) => (b.tg === prim) - (a.tg === prim) || b.o - a.o);
+    return usable[0];
+  }
+
+  g.SV_VOCAB = { tokenize, extractInboxWords, mergeEnrichment, pickClipTrack };
 })(globalThis);

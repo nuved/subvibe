@@ -153,12 +153,20 @@ function renderInbox() {
   if (!inbox.length) {
     const d = document.createElement("div");
     d.className = "muted";
-    // Say WHY it's empty: no cache at all, cache too old to carry original
-    // sentences, or everything already promoted/dismissed.
-    d.textContent = !lastBuild || !lastBuild.clips
+    // Say WHY it's empty: no cache at all, clips outside the configured target
+    // languages, clips too old to carry original sentences, or everything
+    // already promoted/dismissed.
+    const b = lastBuild || {};
+    const tgLabel = (b.targets || []).join(" / ");
+    const reasons = [];
+    if (b.noTarget) reasons.push(tgLabel
+      ? `${b.noTarget} ha${b.noTarget === 1 ? "s" : "ve"} no cached ${tgLabel} translation (watch them with your target language on to include them)`
+      : `${b.noTarget} skipped because no target language is configured (Original mode)`);
+    if (b.noOrig) reasons.push(`${b.noOrig} predate${b.noOrig === 1 ? "s" : ""} the original-sentence field (2026-07-29)`);
+    d.textContent = !b.clips
       ? "Nothing here yet — watch a subtitled video, then reopen this page."
-      : lastBuild.noOrig
-        ? `${lastBuild.noOrig} cached video${lastBuild.noOrig === 1 ? "" : "s"} were saved before SubVibe kept the original sentence text (2026-07-29), so they can't feed the inbox. Videos you watch from now on will show up here — and clicking words on the video itself always works.`
+      : reasons.length
+        ? `Of ${b.clips} cached video${b.clips === 1 ? "" : "s"}: ${reasons.join("; ")}. New videos watched with ${tgLabel || "a target language"} will show up here — and clicking words on the video itself always works.`
         : "All caught up — every cached video's words are already in the trainer or dismissed.";
     list.appendChild(d);
   }

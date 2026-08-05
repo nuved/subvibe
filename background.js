@@ -310,34 +310,42 @@ async function vocabInboxBuild() {
       (known[lang] = known[lang] || new Set()).add(key.slice(lang.length + 1));
     }
   }
-  // Group cache rows by clip: keys are `${base}:auto:${target}` or `${base}:stream`.
-  // Keep the row with the most original text (rows predating the `o` field have none).
-  const withOrig = (t) => (t.cues || []).filter((c) => c.o || c.original).length;
+  // Group cache rows by clip: keys are `${base}:auto:${target}` (per-target
+  // cuelist rows) or `${base}:stream` (one row, all targets inside each cue).
   const byBase = new Map();
   for (const { key, t } of rows) {
-    const m = /^(.*):(?:auto:[^:]+|stream)$/.exec(key);
-    if (!m) continue;
-    if (!byBase.has(m[1]) || withOrig(t) > withOrig(byBase.get(m[1]))) byBase.set(m[1], t);
+    let tg = null;
+    let m = /^(.*):auto:([^:]+)$/.exec(key);
+    if (m) tg = m[2];
+    else { m = /^(.*):stream$/.exec(key); if (!m) continue; }
+    if (!byBase.has(m[1])) byBase.set(m[1], []);
+    byBase.get(m[1]).push({ tg, cues: t.cues || [], title: t.title || t.videoId || m[1], source: t.source });
   }
-  // Count what was SKIPPED, not just what was built — clips cached before the
-  // `o` field shipped (2026-07-29) carry no original text and can never feed
-  // the inbox; the Learn page must be able to say that instead of implying the
-  // user never watched anything (no silent caps).
-  let built = 0, noOrig = 0;
-  for (const [base, t] of byBase) {
+  // The trainer is scoped to the user's TARGET languages: a clip only feeds the
+  // inbox from a track translated into one of them (primary preferred), so its
+  // sentence translations are in a language the user reads — not whatever
+  // language a video happened to be cached in. Count every skip reason (no
+  // silent caps): out-of-scope clips, and clips cached before the `o` field
+  // shipped (2026-07-29, no original text).
+  const { targets: cfgTargets } = await chrome.storage.local.get(["targets"]);
+  const targets = Array.isArray(cfgTargets) && cfgTargets.length ? cfgTargets : [];
+  let built = 0, noOrig = 0, noTarget = 0;
+  for (const [base, trRows] of byBase) {
     if (inboxed.has("inbox:" + base)) continue;
-    const sentences = (t.cues || [])
-      .map((c) => ({ o: c.o || c.original || "", t: c.text || (c.t && t.target && c.t[t.target]) || "" }))
+    const pick = SV_VOCAB.pickClipTrack(trRows, targets);
+    if (!pick) { noTarget++; continue; }
+    if (!pick.o) { noOrig++; continue; }
+    const sentences = pick.row.cues
+      .map((c) => ({ o: c.o || c.original || "", t: pick.row.tg ? (c.text || "") : ((c.t && c.t[pick.tg]) || "") }))
       .filter((s) => s.o);
-    if (!sentences.length) { noOrig++; continue; }
     const lang = SV_STOPWORDS.detect(sentences.flatMap((s) => SV_VOCAB.tokenize(s.o)))
-      || (t.source && t.source !== "auto" ? t.source : "xx");
+      || (pick.row.source && pick.row.source !== "auto" ? pick.row.source : "xx");
     const words = SV_VOCAB.extractInboxWords(sentences, lang, dismissed[lang], known[lang]);
     if (!words.length) continue;
-    await idbVocabPut("inbox:" + base, { base, lang, videoTitle: t.title || t.videoId || base, at: Date.now(), words });
+    await idbVocabPut("inbox:" + base, { base, lang, videoTitle: pick.row.title, at: Date.now(), words });
     built++;
   }
-  return { built, clips: byBase.size, noOrig };
+  return { built, clips: byBase.size, noOrig, noTarget, targets };
 }
 
 async function idbList() {
