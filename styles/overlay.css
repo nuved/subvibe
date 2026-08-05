@@ -241,6 +241,9 @@
   position: absolute;
   display: none;
   transform: translate(-50%, calc(-100% - 9px));
+  /* Size by CONTENT, not by the left offset — an absolute box near the player's
+     edge otherwise shrink-to-fits into a one-word-per-line column. */
+  width: max-content;
   max-width: 340px;
   padding: 5px 12px;
   background: rgba(8, 10, 14, 0.94);

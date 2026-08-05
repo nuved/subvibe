@@ -1633,9 +1633,13 @@
       wtip.textContent = meaning || "no translation yet — Translate & level in the popup's Learn tab";
       wtip.dir = "auto";
       const or = overlay.getBoundingClientRect(), wr = w.getBoundingClientRect();
-      wtip.style.left = Math.round(wr.left + wr.width / 2 - or.left) + "px";
-      wtip.style.top = Math.round(wr.top - or.top) + "px";
+      // Show first (display:none boxes measure 0), then clamp the center into
+      // the player so an edge word can't push the bubble off screen.
       wtip.classList.add("show");
+      const half = wtip.offsetWidth / 2 + 6;
+      const cx = wr.left + wr.width / 2 - or.left;
+      wtip.style.left = Math.round(Math.max(half, Math.min(or.width - half, cx))) + "px";
+      wtip.style.top = Math.round(wr.top - or.top) + "px";
     }, true);
     stack.addEventListener("mouseout", (e) => {
       if (e.target && e.target.closest && e.target.closest(".copilot-subs__w.lw")) wtip.classList.remove("show");
