@@ -121,7 +121,10 @@
 }
 #copilot-subs.copilot-pos-custom .copilot-subs__line {
   position: absolute;
-  transform: translate(-50%, -50%);
+  /* --cs-shift-*: a rendering-only correction (keepLineInside in common.js)
+     that pulls a long line's box back inside the player when its dragged
+     CENTER sits near an edge — the saved drag position stays untouched. */
+  transform: translate(calc(-50% + var(--cs-shift-x, 0px)), calc(-50% + var(--cs-shift-y, 0px)));
   max-width: var(--cs-maxwidth, min(84%, 24em));
   margin: 0;
 }

@@ -633,15 +633,40 @@
     const y = 0.86 - (total - 1 - idx) * 0.085;
     return { x: 0.5, y: Math.max(0.12, Math.min(0.9, y)) };
   }
+  // A dragged line's CENTER is clamped, but a long sentence's BOX can still
+  // hang past the player edge (subtitles "outside the view"). Nudge the box
+  // back inside via the --cs-shift-* transform correction; the stored drag
+  // fraction — the user's intent — is never rewritten. Re-runs automatically
+  // when a line's size changes (every new cue) via a ResizeObserver.
+  function keepLineInside(ln) {
+    const overlay = document.getElementById("copilot-subs");
+    if (!overlay || !overlay.classList.contains("copilot-pos-custom")) return;
+    const o = overlay.getBoundingClientRect(), r = ln.getBoundingClientRect();
+    if (!o.width || !r.width) return;
+    const curX = parseFloat(ln.style.getPropertyValue("--cs-shift-x")) || 0;
+    const curY = parseFloat(ln.style.getPropertyValue("--cs-shift-y")) || 0;
+    const left = r.left - curX, right = r.right - curX, top = r.top - curY, bottom = r.bottom - curY;
+    let sx = 0, sy = 0;
+    if (right > o.right - 4) sx = o.right - 4 - right;
+    if (left + sx < o.left + 4) sx = o.left + 4 - left;
+    if (bottom > o.bottom - 4) sy = o.bottom - 4 - bottom;
+    if (top + sy < o.top + 4) sy = o.top + 4 - top;
+    ln.style.setProperty("--cs-shift-x", Math.round(sx) + "px");
+    ln.style.setProperty("--cs-shift-y", Math.round(sy) + "px");
+  }
+  let lineFitRO = null;
   function layoutCustomLines() {
     const overlay = document.getElementById("copilot-subs");
     if (!overlay || !overlay.classList.contains("copilot-pos-custom")) return;
+    if (!lineFitRO && window.ResizeObserver) lineFitRO = new ResizeObserver((es) => es.forEach((e) => keepLineInside(e.target)));
     const lines = [...overlay.querySelectorAll(".copilot-subs__line")];
     lines.forEach((ln, i) => {
       const key = ln.dataset.csKey || ("slot" + i);
       const p = linePositions[key] || defaultSlotPos(i, lines.length);
       ln.style.left = (clampFrac(p.x, 0.5) * 100).toFixed(2) + "%";
       ln.style.top = (clampFrac(p.y, 0.85) * 100).toFixed(2) + "%";
+      if (lineFitRO && !ln._csFit) { ln._csFit = true; lineFitRO.observe(ln); }
+      keepLineInside(ln);
     });
   }
   let dragState = null;
@@ -675,13 +700,18 @@
       }
       dragState.line.style.left = (x * 100).toFixed(2) + "%";
       dragState.line.style.top = (y * 100).toFixed(2) + "%";
+      // While the pointer drives, no fit-correction — it would fight the hand.
+      dragState.line.style.setProperty("--cs-shift-x", "0px");
+      dragState.line.style.setProperty("--cs-shift-y", "0px");
     });
     const end = (e) => {
       if (!dragState || e.pointerId !== dragState.id) return;
       const moved = dragState.moved;
-      try { dragState.line.releasePointerCapture(e.pointerId); } catch {}
+      const line = dragState.line;
+      try { line.releasePointerCapture(e.pointerId); } catch {}
       overlay.classList.remove("copilot-dragging");
       dragState = null;
+      keepLineInside(line); // released near an edge → pull the box back into the player
       // position + linePositions apply LIVE via the storage watcher (no restart).
       // Saved PER-CLIP so each video keeps its own dragged layout.
       if (moved) saveClipSettings({ position: "custom", linePositions });
