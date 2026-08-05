@@ -1058,6 +1058,62 @@ async function loadThisVideo() {
   exp.hidden = !any;
 }
 
+// ── Learn tab: this video's words, straight from the cache ───────────────────
+// The word inside its sentence, lit like the karaoke fill it was born from.
+function lnSentence(sentence, word) {
+  const s = document.createElement("span");
+  s.className = "s";
+  const txt = sentence || "";
+  const i = txt.toLowerCase().indexOf(String(word).toLowerCase());
+  if (i < 0) { s.textContent = txt; return s; }
+  s.append(txt.slice(0, i));
+  const m = document.createElement("mark");
+  m.textContent = txt.slice(i, i + word.length);
+  s.append(m, txt.slice(i + word.length));
+  s.title = txt;
+  return s;
+}
+function renderLearnWords() {
+  const box = el("lnWords"), foot = el("lnFoot");
+  box.textContent = "";
+  if (!clipBase) {
+    foot.textContent = "Open a video with subtitles — its words show up here to learn from.";
+    return;
+  }
+  chrome.runtime.sendMessage({ type: "VOCAB_CLIP_WORDS", base: clipBase, limit: 25 }, (r) => {
+    if (chrome.runtime.lastError || !r) return;
+    if (!r.words || !r.words.length) {
+      foot.textContent = r.reason === "native"
+        ? "This video is in a language you already read — nothing to learn here."
+        : r.reason === "no-target"
+          ? "No translation in your target language cached yet — watch a bit with subtitles on."
+          : "No words cached for this video yet — play it with subtitles on, then reopen.";
+      return;
+    }
+    foot.textContent = "Tap a word to add it to your Leitner box · sentences are from this video";
+    for (const w of r.words) {
+      const b = document.createElement("button");
+      b.className = "lnw";
+      const word = document.createElement("b");
+      word.textContent = w.w;
+      const n = document.createElement("span");
+      n.className = "n";
+      n.textContent = "×" + w.n;
+      b.append(word, n, lnSentence(w.sentence, w.w));
+      b.addEventListener("click", () => {
+        if (b.classList.contains("added")) return;
+        chrome.runtime.sendMessage({ type: "VOCAB_ADD", word: w.w, sentence: w.sentence, translation: w.st || "",
+          lang: r.lang, videoTitle: r.title || "", base: clipBase, ms: 0 }, (resp) => {
+          if (chrome.runtime.lastError || !resp || resp.error) return;
+          b.classList.add("added");
+          n.textContent = "✓ saved";
+        });
+      });
+      box.appendChild(b);
+    }
+  });
+}
+
 // ── load ─────────────────────────────────────────────────────────────────────
 async function load() {
   const g = await chrome.storage.local.get([...Object.keys(DEFAULTS), "linePositions", "clipOverrides"]);
@@ -1120,41 +1176,16 @@ async function load() {
   el("dubDuckVal").textContent = el("dubDuck").value + "%";
   el("dubPace").value = Math.round((typeof state.dubPace === "number" ? state.dubPace : 1) * 100);
   el("dubPaceVal").textContent = (el("dubPace").value / 100).toFixed(2) + "×";
-  // 🎓 Learn: the header chip and the Learn tab's dashboard share one stats
-  // message. The full trainer lives on learn.html; each button deep-links to
-  // its tab there (#leitner / #inbox / #dict).
-  const openLearn = (hash) => chrome.tabs.create({ url: chrome.runtime.getURL("learn.html" + hash) });
-  el("learnChip").addEventListener("click", () => openLearn(""));
-  el("lnReview").addEventListener("click", () => openLearn("#leitner"));
-  el("lnInboxOpen").addEventListener("click", () => openLearn("#inbox"));
-  el("lnDictOpen").addEventListener("click", () => openLearn("#dict"));
+  // 🎓 Learn: the tab shows THIS video's words + sentences (tap to save);
+  // review, inbox and dictionary live on learn.html.
+  const openLearn = () => chrome.tabs.create({ url: chrome.runtime.getURL("learn.html") });
+  el("learnChip").addEventListener("click", openLearn);
+  el("lnOpenFull").addEventListener("click", openLearn);
   chrome.runtime.sendMessage({ type: "VOCAB_DUE_COUNT" }, (r) => {
     if (chrome.runtime.lastError || !r) return;
     el("learnDue").textContent = r.total ? `${r.due} due` : "Learn";
-    el("lnDueBig").textContent = r.due || 0;
-    el("lnDueSub").textContent = r.total
-      ? (r.due === 1 ? "card due today" : "cards due today")
-      : "no cards yet — promote words from the Inbox";
-    el("lnReview").disabled = !r.due;
-    const bx = el("lnBoxes");
-    bx.textContent = "";
-    (r.boxes || [0, 0, 0, 0, 0]).forEach((n, i) => {
-      const d = document.createElement("div");
-      d.className = "lnbox";
-      const b = document.createElement("b");
-      b.textContent = n;
-      const s = document.createElement("span");
-      s.textContent = "Box " + (i + 1);
-      d.append(b, s);
-      bx.appendChild(d);
-    });
-    el("lnInboxStat").textContent = r.inboxVideos
-      ? `${r.inboxVideos} video${r.inboxVideos === 1 ? "" : "s"} · ${r.inboxWords} new words waiting`
-      : "No new words waiting — watch a subtitled video.";
-    el("lnDictStat").textContent = r.total
-      ? `${r.total} word${r.total === 1 ? "" : "s"} · ${r.enriched || 0} enriched`
-      : "Empty — promote words, or click them on a video.";
   });
+  renderLearnWords();
   pollDub();
   updateStyleUI();
   renderChips();

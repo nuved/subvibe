@@ -1398,6 +1398,48 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           });
           break;
         }
+        case "VOCAB_CLIP_WORDS": {
+          // The popup's Learn tab: THIS video's words + their sentences,
+          // extracted on demand from the cache — same scoping rules as the
+          // inbox build (target-language track, non-native original), zero
+          // network, no inbox row required.
+          const base = String(msg.base || "");
+          if (!base) { sendResponse({ words: [] }); break; }
+          const d2 = await db();
+          const trRows = await new Promise((resolve) => {
+            const store = d2.transaction("tracks", "readonly").objectStore("tracks");
+            const out = [];
+            store.openCursor().onsuccess = (e) => {
+              const c = e.target.result;
+              if (!c) return resolve(out);
+              const key = String(c.key);
+              let tg = null, hit = false;
+              if (key === base + ":stream") hit = true;
+              else if (key.startsWith(base + ":auto:")) { hit = true; tg = key.slice(base.length + 6); }
+              if (hit) { const t = c.value || {}; out.push({ tg, cues: t.cues || [], title: t.title || t.videoId || base, source: t.source, url: t.url || "" }); }
+              c.continue();
+            };
+            store.transaction.onerror = () => resolve(out);
+          });
+          const { targets: cfg } = await chrome.storage.local.get(["targets"]);
+          const targets = Array.isArray(cfg) && cfg.length ? cfg : [];
+          const pick = SV_VOCAB.pickClipTrack(trRows, targets);
+          if (!pick || !pick.o) {
+            sendResponse({ words: [], reason: !trRows.length ? "not-cached" : !pick ? "no-target" : "no-originals" });
+            break;
+          }
+          const sentences = pick.row.cues
+            .map((c) => ({ o: c.o || c.original || "", t: pick.row.tg ? (c.text || "") : ((c.t && c.t[pick.tg]) || "") }))
+            .filter((s) => s.o);
+          const lang = SV_STOPWORDS.detect(sentences.flatMap((s) => SV_VOCAB.tokenize(s.o))) || "xx";
+          if (targets.includes(lang)) { sendResponse({ words: [], reason: "native" }); break; }
+          const known = new Set((await idbVocabList(lang + ":")).map((r) => r.key.slice(lang.length + 1)));
+          const dismissed = new Set((((await idbVocabGet("dismissed:" + lang)) || {}).words) || []);
+          const limit = (msg.limit | 0) > 0 ? (msg.limit | 0) : 25;
+          const words = SV_VOCAB.extractInboxWords(sentences, lang, dismissed, known).slice(0, limit);
+          sendResponse({ words, lang, title: pick.row.title });
+          break;
+        }
         case "VOCAB_ENRICH": {
           // Batches of 50, grouped by the cards' language (one prompt per
           // source language), merged via SV_VOCAB.mergeEnrichment (short-array
