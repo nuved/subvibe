@@ -129,6 +129,11 @@ test("mergeCueSentences + extract carry the START time — the shadowing jump po
   assert.equal(kommt.ms, 61000);
 });
 
+test("normalizeFa: Urdu/Arabic confusables become standard Persian letters", () => {
+  assert.equal(V.normalizeFa("کلمہ ہے ك ي"), "کلمه هی ک ی");
+  assert.equal(V.normalizeFa("فارسی درست"), "فارسی درست"); // clean text untouched
+});
+
 test("parseLooseJSON: verbatim, fenced, and prose-wrapped JSON all parse; garbage throws", () => {
   assert.deepEqual(V.parseLooseJSON('{"e":[1]}'), { e: [1] });
   assert.deepEqual(V.parseLooseJSON('```json\n{"e":[1]}\n```'), { e: [1] });

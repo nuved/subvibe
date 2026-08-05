@@ -26,6 +26,15 @@
     return out;
   }
 
+  // Persian text hygiene: models drift into Urdu/Arabic codepoints (ہ ھ ے ي ك)
+  // that render as foreign glyphs in Iranian Farsi. Map them to the standard
+  // Persian letters. (Wrong WORDS — e.g. Urdu «ہے» — are the prompt's job;
+  // this fixes the characters.)
+  const FA_FIX = { "ہ": "ه", "ھ": "ه", "ے": "ی", "ي": "ی", "ك": "ک", "ۂ": "هٔ", "ۃ": "ه" };
+  function normalizeFa(s) {
+    return String(s || "").replace(/[ہھےيكۂۃ]/g, (c) => FA_FIX[c] || c);
+  }
+
   // Model output that SHOULD be JSON but arrived wrapped: markdown fences,
   // a prose preamble, a trailing note. Try verbatim first, then the outermost
   // {...} slice. Returns the parsed object or throws.
@@ -128,5 +137,5 @@
     return usable[0];
   }
 
-  g.SV_VOCAB = { tokenize, mergeCueSentences, parseLooseJSON, extractInboxWords, rankLearnable, mergeEnrichment, pickClipTrack };
+  g.SV_VOCAB = { tokenize, mergeCueSentences, parseLooseJSON, normalizeFa, extractInboxWords, rankLearnable, mergeEnrichment, pickClipTrack };
 })(globalThis);

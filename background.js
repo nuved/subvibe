@@ -824,6 +824,16 @@ const WORD_SCHEMA = {
   },
 };
 
+// Persian entries pass through SV_VOCAB.normalizeFa on write AND read, so a
+// model that drifts into Urdu codepoints (ہ ھ ے) can never plant them in the
+// cache or the UI — including entries cached before this guard existed.
+function faClean(target, obj, keys) {
+  if ((target || "").split("-")[0] !== "fa" || !obj) return obj;
+  for (const k of keys) if (typeof obj[k] === "string") obj[k] = SV_VOCAB.normalizeFa(obj[k]);
+  return obj;
+}
+const ENTRY_FA_KEYS = ["meaning", "note", "phrase", "lemma"];
+
 // CACHE-STABLE per (source, target), like enrichPrompt.
 function wordPrompt(source, target) {
   const fa = (target || "").split("-")[0] === "fa";
@@ -838,7 +848,8 @@ function wordPrompt(source, target) {
     `NEVER formal or textbook grammar register. Name grammar concepts by their common ${langName(source)} term ` +
     `(clause, passive, relative clause) followed by a plain ${langName(target)} explanation.` +
     (fa ? `\nPersian register for "g": فارسی سادهٔ روزمره، مثل «این جمله دو بخش دارد که با and به هم وصل شده‌اند» — ` +
-      `هرگز واژه‌های ادبی و دستوریِ سنگین مانند «معاطفه»، «جملهٔ حاضر»، «تشدید می‌کند» به کار نبر.` : "");
+      `هرگز واژه‌های ادبی و دستوریِ سنگین مانند «معاطفه»، «جملهٔ حاضر»، «تشدید می‌کند» به کار نبر.\n` +
+      `ALL Persian output must be STANDARD IRANIAN FARSI — never Urdu: no Urdu letters (ہ ھ ے ٹ ڈ ڑ ں) and no Urdu words (ہے، کلمہ).` : "");
 }
 
 // CACHE-STABLE per (source, target) — same rule as systemPrompt(): nothing
@@ -856,7 +867,10 @@ function enrichPrompt(source, target) {
     `- cefr: the word's CEFR level, A1–C2.\n` +
     `- meaning: a concise meaning in ${langName(target)}, matching the sentence's sense.\n` +
     `- phrase: ONE short, natural ${langName(source)} example phrase using the word.\n` +
-    `- note: a short usage or irregularity note when genuinely useful, else "-".`;
+    `- note: a short usage or irregularity note when genuinely useful, else "-".` +
+    ((target || "").split("-")[0] === "fa"
+      ? `\nALL Persian output must be STANDARD IRANIAN FARSI — never Urdu: no Urdu letters (ہ ھ ے ٹ ڈ ڑ ں) and no Urdu words.`
+      : "");
 }
 
 // Conjugation (verbs, on demand; cached forever on the card). Keys are display
@@ -1534,7 +1548,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           if (data.words.length) {
             const ce = await idbVocabGet("clipenrich:" + msg.base);
             if (ce && ce.e) {
-              for (const w of data.words) Object.assign(w, ce.e[w.w.toLowerCase()] || {});
+              for (const w of data.words) Object.assign(w, faClean(ce.target, { ...(ce.e[w.w.toLowerCase()] || {}) }, ENTRY_FA_KEYS));
               data.enriched = true;
             }
             // Lemma dedup: once enrichment knows lemmas, inflected forms
@@ -1578,7 +1592,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           const have = ce.e[wkey];
           const haveG = cg.e[skey];
           if (have && !(have.cefr === "?" && !have.meaning) && haveG !== undefined) {
-            sendResponse({ ok: true, e: have, g: haveG, cached: true });
+            sendResponse({ ok: true, e: faClean(have.tl || ce.target, { ...have }, ENTRY_FA_KEYS),
+              g: (have.tl || ce.target || "").startsWith("fa") ? SV_VOCAB.normalizeFa(haveG) : haveG, cached: true });
             break;
           }
           const { targets: cfgW } = await chrome.storage.local.get(["targets"]);
@@ -1588,8 +1603,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             const r = await llmJSON(wordPrompt(msg.lang && msg.lang !== "xx" ? msg.lang : "auto", target),
               { w: word, s: sent }, WORD_SCHEMA);
             const [m] = SV_VOCAB.mergeEnrichment([{ word }], [(r.parsed && r.parsed.e) || null]);
-            const entry = { lemma: m.lemma, pos: m.pos, art: m.art, plural: m.plural, cefr: m.cefr, meaning: m.meaning, phrase: m.phrase, note: m.note, tl: target };
-            const gram = (r.parsed && typeof r.parsed.g === "string") ? r.parsed.g.trim() : "";
+            const entry = faClean(target, { lemma: m.lemma, pos: m.pos, art: m.art, plural: m.plural, cefr: m.cefr, meaning: m.meaning, phrase: m.phrase, note: m.note, tl: target }, ENTRY_FA_KEYS);
+            const gram = target.startsWith("fa") ? SV_VOCAB.normalizeFa((r.parsed && r.parsed.g) || "").trim() : ((r.parsed && typeof r.parsed.g === "string") ? r.parsed.g.trim() : "");
             ce.e[wkey] = entry;
             ce.target = target;
             ce.at = Date.now();
@@ -1640,7 +1655,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 merged.forEach((m, j) => {
                   // tl = the meaning's language: De→Fa data is a different pair
                   // than De→En and must never masquerade as it.
-                  cached0.e[batch[j].w.toLowerCase()] = { lemma: m.lemma, pos: m.pos, art: m.art, plural: m.plural, cefr: m.cefr, meaning: m.meaning, phrase: m.phrase, note: m.note, tl: target };
+                  cached0.e[batch[j].w.toLowerCase()] = faClean(target, { lemma: m.lemma, pos: m.pos, art: m.art, plural: m.plural, cefr: m.cefr, meaning: m.meaning, phrase: m.phrase, note: m.note, tl: target }, ENTRY_FA_KEYS);
                 });
                 enriched += merged.length;
               } catch (e2) { lastErr = e2; }
@@ -1685,7 +1700,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 provider = r.provider; model = r.model;
                 if (r.usage) { inTok += r.usage.prompt_tokens || 0; outTok += r.usage.completion_tokens || 0; cacheR += r.usage.cache_r || 0; cacheW += r.usage.cache_w || 0; }
                 const merged = SV_VOCAB.mergeEnrichment(batch.map((b) => b.card), (r.parsed && r.parsed.e) || []);
-                for (let j = 0; j < batch.length; j++) { await idbVocabPut(batch[j].key, { ...merged[j], tl: target }); enriched++; }
+                for (let j = 0; j < batch.length; j++) { await idbVocabPut(batch[j].key, faClean(target, { ...merged[j], tl: target }, ENTRY_FA_KEYS)); enriched++; }
               } catch (e) { lastErr = e; }
             }
           }
