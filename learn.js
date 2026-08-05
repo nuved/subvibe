@@ -46,7 +46,10 @@ function renderToday() {
   const due = SV_LEITNER.dueCards(cards, Date.now());
   el("nDue").textContent = due.length ? `· ${due.length}` : "";
   el("dueBig").textContent = due.length;
-  el("dueSub").textContent = due.length === 1 ? "card due for review" : "cards due for review";
+  // An empty trainer needs a direction, not a zero: the words are in the Inbox.
+  el("dueSub").textContent = !cards.length
+    ? "no cards yet — promote words from the Inbox to start training"
+    : due.length === 1 ? "card due for review" : "cards due for review";
   el("startBtn").disabled = !due.length;
 }
 
@@ -146,8 +149,9 @@ function renderBoxes() {
 
 // ── Inbox ────────────────────────────────────────────────────────────────────
 function renderInbox() {
-  const totalWords = inbox.reduce((a, r) => a + r.words.length, 0);
-  el("nInbox").textContent = totalWords ? `· ${totalWords}` : "";
+  // Badge = videos with words waiting, not the raw word count (a talky cache
+  // reads five digits of words — meaningless at tab level).
+  el("nInbox").textContent = inbox.length ? `· ${inbox.length}` : "";
   const list = el("inboxList");
   list.textContent = "";
   if (!inbox.length) {
@@ -162,6 +166,7 @@ function renderInbox() {
     if (b.noTarget) reasons.push(tgLabel
       ? `${b.noTarget} ha${b.noTarget === 1 ? "s" : "ve"} no cached ${tgLabel} translation (watch them with your target language on to include them)`
       : `${b.noTarget} skipped because no target language is configured (Original mode)`);
+    if (b.natives) reasons.push(`${b.natives} ${b.natives === 1 ? "is" : "are"} in ${tgLabel} — a language you already read, nothing to learn`);
     if (b.noOrig) reasons.push(`${b.noOrig} predate${b.noOrig === 1 ? "s" : ""} the original-sentence field (2026-07-29)`);
     d.textContent = !b.clips
       ? "Nothing here yet — watch a subtitled video, then reopen this page."
@@ -200,8 +205,11 @@ function clipCard(row) {
 
   const head = document.createElement("div");
   head.className = "clip__head";
-  const title = document.createElement("div");
+  // Titled rows link to the video; rows cached without a title show the raw
+  // clip id — the link is how you find out which video that was.
+  const title = document.createElement(row.url ? "a" : "div");
   title.className = "clip__title";
+  if (row.url) { title.href = row.url; title.target = "_blank"; title.rel = "noopener"; }
   title.textContent = row.videoTitle;
   title.title = row.videoTitle;
   const lang = document.createElement("span");
