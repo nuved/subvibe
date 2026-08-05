@@ -117,6 +117,18 @@ test("mergeEnrichment: short array back-fills pos:'other', cefr:'?' — still en
   assert.equal(merged[1].cefr, "?");
 });
 
+test("rankLearnable: content words beat high-frequency filler", () => {
+  const ranked = V.rankLearnable([
+    { w: "going", n: 40 },        // frequent filler: 5 + 2*5 = 15
+    { w: "exaggerate", n: 2 },    // long content word: 10 + 2*2 = 14 … loses to going by 1
+    { w: "subsidies", n: 3 },     // 9 + 6 = 15, ties going → higher n wins for going
+    { w: "infrastructure", n: 2 } // 12 + 4 = 16 — content wins
+  ]);
+  assert.equal(ranked[0].w, "infrastructure");
+  // repetition still counts, but is capped: ×40 can't bury every long word
+  assert.ok(ranked.findIndex((e) => e.w === "exaggerate") <= 3);
+});
+
 test("pickClipTrack: a clip cached only in a non-target language is out of scope", () => {
   const rows = [{ tg: "en", cues: [{ o: "Der Hund.", text: "The dog." }] }];
   assert.equal(V.pickClipTrack(rows, ["fa"]), null);

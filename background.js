@@ -334,7 +334,11 @@ async function clipWordData(base, limit) {
   const known = new Set((await idbVocabList(lang + ":")).map((r) => r.key.slice(lang.length + 1)));
   const dismissed = new Set((((await idbVocabGet("dismissed:" + lang)) || {}).words) || []);
   // 3 samples per word: the popup's word-detail view shows real context lines.
-  const words = SV_VOCAB.extractInboxWords(sentences, lang, dismissed, known, 3).slice(0, limit || 25);
+  // The pool is cut by LEARNABILITY, not raw frequency — a 2-hour interview's
+  // most frequent words are filler; the vocabulary worth leveling is longer
+  // and rarer (rankLearnable). 150 deep so the tail actually makes the list.
+  const all = SV_VOCAB.extractInboxWords(sentences, lang, dismissed, known, 3);
+  const words = SV_VOCAB.rankLearnable(all).slice(0, limit || 150);
   return { words, lang, title: pick.row.title };
 }
 
@@ -1475,13 +1479,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           // extracted on demand from the cache — same scoping rules as the
           // inbox build, zero network. A cached clip enrichment (see
           // VOCAB_CLIP_ENRICH) rides along: meaning/level/article per word.
-          const data = await clipWordData(String(msg.base || ""), (msg.limit | 0) > 0 ? (msg.limit | 0) : 25);
+          const data = await clipWordData(String(msg.base || ""), (msg.limit | 0) > 0 ? (msg.limit | 0) : 150);
           if (data.words.length) {
             const ce = await idbVocabGet("clipenrich:" + msg.base);
             if (ce && ce.e) {
               for (const w of data.words) Object.assign(w, ce.e[w.w.toLowerCase()] || {});
               data.enriched = true;
             }
+            // How many pool words still lack a level — the enrich button's unit.
+            // A grown pool re-opens enrichment for a clip cached with fewer words.
+            data.enrichable = data.words.filter((w) => !w.cefr).length;
           }
           sendResponse(data);
           break;
@@ -1494,36 +1501,43 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           const base = String(msg.base || "");
           if (clipEnrichInFlight.has(base)) { sendResponse(await clipEnrichInFlight.get(base)); break; }
           const run = (async () => {
-            const cached0 = await idbVocabGet("clipenrich:" + base);
-            if (cached0) return { ok: true, cached: true };
-            const data = await clipWordData(base, ENRICH_BATCH);
+            // DELTA enrichment: only pool words the clip's cache doesn't cover
+            // yet — a first run does everything, a re-run after the pool grew
+            // (or a partial earlier run) levels just the missing words.
+            const data = await clipWordData(base, 150);
             if (!data.words.length) return { error: "no words to enrich for this video" };
+            const cached0 = (await idbVocabGet("clipenrich:" + base)) || { base, lang: data.lang, at: Date.now(), e: {} };
+            const todo = data.words.filter((w) => !cached0.e[w.w.toLowerCase()]);
+            if (!todo.length) return { ok: true, cached: true };
             const { targets: cfg2 } = await chrome.storage.local.get(["targets"]);
             const target = (Array.isArray(cfg2) && cfg2[0]) || "en";
             const started = Date.now();
-            try {
-              const r = await llmJSON(enrichPrompt(data.lang === "xx" ? "auto" : data.lang, target),
-                { words: data.words.map((w) => ({ w: w.w, s: (w.sentence || "").slice(0, 160) })) }, ENRICH_SCHEMA);
-              const merged = SV_VOCAB.mergeEnrichment(data.words.map((w) => ({ word: w.w })), (r.parsed && r.parsed.e) || []);
-              const e = {};
-              merged.forEach((m, i) => {
-                e[data.words[i].w.toLowerCase()] = { lemma: m.lemma, pos: m.pos, art: m.art, plural: m.plural, cefr: m.cefr, meaning: m.meaning, phrase: m.phrase, note: m.note };
-              });
-              await idbVocabPut("clipenrich:" + base, { base, lang: data.lang, target, at: Date.now(), e });
-              await logCall({ ts: started, site: "learn", title: "Words: " + (data.title || base), kind: "enrich", lines: data.words.length,
-                ms: Date.now() - started, inTok: (r.usage && r.usage.prompt_tokens) || 0, outTok: (r.usage && r.usage.completion_tokens) || 0,
-                cacheR: (r.usage && r.usage.cache_r) || 0, cacheW: (r.usage && r.usage.cache_w) || 0, ok: true, provider: r.provider, model: r.model });
-              return { ok: true, enriched: merged.length,
-                usd: SV_PRICING.estCost({ provider: r.provider, model: r.model,
-                  inTok: (r.usage && r.usage.prompt_tokens) || 0, outTok: (r.usage && r.usage.completion_tokens) || 0,
-                  cacheR: (r.usage && r.usage.cache_r) || 0, cacheW: (r.usage && r.usage.cache_w) || 0 }) };
-            } catch (e2) {
-              const { translationProvider } = await chrome.storage.local.get("translationProvider");
-              await logCall({ ts: started, site: "learn", title: "Words: " + (data.title || base), kind: "enrich", lines: data.words.length,
-                ms: Date.now() - started, inTok: 0, outTok: 0, ok: false, err: String((e2 && e2.message) || e2),
-                provider: translationProvider === "claude" ? "claude" : "openai" });
-              return { error: String((e2 && e2.message) || e2) };
+            let inTok = 0, outTok = 0, cacheR = 0, cacheW = 0, provider = null, model = null, enriched = 0, lastErr = null;
+            for (let i = 0; i < todo.length; i += ENRICH_BATCH) {
+              const batch = todo.slice(i, i + ENRICH_BATCH);
+              try {
+                const r = await llmJSON(enrichPrompt(data.lang === "xx" ? "auto" : data.lang, target),
+                  { words: batch.map((w) => ({ w: w.w, s: (w.sentence || "").slice(0, 160) })) }, ENRICH_SCHEMA);
+                provider = r.provider; model = r.model;
+                if (r.usage) { inTok += r.usage.prompt_tokens || 0; outTok += r.usage.completion_tokens || 0; cacheR += r.usage.cache_r || 0; cacheW += r.usage.cache_w || 0; }
+                const merged = SV_VOCAB.mergeEnrichment(batch.map((w) => ({ word: w.w })), (r.parsed && r.parsed.e) || []);
+                merged.forEach((m, j) => {
+                  cached0.e[batch[j].w.toLowerCase()] = { lemma: m.lemma, pos: m.pos, art: m.art, plural: m.plural, cefr: m.cefr, meaning: m.meaning, phrase: m.phrase, note: m.note };
+                });
+                enriched += merged.length;
+              } catch (e2) { lastErr = e2; }
             }
+            if (enriched) { cached0.target = target; cached0.at = Date.now(); await idbVocabPut("clipenrich:" + base, cached0); }
+            if (!provider) {
+              const { translationProvider } = await chrome.storage.local.get("translationProvider");
+              provider = translationProvider === "claude" ? "claude" : "openai";
+            }
+            await logCall({ ts: started, site: "learn", title: "Words: " + (data.title || base), kind: "enrich", lines: todo.length,
+              ms: Date.now() - started, inTok, outTok, cacheR, cacheW, ok: !lastErr,
+              err: lastErr ? String((lastErr && lastErr.message) || lastErr) : undefined, provider, model });
+            if (!enriched && lastErr) return { error: String((lastErr && lastErr.message) || lastErr) };
+            return { ok: true, enriched, failed: todo.length - enriched,
+              usd: SV_PRICING.estCost({ provider, model, inTok, outTok, cacheR, cacheW }) };
           })();
           clipEnrichInFlight.set(base, run);
           try { sendResponse(await run); } finally { clipEnrichInFlight.delete(base); }

@@ -1239,7 +1239,7 @@ function renderLearnWords() {
     foot.textContent = "Open a video with subtitles — its words show up here to learn from.";
     return;
   }
-  chrome.runtime.sendMessage({ type: "VOCAB_CLIP_WORDS", base: clipBase, limit: 50 }, (r) => {
+  chrome.runtime.sendMessage({ type: "VOCAB_CLIP_WORDS", base: clipBase, limit: 150 }, (r) => {
     if (chrome.runtime.lastError || !r) return;
     lnData = r;
     if (!r.words || !r.words.length) {
@@ -1253,18 +1253,20 @@ function renderLearnWords() {
       return;
     }
     lvls.hidden = !r.enriched; // level filter only means something once levels exist
-    if (!r.enriched) {
-      // Meaning + level come from ONE batched request, cached forever for this
-      // clip — price up front, never automatic (the SubVibe economy contract).
-      const nW = r.words.length;
+    if (r.enrichable) {
+      // Meaning + level come from batched requests (50 words each), cached
+      // forever for this clip — price up front, never automatic. Delta-aware:
+      // a clip enriched when the pool was smaller offers just the missing words.
+      const nW = r.enrichable;
+      const batches = Math.ceil(nW / 50);
       const usd = window.SV_PRICING.estCost({
         provider: state.translationProvider === "claude" ? "claude" : "openai",
         model: state.translationProvider === "claude" ? (state.claudeModel || "claude-sonnet-5") : "gpt-4o-mini",
-        inTok: nW * 35 + 260, outTok: nW * 45,
+        inTok: nW * 35 + batches * 260, outTok: nW * 45,
       });
       enrich.hidden = false;
       enrich.disabled = false;
-      enrich.textContent = `Translate & level these ${nW} words · ~$${usd < 0.005 ? usd.toFixed(4) : usd.toFixed(2)}`;
+      enrich.textContent = `Translate & level ${r.enriched ? nW + " more" : "these " + nW} words · ~$${usd < 0.005 ? usd.toFixed(4) : usd.toFixed(2)}`;
       enrich.onclick = () => {
         enrich.disabled = true;
         enrich.textContent = "Translating…";

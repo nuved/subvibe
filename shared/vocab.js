@@ -57,6 +57,15 @@
     return [...seen.values()].sort((a, b) => b.n - a.n);
   }
 
+  // Learnability ranking for a clip's word pool. Raw frequency favors filler
+  // ("going", "say" top every interview); content words are LONGER and still
+  // benefit from repetition. Score = capped length + capped repeat bonus —
+  // crude, but transparent and local. Returns a NEW sorted array.
+  function rankLearnable(entries) {
+    const score = (e) => Math.min(String(e.w).length, 12) + 2 * Math.min(e.n || 1, 5);
+    return (entries || []).slice().sort((a, b) => score(b) - score(a) || b.n - a.n || String(a.w).localeCompare(String(b.w)));
+  }
+
   // Enrichment merge: response entries (aligned to the request order) onto the
   // cards. Short/missing entries back-fill pos:"other", cefr:"?" so the word
   // reads visibly un-enriched and STAYS enrichable. Enum garbage is sanitized —
@@ -107,5 +116,5 @@
     return usable[0];
   }
 
-  g.SV_VOCAB = { tokenize, mergeCueSentences, extractInboxWords, mergeEnrichment, pickClipTrack };
+  g.SV_VOCAB = { tokenize, mergeCueSentences, extractInboxWords, rankLearnable, mergeEnrichment, pickClipTrack };
 })(globalThis);
