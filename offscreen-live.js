@@ -23,6 +23,7 @@ let lvLastActivityAt = 0;         // ts of the last heard/spoken audio — idle 
 const LV_IDLE_MS = 5 * 60 * 1000; // auto-stop after 5 min with nothing heard/spoken (video ended/paused)
 let lvChunksN = 0, lvIntsN = 0;   // audio chunks scheduled / server "interrupted" signals — playback forensics
 let lvIsTranslate = false;        // translate models have their own setup contract (translationConfig, no text)
+let lvRenewT = 0, lvRenewing = false; // GoAway-scheduled session renewal — close cleanly BEFORE Google's cutoff, reconnect silently
 let lvCfg = null; // {deviceId, target, model, key, sysAsContent}
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -177,6 +178,22 @@ function connectLive() {
       if (!lvStatsT) lvStatsT = setInterval(lvHeartbeat, 2000); // popup heartbeat + idle auto-stop
       return;
     }
+    if (ev.goAway) {
+      // Google announces the session-duration cap before enforcing it; a client
+      // that ignores this gets killed with 1008 ("failed to close after
+      // GoAway") and a visible error. Renew OURSELVES: close cleanly ~2s
+      // before the cutoff and reconnect at once. The capture pipe survives
+      // reconnects (startLivePipe reuses lvCtxIn), so the gap is one handshake.
+      const tl = String((ev.goAway && ev.goAway.timeLeft) || "");
+      const ms = Math.max(0, (parseFloat(tl) || 0) * (/ms$/.test(tl) ? 1 : 1000));
+      clearTimeout(lvRenewT);
+      lvRenewT = setTimeout(() => {
+        if (!lvRunning || ws !== lvWs) return;
+        lvRenewing = true;
+        try { lvWs.close(1000, "session renewal"); } catch {}
+      }, Math.max(0, ms - 2000));
+      return;
+    }
     if (ev.error) {
       const m = JSON.stringify(ev.error).slice(0, 220);
       // One-shot fallback for the systemInstruction shape (see onopen).
@@ -226,6 +243,14 @@ function connectLive() {
     clearTimeout(watchdog);
     if (lvClosing) return;
     if (!lvRunning) return;
+    if (lvRenewing) {
+      // Planned renewal (GoAway) — not a failure: no error banner, no backoff,
+      // no retry counting. Reconnect immediately; setupComplete clears the note.
+      lvRenewing = false;
+      lvState(true, null, "renewing session…");
+      connectLive();
+      return;
+    }
     // The server's close code + reason IS the diagnosis (Gemini names bad
     // model ids and rejected payloads in the close reason) — show it, never
     // swallow it. 1006 = the connection never opened / was refused (key,
@@ -385,6 +410,7 @@ function liveStop(reason) {
   const wasRunning = lvRunning;
   lvRunning = false;
   lvStarting = false;
+  clearTimeout(lvRenewT); lvRenewT = 0; lvRenewing = false;
   clearTimeout(lvFlushT);
   clearTimeout(lvPartialT); lvPartialT = 0;
   clearInterval(lvStatsT); lvStatsT = 0; lvStats = null; lvLastActivityAt = 0;
