@@ -374,6 +374,10 @@ async function renderEnrichBar() {
 
 // ── boot: build the inbox (free, local scan of the subtitle cache), then render ──
 (async () => {
+  // Deep links from the popup's Learn tab: learn.html#leitner / #inbox / #dict.
+  const want = (location.hash || "").slice(1);
+  const tab = document.querySelector(`.tab[data-tab="${CSS.escape(want)}"]`);
+  if (tab) tab.click();
   lastBuild = await send({ type: "VOCAB_INBOX_BUILD" });
   await refresh();
 })();

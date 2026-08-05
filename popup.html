@@ -36,6 +36,17 @@
       background: transparent; color: var(--text, #f9fafb); border-radius: 999px; padding: 5px 11px;
       font: 600 12px/1 inherit; cursor: pointer; white-space: nowrap; }
     .learnchip:hover { border-color: #6366f1; color: #818cf8; }
+    /* Learn tab (vocabulary trainer dashboard) */
+    .lnhero { display: flex; align-items: center; gap: 14px; margin: 2px 0 10px; }
+    .lnbig { font-size: 34px; font-weight: 800; line-height: 1; }
+    .lnreview { margin-left: auto; border: 0; border-radius: 10px; background: var(--accent); color: #fff;
+      font: 700 13px/1 inherit; padding: 10px 16px; cursor: pointer; }
+    .lnreview:disabled { opacity: .45; cursor: default; }
+    .lnboxes { display: flex; gap: 6px; }
+    .lnbox { flex: 1; text-align: center; background: rgba(255, 255, 255, .04); border: 1px solid var(--border);
+      border-radius: 9px; padding: 7px 0 5px; }
+    .lnbox b { display: block; font-size: 15px; }
+    .lnbox span { color: var(--muted); font-size: 10px; }
     /* The version line doubles as the tribute's door: park the mouse on it and
        the 2.5s color/glow transition IS the countdown — full mint = unlocked. */
     header .ver { color: var(--muted); font-size: 10px; margin: 1px 0 0; transition: color 2.5s ease, text-shadow 2.5s ease; }
@@ -338,6 +349,7 @@
     <button class="tab on" data-tab="dub">Dub</button>
     <button class="tab" data-tab="translate">Translate</button>
     <button class="tab" data-tab="style">Style</button>
+    <button class="tab" data-tab="learn">Learn</button>
     <button class="tab" data-tab="keys">Keys</button>
   </nav>
 
@@ -591,6 +603,31 @@
         <button id="syncReset" class="syncreset">↺ Reset to 0.00s</button>
       </div>
     </details>
+  </section>
+  </div>
+
+  <div class="pane" data-pane="learn" hidden>
+  <!-- Vocabulary trainer dashboard — the full experience lives on learn.html;
+       this tab shows the numbers and deep-links into it. -->
+  <section>
+    <div class="lbl">Leitner</div>
+    <div class="lnhero">
+      <div>
+        <div class="lnbig" id="lnDueBig">0</div>
+        <div class="hint" id="lnDueSub">cards due today</div>
+      </div>
+      <button class="lnreview" id="lnReview">Start review</button>
+    </div>
+    <div class="lnboxes" id="lnBoxes"></div>
+    <div class="hint" style="margin-top:6px;">Right moves a card up (1 · 2 · 4 · 8 · 16 days) — wrong sends it back to box 1.</div>
+  </section>
+  <section>
+    <div class="lbl">Inbox <button class="linkbtn" id="lnInboxOpen">Open</button></div>
+    <div class="hint" id="lnInboxStat">–</div>
+  </section>
+  <section>
+    <div class="lbl">Dictionary <button class="linkbtn" id="lnDictOpen">Open</button></div>
+    <div class="hint" id="lnDictStat">–</div>
   </section>
   </div>
 

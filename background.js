@@ -1383,8 +1383,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           break;
         }
         case "VOCAB_DUE_COUNT": {
-          const cards = (await idbVocabList("")).filter((r) => isCardKey(r.key)).map((r) => r.value);
-          sendResponse({ due: SV_LEITNER.dueCards(cards, Date.now()).length, total: cards.length });
+          // Also the popup Learn tab's dashboard feed: per-box counts, inbox
+          // totals, enrichment progress — one message, one store scan.
+          const rows = await idbVocabList("");
+          const cards = rows.filter((r) => isCardKey(r.key)).map((r) => r.value);
+          const boxes = [0, 0, 0, 0, 0];
+          for (const c of cards) boxes[Math.min(5, Math.max(1, c.box || 1)) - 1]++;
+          const inboxRows = rows.filter((r) => r.key.startsWith("inbox:")).map((r) => r.value).filter((v) => v && v.words && v.words.length);
+          sendResponse({
+            due: SV_LEITNER.dueCards(cards, Date.now()).length, total: cards.length, boxes,
+            enriched: cards.filter((c) => c.cefr && c.cefr !== "?").length,
+            inboxVideos: inboxRows.length,
+            inboxWords: inboxRows.reduce((a, v) => a + v.words.length, 0),
+          });
           break;
         }
         case "VOCAB_ENRICH": {

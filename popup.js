@@ -178,7 +178,7 @@ async function initFolds() {
 // ── tabs: Translate / Dub / Style. Header, scope bar and the This-video strip
 // stay visible above whichever tab is open; the choice persists like uiFold.
 // Live sits in the Translate tab; the Dub tab holds the collapsed spoken-dub fold.
-const TAB_NAMES = ["translate", "dub", "style", "keys"];
+const TAB_NAMES = ["translate", "dub", "style", "learn", "keys"];
 function selectTab(name) {
   for (const b of el("tabBar").children) b.classList.toggle("on", b.dataset.tab === name);
   for (const p of document.querySelectorAll(".pane")) p.hidden = p.dataset.pane !== name;
@@ -1120,12 +1120,41 @@ async function load() {
   el("dubDuckVal").textContent = el("dubDuck").value + "%";
   el("dubPace").value = Math.round((typeof state.dubPace === "number" ? state.dubPace : 1) * 100);
   el("dubPaceVal").textContent = (el("dubPace").value / 100).toFixed(2) + "×";
-  // 🎓 chip: due-count from the trainer; label "Learn" until the first card exists.
+  // 🎓 Learn: the header chip and the Learn tab's dashboard share one stats
+  // message. The full trainer lives on learn.html; each button deep-links to
+  // its tab there (#leitner / #inbox / #dict).
+  const openLearn = (hash) => chrome.tabs.create({ url: chrome.runtime.getURL("learn.html" + hash) });
+  el("learnChip").addEventListener("click", () => openLearn(""));
+  el("lnReview").addEventListener("click", () => openLearn("#leitner"));
+  el("lnInboxOpen").addEventListener("click", () => openLearn("#inbox"));
+  el("lnDictOpen").addEventListener("click", () => openLearn("#dict"));
   chrome.runtime.sendMessage({ type: "VOCAB_DUE_COUNT" }, (r) => {
     if (chrome.runtime.lastError || !r) return;
     el("learnDue").textContent = r.total ? `${r.due} due` : "Learn";
+    el("lnDueBig").textContent = r.due || 0;
+    el("lnDueSub").textContent = r.total
+      ? (r.due === 1 ? "card due today" : "cards due today")
+      : "no cards yet — promote words from the Inbox";
+    el("lnReview").disabled = !r.due;
+    const bx = el("lnBoxes");
+    bx.textContent = "";
+    (r.boxes || [0, 0, 0, 0, 0]).forEach((n, i) => {
+      const d = document.createElement("div");
+      d.className = "lnbox";
+      const b = document.createElement("b");
+      b.textContent = n;
+      const s = document.createElement("span");
+      s.textContent = "Box " + (i + 1);
+      d.append(b, s);
+      bx.appendChild(d);
+    });
+    el("lnInboxStat").textContent = r.inboxVideos
+      ? `${r.inboxVideos} video${r.inboxVideos === 1 ? "" : "s"} · ${r.inboxWords} new words waiting`
+      : "No new words waiting — watch a subtitled video.";
+    el("lnDictStat").textContent = r.total
+      ? `${r.total} word${r.total === 1 ? "" : "s"} · ${r.enriched || 0} enriched`
+      : "Empty — promote words, or click them on a video.";
   });
-  el("learnChip").addEventListener("click", () => chrome.tabs.create({ url: chrome.runtime.getURL("learn.html") }));
   pollDub();
   updateStyleUI();
   renderChips();
