@@ -1120,6 +1120,12 @@ async function load() {
   el("dubDuckVal").textContent = el("dubDuck").value + "%";
   el("dubPace").value = Math.round((typeof state.dubPace === "number" ? state.dubPace : 1) * 100);
   el("dubPaceVal").textContent = (el("dubPace").value / 100).toFixed(2) + "×";
+  // 🎓 chip: due-count from the trainer; label "Learn" until the first card exists.
+  chrome.runtime.sendMessage({ type: "VOCAB_DUE_COUNT" }, (r) => {
+    if (chrome.runtime.lastError || !r) return;
+    el("learnDue").textContent = r.total ? `${r.due} due` : "Learn";
+  });
+  el("learnChip").addEventListener("click", () => chrome.tabs.create({ url: chrome.runtime.getURL("learn.html") }));
   pollDub();
   updateStyleUI();
   renderChips();

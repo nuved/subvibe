@@ -32,6 +32,10 @@
     header img { width: 30px; height: 30px; border-radius: 8px; }
     header h1 { font-size: 15px; margin: 0; letter-spacing: .2px; }
     header .tag { color: var(--muted); font-size: 10.5px; margin: 1px 0 0; }
+    .learnchip { margin-left: auto; align-self: flex-start; border: 1px solid var(--border, #262f49);
+      background: transparent; color: var(--text, #f9fafb); border-radius: 999px; padding: 5px 11px;
+      font: 600 12px/1 inherit; cursor: pointer; white-space: nowrap; }
+    .learnchip:hover { border-color: #6366f1; color: #818cf8; }
     /* The version line doubles as the tribute's door: park the mouse on it and
        the 2.5s color/glow transition IS the countdown — full mint = unlocked. */
     header .ver { color: var(--muted); font-size: 10px; margin: 1px 0 0; transition: color 2.5s ease, text-shadow 2.5s ease; }
@@ -319,6 +323,7 @@
       <p class="tag">AI subtitles · in sync · cached free</p>
       <p class="ver" id="verTag"></p>
     </div>
+    <button id="learnChip" class="learnchip" title="Vocabulary trainer — review words you saved from videos">🎓 <span id="learnDue">Learn</span></button>
   </header>
 
   <!-- Scope: which video the language/appearance/timing settings below apply to -->
