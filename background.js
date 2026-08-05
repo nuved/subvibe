@@ -6,7 +6,7 @@
 // permission and is exempt). Everything is request/response over
 // chrome.runtime messaging.
 
-importScripts("shared/pricing.js"); // SV_PRICING — one cost model shared with Library/popup
+importScripts("shared/pricing.js", "shared/leitner.js", "shared/stopwords.js", "shared/vocab.js"); // SV_PRICING + SV_LEITNER + SV_STOPWORDS + SV_VOCAB — pure modules shared with pages and node tests
 
 const OPENAI_CHAT = "https://api.openai.com/v1/chat/completions";
 const TRANSLATE_MODEL = "gpt-4o-mini";
@@ -95,11 +95,12 @@ let _dbPromise = null;
 function db() {
   if (!_dbPromise) {
     _dbPromise = new Promise((resolve, reject) => {
-      const req = indexedDB.open("copilot-subs", 2);
+      const req = indexedDB.open("copilot-subs", 3);
       req.onupgradeneeded = () => {
         const d = req.result;
         if (!d.objectStoreNames.contains("tracks")) d.createObjectStore("tracks");
         if (!d.objectStoreNames.contains("audio")) d.createObjectStore("audio");
+        if (!d.objectStoreNames.contains("vocab")) d.createObjectStore("vocab"); // v3: Leitner trainer (cards + inbox + tombstones)
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
@@ -176,6 +177,124 @@ async function idbAudioDeletePrefix(prefix) {
     };
     store.transaction.onerror = () => resolve(n);
   });
+}
+
+// ─── vocab store (Leitner trainer; same DB, third object store) ──────────────
+// Keys share one store, split by prefix: cards `${lang}:${word}`, per-video
+// inbox rows `inbox:${base}`, dismissal tombstones `dismissed:${lang}`.
+
+async function idbVocabGet(key) {
+  const d = await db();
+  return new Promise((resolve, reject) => {
+    const r = d.transaction("vocab", "readonly").objectStore("vocab").get(key);
+    r.onsuccess = () => resolve(r.result || null);
+    r.onerror = () => reject(r.error);
+  });
+}
+
+async function idbVocabPut(key, value) {
+  const d = await db();
+  return new Promise((resolve, reject) => {
+    const r = d.transaction("vocab", "readwrite").objectStore("vocab").put(value, key);
+    r.onsuccess = () => resolve();
+    r.onerror = () => reject(r.error);
+  });
+}
+
+// All rows whose key starts with `prefix` ("" = the whole store) as {key, value}.
+async function idbVocabList(prefix) {
+  const d = await db();
+  return new Promise((resolve) => {
+    const store = d.transaction("vocab", "readonly").objectStore("vocab");
+    const out = [];
+    store.openCursor().onsuccess = (e) => {
+      const c = e.target.result;
+      if (!c) return resolve(out);
+      if (typeof c.key === "string" && c.key.startsWith(prefix)) out.push({ key: c.key, value: c.value });
+      c.continue();
+    };
+    store.transaction.onerror = () => resolve(out);
+  });
+}
+
+const isCardKey = (k) => !k.startsWith("inbox:") && !k.startsWith("dismissed:");
+
+// Upsert one card. Language: explicit > stopword-detected from the sentence >
+// "xx" bucket. A repeat save bumps the seen-count and fills gaps (sentence,
+// translation, title) but never resets the box or the enrichment.
+async function vocabAdd({ word, sentence, translation, lang, videoTitle, base, ms }) {
+  const clean = SV_VOCAB.tokenize(word)[0] || String(word || "").trim();
+  if (!clean) throw new Error("empty word");
+  const l = (lang || "").split("-")[0].toLowerCase() || SV_STOPWORDS.detect(SV_VOCAB.tokenize(sentence)) || "xx";
+  const key = `${l}:${clean.toLowerCase()}`;
+  const cur = await idbVocabGet(key);
+  const now = Date.now();
+  const card = cur ? {
+    ...cur, n: (cur.n || 1) + 1,
+    sentence: cur.sentence || sentence || "", sentenceT: cur.sentenceT || translation || "",
+    videoTitle: cur.videoTitle || videoTitle || "", base: cur.base || base || "", ms: cur.ms ?? ms ?? 0,
+  } : {
+    word: clean, lang: l, box: 1, nextDueAt: now, addedAt: now, lastGradedAt: 0,
+    sentence: sentence || "", sentenceT: translation || "", videoTitle: videoTitle || "", base: base || "", ms: ms || 0,
+    n: 1, lemma: null, pos: null, art: null, plural: null, cefr: null, meaning: null, phrase: null, note: null,
+    conj: null, history: [],
+  };
+  await idbVocabPut(key, card);
+  return { key, card };
+}
+
+// Build the FREE per-video inbox from the subtitle cache the worker already
+// owns — the engine has no harvest hook by design. Scans `tracks`, extracts
+// words per clip, writes `inbox:${base}` rows. Clips already inboxed are
+// skipped (their row IS the state); dismissed words and words already in the
+// trainer never re-appear. Zero network.
+async function vocabInboxBuild() {
+  const d = await db();
+  const rows = await new Promise((resolve) => { // full rows — idbList() drops cues
+    const store = d.transaction("tracks", "readonly").objectStore("tracks");
+    const out = [];
+    store.openCursor().onsuccess = (e) => {
+      const c = e.target.result;
+      if (!c) return resolve(out);
+      out.push({ key: String(c.key), t: c.value || {} });
+      c.continue();
+    };
+    store.transaction.onerror = () => resolve(out);
+  });
+  const vocabRows = await idbVocabList("");
+  const inboxed = new Set(), known = {}, dismissed = {};
+  for (const { key, value } of vocabRows) {
+    if (key.startsWith("inbox:")) inboxed.add(key);
+    else if (key.startsWith("dismissed:")) dismissed[key.slice(10)] = new Set(value.words || []);
+    else {
+      const lang = key.split(":")[0];
+      (known[lang] = known[lang] || new Set()).add(key.slice(lang.length + 1));
+    }
+  }
+  // Group cache rows by clip: keys are `${base}:auto:${target}` or `${base}:stream`.
+  // Keep the row with the most original text (rows predating the `o` field have none).
+  const withOrig = (t) => (t.cues || []).filter((c) => c.o || c.original).length;
+  const byBase = new Map();
+  for (const { key, t } of rows) {
+    const m = /^(.*):(?:auto:[^:]+|stream)$/.exec(key);
+    if (!m) continue;
+    if (!byBase.has(m[1]) || withOrig(t) > withOrig(byBase.get(m[1]))) byBase.set(m[1], t);
+  }
+  let built = 0;
+  for (const [base, t] of byBase) {
+    if (inboxed.has("inbox:" + base)) continue;
+    const sentences = (t.cues || [])
+      .map((c) => ({ o: c.o || c.original || "", t: c.text || (c.t && t.target && c.t[t.target]) || "" }))
+      .filter((s) => s.o);
+    if (!sentences.length) continue;
+    const lang = SV_STOPWORDS.detect(sentences.flatMap((s) => SV_VOCAB.tokenize(s.o)))
+      || (t.source && t.source !== "auto" ? t.source : "xx");
+    const words = SV_VOCAB.extractInboxWords(sentences, lang, dismissed[lang], known[lang]);
+    if (!words.length) continue;
+    await idbVocabPut("inbox:" + base, { base, lang, videoTitle: t.title || t.videoId || base, at: Date.now(), words });
+    built++;
+  }
+  return built;
 }
 
 async function idbList() {
@@ -1031,6 +1150,60 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           if (audioTabId != null) chrome.tabs.sendMessage(audioTabId, { type: "AUDIO_ERROR", error: msg.error }).catch(() => {});
           sendResponse({ ok: true });
           break;
+        // ── Vocabulary trainer (all local — capture/inbox/review cost nothing) ──
+        case "VOCAB_ADD":
+          sendResponse({ ok: true, ...(await vocabAdd(msg)) });
+          break;
+        case "VOCAB_LIST":
+          sendResponse({ cards: (await idbVocabList("")).filter((r) => isCardKey(r.key)).map((r) => ({ key: r.key, ...r.value })) });
+          break;
+        case "VOCAB_INBOX_LIST":
+          sendResponse({ inbox: (await idbVocabList("inbox:")).map((r) => r.value) });
+          break;
+        case "VOCAB_INBOX_BUILD":
+          sendResponse({ ok: true, built: await vocabInboxBuild() });
+          break;
+        case "VOCAB_PROMOTE": {
+          const row = await idbVocabGet("inbox:" + msg.base);
+          let promoted = 0;
+          if (row) {
+            const pick = new Set((msg.words || []).map((w) => String(w).toLowerCase()));
+            for (const e of (row.words || []).filter((e) => pick.has(e.w.toLowerCase()))) {
+              await vocabAdd({ word: e.w, sentence: e.sentence, translation: e.st || "", lang: row.lang, videoTitle: row.videoTitle, base: row.base, ms: 0 });
+              promoted++;
+            }
+            row.words = (row.words || []).filter((e) => !pick.has(e.w.toLowerCase()));
+            await idbVocabPut("inbox:" + msg.base, row);
+          }
+          sendResponse({ ok: true, promoted });
+          break;
+        }
+        case "VOCAB_DISMISS": {
+          const row = await idbVocabGet("inbox:" + msg.base);
+          if (row) {
+            const pick = new Set((msg.words || []).map((w) => String(w).toLowerCase()));
+            const tomb = new Set(((await idbVocabGet("dismissed:" + row.lang)) || {}).words || []);
+            for (const e of row.words || []) if (pick.has(e.w.toLowerCase())) tomb.add(e.w.toLowerCase());
+            await idbVocabPut("dismissed:" + row.lang, { words: [...tomb] }); // never re-inboxed
+            row.words = (row.words || []).filter((e) => !pick.has(e.w.toLowerCase()));
+            await idbVocabPut("inbox:" + msg.base, row);
+          }
+          sendResponse({ ok: true });
+          break;
+        }
+        case "VOCAB_GRADE": {
+          const cur = await idbVocabGet(msg.key);
+          if (!cur) { sendResponse({ error: "no such card: " + msg.key }); break; }
+          const card = SV_LEITNER.grade(cur, !!msg.ok, Date.now());
+          await idbVocabPut(msg.key, card);
+          sendResponse({ ok: true, card });
+          break;
+        }
+        case "VOCAB_DUE_COUNT": {
+          const cards = (await idbVocabList("")).filter((r) => isCardKey(r.key)).map((r) => r.value);
+          sendResponse({ due: SV_LEITNER.dueCards(cards, Date.now()).length, total: cards.length });
+          break;
+        }
         default:
           sendResponse({ error: "unknown message: " + (msg && msg.type) });
       }
