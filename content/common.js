@@ -1599,21 +1599,47 @@
     // learning", the meaning as a tooltip once the clip was enriched. Built
     // from the cache the worker already owns; zero network, zero cost.
     let vocabPool = null; // lowercased word → meaning ("" until enriched)
-    send({ type: "VOCAB_CLIP_WORDS", base, limit: 150 }).then((r) => {
-      if (r && Array.isArray(r.words) && r.words.length) {
-        vocabPool = new Map(r.words.map((x) => [x.w.toLowerCase(), x.meaning || ""]));
-      }
-    }).catch(() => {});
     const markLearnWords = (row) => {
       for (const sp of row.__svW.spans) {
         const lw = sp.textContent.toLowerCase().replace(/^[^\p{L}]+|[^\p{L}]+$/gu, "");
-        if (vocabPool.has(lw)) {
-          sp.classList.add("lw");
-          const m = vocabPool.get(lw);
-          if (m) sp.title = m;
-        }
+        if (vocabPool.has(lw)) sp.classList.add("lw");
       }
     };
+    send({ type: "VOCAB_CLIP_WORDS", base, limit: 150 }).then((r) => {
+      if (r && Array.isArray(r.words) && r.words.length) {
+        vocabPool = new Map(r.words.map((x) => [x.w.toLowerCase(), x.meaning || ""]));
+        // The line on screen rendered before the pool arrived — mark it now,
+        // not on the next cue change.
+        const orig = els.__orig;
+        if (orig && orig.__svW) markLearnWords(orig);
+      }
+    }).catch(() => {});
+    // Hovering a hinted word shows a REAL tooltip on the overlay — the native
+    // title attribute is delayed and unreliable over a video player. One bubble
+    // element, reused across engine runs.
+    let wtip = overlay.querySelector(".copilot-subs__wtip");
+    if (!wtip) {
+      wtip = document.createElement("div");
+      wtip.className = "copilot-subs__wtip";
+      overlay.appendChild(wtip);
+    }
+    stack.addEventListener("mouseover", (e) => {
+      const w = e.target && e.target.closest && e.target.closest(".copilot-subs__w.lw");
+      if (!w || !vocabPool) return;
+      const row = w.closest(".copilot-subs__line");
+      if (!row || row.dataset.csKey !== "__orig") return;
+      const lw = w.textContent.toLowerCase().replace(/^[^\p{L}]+|[^\p{L}]+$/gu, "");
+      const meaning = vocabPool.get(lw);
+      wtip.textContent = meaning || "no translation yet — Translate & level in the popup's Learn tab";
+      wtip.dir = "auto";
+      const or = overlay.getBoundingClientRect(), wr = w.getBoundingClientRect();
+      wtip.style.left = Math.round(wr.left + wr.width / 2 - or.left) + "px";
+      wtip.style.top = Math.round(wr.top - or.top) + "px";
+      wtip.classList.add("show");
+    }, true);
+    stack.addEventListener("mouseout", (e) => {
+      if (e.target && e.target.closest && e.target.closest(".copilot-subs__w.lw")) wtip.classList.remove("show");
+    }, true);
 
     cancelAnimationFrame(rafId);
     let diagAt = 0;

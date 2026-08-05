@@ -38,6 +38,9 @@
         else if (msg && msg.type === "CACHE_GET") r = { track: null };
         else if (msg && msg.type === "TRANSLATE") r = { lines: (msg.cues || []).map((s) => "EN·" + s) };
         else if (msg && msg.type === "VOCAB_ADD") { window.__vocabMsgs.push(msg); r = { ok: true, key: "de:x", card: {} }; }
+        else if (msg && msg.type === "VOCAB_CLIP_WORDS") r = { enriched: true, lang: "de", title: "t", words: [
+          { w: "Hund", n: 1, sentence: "", st: "", meaning: "سگ" },   // enriched → tooltip shows the meaning
+          { w: "Straße", n: 1, sentence: "", st: "" } ] };            // pool word without meaning → hinted, honest tooltip
         if (cb) setTimeout(() => cb(r), 20);
       },
     },

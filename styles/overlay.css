@@ -235,6 +235,27 @@
   text-underline-offset: 0.18em;
 }
 
+/* Hover tooltip for hinted words: a fixed-size bubble anchored above the word
+   (never em-scaled with the subtitles — it's UI, not caption). */
+#copilot-subs .copilot-subs__wtip {
+  position: absolute;
+  display: none;
+  transform: translate(-50%, calc(-100% - 9px));
+  max-width: 340px;
+  padding: 5px 12px;
+  background: rgba(8, 10, 14, 0.94);
+  color: #ffe9b8;
+  font: 600 14px/1.45 -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  border: 1px solid rgba(255, 212, 121, 0.35);
+  border-radius: 9px;
+  pointer-events: none;
+  white-space: normal;
+  text-align: center;
+  unicode-bidi: isolate;
+  z-index: 6;
+}
+#copilot-subs .copilot-subs__wtip.show { display: block; }
+
 /* Click-to-save (vocabulary trainer): original-line karaoke words are save
    targets — pointer cursor, and a brief green pulse confirms the save. */
 #copilot-subs .copilot-subs__line--orig .copilot-subs__w { cursor: pointer; }

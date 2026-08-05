@@ -56,6 +56,17 @@
     await new Promise((r) => setTimeout(r, 100));
     check("a drag does not save", window.__vocabMsgs.length === 1, window.__vocabMsgs.length + " msgs");
 
+    // Learn-pool hints: "Hund" is in the stubbed pool → dotted underline (.lw),
+    // hover → overlay tooltip with the meaning, mouseout hides it.
+    check("pool word carries the .lw hint", !!(w && w.classList.contains("lw")), w && w.className);
+    if (w) w.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 50));
+    const tip = document.querySelector(".copilot-subs__wtip");
+    check("hover shows the overlay tooltip with the meaning", !!(tip && tip.classList.contains("show") && tip.textContent === "سگ"), tip && tip.textContent);
+    if (w) w.dispatchEvent(new MouseEvent("mouseout", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 50));
+    check("mouseout hides the tooltip", !!(tip && !tip.classList.contains("show")), tip && tip.className);
+
     const passed = results.filter((r) => r.ok).length;
     document.title = (passed === results.length ? "PASS " : "FAIL ") + passed + "/" + results.length;
     const out = document.createElement("pre");
