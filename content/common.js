@@ -1639,7 +1639,7 @@
     send({ type: "VOCAB_CLIP_WORDS", base, limit: 150 }).then((r) => {
       if (r && Array.isArray(r.words) && r.words.length) {
         vocabPoolLang = r.lang || "xx";
-        vocabPool = new Map(r.words.map((x) => [x.w.toLowerCase(), x.meaning || ""]));
+        vocabPool = new Map(r.words.map((x) => [x.w.toLowerCase(), x])); // full entries — the tooltip card shows lemma/article/level/phrase too
         // The line on screen rendered before the pool arrived — mark it now,
         // not on the next cue change.
         const orig = els.__orig;
@@ -1657,8 +1657,37 @@
     }
     const wtipFetching = new Set(); // words already being looked up
     let wtipTimer = 0;
-    const placeWtip = (w, text) => {
-      wtip.textContent = text;
+    // A string = status text; an entry object = the mini dictionary card:
+    // "der Verzicht · pl. Verzichte · noun · B2" / meaning / „example phrase“.
+    const placeWtip = (w, content) => {
+      wtip.textContent = "";
+      if (typeof content === "string") {
+        wtip.textContent = content;
+      } else {
+        const bits = [];
+        if (content.art && content.lemma) bits.push(`${content.art} ${content.lemma}`);
+        else if (content.lemma) bits.push(content.lemma);
+        if (content.plural) bits.push("pl. " + content.plural);
+        if (content.pos && content.pos !== "other") bits.push(content.pos);
+        if (content.cefr && content.cefr !== "?") bits.push(content.cefr);
+        if (bits.length) {
+          const head = document.createElement("div");
+          head.className = "wt-head";
+          head.textContent = bits.join(" · ");
+          wtip.appendChild(head);
+        }
+        const mean = document.createElement("div");
+        mean.className = "wt-mean";
+        mean.dir = "auto";
+        mean.textContent = content.meaning || "—";
+        wtip.appendChild(mean);
+        if (content.phrase) {
+          const p = document.createElement("div");
+          p.className = "wt-phrase";
+          p.textContent = "„" + content.phrase + "“";
+          wtip.appendChild(p);
+        }
+      }
       wtip.dir = "auto";
       const or = overlay.getBoundingClientRect(), wr = w.getBoundingClientRect();
       // Show first (display:none boxes measure 0), then clamp the center into
@@ -1677,8 +1706,8 @@
       const surface = w.textContent.replace(/^[^\p{L}]+|[^\p{L}]+$/gu, "");
       const lw = surface.toLowerCase();
       wtip._word = lw;
-      const meaning = vocabPool.get(lw);
-      if (meaning) { placeWtip(w, meaning); return; }
+      const entry = vocabPool.get(lw);
+      if (entry && entry.meaning) { placeWtip(w, entry); return; }
       // No meaning cached: a LINGERING hover (350ms = intent, not a sweep) is
       // the user's request — fetch this one word on demand, cache it forever.
       placeWtip(w, "…");
@@ -1691,10 +1720,11 @@
         send({ type: "VOCAB_WORD_ENRICH", base, w: surface, lang: vocabPoolLang, s: row.textContent })
           .then((r) => {
             wtipFetching.delete(lw);
-            const m = r && r.e && r.e.meaning;
-            if (m) vocabPool.set(lw, m);
+            const e2 = r && r.e;
+            if (e2 && e2.meaning) vocabPool.set(lw, { ...(vocabPool.get(lw) || {}), ...e2 });
             if (wtip._word === lw && wtip.classList.contains("show")) {
-              wtip.textContent = m || ((r && r.error) ? "couldn't translate — check the provider key in the popup" : "no meaning returned");
+              if (e2 && e2.meaning) placeWtip(w, vocabPool.get(lw));
+              else placeWtip(w, (r && r.error) ? "couldn't translate — check the provider key in the popup" : "no meaning returned");
             }
           });
       }, 350);

@@ -261,6 +261,9 @@
   z-index: 6;
 }
 #copilot-subs .copilot-subs__wtip.show { display: block; }
+#copilot-subs .copilot-subs__wtip .wt-head { color: rgba(255, 233, 184, 0.75); font-size: 11.5px; font-weight: 600; margin-bottom: 2px; }
+#copilot-subs .copilot-subs__wtip .wt-mean { font-size: 15px; font-weight: 650; }
+#copilot-subs .copilot-subs__wtip .wt-phrase { color: rgba(255, 233, 184, 0.7); font-size: 11.5px; font-style: italic; margin-top: 3px; }
 
 /* Click-to-save (vocabulary trainer): original-line karaoke words are save
    targets — pointer cursor, and a brief green pulse confirms the save. */

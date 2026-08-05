@@ -72,7 +72,7 @@
     const w2 = spans.find((s) => /Straße/.test(s.textContent));
     if (w2) w2.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
     await new Promise((r) => setTimeout(r, 650));
-    check("lingering hover fetches the missing meaning on demand", !!(tip && tip.classList.contains("show") && tip.textContent === "خیابان"), tip && tip.textContent);
+    check("lingering hover fetches the missing meaning on demand (card shows type+level too)", !!(tip && tip.classList.contains("show") && tip.textContent.includes("خیابان") && tip.textContent.includes("A1")), tip && tip.textContent);
 
     const passed = results.filter((r) => r.ok).length;
     document.title = (passed === results.length ? "PASS " : "FAIL ") + passed + "/" + results.length;
