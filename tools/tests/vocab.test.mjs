@@ -26,6 +26,14 @@ test("detect: German sentence → de, English → en, name soup → null", () =>
   assert.equal(S.detect([]), null);
 });
 
+test("detect: Persian sentence → fa (the native-clip skip depends on this)", () => {
+  assert.equal(S.detect(V.tokenize("اینجا شلوغ میشه و شاید سخت باشه ویدیو ریکورد کردن")), "fa");
+});
+
+test("tokenize: ZWNJ keeps a Persian compound as ONE token", () => {
+  assert.deepEqual(V.tokenize("می‌شه"), ["می‌شه"]);
+});
+
 test("extractInboxWords: stopwords filtered, counts accumulate, FIRST sentence kept", () => {
   const sentences = [
     { o: "Der Hund läuft schnell.", t: "The dog runs fast." },

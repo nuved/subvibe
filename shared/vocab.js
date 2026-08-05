@@ -2,9 +2,10 @@
 // node-testable; globalThis pattern). Load shared/stopwords.js first.
 (function (g) {
   // Unicode-aware tokenizer: letter runs incl. umlauts/ß, keeping in-word
-  // apostrophes and hyphens ("geht's", "U-Bahn"). Numbers never tokenize.
+  // apostrophes, hyphens AND the Persian ZWNJ joiner ("geht's", "U-Bahn",
+  // "می‌شه" stays ONE token). Numbers never tokenize.
   function tokenize(text) {
-    return String(text || "").match(/\p{L}+(?:['’-]\p{L}+)*/gu) || [];
+    return String(text || "").match(/\p{L}+(?:['’‌-]\p{L}+)*/gu) || [];
   }
 
   // One clip's sentences → inbox words: unique non-stopword words with a seen

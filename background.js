@@ -240,6 +240,15 @@ async function idbVocabPut(key, value) {
   });
 }
 
+async function idbVocabDelete(key) {
+  const d = await db();
+  return new Promise((resolve, reject) => {
+    const r = d.transaction("vocab", "readwrite").objectStore("vocab").delete(key);
+    r.onsuccess = () => resolve();
+    r.onerror = () => reject(r.error);
+  });
+}
+
 // All rows whose key starts with `prefix` ("" = the whole store) as {key, value}.
 async function idbVocabList(prefix) {
   const d = await db();
@@ -319,7 +328,7 @@ async function vocabInboxBuild() {
     if (m) tg = m[2];
     else { m = /^(.*):stream$/.exec(key); if (!m) continue; }
     if (!byBase.has(m[1])) byBase.set(m[1], []);
-    byBase.get(m[1]).push({ tg, cues: t.cues || [], title: t.title || t.videoId || m[1], source: t.source });
+    byBase.get(m[1]).push({ tg, cues: t.cues || [], title: t.title || t.videoId || m[1], source: t.source, url: t.url || "" });
   }
   // The trainer is scoped to the user's TARGET languages: a clip only feeds the
   // inbox from a track translated into one of them (primary preferred), so its
@@ -329,7 +338,16 @@ async function vocabInboxBuild() {
   // shipped (2026-07-29, no original text).
   const { targets: cfgTargets } = await chrome.storage.local.get(["targets"]);
   const targets = Array.isArray(cfgTargets) && cfgTargets.length ? cfgTargets : [];
-  let built = 0, noOrig = 0, noTarget = 0;
+  // Heal rows built before the native-language rule: an inbox row whose
+  // ORIGINAL language is one of the user's targets holds words they already
+  // speak — delete it so the loop below re-evaluates (and skips) the clip.
+  for (const { key, value } of vocabRows) {
+    if (key.startsWith("inbox:") && value && targets.includes(value.lang)) {
+      await idbVocabDelete(key);
+      inboxed.delete(key);
+    }
+  }
+  let built = 0, noOrig = 0, noTarget = 0, natives = 0;
   for (const [base, trRows] of byBase) {
     if (inboxed.has("inbox:" + base)) continue;
     const pick = SV_VOCAB.pickClipTrack(trRows, targets);
@@ -340,12 +358,15 @@ async function vocabInboxBuild() {
       .filter((s) => s.o);
     const lang = SV_STOPWORDS.detect(sentences.flatMap((s) => SV_VOCAB.tokenize(s.o)))
       || (pick.row.source && pick.row.source !== "auto" ? pick.row.source : "xx");
+    // The learning direction is original → target: a clip whose ORIGINAL is a
+    // language the user already reads (their target) has nothing to teach.
+    if (targets.includes(lang)) { natives++; continue; }
     const words = SV_VOCAB.extractInboxWords(sentences, lang, dismissed[lang], known[lang]);
     if (!words.length) continue;
-    await idbVocabPut("inbox:" + base, { base, lang, videoTitle: pick.row.title, at: Date.now(), words });
+    await idbVocabPut("inbox:" + base, { base, lang, videoTitle: pick.row.title, url: pick.row.url, at: Date.now(), words });
     built++;
   }
-  return { built, clips: byBase.size, noOrig, noTarget, targets };
+  return { built, clips: byBase.size, noOrig, noTarget, natives, targets };
 }
 
 async function idbList() {

@@ -26,7 +26,15 @@
     "those out up down more less much many few little good well just than too own same other another such both " +
     "between because while during before once really actually maybe okay oh yeah right let lets us").split(" ");
 
-  const SETS = { de: new Set(DE), en: new Set(EN) };
+  const FA = ("از به با که در را و یا اما اگر چون تا هم نه بله آره من تو او ما شما این آن اینجا آنجا حالا الان " +
+    "امروز فردا دیروز همیشه هرگز باز دوباره خیلی کم بیشتر کمتر خوب بد بالا پایین چپ راست هست نیست بود نبود " +
+    "هستم هستی هستیم هستند شد میشه می‌شه میشد شده باشه باشد بشه بشود کن کنم کنی کنیم کنید کنند کرد کردم کردی " +
+    "کردیم کردند کردن داره دارم داری داریم دارید دارند داشت داشتم گفت گفتم میگم می‌گم میگه می‌گه بگو برو بیا " +
+    "رفت اومد اومدم میره می‌ره میاد می‌آد چی چه چرا کی کجا چطور چند یه یک دو سه واسه برای روی توی بین بدون " +
+    "درباره بعد قبل پیش زیر شاید حتما البته یعنی فقط همین همون دیگه دیگر خب پس ولی اون وقتی چیز چیزی کس کسی " +
+    "هیچ همه هر خودم خودت خودش بهش بهم ازش باهاش اینو اونو رو").split(" ");
+
+  const SETS = { de: new Set(DE), en: new Set(EN), fa: new Set(FA) };
 
   // Stopword set for a language — EMPTY for languages without a list, so every
   // word passes through (the spec's "other languages pass through").
@@ -36,17 +44,17 @@
 
   // Guess a token stream's language from stopword hit-rates. Function words are
   // >25% of natural text; 8% is a safe floor that still rejects name soups.
+  // Ties keep the SETS declaration order (de before en, as before fa existed).
   function detect(words) {
     const n = (words || []).length;
     if (!n) return null;
-    let de = 0, en = 0;
-    for (const w of words) {
-      const lw = String(w).toLowerCase();
-      if (SETS.de.has(lw)) de++;
-      if (SETS.en.has(lw)) en++;
+    let best = null, bestHits = 0;
+    for (const k in SETS) {
+      let hits = 0;
+      for (const w of words) if (SETS[k].has(String(w).toLowerCase())) hits++;
+      if (hits > bestHits) { best = k; bestHits = hits; }
     }
-    if (de / n < 0.08 && en / n < 0.08) return null;
-    return de >= en ? "de" : "en";
+    return bestHits / n >= 0.08 ? best : null;
   }
 
   g.SV_STOPWORDS = { set, detect };
