@@ -137,5 +137,46 @@
     return usable[0];
   }
 
-  g.SV_VOCAB = { tokenize, mergeCueSentences, parseLooseJSON, normalizeFa, extractInboxWords, rankLearnable, mergeEnrichment, pickClipTrack };
+  // Append one save-context to a card's capped `contexts` list (the cross-video
+  // history: every video a word was saved from, with that video's sentence).
+  // Deduped by base+sentence; keeps the most recent `cap` (default 6) so a heavy
+  // learner's IndexedDB never bloats. Returns a NEW array; never mutates input.
+  function appendContext(contexts, ctx, cap) {
+    const CAP = cap || 6;
+    const list = Array.isArray(contexts) ? contexts.slice() : [];
+    if (!ctx || !ctx.sentence) return list.slice(-CAP);
+    if (list.some((c) => c.base === ctx.base && c.sentence === ctx.sentence)) return list.slice(-CAP);
+    list.push(ctx);
+    return list.slice(-CAP);
+  }
+
+  // Cross-video sightings: for each pool word, how many OTHER videos' inboxes
+  // already contain it (the "seen N× before" signal) plus a few of those
+  // sentences (the "other videos" accordion). Reads the inbox rows the worker
+  // already owns — no new store. Annotates each word with `seenCount` (distinct
+  // other videos) and `seen: [{base, videoTitle, sentence, st, ms}]` (capped),
+  // and returns the same array. Matching is by surface form (inflected forms
+  // across videos don't merge — a deliberate v1 simplification).
+  function crossVideoSightings(words, inboxRows, currentBase, cap) {
+    const CAP = cap || 3;
+    const byWord = new Map(); // lowercased surface → [sighting]
+    for (const row of inboxRows || []) {
+      if (!row || row.base === currentBase) continue; // only OTHER videos
+      for (const w of row.words || []) {
+        const lw = String(w.w || "").toLowerCase();
+        if (!lw) continue;
+        let arr = byWord.get(lw);
+        if (!arr) { arr = []; byWord.set(lw, arr); }
+        arr.push({ base: row.base, videoTitle: row.videoTitle || "", sentence: w.sentence || "", st: w.st || "", ms: w.ms || 0 });
+      }
+    }
+    for (const w of words || []) {
+      const arr = byWord.get(String(w.w || "").toLowerCase()) || [];
+      w.seenCount = arr.length;   // distinct OTHER videos this word appeared in
+      w.seen = arr.slice(0, CAP); // a few example contexts for the accordion
+    }
+    return words;
+  }
+
+  g.SV_VOCAB = { tokenize, mergeCueSentences, parseLooseJSON, normalizeFa, extractInboxWords, rankLearnable, mergeEnrichment, pickClipTrack, appendContext, crossVideoSightings };
 })(globalThis);

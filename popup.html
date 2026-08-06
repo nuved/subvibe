@@ -53,6 +53,17 @@
     .lnw .phrase { color: var(--muted); font-style: italic; font-size: 11.5px; margin-top: 3px; }
     .lnw .sample { margin-top: 4px; }
     .lnw .note { color: var(--muted); font-size: 11px; margin-top: 4px; }
+    /* Cross-video history: "seen N×" badge + a collapsed "other videos" list. */
+    .lnw .seenb { flex: none; border-radius: 5px; padding: 0 5px; font-size: 9.5px; font-weight: 700;
+      color: #c4b5fd; background: rgba(124, 92, 231, 0.18); }
+    .lnw .ctxtoggle { margin-top: 6px; border: 0; background: transparent; color: #818cf8; cursor: pointer;
+      font-size: 11px; font-weight: 600; padding: 2px 0; }
+    .lnw .ctxtoggle::before { content: "▸ "; }
+    .lnw .ctxtoggle.open::before { content: "▾ "; }
+    .lnw .ctxlist { display: none; margin-top: 2px; padding-left: 7px; border-left: 2px solid rgba(124, 92, 231, 0.3); }
+    .lnw .ctxlist.open { display: block; }
+    .lnw .ctxvid { display: block; color: var(--muted); font-size: 10px; margin-bottom: 1px; overflow: hidden;
+      text-overflow: ellipsis; white-space: nowrap; }
     .lnadd { margin-top: 8px; border: 0; border-radius: 8px; background: var(--accent); color: #fff;
       font: 700 11.5px/1 inherit; padding: 7px 12px; cursor: pointer; }
     .lnadd:disabled { opacity: .6; cursor: default; }

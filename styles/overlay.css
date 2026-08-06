@@ -230,13 +230,28 @@
   }
 }
 
-/* Learn-pool hint: a word from this clip's trainer pool carries a dotted gold
+/* Learn-pool hint: a word from this clip's trainer pool carries a dotted
    underline in the original line (hover = meaning once enriched) — the
-   trainer's hints, directly on the video. */
+   trainer's hints, directly on the video. Gold is the default; a known CEFR
+   level recolors it (see below). */
 #copilot-subs .copilot-subs__w.lw {
   text-decoration: underline dotted rgba(255, 212, 121, 0.75);
   text-underline-offset: 0.18em;
 }
+
+/* CEFR-graded underline: difficulty reads at a glance — A green, B blue, C
+   warm/red. Unleveled pool words keep the gold default above. */
+#copilot-subs .copilot-subs__w.lw[data-cefr="A1"] { text-decoration-color: rgba(122, 226, 138, 0.9); }
+#copilot-subs .copilot-subs__w.lw[data-cefr="A2"] { text-decoration-color: rgba(182, 224, 122, 0.9); }
+#copilot-subs .copilot-subs__w.lw[data-cefr="B1"] { text-decoration-color: rgba(122, 197, 255, 0.9); }
+#copilot-subs .copilot-subs__w.lw[data-cefr="B2"] { text-decoration-color: rgba(122, 150, 255, 0.9); }
+#copilot-subs .copilot-subs__w.lw[data-cefr="C1"] { text-decoration-color: rgba(255, 179, 106, 0.95); }
+#copilot-subs .copilot-subs__w.lw[data-cefr="C2"] { text-decoration-color: rgba(255, 122, 122, 0.95); }
+
+/* Smart lightener: words you've already learned (a high Leitner box) or
+   dismissed drop to 40% so the eye lands on what's new. .sung still colors them
+   as the karaoke sweep passes, so a dimmed word never disappears mid-line. */
+#copilot-subs .copilot-subs__line--orig .copilot-subs__w.known { opacity: 0.4; }
 
 /* Hover tooltip for hinted words: a fixed-size bubble anchored above the word
    (never em-scaled with the subtitles — it's UI, not caption). */
@@ -267,8 +282,22 @@
 #copilot-subs .copilot-subs__wtip .wt-gram { color: rgba(207, 216, 234, 0.85); font-size: 11.5px; margin-top: 4px;
   border-top: 1px solid rgba(255, 212, 121, 0.18); padding-top: 4px; }
 
-/* Click-to-save (vocabulary trainer): original-line karaoke words are save
-   targets — pointer cursor, and a brief green pulse confirms the save. */
+/* Pinned word card (click): pointer-events on so the Save/close buttons work
+   over the player; a bolder headword and an actions row set it apart from the
+   transient hover bubble. */
+#copilot-subs .copilot-subs__wtip.pinned { pointer-events: auto; border-color: rgba(255, 212, 121, 0.55); }
+#copilot-subs .copilot-subs__wtip .wt-word { font-size: 16px; font-weight: 700; color: #fff4d6; margin-bottom: 2px; }
+#copilot-subs .copilot-subs__wtip .wt-actions { display: flex; gap: 6px; align-items: center; justify-content: center; margin-top: 7px; }
+#copilot-subs .copilot-subs__wtip .wt-save { flex: 1; padding: 5px 10px; border: 0; border-radius: 7px; background: #6c5ce7; color: #fff;
+  font: 600 12px/1.3 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; cursor: pointer; }
+#copilot-subs .copilot-subs__wtip .wt-save:hover { background: #5a4bd4; }
+#copilot-subs .copilot-subs__wtip .wt-save:disabled { background: rgba(124, 252, 154, 0.22); color: #7cfc9a; cursor: default; }
+#copilot-subs .copilot-subs__wtip .wt-close { width: 24px; height: 24px; padding: 0; border: 0; border-radius: 7px;
+  background: rgba(255, 255, 255, 0.1); color: #ffe9b8; font-size: 16px; line-height: 1; cursor: pointer; }
+#copilot-subs .copilot-subs__wtip .wt-close:hover { background: rgba(255, 255, 255, 0.2); }
+
+/* Original-line words are clickable — a click opens the word card (pointer
+   cursor). The .saved pulse below is kept for any optimistic save confirmation. */
 #copilot-subs .copilot-subs__line--orig .copilot-subs__w { cursor: pointer; }
 @keyframes cs-saved-pulse {
   0% { transform: scale(1); }

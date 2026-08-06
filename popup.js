@@ -1178,6 +1178,14 @@ function lnWordRow(w, r) {
     mn.textContent = w.meaning;
     top.appendChild(mn);
   }
+  if (w.seenCount > 0) {
+    // This word already turned up in other videos you've watched.
+    const sb = document.createElement("span");
+    sb.className = "seenb";
+    sb.textContent = "seen " + w.seenCount + "×";
+    sb.title = "Also in " + w.seenCount + " other video" + (w.seenCount === 1 ? "" : "s") + " you've watched";
+    top.appendChild(sb);
+  }
   if (typeof w.ms === "number" && w.ms > 0) {
     // Jump chip: seek the video 1s before the word — listen, pause, shadow.
     const t = document.createElement("span");
@@ -1247,6 +1255,37 @@ function lnWordDetail(w, r, row, nEl) {
       wrap.appendChild(fa);
     }
     d.appendChild(wrap);
+  }
+  // Other videos this word appeared in — collapsed by default so the current
+  // video's context stays the focus; the toggle expands the past sentences.
+  if (w.seen && w.seen.length) {
+    const toggle = document.createElement("button");
+    toggle.className = "ctxtoggle";
+    toggle.textContent = "other videos (" + (w.seenCount || w.seen.length) + ")";
+    const list = document.createElement("div");
+    list.className = "ctxlist";
+    for (const s of w.seen) {
+      const wrap = document.createElement("div");
+      wrap.className = "sample ctx";
+      if (s.videoTitle) {
+        const vt = document.createElement("span");
+        vt.className = "ctxvid";
+        vt.textContent = s.videoTitle;
+        wrap.appendChild(vt);
+      }
+      wrap.appendChild(lnSentence(s.sentence, w.w));
+      if (s.st) {
+        const fa = document.createElement("span");
+        fa.className = "fa";
+        fa.dir = "auto";
+        fa.textContent = s.st;
+        wrap.appendChild(fa);
+      }
+      list.appendChild(wrap);
+    }
+    toggle.addEventListener("click", (e) => { e.stopPropagation(); toggle.classList.toggle("open"); list.classList.toggle("open"); });
+    d.appendChild(toggle);
+    d.appendChild(list);
   }
   if (w.note) {
     const nt = document.createElement("div");

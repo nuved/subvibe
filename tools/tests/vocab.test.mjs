@@ -193,3 +193,37 @@ test("mergeEnrichment: garbage enums are sanitized, never stored raw", () => {
   assert.equal(m.art, null);
   assert.equal(m.cefr, "?");
 });
+
+test("appendContext: dedupes by base+sentence and caps to the most recent N", () => {
+  let ctx = V.appendContext([], { base: "v1", sentence: "one" });
+  assert.equal(ctx.length, 1);
+  ctx = V.appendContext(ctx, { base: "v1", sentence: "one" }); // exact dupe → no growth
+  assert.equal(ctx.length, 1);
+  ctx = V.appendContext(ctx, { base: "v2", sentence: "one" }); // same sentence, other video → kept
+  assert.equal(ctx.length, 2);
+  ctx = V.appendContext(ctx, { base: "v1", sentence: "" });   // empty sentence → ignored
+  assert.equal(ctx.length, 2);
+  // Cap: fill past the cap, oldest drops.
+  let big = [];
+  for (let i = 0; i < 10; i++) big = V.appendContext(big, { base: "v" + i, sentence: "s" + i }, 3);
+  assert.equal(big.length, 3);
+  assert.deepEqual(big.map((c) => c.base), ["v7", "v8", "v9"]);
+});
+
+test("crossVideoSightings: counts OTHER videos and collects their sentences (excludes current)", () => {
+  const inbox = [
+    { base: "cur", videoTitle: "This one", words: [{ w: "dedicated", sentence: "here now" }] },
+    { base: "v1", videoTitle: "GTC 2010", words: [{ w: "Dedicated", sentence: "s1", st: "فا1", ms: 5 }, { w: "other", sentence: "x" }] },
+    { base: "v2", videoTitle: "Tech Talk", words: [{ w: "dedicated", sentence: "s2", st: "فا2" }] },
+    { base: "v3", videoTitle: "Third", words: [{ w: "dedicated", sentence: "s3" }] },
+  ];
+  const words = [{ w: "dedicated" }, { w: "unseen" }];
+  V.crossVideoSightings(words, inbox, "cur", 2);
+  const ded = words[0];
+  assert.equal(ded.seenCount, 3);        // v1, v2, v3 — NOT cur
+  assert.equal(ded.seen.length, 2);      // capped
+  assert.equal(ded.seen[0].videoTitle, "GTC 2010");
+  assert.equal(ded.seen[0].st, "فا1");
+  assert.equal(words[1].seenCount, 0);   // never elsewhere
+  assert.deepEqual(words[1].seen, []);
+});

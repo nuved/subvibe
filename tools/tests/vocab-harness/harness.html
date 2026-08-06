@@ -8,9 +8,10 @@
   1. a 10-cue German caption file is adopted via SUBS_URL → FETCH_SUBS (stubbed),
   2. the stub "translates" each line to "EN·<original>",
   3. the driver clicks a karaoke word in the ORIGINAL line,
-  4. EXPECT: exactly one VOCAB_ADD with the word, the cue's sentence, the
-     cached translation and the lang hint from the timedtext URL; the span
-     pulses .saved; the video never pauses.
+  4. EXPECT: the click PAUSES the video and pins a word card; the card's Save
+     button sends exactly one VOCAB_ADD (word, cue sentence, cached translation,
+     lang hint); closing the card resumes the video. Plus: CEFR-graded
+     underlines and the smart-lightener dim on learned/dismissed words.
   ?hl=<style> also forces a karaokeStyle for highlight-style screenshots.
 -->
 <link rel="stylesheet" href="../../../styles/overlay.css">

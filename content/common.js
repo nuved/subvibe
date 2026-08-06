@@ -1592,48 +1592,49 @@
     for (const d of defs) { const row = document.createElement("div"); row.className = "copilot-subs__line" + (d.target ? "" : " copilot-subs__line--orig"); row.dataset.csKey = d.key; els[d.key] = row; stack.appendChild(row); }
     layoutCustomLines(); // if Position is "custom", anchor each line at its own saved spot
 
-    // ── Click-to-save vocabulary ────────────────────────────────────────────
-    // Karaoke words in the ORIGINAL line are save targets: one click sends the
-    // word + its real sentence + the primary target's cached translation to the
-    // trainer (VOCAB_ADD). Capture phase on the stack; never pauses the video
-    // (overlay clicks don't reach the player). A drag is not a click: pointer
-    // travel > 6px vetoes the save, so grabbing a line to move it stays clean.
+    // ── Click a word → pin its dictionary card (and pause) ───────────────────
+    // Karaoke words in the ORIGINAL line are interactive: a click PAUSES the
+    // video and pins a dictionary card (word · level · frequency · meaning) with
+    // a deliberate Save-to-Leitner button; closing the card resumes playback.
+    // Capture phase on the stack. A drag is not a click: pointer travel > 6px
+    // vetoes it, so grabbing a line to move it neither pauses nor opens a card.
+    // (openWordCard and the card controller are defined with the tooltip below;
+    // the listener only reads them when a click fires, long after setup.)
     const vocabTg = (settings.targets || [])[0] || null;
     let curCue = null; // the cue on screen — stamped by tick each frame
     let vocabDownX = 0, vocabDownY = 0;
     stack.addEventListener("pointerdown", (e) => { vocabDownX = e.clientX; vocabDownY = e.clientY; }, true);
     stack.addEventListener("click", (e) => {
-      const w = e.target && e.target.closest && e.target.closest(".copilot-subs__w");
+      let w = e.target && e.target.closest && e.target.closest(".copilot-subs__w");
+      // The line-drag handler calls setPointerCapture on pointerdown, which
+      // retargets this click to the LINE, not the word — so e.target is the line
+      // and closest() finds nothing. Recover the real word under the pointer.
+      if (!w) { const el = document.elementFromPoint(e.clientX, e.clientY); w = el && el.closest && el.closest(".copilot-subs__w"); }
       if (!w) return;
       const row = w.closest(".copilot-subs__line");
       if (!row || row.dataset.csKey !== "__orig") return; // original words only
       if (Math.hypot(e.clientX - vocabDownX, e.clientY - vocabDownY) > 6) return; // that was a drag
-      const c = curCue;
-      if (!c) return;
-      const sentence = c.grp ? c.grp.orig : c.original;
-      const sentenceT = !vocabTg ? "" : c.grp
-        ? c.grp.cues.map((q) => q.t[vocabTg] || "").join(" ").trim()
-        : (c.t[vocabTg] || "");
-      const langHint = /[?&]lang=([a-z-]+)/i.exec(interceptedUrl || "");
-      send({ type: "VOCAB_ADD", word: w.textContent, sentence, translation: sentenceT,
-        lang: langHint ? langHint[1].toLowerCase() : null, videoTitle: pageTitle, base, ms: c.startMs })
-        .then((r) => { if (r && r.error) setStatus("Couldn't save the word — " + r.error, true); }); // the pulse is optimistic; a failed save must not stay silent
-      w.classList.remove("saved");
-      void w.offsetWidth; // restart the pulse on a repeat click
-      w.classList.add("saved");
-      w.addEventListener("animationend", () => w.classList.remove("saved"), { once: true });
+      openWordCard(w);
     }, true);
 
     // On-video hints: the trainer's word pool for this clip marks its words in
-    // the ORIGINAL line with a dotted gold underline — glanceable "worth
-    // learning", the meaning as a tooltip once the clip was enriched. Built
-    // from the cache the worker already owns; zero network, zero cost.
-    let vocabPool = null; // lowercased word → meaning ("" until enriched)
+    // the ORIGINAL line with a dotted underline COLORED BY CEFR level — a
+    // glanceable "worth learning, and how hard". The meaning rides the tooltip
+    // once the clip was enriched. Words you've already learned (a high Leitner
+    // box) or dismissed are dimmed instead — the "smart lightener" — so the eye
+    // lands on what's new. Built from the cache the worker owns; zero network.
+    let vocabPool = null;   // lowercased word → full pool entry (w, n, cefr, meaning…)
     let vocabPoolLang = "xx";
+    let dimSet = null;      // lowercased words to de-emphasize (learned / dismissed)
     const markLearnWords = (row) => {
       for (const sp of row.__svW.spans) {
         const lw = sp.textContent.toLowerCase().replace(/^[^\p{L}]+|[^\p{L}]+$/gu, "");
-        if (vocabPool.has(lw)) sp.classList.add("lw");
+        if (vocabPool && vocabPool.has(lw)) {
+          sp.classList.add("lw");
+          const cefr = (vocabPool.get(lw) || {}).cefr;
+          if (cefr && cefr !== "?") sp.dataset.cefr = cefr; else delete sp.dataset.cefr;
+        }
+        if (dimSet && dimSet.has(lw)) sp.classList.add("known");
       }
     };
     send({ type: "VOCAB_CLIP_WORDS", base, limit: 150 }).then((r) => {
@@ -1641,16 +1642,24 @@
       // word: underlines are the ranked recommendations, not a permission.
       if (r && Array.isArray(r.words) && !r.reason) {
         vocabPoolLang = r.lang || "xx";
-        vocabPool = new Map(r.words.map((x) => [x.w.toLowerCase(), x])); // full entries — the tooltip card shows lemma/article/level/phrase too
+        vocabPool = new Map(r.words.map((x) => [x.w.toLowerCase(), x])); // full entries — the card shows lemma/article/level/phrase too
+        dimSet = Array.isArray(r.dim) && r.dim.length ? new Set(r.dim.map((s) => String(s).toLowerCase())) : null;
         // The line on screen rendered before the pool arrived — mark it now,
         // not on the next cue change.
         const orig = els.__orig;
         if (orig && orig.__svW) markLearnWords(orig);
       }
     }).catch(() => {});
-    // Hovering a hinted word shows a REAL tooltip on the overlay — the native
-    // title attribute is delayed and unreliable over a video player. One bubble
-    // element, reused across engine runs.
+    // One-time build marker — open the video tab's DevTools console: if you see
+    // this line, the smart-lightener code is the one actually running (not a
+    // stale store install). Remove before any store build.
+    if (!window.__svBuild) { window.__svBuild = "smart-lightener"; try { console.info("%c[SubVibe] smart-lightener build active — click a subtitle word to pause + open its card", "color:#6c5ce7;font-weight:700"); } catch (e) {} }
+
+    // ── Word card: CLICK only (no hover) ─────────────────────────────────────
+    // Hover shows nothing on purpose — a lookup takes a second or two and the
+    // subtitle moves on, so an un-anchored hover bubble races the line. Clicking
+    // a word PAUSES the video (freezing the line) and opens its card; that's the
+    // only trigger. One bubble element, reused across engine runs.
     let wtip = overlay.querySelector(".copilot-subs__wtip");
     if (!wtip) {
       wtip = document.createElement("div");
@@ -1659,46 +1668,8 @@
     }
     const wtipFetching = new Set(); // words already being looked up
     const vocabGram = new Map();    // sentence text → grammar note (session-local; the worker caches per clip)
-    let wtipTimer = 0;
-    // A string = status text; an entry object = the mini dictionary card:
-    // "der Verzicht · pl. Verzichte · noun · B2" / meaning / „example phrase“.
-    const placeWtip = (w, content) => {
-      wtip.textContent = "";
-      if (typeof content === "string") {
-        wtip.textContent = content;
-      } else {
-        const bits = [];
-        if (content.art && content.lemma) bits.push(`${content.art} ${content.lemma}`);
-        else if (content.lemma) bits.push(content.lemma);
-        if (content.plural) bits.push("pl. " + content.plural);
-        if (content.pos && content.pos !== "other") bits.push(content.pos);
-        if (content.cefr && content.cefr !== "?") bits.push(content.cefr);
-        if (bits.length) {
-          const head = document.createElement("div");
-          head.className = "wt-head";
-          head.textContent = bits.join(" · ");
-          wtip.appendChild(head);
-        }
-        const mean = document.createElement("div");
-        mean.className = "wt-mean";
-        mean.dir = "auto";
-        mean.textContent = content.meaning || "—";
-        wtip.appendChild(mean);
-        if (content.phrase) {
-          const p = document.createElement("div");
-          p.className = "wt-phrase";
-          p.textContent = "„" + content.phrase + "“";
-          wtip.appendChild(p);
-        }
-        if (content.gram) {
-          const g = document.createElement("div");
-          g.className = "wt-gram";
-          g.dir = "auto";
-          g.textContent = content.gram;
-          wtip.appendChild(g);
-        }
-      }
-      wtip.dir = "auto";
+
+    const positionWtip = (w) => {
       const or = overlay.getBoundingClientRect(), wr = w.getBoundingClientRect();
       // Show first (display:none boxes measure 0), then clamp the center into
       // the player so an edge word can't push the bubble off screen.
@@ -1708,51 +1679,147 @@
       wtip.style.left = Math.round(Math.max(half, Math.min(or.width - half, cx))) + "px";
       wtip.style.top = Math.round(wr.top - or.top) + "px";
     };
-    stack.addEventListener("mouseover", (e) => {
-      const w = e.target && e.target.closest && e.target.closest(".copilot-subs__w");
-      if (!w || !vocabPool) return;
-      const row = w.closest(".copilot-subs__line");
-      if (!row || row.dataset.csKey !== "__orig") return;
+
+    // ── Pinned card controller (click) ───────────────────────────────────────
+    // While pinned the card owns the bubble: hover won't clobber it and the
+    // video stays paused. Save moves into the card; closing it (×, Esc, or a
+    // click off it) resumes playback — but only if the click is what paused it.
+    const closeWtip = (resume) => {
+      wtip._word = null;
+      wtip._pinned = false;
+      wtip.classList.remove("show", "pinned");
+      document.removeEventListener("click", onDocClick, true);
+      document.removeEventListener("keydown", onKey, true);
+      if (resume && wtip._resume) {
+        const v = liveVideoEl(video) || video;
+        if (v && v.paused) { const p = v.play(); if (p && p.catch) p.catch(() => {}); }
+      }
+      wtip._resume = false;
+    };
+    const onDocClick = (e) => {
+      const t = e.target;
+      // Inside the card, or on another word (which re-pins) — not a dismiss.
+      if (t && t.closest && (t.closest(".copilot-subs__wtip") || t.closest(".copilot-subs__w"))) return;
+      closeWtip(true);
+    };
+    const onKey = (e) => { if (e.key === "Escape") closeWtip(true); };
+
+    const renderPinnedCard = (w, headword, content, cue) => {
+      wtip.textContent = "";
+      wtip.classList.add("pinned");
+      const title = document.createElement("div");
+      title.className = "wt-word";
+      title.dir = "auto";
+      const showArt = content.art && vocabPoolLang === "de"; // der/die/das is German-only
+      title.textContent = (showArt && content.lemma) ? `${content.art} ${content.lemma}` : (content.lemma || headword);
+      wtip.appendChild(title);
+      const bits = [];
+      if (content.pos && content.pos !== "other") bits.push(content.pos);
+      if (content.cefr && content.cefr !== "?") bits.push(content.cefr);
+      if (content.n) bits.push("×" + content.n); // frequency in this video
+      if (bits.length) {
+        const head = document.createElement("div");
+        head.className = "wt-head";
+        head.textContent = bits.join(" · ");
+        wtip.appendChild(head);
+      }
+      const mean = document.createElement("div");
+      mean.className = "wt-mean";
+      mean.dir = "auto";
+      mean.textContent = content.meaning || "…";
+      wtip.appendChild(mean);
+      if (content.phrase) {
+        const p = document.createElement("div");
+        p.className = "wt-phrase";
+        p.textContent = "„" + content.phrase + "“";
+        wtip.appendChild(p);
+      }
+      if (content.gram) { // the sentence's grammar note, from the same call
+        const g = document.createElement("div");
+        g.className = "wt-gram";
+        g.dir = "auto";
+        g.textContent = content.gram;
+        wtip.appendChild(g);
+      }
+      const act = document.createElement("div");
+      act.className = "wt-actions";
+      const save = document.createElement("button");
+      save.type = "button";
+      save.className = "wt-save";
+      save.textContent = wtip._saved ? "Saved ✓" : "Save to Leitner";
+      save.disabled = !!wtip._saved;
+      save.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        if (wtip._saved) return;
+        const sentence = cue.grp ? cue.grp.orig : cue.original;
+        const sentenceT = !vocabTg ? "" : cue.grp
+          ? cue.grp.cues.map((q) => q.t[vocabTg] || "").join(" ").trim()
+          : (cue.t[vocabTg] || "");
+        const langHint = /[?&]lang=([a-z-]+)/i.exec(interceptedUrl || "");
+        save.textContent = "Saving…";
+        send({ type: "VOCAB_ADD", word: headword, sentence, translation: sentenceT,
+          lang: langHint ? langHint[1].toLowerCase() : null, videoTitle: pageTitle, base, ms: cue.startMs })
+          .then((r) => {
+            if (r && r.error) { save.textContent = "Save failed — retry"; return; }
+            wtip._saved = true; save.textContent = "Saved ✓"; save.disabled = true;
+          });
+      });
+      const close = document.createElement("button");
+      close.type = "button";
+      close.className = "wt-close";
+      close.title = "Close";
+      close.textContent = "×";
+      close.addEventListener("click", (ev) => { ev.stopPropagation(); closeWtip(true); });
+      act.appendChild(save);
+      act.appendChild(close);
+      wtip.appendChild(act);
+      wtip.dir = "auto";
+      positionWtip(w);
+    };
+
+    const openWordCard = (w) => {
+      const cue = curCue;
+      if (!cue) return;
       const surface = w.textContent.replace(/^[^\p{L}]+|[^\p{L}]+$/gu, "");
       const lw = surface.toLowerCase();
-      wtip._word = lw;
-      const entry = vocabPool.get(lw);
-      const sentText = row.textContent;
+      const sentText = w.closest(".copilot-subs__line").textContent;
+      // Overlay clicks don't reach the player, so we pause the element ourselves
+      // — and remember we did, so closing only resumes what WE paused.
+      const v = liveVideoEl(video) || video;
+      wtip._resume = !!(v && !v.paused);
+      if (v && !v.paused) v.pause();
+      wtip._pinned = true; wtip._word = lw; wtip._saved = false;
+      const entry = (vocabPool && vocabPool.get(lw)) || { w: surface };
       const gram = vocabGram.get(sentText);
-      // Fully cached (word card + sentence grammar) → instant, free.
-      if (entry && entry.meaning && gram !== undefined) { placeWtip(w, { ...entry, gram }); return; }
-      // Show what we have now; a LINGERING hover (350ms = intent, not a sweep)
-      // fetches the rest — ONE call returns the word card AND the sentence's
-      // grammar, both cached forever.
-      if (entry && entry.meaning) placeWtip(w, entry);
-      else placeWtip(w, "…");
-      clearTimeout(wtipTimer);
-      wtipTimer = setTimeout(() => {
-        if (wtip._word !== lw) return;
-        if (!(entry && entry.meaning)) placeWtip(w, "translating…");
-        if (wtipFetching.has(lw)) return;
+      renderPinnedCard(w, surface, gram !== undefined ? { ...entry, gram } : entry, cue);
+      // Arm the dismiss AFTER this click settles, so the opening click can't close it.
+      setTimeout(() => {
+        document.addEventListener("click", onDocClick, true);
+        document.addEventListener("keydown", onKey, true);
+      }, 0);
+      // No cached meaning yet → fetch on demand (one call = word card + the
+      // sentence's grammar), then re-render in place if still pinned here.
+      if (!(entry && entry.meaning) && !wtipFetching.has(lw)) {
         wtipFetching.add(lw);
         send({ type: "VOCAB_WORD_ENRICH", base, w: surface, lang: vocabPoolLang, s: sentText })
           .then((r) => {
             wtipFetching.delete(lw);
             const e2 = r && r.e;
-            if (e2 && e2.meaning) vocabPool.set(lw, { ...(vocabPool.get(lw) || {}), ...e2 });
+            if (e2 && e2.meaning && vocabPool) vocabPool.set(lw, { ...(vocabPool.get(lw) || { w: surface }), ...e2 });
             if (r && typeof r.g === "string") vocabGram.set(sentText, r.g);
-            if (wtip._word === lw && wtip.classList.contains("show")) {
-              const cur = vocabPool.get(lw);
-              if (cur && cur.meaning) placeWtip(w, { ...cur, gram: vocabGram.get(sentText) || "" });
-              else placeWtip(w, (r && r.error) ? "couldn't translate — check the provider key in the popup" : "no meaning returned");
+            if (wtip._pinned && wtip._word === lw) {
+              const cur = (vocabPool && vocabPool.get(lw)) || entry;
+              renderPinnedCard(w, surface,
+                (cur && cur.meaning) ? { ...cur, gram: vocabGram.get(sentText) || "" }
+                  : { ...entry, meaning: (r && r.error) ? "couldn't translate — check the provider key in the popup" : "no meaning returned" },
+                cue);
             }
           });
-      }, 350);
-    }, true);
-    stack.addEventListener("mouseout", (e) => {
-      if (e.target && e.target.closest && e.target.closest(".copilot-subs__w")) {
-        clearTimeout(wtipTimer);
-        wtip._word = null;
-        wtip.classList.remove("show");
       }
-    }, true);
+    };
+
+    // No hover handler — a word's card opens on CLICK only (openWordCard above),
+    // which pauses the video, so a lookup never races the moving subtitle line.
 
     cancelAnimationFrame(rafId);
     let diagAt = 0;
