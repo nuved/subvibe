@@ -303,6 +303,26 @@ async function vocabAdd({ word, sentence, translation, lang, videoTitle, base, m
   return { key, card };
 }
 
+// Broad source-language detection. Stopword sets are fast and certain for the
+// languages we curate (de/en/fa); anything else falls back to Chrome's built-in
+// CLD (chrome.i18n.detectLanguage, ~100 languages) so ANY source language gets
+// identified — the pool, inbox, and per-language scoping then label it right.
+// Returns a base code ("fr", "pt", …) or "xx".
+function i18nDetect(text) {
+  return new Promise((resolve) => {
+    try {
+      if (!(chrome.i18n && chrome.i18n.detectLanguage)) return resolve(null);
+      chrome.i18n.detectLanguage(String(text || "").slice(0, 4000), (res) => resolve(SV_VOCAB.pickI18nLang(res)));
+    } catch (e) { resolve(null); }
+  });
+}
+async function detectClipLang(sentences) {
+  const list = sentences || [];
+  return SV_STOPWORDS.detect(list.flatMap((s) => SV_VOCAB.tokenize(s.o)))
+    || (await i18nDetect(list.map((s) => s.o).join(" ")))
+    || "xx";
+}
+
 // ONE clip's learnable words from the cache — the popup Learn tab and the
 // per-clip enrichment both feed from this. Same scoping as the inbox build:
 // a track in a configured target language, original not in one, zero network.
@@ -331,7 +351,7 @@ async function clipWordData(base, limit) {
   const sentences = SV_VOCAB.mergeCueSentences(pick.row.cues
     .map((c) => ({ o: c.o || c.original || "", t: pick.row.tg ? (c.text || "") : ((c.t && c.t[pick.tg]) || ""), ms: c.startMs || 0 }))
     .filter((s) => s.o));
-  const lang = SV_STOPWORDS.detect(sentences.flatMap((s) => SV_VOCAB.tokenize(s.o))) || "xx";
+  const lang = await detectClipLang(sentences);
   if (targets.includes(lang)) return { words: [], reason: "native" };
   // "Learning: German" set → ONLY German-original clips count; a video in any
   // other (or undetectable) language has no material for this learner.
@@ -427,8 +447,7 @@ async function vocabInboxBuild() {
     const sentences = SV_VOCAB.mergeCueSentences(pick.row.cues
       .map((c) => ({ o: c.o || c.original || "", t: pick.row.tg ? (c.text || "") : ((c.t && c.t[pick.tg]) || "") }))
       .filter((s) => s.o));
-    const lang = SV_STOPWORDS.detect(sentences.flatMap((s) => SV_VOCAB.tokenize(s.o)))
-      || (pick.row.source && pick.row.source !== "auto" ? pick.row.source : "xx");
+    const lang = await detectClipLang(sentences);
     // The learning direction is original → target: a clip whose ORIGINAL is a
     // language the user already reads (their target) has nothing to teach.
     if (targets.includes(lang)) { natives++; continue; }

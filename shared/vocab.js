@@ -178,5 +178,15 @@
     return words;
   }
 
-  g.SV_VOCAB = { tokenize, mergeCueSentences, parseLooseJSON, normalizeFa, extractInboxWords, rankLearnable, mergeEnrichment, pickClipTrack, appendContext, crossVideoSightings };
+  // Parse chrome.i18n.detectLanguage's result into a base language code, or null
+  // when detection is unreliable, undetermined, or low-confidence (< 60%). Kept
+  // pure + node-testable; the chrome.i18n call itself is a thin shell.
+  function pickI18nLang(res) {
+    const top = res && res.isReliable && Array.isArray(res.languages) && res.languages[0];
+    if (!top || !top.language || top.language === "und") return null;
+    if (typeof top.percentage === "number" && top.percentage < 60) return null;
+    return top.language.split("-")[0].toLowerCase();
+  }
+
+  g.SV_VOCAB = { tokenize, mergeCueSentences, parseLooseJSON, normalizeFa, extractInboxWords, rankLearnable, mergeEnrichment, pickClipTrack, appendContext, crossVideoSightings, pickI18nLang };
 })(globalThis);
