@@ -852,7 +852,7 @@ function wordPrompt(source, target) {
     `Return STRICT JSON {"e":{…},"g":"…"}:\n` +
     `- e: { lemma (dictionary form; the FULL phrasal/separable form when the sentence uses one, e.g. "give up", "aufgeben"), ` +
     `pos (noun|verb|adj|adv|phrase|other), art ("der"/"die"/"das" for German nouns else "-"), plural (nouns else "-"), ` +
-    `cefr (A1–C2), meaning (concise, in ${langName(target)}, matching this sentence's sense), ` +
+    `cefr (A1–C2), meaning (concise, in ${langName(target)}, matching this sentence's sense — ALWAYS a real translation, NEVER blank or "-"; for a proper noun give a one-word gloss), ` +
     `phrase (ONE short natural ${langName(source)} example), note (short usage note or "-") }.\n` +
     `- g: the SENTENCE's grammar explained in ${langName(target)}, 1–2 short sentences: tense/mood, notable constructions, ` +
     `and any word-order point a learner needs. Use SIMPLE everyday ${langName(target)} a learner reads at a glance — ` +
@@ -1608,31 +1608,44 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           const cg = (await idbVocabGet("clipgram:" + base)) || { base, at: Date.now(), e: {} };
           const have = ce.e[wkey];
           const haveG = cg.e[skey];
-          if (have && !(have.cefr === "?" && !have.meaning) && haveG !== undefined) {
+          // Serve from cache ONLY when it actually carries a meaning — a blank
+          // meaning (a word the model once returned empty) must re-fetch, never
+          // freeze the card on "no meaning".
+          if (have && have.meaning && haveG !== undefined) {
             sendResponse({ ok: true, e: faClean(have.tl || ce.target, { ...have }, ENTRY_FA_KEYS),
               g: (have.tl || ce.target || "").startsWith("fa") ? SV_VOCAB.normalizeFa(haveG) : haveG, cached: true });
             break;
           }
           const { targets: cfgW } = await chrome.storage.local.get(["targets"]);
           const target = (Array.isArray(cfgW) && cfgW[0]) || "en";
-          const started = Date.now();
           try {
-            const r = await llmJSON(wordPrompt(msg.lang && msg.lang !== "xx" ? msg.lang : "auto", target),
-              { w: word, s: sent }, WORD_SCHEMA);
-            const [m] = SV_VOCAB.mergeEnrichment([{ word }], [(r.parsed && r.parsed.e) || null]);
-            const entry = faClean(target, { lemma: m.lemma, pos: m.pos, art: m.art, plural: m.plural, cefr: m.cefr, meaning: m.meaning, phrase: m.phrase, note: m.note, tl: target }, ENTRY_FA_KEYS);
-            const gram = target.startsWith("fa") ? SV_VOCAB.normalizeFa((r.parsed && r.parsed.g) || "").trim() : ((r.parsed && typeof r.parsed.g === "string") ? r.parsed.g.trim() : "");
-            ce.e[wkey] = entry;
-            ce.target = target;
-            ce.at = Date.now();
-            await idbVocabPut("clipenrich:" + base, ce);
+            // Models occasionally blank a valid word's meaning; give it one more
+            // shot before giving up (each attempt is logged for cost honesty).
+            let entry = null, gram = "";
+            for (let attempt = 0; attempt < 2; attempt++) {
+              const started = Date.now();
+              const r = await llmJSON(wordPrompt(msg.lang && msg.lang !== "xx" ? msg.lang : "auto", target),
+                { w: word, s: sent }, WORD_SCHEMA);
+              const [m] = SV_VOCAB.mergeEnrichment([{ word }], [(r.parsed && r.parsed.e) || null]);
+              entry = faClean(target, { lemma: m.lemma, pos: m.pos, art: m.art, plural: m.plural, cefr: m.cefr, meaning: m.meaning, phrase: m.phrase, note: m.note, tl: target }, ENTRY_FA_KEYS);
+              gram = target.startsWith("fa") ? SV_VOCAB.normalizeFa((r.parsed && r.parsed.g) || "").trim() : ((r.parsed && typeof r.parsed.g === "string") ? r.parsed.g.trim() : "");
+              await logCall({ ts: started, site: "learn", title: "Word: " + word + (attempt ? " (retry)" : ""), kind: "enrich", lines: 1, ms: Date.now() - started,
+                inTok: (r.usage && r.usage.prompt_tokens) || 0, outTok: (r.usage && r.usage.completion_tokens) || 0,
+                cacheR: (r.usage && r.usage.cache_r) || 0, cacheW: (r.usage && r.usage.cache_w) || 0, ok: true, provider: r.provider, model: r.model });
+              if (entry.meaning) break; // got a real meaning → stop
+            }
+            // Cache the word only when it has a meaning, so a still-empty result
+            // stays re-fetchable instead of frozen. Grammar caches regardless.
+            if (entry && entry.meaning) {
+              ce.e[wkey] = entry;
+              ce.target = target;
+              ce.at = Date.now();
+              await idbVocabPut("clipenrich:" + base, ce);
+            }
             cg.e[skey] = gram;
             cg.target = target;
             cg.at = Date.now();
             await idbVocabPut("clipgram:" + base, cg);
-            await logCall({ ts: started, site: "learn", title: "Word: " + word, kind: "enrich", lines: 1, ms: Date.now() - started,
-              inTok: (r.usage && r.usage.prompt_tokens) || 0, outTok: (r.usage && r.usage.completion_tokens) || 0,
-              cacheR: (r.usage && r.usage.cache_r) || 0, cacheW: (r.usage && r.usage.cache_w) || 0, ok: true, provider: r.provider, model: r.model });
             sendResponse({ ok: true, e: entry, g: gram });
           } catch (e2) {
             sendResponse({ error: String((e2 && e2.message) || e2) });
