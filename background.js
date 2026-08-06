@@ -277,15 +277,20 @@ async function vocabAdd({ word, sentence, translation, lang, videoTitle, base, m
   const key = `${l}:${clean.toLowerCase()}`;
   const cur = await idbVocabGet(key);
   const now = Date.now();
+  // One save-context: the video + sentence this word was just saved from. Kept
+  // in a capped `contexts` list so a saved card accumulates real examples across
+  // every video it turns up in (the cross-video history).
+  const ctx = { base: base || "", ms: ms ?? 0, sentence: sentence || "", sentenceT: translation || "", videoTitle: videoTitle || "", at: now };
   const card = cur ? {
     ...cur, n: (cur.n || 1) + 1,
     sentence: cur.sentence || sentence || "", sentenceT: cur.sentenceT || translation || "",
     videoTitle: cur.videoTitle || videoTitle || "", base: cur.base || base || "", ms: cur.ms ?? ms ?? 0,
+    contexts: SV_VOCAB.appendContext(cur.contexts, ctx),
   } : {
     word: clean, lang: l, box: 1, nextDueAt: now, addedAt: now, lastGradedAt: 0,
     sentence: sentence || "", sentenceT: translation || "", videoTitle: videoTitle || "", base: base || "", ms: ms || 0,
     n: 1, lemma: null, pos: null, art: null, plural: null, cefr: null, meaning: null, phrase: null, note: null,
-    conj: null, history: [],
+    conj: null, history: [], contexts: SV_VOCAB.appendContext([], ctx),
   };
   // A clip that was already enriched (VOCAB_CLIP_ENRICH) hands its data to the
   // new card for free — no second request for a word the batch already covered.
@@ -1576,6 +1581,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             // so a broken batch is re-buyable instead of frozen.
             data.enrichable = data.words.filter((w) => !w.cefr || (w.cefr === "?" && !w.meaning)).length;
             data.enriching = clipEnrichInFlight.has(String(msg.base)); // a run is underway — the popup shows progress, not a pay button
+          }
+          if (data.words && data.words.length) {
+            // "Seen N× before": annotate each pool word with the OTHER videos it
+            // already turned up in (from the inbox rows the worker owns).
+            const inboxRows = (await idbVocabList("inbox:")).map((r) => r.value);
+            SV_VOCAB.crossVideoSightings(data.words, inboxRows, String(msg.base || ""));
           }
           sendResponse(data);
           break;
