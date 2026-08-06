@@ -1811,7 +1811,7 @@
               const cur = (vocabPool && vocabPool.get(lw)) || entry;
               renderPinnedCard(w, surface,
                 (cur && cur.meaning) ? { ...cur, gram: vocabGram.get(sentText) || "" }
-                  : { ...entry, meaning: (r && r.error) ? "couldn't translate — check the provider key in the popup" : "no meaning returned" },
+                  : { ...entry, meaning: (r && r.error) ? "couldn't translate — check the provider key in the popup" : "no meaning yet — close & click the word again to retry" },
                 cue);
             }
           });
