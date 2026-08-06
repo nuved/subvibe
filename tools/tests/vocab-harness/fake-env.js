@@ -39,9 +39,10 @@
         else if (msg && msg.type === "TRANSLATE") r = { lines: (msg.cues || []).map((s) => "EN·" + s) };
         else if (msg && msg.type === "VOCAB_ADD") { window.__vocabMsgs.push(msg); r = { ok: true, key: "de:x", card: {} }; }
         else if (msg && msg.type === "VOCAB_WORD_ENRICH") r = { ok: true, e: { meaning: "خیابان", cefr: "A1", pos: "noun" }, g: "زمان حال ساده" };
-        else if (msg && msg.type === "VOCAB_CLIP_WORDS") r = { enriched: true, lang: "de", title: "t", words: [
-          { w: "Hund", n: 1, sentence: "", st: "", meaning: "سگ" },   // enriched → tooltip shows the meaning
-          { w: "Straße", n: 1, sentence: "", st: "" } ] };            // pool word without meaning → hinted, honest tooltip
+        else if (msg && msg.type === "VOCAB_CLIP_WORDS") r = { enriched: true, lang: "de", title: "t", dim: ["die"], words: [
+          { w: "Hund", n: 1, sentence: "", st: "", meaning: "سگ" },              // enriched → tooltip shows the meaning
+          { w: "Straße", n: 1, sentence: "", st: "" },                           // pool word without meaning → hinted, honest tooltip
+          { w: "schnell", n: 2, sentence: "", st: "", cefr: "B1", meaning: "سریع" } ] }; // leveled → CEFR-colored underline
         if (cb) setTimeout(() => cb(r), 20);
       },
     },

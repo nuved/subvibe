@@ -331,7 +331,8 @@ async function clipWordData(base, limit) {
   // "Learning: German" set → ONLY German-original clips count; a video in any
   // other (or undetectable) language has no material for this learner.
   if (learnLang && lang !== learnLang) return { words: [], reason: "other-lang", lang };
-  const known = new Set((await idbVocabList(lang + ":")).map((r) => r.key.slice(lang.length + 1)));
+  const knownRows = await idbVocabList(lang + ":");
+  const known = new Set(knownRows.map((r) => r.key.slice(lang.length + 1)));
   const dismissed = new Set((((await idbVocabGet("dismissed:" + lang)) || {}).words) || []);
   // 3 samples per word: the popup's word-detail view shows real context lines.
   // The pool is cut by LEARNABILITY, not raw frequency — a 2-hour interview's
@@ -339,7 +340,12 @@ async function clipWordData(base, limit) {
   // and rarer (rankLearnable). 150 deep so the tail actually makes the list.
   const all = SV_VOCAB.extractInboxWords(sentences, lang, dismissed, known, 3);
   const words = SV_VOCAB.rankLearnable(all).slice(0, limit || 150);
-  return { words, lang, title: pick.row.title };
+  // The "smart lightener" set: words to de-emphasize on the video — cards you've
+  // already learned (a high Leitner box, ≥ 4) plus anything you dismissed. The
+  // pool above already excludes both; this just lets the overlay dim them.
+  const learned = knownRows.filter((r) => ((r.value && r.value.box) || 1) >= 4).map((r) => r.key.slice(lang.length + 1));
+  const dim = [...new Set([...learned, ...dismissed])];
+  return { words, lang, title: pick.row.title, dim };
 }
 
 // A clip enrichment in flight, keyed by base. A popup closed and reopened
