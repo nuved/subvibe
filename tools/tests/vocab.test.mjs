@@ -227,3 +227,13 @@ test("crossVideoSightings: counts OTHER videos and collects their sentences (exc
   assert.equal(words[1].seenCount, 0);   // never elsewhere
   assert.deepEqual(words[1].seen, []);
 });
+
+test("pickI18nLang: reliable top language → base code; unreliable/und/low-confidence → null", () => {
+  assert.equal(V.pickI18nLang({ isReliable: true, languages: [{ language: "fr", percentage: 92 }] }), "fr");
+  assert.equal(V.pickI18nLang({ isReliable: true, languages: [{ language: "pt-BR", percentage: 88 }] }), "pt"); // region stripped
+  assert.equal(V.pickI18nLang({ isReliable: false, languages: [{ language: "fr", percentage: 92 }] }), null);   // unreliable
+  assert.equal(V.pickI18nLang({ isReliable: true, languages: [{ language: "und", percentage: 99 }] }), null);   // undetermined
+  assert.equal(V.pickI18nLang({ isReliable: true, languages: [{ language: "es", percentage: 40 }] }), null);    // low confidence
+  assert.equal(V.pickI18nLang(null), null);
+  assert.equal(V.pickI18nLang({ isReliable: true, languages: [] }), null);
+});
