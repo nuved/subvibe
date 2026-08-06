@@ -1,0 +1,31 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Vocab harness — click a karaoke word, assert the VOCAB_ADD payload</title>
+<!--
+  Runs the REAL content/common.js against a chrome stub (adopt-harness pattern):
+  1. a 10-cue German caption file is adopted via SUBS_URL → FETCH_SUBS (stubbed),
+  2. the stub "translates" each line to "EN·<original>",
+  3. the driver clicks a karaoke word in the ORIGINAL line,
+  4. EXPECT: exactly one VOCAB_ADD with the word, the cue's sentence, the
+     cached translation and the lang hint from the timedtext URL; the span
+     pulses .saved; the video never pauses.
+  ?hl=<style> also forces a karaokeStyle for highlight-style screenshots.
+-->
+<link rel="stylesheet" href="../../../styles/overlay.css">
+<style>
+  body { background: #111; color: #ddd; font: 13px system-ui; margin: 0; }
+  #player { position: relative; width: 800px; height: 450px; background: #000; margin: 16px auto; }
+  #vid { width: 100%; height: 100%; background: #222; }
+</style>
+</head>
+<body>
+<div id="player"><video id="vid"></video></div>
+<script src="fake-env.js"></script>
+<script src="../../../shared/title.js"></script>
+<script src="../../../shared/presets.js"></script>
+<script src="../../../content/common.js"></script>
+<script src="driver.js"></script>
+</body>
+</html>

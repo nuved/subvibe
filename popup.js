@@ -12,7 +12,7 @@ const LIVE_ALIAS = window.SV_LIVE_ALIAS || {};
 // Coerce a code to one Gemini's live model accepts, or null if it can't voice it.
 const normLiveCode = (code) => (LIVE_CODES.has(code) ? code : (LIVE_CODES.has(LIVE_ALIAS[code]) ? LIVE_ALIAS[code] : null));
 
-const DEFAULTS = { enabled: true, translateOn: true, targets: ["en"], showOriginal: true, hideNative: true, karaokeHl: true, apiKey: "", translationProvider: "openai", claudeModel: "claude-sonnet-5", anthropicKey: "", keepNames: true, keepTerms: "", position: "bottom", size: "md", stylePreset: "classic", styleCustom: {}, syncOffset: 0, dubEnabled: false, ttsProvider: "openai", geminiKey: "", dubVoice: "marin", dubGeminiVoice: "Kore", dubMultiVoice: false, dubDuckLevel: 0.12, dubPace: 1, liveModel: "gemini-3.5-live-translate-preview", audioDeviceId: "", liveTarget: "", debugHud: false };
+const DEFAULTS = { enabled: true, translateOn: true, targets: ["en"], showOriginal: true, hideNative: true, karaokeHl: true, karaokeStyle: "classic", learnLang: "", apiKey: "", translationProvider: "openai", claudeModel: "claude-sonnet-5", anthropicKey: "", keepNames: true, keepTerms: "", position: "bottom", size: "md", stylePreset: "classic", styleCustom: {}, syncOffset: 0, dubEnabled: false, ttsProvider: "openai", geminiKey: "", dubVoice: "marin", dubGeminiVoice: "Kore", dubMultiVoice: false, dubDuckLevel: 0.12, dubPace: 1, liveModel: "gemini-3.5-live-translate-preview", audioDeviceId: "", liveTarget: "", debugHud: false };
 const el = (id) => document.getElementById(id);
 const fmtSync = (v) => (v > 0 ? "+" : "") + v.toFixed(2) + "s";
 const langMeta = (code) => window.svLangMeta(code);   // resolves a code from EITHER set
@@ -178,7 +178,7 @@ async function initFolds() {
 // ── tabs: Translate / Dub / Style. Header, scope bar and the This-video strip
 // stay visible above whichever tab is open; the choice persists like uiFold.
 // Live sits in the Translate tab; the Dub tab holds the collapsed spoken-dub fold.
-const TAB_NAMES = ["translate", "dub", "style", "keys"];
+const TAB_NAMES = ["translate", "dub", "style", "learn", "keys"];
 function selectTab(name) {
   for (const b of el("tabBar").children) b.classList.toggle("on", b.dataset.tab === name);
   for (const p of document.querySelectorAll(".pane")) p.hidden = p.dataset.pane !== name;
@@ -612,6 +612,30 @@ function buildPresetRow() {
     fontSel.appendChild(o);
   }
 }
+const HL_STYLES = window.SV_HL_STYLES;
+function buildHlRow() {
+  const row = el("hlRow");
+  row.innerHTML = "";
+  for (const [key, h] of Object.entries(HL_STYLES)) {
+    const b = document.createElement("button");
+    b.dataset.hl = key;
+    b.title = h.label + " karaoke highlight";
+    const abc = document.createElement("span");
+    abc.className = "abc";
+    abc.textContent = "Abc";
+    abc.style.cssText = "font-weight:800;" + h.css;
+    const name = document.createElement("span");
+    name.className = "pname";
+    name.textContent = h.label;
+    b.append(abc, name);
+    b.addEventListener("click", () => {
+      state.karaokeStyle = key;
+      persist({ karaokeStyle: key }); // GLOBAL — taste follows the user, like stylePreset
+      updateStyleUI();
+    });
+    row.appendChild(b);
+  }
+}
 // Merge a tweak into styleCustom (null/"" clears that key back to the preset).
 function setCustom(patch) {
   const c = { ...(state.styleCustom || {}) };
@@ -625,6 +649,7 @@ function setCustom(patch) {
 }
 function updateStyleUI() {
   [...el("presetRow").children].forEach((b) => b.classList.toggle("on", b.dataset.preset === state.stylePreset));
+  [...el("hlRow").children].forEach((b) => b.classList.toggle("on", b.dataset.hl === (state.karaokeStyle || "classic")));
   const c = state.styleCustom || {};
   const r = resolveStyle(state);
   paintStyled(el("stylePrevText"), r);
@@ -1033,6 +1058,282 @@ async function loadThisVideo() {
   exp.hidden = !any;
 }
 
+// ── Learn tab: this video's words, straight from the cache ───────────────────
+// The word inside its sentence, lit like the karaoke fill it was born from.
+function lnSentence(sentence, word) {
+  const s = document.createElement("span");
+  s.className = "s";
+  const txt = sentence || "";
+  const i = txt.toLowerCase().indexOf(String(word).toLowerCase());
+  if (i < 0) { s.textContent = txt; return s; }
+  s.append(txt.slice(0, i));
+  const m = document.createElement("mark");
+  m.textContent = txt.slice(i, i + word.length);
+  s.append(m, txt.slice(i + word.length));
+  s.title = txt;
+  return s;
+}
+let lnData = null; // last VOCAB_CLIP_WORDS response
+let lnMin = "";    // level filter: "" | "A2" | "B1"
+let lnPos = "";    // word-type filter: "" | verb | noun | adj | adv | phrase
+const LN_LVL = { A1: 1, A2: 2, B1: 3, B2: 4, C1: 5, C2: 6 };
+
+// 4631200 → "1:17:11" — the shadowing jump chip's label.
+function lnTime(ms) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = String(s % 60).padStart(2, "0");
+  return h ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${m}:${ss}`;
+}
+
+function lnSeek(ms) {
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    if (tabs && tabs[0]) chrome.tabs.sendMessage(tabs[0].id, { type: "SV_SEEK", ms }, () => chrome.runtime.lastError);
+  });
+}
+
+function lnRenderRows() {
+  const box = el("lnWords"), foot = el("lnFoot");
+  box.textContent = "";
+  const r = lnData;
+  const min = LN_LVL[lnMin] || 0;
+  let rows = (r.words || []).filter((w) => (!min || (LN_LVL[w.cefr] || 0) >= min) && (!lnPos || w.pos === lnPos));
+  // Type filter honesty: each option carries its count, so "Verbs (0)" is
+  // visible BEFORE selecting it instead of a surprise empty list.
+  if (r.enriched) {
+    const LBL = { verb: "Verbs", noun: "Nouns", adj: "Adjectives", adv: "Adverbs", phrase: "Phrases" };
+    const counts = {};
+    for (const w of r.words || []) counts[w.pos] = (counts[w.pos] || 0) + 1;
+    for (const o of el("lnPos").options) if (o.value) o.textContent = `${LBL[o.value]} (${counts[o.value] || 0})`;
+  }
+  // Enriched → important-first: highest level, then how often the video says it.
+  if (r.enriched) rows = rows.slice().sort((a, b) => (LN_LVL[b.cefr] || 0) - (LN_LVL[a.cefr] || 0) || b.n - a.n);
+  const addAll = el("lnAddAll");
+  addAll.hidden = !rows.length;
+  if (!rows.length) {
+    if (min || lnPos) {
+      // Say what the filters hid and hand back the way out — never a dead end.
+      foot.textContent = `The ${[lnMin && lnMin + "+", lnPos].filter(Boolean).join(" · ")} filter hides all ${r.words.length} words — `;
+      const a = document.createElement("button");
+      a.className = "linkbtn";
+      a.textContent = "show all";
+      a.addEventListener("click", () => {
+        lnMin = "";
+        lnPos = "";
+        el("lnPos").value = "";
+        [...el("lnLvls").children].forEach((x) => x.classList.toggle("on", !x.dataset.min && x.classList.contains("lnlvl")));
+        lnRenderRows();
+      });
+      foot.appendChild(a);
+    } else {
+      foot.textContent = "No words to show.";
+    }
+    return;
+  }
+  foot.textContent = "Tap a word for details (article, plural, examples) and to add it to your Leitner box";
+  addAll.disabled = false;
+  addAll.textContent = `Add ${lnMin ? "all " + lnMin + "+ " : "all "}${rows.length} word${rows.length === 1 ? "" : "s"} to the Leitner box`;
+  addAll.onclick = () => {
+    addAll.disabled = true;
+    addAll.textContent = "Adding…";
+    chrome.runtime.sendMessage({ type: "VOCAB_ADD_MANY", lang: r.lang, videoTitle: r.title || "", base: clipBase,
+      items: rows.map((w) => ({ word: w.w, sentence: w.sentence, translation: w.st || "", ms: w.ms || 0 })) }, (resp) => {
+      if (chrome.runtime.lastError || !resp || resp.error) {
+        addAll.disabled = false;
+        addAll.textContent = "Failed — try again";
+        return;
+      }
+      addAll.textContent = `✓ ${resp.added} in your box — review them on the Learn page`;
+      [...box.querySelectorAll(".lnw")].forEach((x) => x.classList.add("added"));
+    });
+  };
+  for (const w of rows) box.appendChild(lnWordRow(w, r));
+}
+
+// One word row: the header line collapses/expands a detail view — article +
+// plural + lemma, the enrichment phrase, every collected sentence from the
+// video (with its Persian line), and a deliberate "Add to Leitner" button.
+function lnWordRow(w, r) {
+  const b = document.createElement("div");
+  b.className = "lnw";
+  const head = document.createElement("button");
+  head.className = "head";
+  const top = document.createElement("span");
+  top.className = "top";
+  const word = document.createElement("b");
+  word.textContent = w.art ? `${w.art} ${w.w}` : w.w;
+  const n = document.createElement("span");
+  n.className = "n";
+  n.textContent = "×" + w.n;
+  top.append(word, n);
+  if (w.cefr && w.cefr !== "?") {
+    const lv = document.createElement("span");
+    lv.className = "lvl";
+    lv.textContent = w.cefr;
+    top.appendChild(lv);
+  }
+  if (w.meaning) {
+    const mn = document.createElement("span");
+    mn.className = "mean";
+    mn.dir = "auto"; // Persian meanings flow RTL
+    mn.textContent = w.meaning;
+    top.appendChild(mn);
+  }
+  if (typeof w.ms === "number" && w.ms > 0) {
+    // Jump chip: seek the video 1s before the word — listen, pause, shadow.
+    const t = document.createElement("span");
+    t.className = "t";
+    t.textContent = "▶ " + lnTime(w.ms);
+    t.title = "Jump the video to this line";
+    t.addEventListener("click", (e) => { e.stopPropagation(); lnSeek(w.ms); });
+    top.appendChild(t);
+  }
+  head.appendChild(top);
+  head.appendChild(lnSentence(w.sentence, w.w));
+  if (w.st) {
+    const fa = document.createElement("span");
+    fa.className = "fa";
+    fa.dir = "auto";
+    fa.textContent = w.st;
+    fa.title = w.st;
+    head.appendChild(fa);
+  }
+  b.appendChild(head);
+  let detail = null;
+  head.addEventListener("click", () => {
+    if (!detail) { detail = lnWordDetail(w, r, b, n); b.appendChild(detail); }
+    b.classList.toggle("open");
+  });
+  return b;
+}
+
+function lnWordDetail(w, r, row, nEl) {
+  const d = document.createElement("div");
+  d.className = "detail";
+  const gramBits = [];
+  if (w.art) gramBits.push(`${w.art} ${w.lemma || w.w}`);
+  else if (w.lemma && w.lemma !== w.w) gramBits.push(w.lemma);
+  if (w.plural) gramBits.push("pl. " + w.plural);
+  if (w.pos) gramBits.push(w.pos);
+  if (gramBits.length) {
+    const g = document.createElement("div");
+    g.className = "gram";
+    g.textContent = gramBits.join(" · ");
+    d.appendChild(g);
+  }
+  if (w.phrase) {
+    const p = document.createElement("div");
+    p.className = "phrase";
+    p.textContent = "„" + w.phrase + "“";
+    d.appendChild(p);
+  }
+  for (const s of w.samples || []) {
+    const wrap = document.createElement("div");
+    wrap.className = "sample";
+    if (typeof s.ms === "number" && s.ms > 0) {
+      const t = document.createElement("span");
+      t.className = "t";
+      t.style.cssText = "float:right; margin-left:6px;";
+      t.textContent = "▶ " + lnTime(s.ms);
+      t.title = "Jump the video to this line";
+      t.addEventListener("click", (e) => { e.stopPropagation(); lnSeek(s.ms); });
+      wrap.appendChild(t);
+    }
+    wrap.appendChild(lnSentence(s.o, w.w));
+    if (s.st) {
+      const fa = document.createElement("span");
+      fa.className = "fa";
+      fa.dir = "auto";
+      fa.textContent = s.st;
+      wrap.appendChild(fa);
+    }
+    d.appendChild(wrap);
+  }
+  if (w.note) {
+    const nt = document.createElement("div");
+    nt.className = "note";
+    nt.textContent = w.note;
+    d.appendChild(nt);
+  }
+  const add = document.createElement("button");
+  add.className = "lnadd";
+  add.textContent = "Add to Leitner box";
+  add.addEventListener("click", () => {
+    if (row.classList.contains("added")) return;
+    add.disabled = true;
+    chrome.runtime.sendMessage({ type: "VOCAB_ADD", word: w.w, sentence: w.sentence, translation: w.st || "",
+      lang: r.lang, videoTitle: r.title || "", base: clipBase, ms: w.ms || 0 }, (resp) => {
+      if (chrome.runtime.lastError || !resp || resp.error) { add.disabled = false; return; }
+      row.classList.add("added");
+      nEl.textContent = "✓ saved";
+      add.textContent = "In the box ✓";
+    });
+  });
+  d.appendChild(add);
+  return d;
+}
+
+function renderLearnWords() {
+  const box = el("lnWords"), foot = el("lnFoot"), enrich = el("lnEnrich"), lvls = el("lnLvls");
+  box.textContent = "";
+  enrich.hidden = true;
+  lvls.hidden = true;
+  if (!clipBase) {
+    foot.textContent = "Open a video with subtitles — its words show up here to learn from.";
+    return;
+  }
+  chrome.runtime.sendMessage({ type: "VOCAB_CLIP_WORDS", base: clipBase, limit: 150 }, (r) => {
+    if (chrome.runtime.lastError || !r) return;
+    lnData = r;
+    if (!r.words || !r.words.length) {
+      foot.textContent = r.reason === "native"
+        ? "This video is in a language you already read — nothing to learn here."
+        : r.reason === "other-lang"
+          ? `This video isn't in the language you're learning (detected: ${r.lang || "unknown"}) — switch "Learning" above to include it.`
+          : r.reason === "no-target"
+            ? "No translation in your target language cached yet — watch a bit with subtitles on."
+            : "No words cached for this video yet — play it with subtitles on, then reopen.";
+      return;
+    }
+    lvls.hidden = !r.enriched; // level filter only means something once levels exist
+    if (r.enriching) {
+      // A run is underway worker-side (survives the popup closing) — show state,
+      // never a second pay button. Poll until it lands.
+      enrich.hidden = false;
+      enrich.disabled = true;
+      enrich.textContent = "Translating & leveling — keep watching, this finishes on its own…";
+      setTimeout(renderLearnWords, 4000);
+    } else if (r.enrichable) {
+      // Meaning + level come from batched requests (50 words each), cached
+      // forever for this clip — price up front, never automatic. Delta-aware:
+      // a clip enriched when the pool was smaller offers just the missing words.
+      const nW = r.enrichable;
+      const batches = Math.ceil(nW / 50);
+      const usd = window.SV_PRICING.estCost({
+        provider: state.translationProvider === "claude" ? "claude" : "openai",
+        model: state.translationProvider === "claude" ? (state.claudeModel || "claude-sonnet-5") : "gpt-4o-mini",
+        inTok: nW * 35 + batches * 260, outTok: nW * 45,
+      });
+      enrich.hidden = false;
+      enrich.disabled = false;
+      enrich.textContent = `Translate & level ${r.enriched ? nW + " more" : "these " + nW} words · ~$${usd < 0.005 ? usd.toFixed(4) : usd.toFixed(2)}`;
+      enrich.onclick = () => {
+        enrich.disabled = true;
+        enrich.textContent = "Translating…";
+        chrome.runtime.sendMessage({ type: "VOCAB_CLIP_ENRICH", base: clipBase }, (resp) => {
+          if (chrome.runtime.lastError || !resp || resp.error) {
+            enrich.disabled = false;
+            enrich.textContent = "Failed — try again";
+            el("lnFoot").textContent = (resp && resp.error) || "The provider call failed.";
+            return;
+          }
+          renderLearnWords(); // refetch: words come back with meaning/level merged
+        });
+      };
+    }
+    lnRenderRows();
+  });
+}
+
 // ── load ─────────────────────────────────────────────────────────────────────
 async function load() {
   const g = await chrome.storage.local.get([...Object.keys(DEFAULTS), "linePositions", "clipOverrides"]);
@@ -1095,6 +1396,35 @@ async function load() {
   el("dubDuckVal").textContent = el("dubDuck").value + "%";
   el("dubPace").value = Math.round((typeof state.dubPace === "number" ? state.dubPace : 1) * 100);
   el("dubPaceVal").textContent = (el("dubPace").value / 100).toFixed(2) + "×";
+  // 🎓 Learn: the tab shows THIS video's words + sentences (tap to save);
+  // review, inbox and dictionary live on learn.html.
+  const openLearn = () => chrome.tabs.create({ url: chrome.runtime.getURL("learn.html") });
+  el("learnChip").addEventListener("click", openLearn);
+  el("lnOpenFull").addEventListener("click", openLearn);
+  el("lnLvls").addEventListener("click", (e) => {
+    const b = e.target.closest(".lnlvl");
+    if (!b) return;
+    lnMin = b.dataset.min;
+    [...el("lnLvls").children].forEach((x) => x.classList.toggle("on", x === b));
+    lnRenderRows();
+  });
+  // Learning language (the SOURCE side of the direction; the target side
+  // follows the translation setting). Options = the languages the stopword
+  // detector actually recognizes — offering more would silently match nothing.
+  el("lnLang").value = state.learnLang || "";
+  const tgLang = (LANGS.find((l) => l[0] === (state.targets && state.targets[0])) || [])[1];
+  el("lnDir").textContent = tgLang ? "→ " + tgLang : "";
+  el("lnLang").addEventListener("change", () => {
+    persist({ learnLang: el("lnLang").value });
+    state.learnLang = el("lnLang").value;
+    renderLearnWords();
+  });
+  el("lnPos").addEventListener("change", () => { lnPos = el("lnPos").value; lnRenderRows(); });
+  chrome.runtime.sendMessage({ type: "VOCAB_DUE_COUNT" }, (r) => {
+    if (chrome.runtime.lastError || !r) return;
+    el("learnDue").textContent = r.total ? `${r.due} due` : "Learn";
+  });
+  renderLearnWords();
   pollDub();
   updateStyleUI();
   renderChips();
@@ -1149,6 +1479,7 @@ async function load() {
 })();
 
 buildPresetRow();
+buildHlRow();
 load();
 initFolds();
 initTabs();

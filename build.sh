@@ -56,7 +56,13 @@ if [ "${1:-}" = "--firefox" ]; then
 import json, sys, os
 with open("manifest.json") as f:
     m = json.load(f)
-m["background"] = {"scripts": ["background.js"], "service_worker": "background.js"}
+m["background"] = {
+    # Event pages can't importScripts (worker-only API) — list the shared pure
+    # modules explicitly; they attach to globalThis, so background.js sees the
+    # same SV_* globals the Chrome worker gets via its (guarded) importScripts.
+    "scripts": ["shared/pricing.js", "shared/leitner.js", "shared/stopwords.js", "shared/vocab.js", "background.js"],
+    "service_worker": "background.js",
+}
 m["browser_specific_settings"] = {
     "gecko": {"id": "subvibe@nimanou.com", "strict_min_version": "128.0"},
     "gecko_android": {},

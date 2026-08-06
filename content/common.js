@@ -33,6 +33,7 @@
     syncOffset: 0,       // seconds; + shows subtitles earlier, − later
     karaokeHl: true,     // karaoke fill: words already spoken light up in --cs-hl
                          // (exact per-word times on YouTube ASR tracks, estimated elsewhere)
+    karaokeStyle: "classic", // karaoke highlight look: classic | neon-cyan | neon-magenta | ember | aurora
     audioFallback: false, // transcribe audio ONLY when a video has no captions
     audioDeviceId: "",    // chosen input device (e.g. BlackHole)
     debugHud: false,      // on-video debug panel (engine mode + caption-file pipeline)
@@ -115,7 +116,7 @@
   // layers this clip's own changes on top — so a tweak on one video (or live channel)
   // never bleeds onto another. sync defaults to 0 per clip.
   async function getSettings() {
-    const s = await chrome.storage.local.get(["enabled", "translateOn", "targets", "showOriginal", "hideNative", "position", "linePositions", "size", "stylePreset", "styleCustom", "syncOffset", "karaokeHl", "audioFallback", "audioDeviceId", "translationProvider", "debugHud", "clipOverrides"]);
+    const s = await chrome.storage.local.get(["enabled", "translateOn", "targets", "showOriginal", "hideNative", "position", "linePositions", "size", "stylePreset", "styleCustom", "syncOffset", "karaokeHl", "karaokeStyle", "audioFallback", "audioDeviceId", "translationProvider", "debugHud", "clipOverrides"]);
     const { clipOverrides, ...flat } = s;
     const ov = (clipOverrides && clipOverrides[clipBaseId()]) || {};
     const merged = { ...DEFAULTS, ...flat, ...ov };
@@ -632,15 +633,40 @@
     const y = 0.86 - (total - 1 - idx) * 0.085;
     return { x: 0.5, y: Math.max(0.12, Math.min(0.9, y)) };
   }
+  // A dragged line's CENTER is clamped, but a long sentence's BOX can still
+  // hang past the player edge (subtitles "outside the view"). Nudge the box
+  // back inside via the --cs-shift-* transform correction; the stored drag
+  // fraction — the user's intent — is never rewritten. Re-runs automatically
+  // when a line's size changes (every new cue) via a ResizeObserver.
+  function keepLineInside(ln) {
+    const overlay = document.getElementById("copilot-subs");
+    if (!overlay || !overlay.classList.contains("copilot-pos-custom")) return;
+    const o = overlay.getBoundingClientRect(), r = ln.getBoundingClientRect();
+    if (!o.width || !r.width) return;
+    const curX = parseFloat(ln.style.getPropertyValue("--cs-shift-x")) || 0;
+    const curY = parseFloat(ln.style.getPropertyValue("--cs-shift-y")) || 0;
+    const left = r.left - curX, right = r.right - curX, top = r.top - curY, bottom = r.bottom - curY;
+    let sx = 0, sy = 0;
+    if (right > o.right - 4) sx = o.right - 4 - right;
+    if (left + sx < o.left + 4) sx = o.left + 4 - left;
+    if (bottom > o.bottom - 4) sy = o.bottom - 4 - bottom;
+    if (top + sy < o.top + 4) sy = o.top + 4 - top;
+    ln.style.setProperty("--cs-shift-x", Math.round(sx) + "px");
+    ln.style.setProperty("--cs-shift-y", Math.round(sy) + "px");
+  }
+  let lineFitRO = null;
   function layoutCustomLines() {
     const overlay = document.getElementById("copilot-subs");
     if (!overlay || !overlay.classList.contains("copilot-pos-custom")) return;
+    if (!lineFitRO && window.ResizeObserver) lineFitRO = new ResizeObserver((es) => es.forEach((e) => keepLineInside(e.target)));
     const lines = [...overlay.querySelectorAll(".copilot-subs__line")];
     lines.forEach((ln, i) => {
       const key = ln.dataset.csKey || ("slot" + i);
       const p = linePositions[key] || defaultSlotPos(i, lines.length);
       ln.style.left = (clampFrac(p.x, 0.5) * 100).toFixed(2) + "%";
       ln.style.top = (clampFrac(p.y, 0.85) * 100).toFixed(2) + "%";
+      if (lineFitRO && !ln._csFit) { ln._csFit = true; lineFitRO.observe(ln); }
+      keepLineInside(ln);
     });
   }
   let dragState = null;
@@ -674,13 +700,18 @@
       }
       dragState.line.style.left = (x * 100).toFixed(2) + "%";
       dragState.line.style.top = (y * 100).toFixed(2) + "%";
+      // While the pointer drives, no fit-correction — it would fight the hand.
+      dragState.line.style.setProperty("--cs-shift-x", "0px");
+      dragState.line.style.setProperty("--cs-shift-y", "0px");
     });
     const end = (e) => {
       if (!dragState || e.pointerId !== dragState.id) return;
       const moved = dragState.moved;
-      try { dragState.line.releasePointerCapture(e.pointerId); } catch {}
+      const line = dragState.line;
+      try { line.releasePointerCapture(e.pointerId); } catch {}
       overlay.classList.remove("copilot-dragging");
       dragState = null;
+      keepLineInside(line); // released near an edge → pull the box back into the player
       // position + linePositions apply LIVE via the storage watcher (no restart).
       // Saved PER-CLIP so each video keeps its own dragged layout.
       if (moved) saveClipSettings({ position: "custom", linePositions });
@@ -720,6 +751,11 @@
       el.classList.toggle("copilot-style-banner", style.banner);
       ensureFont(style.fonts);
     }
+    // Karaoke highlight style: one overlay class drives the .sung look
+    // (styles/overlay.css). Unknown/missing values render classic.
+    const HL_KEYS = ["classic", "neon-cyan", "neon-magenta", "ember", "aurora"];
+    const hl = HL_KEYS.includes(settings.karaokeStyle) ? settings.karaokeStyle : "classic";
+    for (const k of HL_KEYS) el.classList.toggle("copilot-hl-" + k, k === hl);
     sizeOverlay(); // size the font to the video now (a 1s timer keeps it in sync on resize/fullscreen)
     initDrag(el);  // make the subtitles grabbable (idempotent)
     if (autoPosEnabled) updateAutoPosition();
@@ -1556,6 +1592,168 @@
     for (const d of defs) { const row = document.createElement("div"); row.className = "copilot-subs__line" + (d.target ? "" : " copilot-subs__line--orig"); row.dataset.csKey = d.key; els[d.key] = row; stack.appendChild(row); }
     layoutCustomLines(); // if Position is "custom", anchor each line at its own saved spot
 
+    // ── Click-to-save vocabulary ────────────────────────────────────────────
+    // Karaoke words in the ORIGINAL line are save targets: one click sends the
+    // word + its real sentence + the primary target's cached translation to the
+    // trainer (VOCAB_ADD). Capture phase on the stack; never pauses the video
+    // (overlay clicks don't reach the player). A drag is not a click: pointer
+    // travel > 6px vetoes the save, so grabbing a line to move it stays clean.
+    const vocabTg = (settings.targets || [])[0] || null;
+    let curCue = null; // the cue on screen — stamped by tick each frame
+    let vocabDownX = 0, vocabDownY = 0;
+    stack.addEventListener("pointerdown", (e) => { vocabDownX = e.clientX; vocabDownY = e.clientY; }, true);
+    stack.addEventListener("click", (e) => {
+      const w = e.target && e.target.closest && e.target.closest(".copilot-subs__w");
+      if (!w) return;
+      const row = w.closest(".copilot-subs__line");
+      if (!row || row.dataset.csKey !== "__orig") return; // original words only
+      if (Math.hypot(e.clientX - vocabDownX, e.clientY - vocabDownY) > 6) return; // that was a drag
+      const c = curCue;
+      if (!c) return;
+      const sentence = c.grp ? c.grp.orig : c.original;
+      const sentenceT = !vocabTg ? "" : c.grp
+        ? c.grp.cues.map((q) => q.t[vocabTg] || "").join(" ").trim()
+        : (c.t[vocabTg] || "");
+      const langHint = /[?&]lang=([a-z-]+)/i.exec(interceptedUrl || "");
+      send({ type: "VOCAB_ADD", word: w.textContent, sentence, translation: sentenceT,
+        lang: langHint ? langHint[1].toLowerCase() : null, videoTitle: pageTitle, base, ms: c.startMs })
+        .then((r) => { if (r && r.error) setStatus("Couldn't save the word — " + r.error, true); }); // the pulse is optimistic; a failed save must not stay silent
+      w.classList.remove("saved");
+      void w.offsetWidth; // restart the pulse on a repeat click
+      w.classList.add("saved");
+      w.addEventListener("animationend", () => w.classList.remove("saved"), { once: true });
+    }, true);
+
+    // On-video hints: the trainer's word pool for this clip marks its words in
+    // the ORIGINAL line with a dotted gold underline — glanceable "worth
+    // learning", the meaning as a tooltip once the clip was enriched. Built
+    // from the cache the worker already owns; zero network, zero cost.
+    let vocabPool = null; // lowercased word → meaning ("" until enriched)
+    let vocabPoolLang = "xx";
+    const markLearnWords = (row) => {
+      for (const sp of row.__svW.spans) {
+        const lw = sp.textContent.toLowerCase().replace(/^[^\p{L}]+|[^\p{L}]+$/gu, "");
+        if (vocabPool.has(lw)) sp.classList.add("lw");
+      }
+    };
+    send({ type: "VOCAB_CLIP_WORDS", base, limit: 150 }).then((r) => {
+      // A valid pool (even a small one) arms the hover for EVERY original-line
+      // word: underlines are the ranked recommendations, not a permission.
+      if (r && Array.isArray(r.words) && !r.reason) {
+        vocabPoolLang = r.lang || "xx";
+        vocabPool = new Map(r.words.map((x) => [x.w.toLowerCase(), x])); // full entries — the tooltip card shows lemma/article/level/phrase too
+        // The line on screen rendered before the pool arrived — mark it now,
+        // not on the next cue change.
+        const orig = els.__orig;
+        if (orig && orig.__svW) markLearnWords(orig);
+      }
+    }).catch(() => {});
+    // Hovering a hinted word shows a REAL tooltip on the overlay — the native
+    // title attribute is delayed and unreliable over a video player. One bubble
+    // element, reused across engine runs.
+    let wtip = overlay.querySelector(".copilot-subs__wtip");
+    if (!wtip) {
+      wtip = document.createElement("div");
+      wtip.className = "copilot-subs__wtip";
+      overlay.appendChild(wtip);
+    }
+    const wtipFetching = new Set(); // words already being looked up
+    const vocabGram = new Map();    // sentence text → grammar note (session-local; the worker caches per clip)
+    let wtipTimer = 0;
+    // A string = status text; an entry object = the mini dictionary card:
+    // "der Verzicht · pl. Verzichte · noun · B2" / meaning / „example phrase“.
+    const placeWtip = (w, content) => {
+      wtip.textContent = "";
+      if (typeof content === "string") {
+        wtip.textContent = content;
+      } else {
+        const bits = [];
+        if (content.art && content.lemma) bits.push(`${content.art} ${content.lemma}`);
+        else if (content.lemma) bits.push(content.lemma);
+        if (content.plural) bits.push("pl. " + content.plural);
+        if (content.pos && content.pos !== "other") bits.push(content.pos);
+        if (content.cefr && content.cefr !== "?") bits.push(content.cefr);
+        if (bits.length) {
+          const head = document.createElement("div");
+          head.className = "wt-head";
+          head.textContent = bits.join(" · ");
+          wtip.appendChild(head);
+        }
+        const mean = document.createElement("div");
+        mean.className = "wt-mean";
+        mean.dir = "auto";
+        mean.textContent = content.meaning || "—";
+        wtip.appendChild(mean);
+        if (content.phrase) {
+          const p = document.createElement("div");
+          p.className = "wt-phrase";
+          p.textContent = "„" + content.phrase + "“";
+          wtip.appendChild(p);
+        }
+        if (content.gram) {
+          const g = document.createElement("div");
+          g.className = "wt-gram";
+          g.dir = "auto";
+          g.textContent = content.gram;
+          wtip.appendChild(g);
+        }
+      }
+      wtip.dir = "auto";
+      const or = overlay.getBoundingClientRect(), wr = w.getBoundingClientRect();
+      // Show first (display:none boxes measure 0), then clamp the center into
+      // the player so an edge word can't push the bubble off screen.
+      wtip.classList.add("show");
+      const half = wtip.offsetWidth / 2 + 6;
+      const cx = wr.left + wr.width / 2 - or.left;
+      wtip.style.left = Math.round(Math.max(half, Math.min(or.width - half, cx))) + "px";
+      wtip.style.top = Math.round(wr.top - or.top) + "px";
+    };
+    stack.addEventListener("mouseover", (e) => {
+      const w = e.target && e.target.closest && e.target.closest(".copilot-subs__w");
+      if (!w || !vocabPool) return;
+      const row = w.closest(".copilot-subs__line");
+      if (!row || row.dataset.csKey !== "__orig") return;
+      const surface = w.textContent.replace(/^[^\p{L}]+|[^\p{L}]+$/gu, "");
+      const lw = surface.toLowerCase();
+      wtip._word = lw;
+      const entry = vocabPool.get(lw);
+      const sentText = row.textContent;
+      const gram = vocabGram.get(sentText);
+      // Fully cached (word card + sentence grammar) → instant, free.
+      if (entry && entry.meaning && gram !== undefined) { placeWtip(w, { ...entry, gram }); return; }
+      // Show what we have now; a LINGERING hover (350ms = intent, not a sweep)
+      // fetches the rest — ONE call returns the word card AND the sentence's
+      // grammar, both cached forever.
+      if (entry && entry.meaning) placeWtip(w, entry);
+      else placeWtip(w, "…");
+      clearTimeout(wtipTimer);
+      wtipTimer = setTimeout(() => {
+        if (wtip._word !== lw) return;
+        if (!(entry && entry.meaning)) placeWtip(w, "translating…");
+        if (wtipFetching.has(lw)) return;
+        wtipFetching.add(lw);
+        send({ type: "VOCAB_WORD_ENRICH", base, w: surface, lang: vocabPoolLang, s: sentText })
+          .then((r) => {
+            wtipFetching.delete(lw);
+            const e2 = r && r.e;
+            if (e2 && e2.meaning) vocabPool.set(lw, { ...(vocabPool.get(lw) || {}), ...e2 });
+            if (r && typeof r.g === "string") vocabGram.set(sentText, r.g);
+            if (wtip._word === lw && wtip.classList.contains("show")) {
+              const cur = vocabPool.get(lw);
+              if (cur && cur.meaning) placeWtip(w, { ...cur, gram: vocabGram.get(sentText) || "" });
+              else placeWtip(w, (r && r.error) ? "couldn't translate — check the provider key in the popup" : "no meaning returned");
+            }
+          });
+      }, 350);
+    }, true);
+    stack.addEventListener("mouseout", (e) => {
+      if (e.target && e.target.closest && e.target.closest(".copilot-subs__w")) {
+        clearTimeout(wtipTimer);
+        wtip._word = null;
+        wtip.classList.remove("show");
+      }
+    }, true);
+
     cancelAnimationFrame(rafId);
     let diagAt = 0;
     // Becomes true once this clip has actually played. Lets us keep pre-translating
@@ -1629,6 +1827,7 @@
         }
       }
       const c = i >= 0 ? cues[i] : null;
+      curCue = c; // click-to-save reads the on-screen cue from here
       const kar = settings.karaokeHl !== false;
       for (const d of defs) {
         const el = els[d.key];
@@ -1641,6 +1840,7 @@
           el.__svUk = uk;
           el.style.display = txt ? "block" : "none";
           el.dir = (d.target ? isRTLLang(d.target) : isRTL(txt)) ? "rtl" : "ltr";
+          if (!d.target && vocabPool && el.__svW) markLearnWords(el); // learn-pool hint underline
         }
         if (kar) updateSung(el, t);
       }
@@ -2222,7 +2422,7 @@
   // Appearance keys (position, drag coords, text size, style preset/tweaks) and
   // the sync nudge apply LIVE — re-style in place, no flicker. Anything else
   // (languages, key, enabled…) restarts the engine.
-  const LIVE_KEYS = ["syncOffset", "position", "linePositions", "size", "stylePreset", "styleCustom", "dubEnabled", "dubVoice", "dubGeminiVoice", "ttsProvider", "dubMultiVoice", "dubDuckLevel", "dubPace", "debugHud"];
+  const LIVE_KEYS = ["syncOffset", "position", "linePositions", "size", "stylePreset", "styleCustom", "karaokeStyle", "dubEnabled", "dubVoice", "dubGeminiVoice", "ttsProvider", "dubMultiVoice", "dubDuckLevel", "dubPace", "debugHud"];
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
     const keys = Object.keys(changes);
@@ -2288,6 +2488,13 @@
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (!msg) return;
     if (msg.type === "GET_CLIP") { sendResponse({ base: lastCacheBase || clipBaseId(), title: SV_TITLE.clean(document.title) }); return; } // popup → "this video" cache + per-clip settings
+    if (msg.type === "SV_SEEK") {
+      // Learn tab time chip → jump the video to where a word was said (shadowing).
+      const v = adapter?.getVideoEl?.() || document.querySelector("video");
+      if (v && typeof msg.ms === "number") { v.currentTime = Math.max(0, msg.ms / 1000 - 1); v.play?.(); } // 1s of run-up
+      sendResponse({ ok: !!v });
+      return;
+    }
     if (msg.type === "AUDIO_CUE") onAudioCue(msg.text);
     else if (msg.type === "AUDIO_STOP") stopAudio();
     else if (msg.type === "AUDIO_ERROR") setStatus("Audio: " + msg.error, true);

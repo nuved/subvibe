@@ -6,7 +6,12 @@
 // permission and is exempt). Everything is request/response over
 // chrome.runtime messaging.
 
-importScripts("shared/pricing.js"); // SV_PRICING — one cost model shared with Library/popup
+// SV_PRICING + SV_LEITNER + SV_STOPWORDS + SV_VOCAB — pure modules shared with
+// pages and node tests. Chrome runs this file as a service WORKER (importScripts
+// exists); the Firefox build runs it as an EVENT PAGE (importScripts is a
+// worker-only API) where build.sh lists these files in background.scripts
+// instead — same globalThis globals either way, so guard rather than crash.
+if (typeof importScripts === "function") importScripts("shared/pricing.js", "shared/leitner.js", "shared/stopwords.js", "shared/vocab.js");
 
 const OPENAI_CHAT = "https://api.openai.com/v1/chat/completions";
 const TRANSLATE_MODEL = "gpt-4o-mini";
@@ -50,6 +55,40 @@ const TRANSLATE_SCHEMA = {
     required: ["t", "s", "g", "d"],
   },
 };
+// Vocabulary enrichment — batched (50 words/request, the spec's economy
+// contract), strict-schema like TRANSLATE_SCHEMA. Strict mode requires every
+// property; "-" marks not-applicable (mergeEnrichment turns it into null).
+const ENRICH_BATCH = 50;
+const ENRICH_SCHEMA = {
+  name: "vocab_enrichment",
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      e: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            lemma: { type: "string" },
+            pos: { type: "string", enum: ["noun", "verb", "adj", "adv", "phrase", "other"] },
+            art: { type: "string" },
+            plural: { type: "string" },
+            cefr: { type: "string", enum: ["A1", "A2", "B1", "B2", "C1", "C2"] },
+            meaning: { type: "string" },
+            phrase: { type: "string" },
+            note: { type: "string" },
+          },
+          required: ["lemma", "pos", "art", "plural", "cefr", "meaning", "phrase", "note"],
+        },
+      },
+    },
+    required: ["e"],
+  },
+};
+
 // HTTP statuses worth retrying: OpenAI/Cloudflare blips (520/52x), gateway errors,
 // and rate limits are transient — a short backoff usually clears them.
 const TRANSIENT_HTTP = new Set([429, 500, 502, 503, 504, 520, 521, 522, 523, 524, 529]);
@@ -95,11 +134,12 @@ let _dbPromise = null;
 function db() {
   if (!_dbPromise) {
     _dbPromise = new Promise((resolve, reject) => {
-      const req = indexedDB.open("copilot-subs", 2);
+      const req = indexedDB.open("copilot-subs", 3);
       req.onupgradeneeded = () => {
         const d = req.result;
         if (!d.objectStoreNames.contains("tracks")) d.createObjectStore("tracks");
         if (!d.objectStoreNames.contains("audio")) d.createObjectStore("audio");
+        if (!d.objectStoreNames.contains("vocab")) d.createObjectStore("vocab"); // v3: Leitner trainer (cards + inbox + tombstones)
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
@@ -176,6 +216,219 @@ async function idbAudioDeletePrefix(prefix) {
     };
     store.transaction.onerror = () => resolve(n);
   });
+}
+
+// ─── vocab store (Leitner trainer; same DB, third object store) ──────────────
+// Keys share one store, split by prefix: cards `${lang}:${word}`, per-video
+// inbox rows `inbox:${base}`, dismissal tombstones `dismissed:${lang}`.
+
+async function idbVocabGet(key) {
+  const d = await db();
+  return new Promise((resolve, reject) => {
+    const r = d.transaction("vocab", "readonly").objectStore("vocab").get(key);
+    r.onsuccess = () => resolve(r.result || null);
+    r.onerror = () => reject(r.error);
+  });
+}
+
+async function idbVocabPut(key, value) {
+  const d = await db();
+  return new Promise((resolve, reject) => {
+    const r = d.transaction("vocab", "readwrite").objectStore("vocab").put(value, key);
+    r.onsuccess = () => resolve();
+    r.onerror = () => reject(r.error);
+  });
+}
+
+async function idbVocabDelete(key) {
+  const d = await db();
+  return new Promise((resolve, reject) => {
+    const r = d.transaction("vocab", "readwrite").objectStore("vocab").delete(key);
+    r.onsuccess = () => resolve();
+    r.onerror = () => reject(r.error);
+  });
+}
+
+// All rows whose key starts with `prefix` ("" = the whole store) as {key, value}.
+async function idbVocabList(prefix) {
+  const d = await db();
+  return new Promise((resolve) => {
+    const store = d.transaction("vocab", "readonly").objectStore("vocab");
+    const out = [];
+    store.openCursor().onsuccess = (e) => {
+      const c = e.target.result;
+      if (!c) return resolve(out);
+      if (typeof c.key === "string" && c.key.startsWith(prefix)) out.push({ key: c.key, value: c.value });
+      c.continue();
+    };
+    store.transaction.onerror = () => resolve(out);
+  });
+}
+
+const isCardKey = (k) => !k.startsWith("inbox:") && !k.startsWith("dismissed:") && !k.startsWith("clipenrich:") && !k.startsWith("clipgram:");
+
+// Upsert one card. Language: explicit > stopword-detected from the sentence >
+// "xx" bucket. A repeat save bumps the seen-count and fills gaps (sentence,
+// translation, title) but never resets the box or the enrichment.
+async function vocabAdd({ word, sentence, translation, lang, videoTitle, base, ms }) {
+  const clean = SV_VOCAB.tokenize(word)[0] || String(word || "").trim();
+  if (!clean) throw new Error("empty word");
+  const l = (lang || "").split("-")[0].toLowerCase() || SV_STOPWORDS.detect(SV_VOCAB.tokenize(sentence)) || "xx";
+  const key = `${l}:${clean.toLowerCase()}`;
+  const cur = await idbVocabGet(key);
+  const now = Date.now();
+  const card = cur ? {
+    ...cur, n: (cur.n || 1) + 1,
+    sentence: cur.sentence || sentence || "", sentenceT: cur.sentenceT || translation || "",
+    videoTitle: cur.videoTitle || videoTitle || "", base: cur.base || base || "", ms: cur.ms ?? ms ?? 0,
+  } : {
+    word: clean, lang: l, box: 1, nextDueAt: now, addedAt: now, lastGradedAt: 0,
+    sentence: sentence || "", sentenceT: translation || "", videoTitle: videoTitle || "", base: base || "", ms: ms || 0,
+    n: 1, lemma: null, pos: null, art: null, plural: null, cefr: null, meaning: null, phrase: null, note: null,
+    conj: null, history: [],
+  };
+  // A clip that was already enriched (VOCAB_CLIP_ENRICH) hands its data to the
+  // new card for free — no second request for a word the batch already covered.
+  if ((!card.cefr || card.cefr === "?") && card.base) {
+    const ce = await idbVocabGet("clipenrich:" + card.base);
+    const e = ce && ce.e && ce.e[card.word.toLowerCase()];
+    if (e) Object.assign(card, e);
+  }
+  await idbVocabPut(key, card);
+  return { key, card };
+}
+
+// ONE clip's learnable words from the cache — the popup Learn tab and the
+// per-clip enrichment both feed from this. Same scoping as the inbox build:
+// a track in a configured target language, original not in one, zero network.
+async function clipWordData(base, limit) {
+  if (!base) return { words: [] };
+  const d = await db();
+  const trRows = await new Promise((resolve) => {
+    const store = d.transaction("tracks", "readonly").objectStore("tracks");
+    const out = [];
+    store.openCursor().onsuccess = (e) => {
+      const c = e.target.result;
+      if (!c) return resolve(out);
+      const key = String(c.key);
+      let tg = null, hit = false;
+      if (key === base + ":stream") hit = true;
+      else if (key.startsWith(base + ":auto:")) { hit = true; tg = key.slice(base.length + 6); }
+      if (hit) { const t = c.value || {}; out.push({ tg, cues: t.cues || [], title: t.title || t.videoId || base, source: t.source, url: t.url || "" }); }
+      c.continue();
+    };
+    store.transaction.onerror = () => resolve(out);
+  });
+  const { targets: cfg, learnLang } = await chrome.storage.local.get(["targets", "learnLang"]);
+  const targets = Array.isArray(cfg) && cfg.length ? cfg : [];
+  const pick = SV_VOCAB.pickClipTrack(trRows, targets);
+  if (!pick || !pick.o) return { words: [], reason: !trRows.length ? "not-cached" : !pick ? "no-target" : "no-originals" };
+  const sentences = SV_VOCAB.mergeCueSentences(pick.row.cues
+    .map((c) => ({ o: c.o || c.original || "", t: pick.row.tg ? (c.text || "") : ((c.t && c.t[pick.tg]) || ""), ms: c.startMs || 0 }))
+    .filter((s) => s.o));
+  const lang = SV_STOPWORDS.detect(sentences.flatMap((s) => SV_VOCAB.tokenize(s.o))) || "xx";
+  if (targets.includes(lang)) return { words: [], reason: "native" };
+  // "Learning: German" set → ONLY German-original clips count; a video in any
+  // other (or undetectable) language has no material for this learner.
+  if (learnLang && lang !== learnLang) return { words: [], reason: "other-lang", lang };
+  const known = new Set((await idbVocabList(lang + ":")).map((r) => r.key.slice(lang.length + 1)));
+  const dismissed = new Set((((await idbVocabGet("dismissed:" + lang)) || {}).words) || []);
+  // 3 samples per word: the popup's word-detail view shows real context lines.
+  // The pool is cut by LEARNABILITY, not raw frequency — a 2-hour interview's
+  // most frequent words are filler; the vocabulary worth leveling is longer
+  // and rarer (rankLearnable). 150 deep so the tail actually makes the list.
+  const all = SV_VOCAB.extractInboxWords(sentences, lang, dismissed, known, 3);
+  const words = SV_VOCAB.rankLearnable(all).slice(0, limit || 150);
+  return { words, lang, title: pick.row.title };
+}
+
+// A clip enrichment in flight, keyed by base. A popup closed and reopened
+// mid-run must AWAIT the same request, never start (and pay for) a second one.
+const clipEnrichInFlight = new Map();
+
+// Build the FREE per-video inbox from the subtitle cache the worker already
+// owns — the engine has no harvest hook by design. Scans `tracks`, extracts
+// words per clip, writes `inbox:${base}` rows. Clips already inboxed are
+// skipped (their row IS the state); dismissed words and words already in the
+// trainer never re-appear. Zero network.
+async function vocabInboxBuild() {
+  const d = await db();
+  const rows = await new Promise((resolve) => { // full rows — idbList() drops cues
+    const store = d.transaction("tracks", "readonly").objectStore("tracks");
+    const out = [];
+    store.openCursor().onsuccess = (e) => {
+      const c = e.target.result;
+      if (!c) return resolve(out);
+      out.push({ key: String(c.key), t: c.value || {} });
+      c.continue();
+    };
+    store.transaction.onerror = () => resolve(out);
+  });
+  const vocabRows = await idbVocabList("");
+  const inboxed = new Set(), known = {}, dismissed = {};
+  for (const { key, value } of vocabRows) {
+    if (key.startsWith("inbox:")) inboxed.add(key);
+    else if (key.startsWith("dismissed:")) dismissed[key.slice(10)] = new Set(value.words || []);
+    else {
+      const lang = key.split(":")[0];
+      (known[lang] = known[lang] || new Set()).add(key.slice(lang.length + 1));
+    }
+  }
+  // Group cache rows by clip: keys are `${base}:auto:${target}` (per-target
+  // cuelist rows) or `${base}:stream` (one row, all targets inside each cue).
+  const byBase = new Map();
+  for (const { key, t } of rows) {
+    let tg = null;
+    let m = /^(.*):auto:([^:]+)$/.exec(key);
+    if (m) tg = m[2];
+    else { m = /^(.*):stream$/.exec(key); if (!m) continue; }
+    if (!byBase.has(m[1])) byBase.set(m[1], []);
+    byBase.get(m[1]).push({ tg, cues: t.cues || [], title: t.title || t.videoId || m[1], source: t.source, url: t.url || "" });
+  }
+  // The trainer is scoped to the user's TARGET languages: a clip only feeds the
+  // inbox from a track translated into one of them (primary preferred), so its
+  // sentence translations are in a language the user reads — not whatever
+  // language a video happened to be cached in. Count every skip reason (no
+  // silent caps): out-of-scope clips, and clips cached before the `o` field
+  // shipped (2026-07-29, no original text).
+  const { targets: cfgTargets, learnLang } = await chrome.storage.local.get(["targets", "learnLang"]);
+  const targets = Array.isArray(cfgTargets) && cfgTargets.length ? cfgTargets : [];
+  // Heal rows the current rules exclude: an inbox row whose ORIGINAL language
+  // is one of the user's targets (words they already speak), or — with a
+  // "Learning: X" language set — any row NOT in that language. Delete so the
+  // loop below re-evaluates (and re-skips) the clip under today's rules.
+  // v2 marks rows built with matched sentence pairs (mergeCueSentences) —
+  // older rows carried fragment-vs-full-translation mismatches; rebuilding is
+  // safe because dismissals (tombstones) and promoted words (cards) live
+  // outside the inbox row.
+  for (const { key, value } of vocabRows) {
+    if (key.startsWith("inbox:") && value && (targets.includes(value.lang) || (learnLang && value.lang !== learnLang) || value.v !== 2)) {
+      await idbVocabDelete(key);
+      inboxed.delete(key);
+    }
+  }
+  let built = 0, noOrig = 0, noTarget = 0, natives = 0, otherLang = 0;
+  for (const [base, trRows] of byBase) {
+    if (inboxed.has("inbox:" + base)) continue;
+    const pick = SV_VOCAB.pickClipTrack(trRows, targets);
+    if (!pick) { noTarget++; continue; }
+    if (!pick.o) { noOrig++; continue; }
+    const sentences = SV_VOCAB.mergeCueSentences(pick.row.cues
+      .map((c) => ({ o: c.o || c.original || "", t: pick.row.tg ? (c.text || "") : ((c.t && c.t[pick.tg]) || "") }))
+      .filter((s) => s.o));
+    const lang = SV_STOPWORDS.detect(sentences.flatMap((s) => SV_VOCAB.tokenize(s.o)))
+      || (pick.row.source && pick.row.source !== "auto" ? pick.row.source : "xx");
+    // The learning direction is original → target: a clip whose ORIGINAL is a
+    // language the user already reads (their target) has nothing to teach.
+    if (targets.includes(lang)) { natives++; continue; }
+    // With "Learning: X" set, only X-original clips feed the trainer.
+    if (learnLang && lang !== learnLang) { otherLang++; continue; }
+    const words = SV_VOCAB.extractInboxWords(sentences, lang, dismissed[lang], known[lang]);
+    if (!words.length) continue;
+    await idbVocabPut("inbox:" + base, { base, lang, videoTitle: pick.row.title, url: pick.row.url, at: Date.now(), words, v: 2 });
+    built++;
+  }
+  return { built, clips: byBase.size, noOrig, noTarget, natives, otherLang, learnLang: learnLang || "", targets };
 }
 
 async function idbList() {
@@ -537,6 +790,182 @@ async function translateAll(lines, source, target, context) {
   // back untranslated text (which used to look like "nothing happened").
   if (failedBatches === totalBatches && lastErr) throw new Error(lastErr.message);
   return { out, spk, gen, dub, inTok, outTok, cacheR, cacheW, provider, model };
+}
+
+// ─── Vocabulary enrichment + conjugation calls ───────────────────────────────
+
+// One hover = one call = the word's full card PLUS the sentence's grammar —
+// batching two results into every request instead of two requests.
+const WORD_SCHEMA = {
+  name: "word_card",
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      e: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          lemma: { type: "string" },
+          pos: { type: "string", enum: ["noun", "verb", "adj", "adv", "phrase", "other"] },
+          art: { type: "string" },
+          plural: { type: "string" },
+          cefr: { type: "string", enum: ["A1", "A2", "B1", "B2", "C1", "C2"] },
+          meaning: { type: "string" },
+          phrase: { type: "string" },
+          note: { type: "string" },
+        },
+        required: ["lemma", "pos", "art", "plural", "cefr", "meaning", "phrase", "note"],
+      },
+      g: { type: "string" },
+    },
+    required: ["e", "g"],
+  },
+};
+
+// Persian entries pass through SV_VOCAB.normalizeFa on write AND read, so a
+// model that drifts into Urdu codepoints (ہ ھ ے) can never plant them in the
+// cache or the UI — including entries cached before this guard existed.
+function faClean(target, obj, keys) {
+  if ((target || "").split("-")[0] !== "fa" || !obj) return obj;
+  for (const k of keys) if (typeof obj[k] === "string") obj[k] = SV_VOCAB.normalizeFa(obj[k]);
+  return obj;
+}
+const ENTRY_FA_KEYS = ["meaning", "note", "phrase", "lemma"];
+
+// CACHE-STABLE per (source, target), like enrichPrompt.
+function wordPrompt(source, target) {
+  const fa = (target || "").split("-")[0] === "fa";
+  return `You are a precise lexicographer for a learner of ${langName(source)}. The user message carries {"w":"<word>","s":"<the sentence it appeared in>"}.\n` +
+    `Return STRICT JSON {"e":{…},"g":"…"}:\n` +
+    `- e: { lemma (dictionary form; the FULL phrasal/separable form when the sentence uses one, e.g. "give up", "aufgeben"), ` +
+    `pos (noun|verb|adj|adv|phrase|other), art ("der"/"die"/"das" for German nouns else "-"), plural (nouns else "-"), ` +
+    `cefr (A1–C2), meaning (concise, in ${langName(target)}, matching this sentence's sense), ` +
+    `phrase (ONE short natural ${langName(source)} example), note (short usage note or "-") }.\n` +
+    `- g: the SENTENCE's grammar explained in ${langName(target)}, 1–2 short sentences: tense/mood, notable constructions, ` +
+    `and any word-order point a learner needs. Use SIMPLE everyday ${langName(target)} a learner reads at a glance — ` +
+    `NEVER formal or textbook grammar register. Name grammar concepts by their common ${langName(source)} term ` +
+    `(clause, passive, relative clause) followed by a plain ${langName(target)} explanation.` +
+    (fa ? `\nPersian register for "g": فارسی سادهٔ روزمره، مثل «این جمله دو بخش دارد که با and به هم وصل شده‌اند» — ` +
+      `هرگز واژه‌های ادبی و دستوریِ سنگین مانند «معاطفه»، «جملهٔ حاضر»، «تشدید می‌کند» به کار نبر.\n` +
+      `ALL Persian output must be STANDARD IRANIAN FARSI — never Urdu: no Urdu letters (ہ ھ ے ٹ ڈ ڑ ں) and no Urdu words (ہے، کلمہ).` : "");
+}
+
+// CACHE-STABLE per (source, target) — same rule as systemPrompt(): nothing
+// per-call in here, so provider prompt caching can serve repeat batches.
+function enrichPrompt(source, target) {
+  return `You are a precise lexicographer helping a learner of ${langName(source)}. The user message carries ` +
+    `{"words":[{"w":"<word>","s":"<the sentence it appeared in>"}, …]}.\n` +
+    `Return STRICT JSON {"e":[…]} with EXACTLY one entry per input word, in the same order:\n` +
+    `- lemma: the dictionary form (infinitive for verbs, nominative singular for nouns). ` +
+    `When the sentence uses the word as part of a PHRASAL or separable verb, lemma is the FULL phrase ` +
+    `("give up", "aufgeben" for a separated "gibt ... auf").\n` +
+    `- pos: noun|verb|adj|adv|phrase|other — the word's role in the given sentence.\n` +
+    `- art: for German nouns the article "der", "die" or "das"; otherwise "-".\n` +
+    `- plural: for nouns the plural form; otherwise "-".\n` +
+    `- cefr: the word's CEFR level, A1–C2.\n` +
+    `- meaning: a concise meaning in ${langName(target)}, matching the sentence's sense.\n` +
+    `- phrase: ONE short, natural ${langName(source)} example phrase using the word.\n` +
+    `- note: a short usage or irregularity note when genuinely useful, else "-".` +
+    ((target || "").split("-")[0] === "fa"
+      ? `\nALL Persian output must be STANDARD IRANIAN FARSI — never Urdu: no Urdu letters (ہ ھ ے ٹ ڈ ڑ ں) and no Urdu words.`
+      : "");
+}
+
+// Conjugation (verbs, on demand; cached forever on the card). Keys are display
+// labels — German gets the canonical five rows; other languages fill equivalent
+// tense rows. Free-keyed object, so this call uses json_object, not a strict schema.
+function conjPrompt(source) {
+  return `You are a ${langName(source)} verb conjugation table generator. The user message carries {"verb":"…"}.\n` +
+    `Return STRICT JSON {"forms":{…}}. For German verbs exactly these keys:\n` +
+    `{"forms":{"präsens":["ich …","du …","er/sie/es …","wir …","ihr …","sie/Sie …"],` +
+    `"präteritum":[6 forms in the same person order],"perfekt":"er/sie/es form, e.g. \\"hat gemacht\\",` +
+    `"imperativ":["du form","ihr form"],"konjunktivII":"ich form"}}.\n` +
+    `For other languages: the equivalent core tense rows — each key a display label in that language, ` +
+    `each value a string or an array of person-forms. Table content only, no commentary.`;
+}
+
+// One structured-JSON call on the user's selected TRANSLATION provider — the
+// enrichment/conjugation twin of translateChunk/translateChunkClaude, sharing
+// their retry, schema and error-shaping rules. schema=null → plain JSON mode
+// (json_object on OpenAI, prompt-dictated JSON on Claude).
+async function llmJSON(system, userPayload, schema) {
+  const { apiKey, anthropicKey, translationProvider, claudeModel } =
+    await chrome.storage.local.get(["apiKey", "anthropicKey", "translationProvider", "claudeModel"]);
+  const provider = translationProvider === "claude" ? "claude" : "openai";
+  const key = provider === "claude" ? anthropicKey : apiKey;
+  if (!key) {
+    throw new Error(provider === "claude"
+      ? "No Anthropic API key yet — open the SubVibe popup and paste your key."
+      : "No OpenAI API key yet — open the SubVibe popup and paste your key.");
+  }
+  const model = provider === "claude" ? resolveClaudeModel(claudeModel) : TRANSLATE_MODEL;
+  const user = JSON.stringify(userPayload);
+  let body, url, headers;
+  if (provider === "claude") {
+    url = ANTHROPIC_MESSAGES;
+    headers = { "x-api-key": key, "anthropic-version": ANTHROPIC_VERSION, "content-type": "application/json", "anthropic-dangerous-direct-browser-access": "true" };
+    body = {
+      model, max_tokens: 8192,
+      system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
+      messages: [{ role: "user", content: user }],
+    };
+    if (schema) body.output_config = { format: { type: "json_schema", schema: schema.schema } };
+    if (!/haiku/.test(model)) body.thinking = { type: "disabled" }; // same rule as translateChunkClaude
+  } else {
+    url = OPENAI_CHAT;
+    headers = { Authorization: "Bearer " + key, "Content-Type": "application/json" };
+    body = {
+      model, temperature: 0,
+      response_format: schema ? { type: "json_schema", json_schema: schema } : { type: "json_object" },
+      messages: [{ role: "system", content: system }, { role: "user", content: user }],
+    };
+  }
+  let lastStatus = 0, lastBody = "", waitMs = 0;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt) await new Promise((r) => setTimeout(r, waitMs || 500 * attempt));
+    const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
+    waitMs = res.status === 429 ? retryAfterMs(res) : 0;
+    const txt = await res.text();
+    if (res.ok) {
+      if (!txt) throw new Error("the provider returned an empty response");
+      let data;
+      try { data = JSON.parse(txt); } catch { throw new Error("the provider returned a non-JSON response"); }
+      let content, usage;
+      if (provider === "claude") {
+        if (data.stop_reason === "refusal") throw new Error("Claude declined this request (refusal)");
+        if (data.stop_reason === "max_tokens") throw new Error("Claude truncated the response (max_tokens)");
+        const blk = (data.content || []).find((b) => b && b.type === "text");
+        content = (blk && blk.text) || "{}";
+        usage = data.usage ? { prompt_tokens: data.usage.input_tokens || 0, completion_tokens: data.usage.output_tokens || 0,
+          cache_r: data.usage.cache_read_input_tokens || 0, cache_w: data.usage.cache_creation_input_tokens || 0 } : null;
+      } else {
+        content = data?.choices?.[0]?.message?.content || "{}";
+        usage = data.usage || null;
+      }
+      let parsed;
+      // Loose parse: Haiku's schema-in-prompt fallback may fence or preface the
+      // JSON — the outermost {...} still parses instead of failing the batch.
+      try { parsed = SV_VOCAB.parseLooseJSON(content); } catch { throw new Error("the model returned malformed JSON"); }
+      return { parsed, usage, provider, model };
+    }
+    lastStatus = res.status; lastBody = txt;
+    // Same fallback as translateChunkClaude: a model generation that rejects
+    // output_config drops to schema-in-prompt once (the prompt dictates the shape).
+    if (provider === "claude" && res.status === 400 && body.output_config && /output_config|output_format/i.test(txt || "")) {
+      console.info("[SubVibe] " + model + " rejected output_config — retrying schema-in-prompt");
+      delete body.output_config;
+      continue;
+    }
+    if (!TRANSIENT_HTTP.has(res.status)) break;
+  }
+  const who = provider === "claude" ? "Claude" : "OpenAI";
+  const detail = lastStatus >= 500 ? `${who} is temporarily unavailable — retrying`
+    : lastStatus === 429 ? `rate limited by ${who}`
+    : /^\s*<(?:!doctype|html|\?xml)/i.test(lastBody || "") ? "unexpected non-JSON response"
+    : (lastBody || "").replace(/\s+/g, " ").slice(0, 140);
+  throw new Error(`${who} ${lastStatus}: ${detail}`);
 }
 
 // ─── TTS (dub speech) ────────────────────────────────────────────────────────
@@ -1031,6 +1460,291 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           if (audioTabId != null) chrome.tabs.sendMessage(audioTabId, { type: "AUDIO_ERROR", error: msg.error }).catch(() => {});
           sendResponse({ ok: true });
           break;
+        // ── Vocabulary trainer (all local — capture/inbox/review cost nothing) ──
+        case "VOCAB_ADD":
+          sendResponse({ ok: true, ...(await vocabAdd(msg)) });
+          break;
+        case "VOCAB_ADD_MANY": {
+          // Bulk save — "add all A2+ words of this clip" in one message. Each
+          // card still goes through vocabAdd (dedupe, clipenrich adoption).
+          let added = 0;
+          for (const it of msg.items || []) {
+            try {
+              await vocabAdd({ word: it.word, sentence: it.sentence, translation: it.translation,
+                lang: msg.lang, videoTitle: msg.videoTitle, base: msg.base, ms: it.ms || 0 });
+              added++;
+            } catch {}
+          }
+          sendResponse({ ok: true, added });
+          break;
+        }
+        case "VOCAB_LIST":
+          sendResponse({ cards: (await idbVocabList("")).filter((r) => isCardKey(r.key)).map((r) => ({ key: r.key, ...r.value })) });
+          break;
+        case "VOCAB_INBOX_LIST":
+          sendResponse({ inbox: (await idbVocabList("inbox:")).map((r) => r.value) });
+          break;
+        case "VOCAB_INBOX_BUILD":
+          sendResponse({ ok: true, ...(await vocabInboxBuild()) });
+          break;
+        case "VOCAB_PROMOTE": {
+          const row = await idbVocabGet("inbox:" + msg.base);
+          let promoted = 0;
+          if (row) {
+            const pick = new Set((msg.words || []).map((w) => String(w).toLowerCase()));
+            for (const e of (row.words || []).filter((e) => pick.has(e.w.toLowerCase()))) {
+              await vocabAdd({ word: e.w, sentence: e.sentence, translation: e.st || "", lang: row.lang, videoTitle: row.videoTitle, base: row.base, ms: 0 });
+              promoted++;
+            }
+            row.words = (row.words || []).filter((e) => !pick.has(e.w.toLowerCase()));
+            await idbVocabPut("inbox:" + msg.base, row);
+          }
+          sendResponse({ ok: true, promoted });
+          break;
+        }
+        case "VOCAB_DISMISS": {
+          const row = await idbVocabGet("inbox:" + msg.base);
+          if (row) {
+            const pick = new Set((msg.words || []).map((w) => String(w).toLowerCase()));
+            const tomb = new Set(((await idbVocabGet("dismissed:" + row.lang)) || {}).words || []);
+            for (const e of row.words || []) if (pick.has(e.w.toLowerCase())) tomb.add(e.w.toLowerCase());
+            await idbVocabPut("dismissed:" + row.lang, { words: [...tomb] }); // never re-inboxed
+            row.words = (row.words || []).filter((e) => !pick.has(e.w.toLowerCase()));
+            await idbVocabPut("inbox:" + msg.base, row);
+          }
+          sendResponse({ ok: true });
+          break;
+        }
+        case "VOCAB_GRADE": {
+          const cur = await idbVocabGet(msg.key);
+          if (!cur) { sendResponse({ error: "no such card: " + msg.key }); break; }
+          const card = SV_LEITNER.grade(cur, !!msg.ok, Date.now());
+          await idbVocabPut(msg.key, card);
+          sendResponse({ ok: true, card });
+          break;
+        }
+        case "VOCAB_DUE_COUNT": {
+          // Also the popup Learn tab's dashboard feed: per-box counts, inbox
+          // totals, enrichment progress — one message, one store scan.
+          const rows = await idbVocabList("");
+          const cards = rows.filter((r) => isCardKey(r.key)).map((r) => r.value);
+          const boxes = [0, 0, 0, 0, 0];
+          for (const c of cards) boxes[Math.min(5, Math.max(1, c.box || 1)) - 1]++;
+          const inboxRows = rows.filter((r) => r.key.startsWith("inbox:")).map((r) => r.value).filter((v) => v && v.words && v.words.length);
+          sendResponse({
+            due: SV_LEITNER.dueCards(cards, Date.now()).length, total: cards.length, boxes,
+            enriched: cards.filter((c) => c.cefr && c.cefr !== "?").length,
+            inboxVideos: inboxRows.length,
+            inboxWords: inboxRows.reduce((a, v) => a + v.words.length, 0),
+          });
+          break;
+        }
+        case "VOCAB_CLIP_WORDS": {
+          // The popup's Learn tab: THIS video's words + their sentences,
+          // extracted on demand from the cache — same scoping rules as the
+          // inbox build, zero network. A cached clip enrichment (see
+          // VOCAB_CLIP_ENRICH) rides along: meaning/level/article per word.
+          const data = await clipWordData(String(msg.base || ""), (msg.limit | 0) > 0 ? (msg.limit | 0) : 150);
+          if (data.words.length) {
+            const ce = await idbVocabGet("clipenrich:" + msg.base);
+            if (ce && ce.e) {
+              for (const w of data.words) Object.assign(w, faClean(ce.target, { ...(ce.e[w.w.toLowerCase()] || {}) }, ENTRY_FA_KEYS));
+              data.enriched = true;
+            }
+            // Lemma dedup: once enrichment knows lemmas, inflected forms
+            // ("geht/ging/gegangen") collapse onto one entry — counts add up,
+            // the highest-ranked surface form stays visible.
+            if (data.enriched) {
+              const byLemma = new Map();
+              const out = [];
+              for (const w of data.words) {
+                const k = (w.lemma || w.w).toLowerCase();
+                const prev = byLemma.get(k);
+                if (prev) prev.n += w.n;
+                else { byLemma.set(k, w); out.push(w); }
+              }
+              data.words = out;
+            }
+            // How many pool words still lack USABLE enrichment — junk back-fill
+            // rows from a failed run ("?" level, no meaning) count as missing,
+            // so a broken batch is re-buyable instead of frozen.
+            data.enrichable = data.words.filter((w) => !w.cefr || (w.cefr === "?" && !w.meaning)).length;
+            data.enriching = clipEnrichInFlight.has(String(msg.base)); // a run is underway — the popup shows progress, not a pay button
+          }
+          sendResponse(data);
+          break;
+        }
+        case "VOCAB_WORD_ENRICH": {
+          // ONE word + its sentence's GRAMMAR — one call, two results, both
+          // cached forever (clipenrich for the word, clipgram for the
+          // sentence). A deliberate hover IS the user trigger; every call is
+          // logged; a fully-cached pair costs nothing.
+          const base = String(msg.base || ""), word = String(msg.w || "").trim();
+          if (!base || !word) { sendResponse({ error: "missing word" }); break; }
+          const wkey = word.toLowerCase();
+          const sent = String(msg.s || "").slice(0, 200);
+          // djb2 — stable, tiny key for the sentence cache.
+          let h = 5381;
+          for (let i = 0; i < sent.length; i++) h = ((h << 5) + h + sent.charCodeAt(i)) | 0;
+          const skey = "s2" + (h >>> 0).toString(36); // s2 = plain-register prompt; old stiff-register entries regenerate on next hover
+          const ce = (await idbVocabGet("clipenrich:" + base)) || { base, lang: msg.lang || "xx", at: Date.now(), e: {} };
+          const cg = (await idbVocabGet("clipgram:" + base)) || { base, at: Date.now(), e: {} };
+          const have = ce.e[wkey];
+          const haveG = cg.e[skey];
+          if (have && !(have.cefr === "?" && !have.meaning) && haveG !== undefined) {
+            sendResponse({ ok: true, e: faClean(have.tl || ce.target, { ...have }, ENTRY_FA_KEYS),
+              g: (have.tl || ce.target || "").startsWith("fa") ? SV_VOCAB.normalizeFa(haveG) : haveG, cached: true });
+            break;
+          }
+          const { targets: cfgW } = await chrome.storage.local.get(["targets"]);
+          const target = (Array.isArray(cfgW) && cfgW[0]) || "en";
+          const started = Date.now();
+          try {
+            const r = await llmJSON(wordPrompt(msg.lang && msg.lang !== "xx" ? msg.lang : "auto", target),
+              { w: word, s: sent }, WORD_SCHEMA);
+            const [m] = SV_VOCAB.mergeEnrichment([{ word }], [(r.parsed && r.parsed.e) || null]);
+            const entry = faClean(target, { lemma: m.lemma, pos: m.pos, art: m.art, plural: m.plural, cefr: m.cefr, meaning: m.meaning, phrase: m.phrase, note: m.note, tl: target }, ENTRY_FA_KEYS);
+            const gram = target.startsWith("fa") ? SV_VOCAB.normalizeFa((r.parsed && r.parsed.g) || "").trim() : ((r.parsed && typeof r.parsed.g === "string") ? r.parsed.g.trim() : "");
+            ce.e[wkey] = entry;
+            ce.target = target;
+            ce.at = Date.now();
+            await idbVocabPut("clipenrich:" + base, ce);
+            cg.e[skey] = gram;
+            cg.target = target;
+            cg.at = Date.now();
+            await idbVocabPut("clipgram:" + base, cg);
+            await logCall({ ts: started, site: "learn", title: "Word: " + word, kind: "enrich", lines: 1, ms: Date.now() - started,
+              inTok: (r.usage && r.usage.prompt_tokens) || 0, outTok: (r.usage && r.usage.completion_tokens) || 0,
+              cacheR: (r.usage && r.usage.cache_r) || 0, cacheW: (r.usage && r.usage.cache_w) || 0, ok: true, provider: r.provider, model: r.model });
+            sendResponse({ ok: true, e: entry, g: gram });
+          } catch (e2) {
+            sendResponse({ error: String((e2 && e2.message) || e2) });
+          }
+          break;
+        }
+        case "VOCAB_CLIP_ENRICH": {
+          // One batched request for THIS clip's top words — meaning in the
+          // user's primary target, CEFR level, article. Cached FOREVER under
+          // clipenrich:${base}: the list display, the level filter, and every
+          // card later saved from this clip reuse it for free.
+          const base = String(msg.base || "");
+          if (clipEnrichInFlight.has(base)) { sendResponse(await clipEnrichInFlight.get(base)); break; }
+          const run = (async () => {
+            // DELTA enrichment: only pool words the clip's cache doesn't cover
+            // yet — a first run does everything, a re-run after the pool grew
+            // (or a partial earlier run) levels just the missing words.
+            const data = await clipWordData(base, 150);
+            if (!data.words.length) return { error: "no words to enrich for this video" };
+            const cached0 = (await idbVocabGet("clipenrich:" + base)) || { base, lang: data.lang, at: Date.now(), e: {} };
+            // Junk back-fill from a failed earlier run is retryable, not "covered".
+            const junk = (e) => e && e.cefr === "?" && !e.meaning;
+            const todo = data.words.filter((w) => { const e = cached0.e[w.w.toLowerCase()]; return !e || junk(e); });
+            if (!todo.length) return { ok: true, cached: true };
+            const { targets: cfg2 } = await chrome.storage.local.get(["targets"]);
+            const target = (Array.isArray(cfg2) && cfg2[0]) || "en";
+            const started = Date.now();
+            let inTok = 0, outTok = 0, cacheR = 0, cacheW = 0, provider = null, model = null, enriched = 0, lastErr = null;
+            for (let i = 0; i < todo.length; i += ENRICH_BATCH) {
+              const batch = todo.slice(i, i + ENRICH_BATCH);
+              try {
+                const r = await llmJSON(enrichPrompt(data.lang === "xx" ? "auto" : data.lang, target),
+                  { words: batch.map((w) => ({ w: w.w, s: (w.sentence || "").slice(0, 160) })) }, ENRICH_SCHEMA);
+                provider = r.provider; model = r.model;
+                if (r.usage) { inTok += r.usage.prompt_tokens || 0; outTok += r.usage.completion_tokens || 0; cacheR += r.usage.cache_r || 0; cacheW += r.usage.cache_w || 0; }
+                const merged = SV_VOCAB.mergeEnrichment(batch.map((w) => ({ word: w.w })), (r.parsed && r.parsed.e) || []);
+                merged.forEach((m, j) => {
+                  // tl = the meaning's language: De→Fa data is a different pair
+                  // than De→En and must never masquerade as it.
+                  cached0.e[batch[j].w.toLowerCase()] = faClean(target, { lemma: m.lemma, pos: m.pos, art: m.art, plural: m.plural, cefr: m.cefr, meaning: m.meaning, phrase: m.phrase, note: m.note, tl: target }, ENTRY_FA_KEYS);
+                });
+                enriched += merged.length;
+              } catch (e2) { lastErr = e2; }
+            }
+            if (enriched) { cached0.target = target; cached0.at = Date.now(); await idbVocabPut("clipenrich:" + base, cached0); }
+            if (!provider) {
+              const { translationProvider } = await chrome.storage.local.get("translationProvider");
+              provider = translationProvider === "claude" ? "claude" : "openai";
+            }
+            await logCall({ ts: started, site: "learn", title: "Words: " + (data.title || base), kind: "enrich", lines: todo.length,
+              ms: Date.now() - started, inTok, outTok, cacheR, cacheW, ok: !lastErr,
+              err: lastErr ? String((lastErr && lastErr.message) || lastErr) : undefined, provider, model });
+            if (!enriched && lastErr) return { error: String((lastErr && lastErr.message) || lastErr) };
+            return { ok: true, enriched, failed: todo.length - enriched,
+              usd: SV_PRICING.estCost({ provider, model, inTok, outTok, cacheR, cacheW }) };
+          })();
+          clipEnrichInFlight.set(base, run);
+          try { sendResponse(await run); } finally { clipEnrichInFlight.delete(base); }
+          break;
+        }
+        case "VOCAB_ENRICH": {
+          // Batches of 50, grouped by the cards' language (one prompt per
+          // source language), merged via SV_VOCAB.mergeEnrichment (short-array
+          // back-fill included), one Activity row for the whole run.
+          const { targets } = await chrome.storage.local.get(["targets"]);
+          const target = (Array.isArray(targets) && targets[0]) || "en";
+          const started = Date.now();
+          const loaded = [];
+          for (const k of msg.keys || []) { const c = await idbVocabGet(k); if (c) loaded.push({ key: k, card: c }); }
+          const byLang = new Map();
+          for (const it of loaded) {
+            if (!byLang.has(it.card.lang)) byLang.set(it.card.lang, []);
+            byLang.get(it.card.lang).push(it);
+          }
+          let enriched = 0, inTok = 0, outTok = 0, cacheR = 0, cacheW = 0, provider = null, model = null, lastErr = null;
+          for (const [lang, items] of byLang) {
+            for (let i = 0; i < items.length; i += ENRICH_BATCH) {
+              const batch = items.slice(i, i + ENRICH_BATCH);
+              try {
+                const r = await llmJSON(enrichPrompt(lang === "xx" ? "auto" : lang, target),
+                  { words: batch.map((b) => ({ w: b.card.word, s: (b.card.sentence || "").slice(0, 160) })) }, ENRICH_SCHEMA);
+                provider = r.provider; model = r.model;
+                if (r.usage) { inTok += r.usage.prompt_tokens || 0; outTok += r.usage.completion_tokens || 0; cacheR += r.usage.cache_r || 0; cacheW += r.usage.cache_w || 0; }
+                const merged = SV_VOCAB.mergeEnrichment(batch.map((b) => b.card), (r.parsed && r.parsed.e) || []);
+                for (let j = 0; j < batch.length; j++) { await idbVocabPut(batch[j].key, faClean(target, { ...merged[j], tl: target }, ENTRY_FA_KEYS)); enriched++; }
+              } catch (e) { lastErr = e; }
+            }
+          }
+          if (!provider) {
+            const { translationProvider } = await chrome.storage.local.get("translationProvider");
+            provider = translationProvider === "claude" ? "claude" : "openai";
+          }
+          await logCall({ ts: started, site: "learn", title: "Vocabulary enrichment", kind: "enrich", lines: loaded.length,
+            ms: Date.now() - started, inTok, outTok, cacheR, cacheW, ok: !lastErr,
+            err: lastErr ? String((lastErr && lastErr.message) || lastErr) : undefined, provider, model });
+          if (!enriched && lastErr) { sendResponse({ error: String((lastErr && lastErr.message) || lastErr) }); break; }
+          // Partial failure is still a failure the user must see: report how many
+          // batches' words missed out and why, not just the success count.
+          sendResponse({ ok: true, enriched, failed: loaded.length - enriched,
+            err: lastErr ? String((lastErr && lastErr.message) || lastErr) : undefined,
+            usd: SV_PRICING.estCost({ provider, model, inTok, outTok, cacheR, cacheW }) });
+          break;
+        }
+        case "VOCAB_CONJUGATE": {
+          const card = await idbVocabGet(msg.key);
+          if (!card) { sendResponse({ error: "no such card: " + msg.key }); break; }
+          if (card.conj) { sendResponse({ ok: true, conj: card.conj, cached: true }); break; } // cached forever — free
+          const started = Date.now();
+          const label = "Conjugation: " + (card.lemma || card.word);
+          try {
+            const r = await llmJSON(conjPrompt(card.lang === "xx" ? "auto" : card.lang), { verb: card.lemma || card.word }, null);
+            const forms = r.parsed && r.parsed.forms;
+            if (!forms || typeof forms !== "object" || Array.isArray(forms)) throw new Error("the model returned no conjugation table");
+            card.conj = forms;
+            await idbVocabPut(msg.key, card);
+            await logCall({ ts: started, site: "learn", title: label, kind: "enrich", lines: 1, ms: Date.now() - started,
+              inTok: (r.usage && r.usage.prompt_tokens) || 0, outTok: (r.usage && r.usage.completion_tokens) || 0,
+              cacheR: (r.usage && r.usage.cache_r) || 0, cacheW: (r.usage && r.usage.cache_w) || 0,
+              ok: true, provider: r.provider, model: r.model });
+            sendResponse({ ok: true, conj: forms });
+          } catch (e) {
+            const { translationProvider } = await chrome.storage.local.get("translationProvider");
+            await logCall({ ts: started, site: "learn", title: label, kind: "enrich", lines: 1, ms: Date.now() - started,
+              inTok: 0, outTok: 0, ok: false, err: String((e && e.message) || e),
+              provider: translationProvider === "claude" ? "claude" : "openai" });
+            sendResponse({ error: String((e && e.message) || e) });
+          }
+          break;
+        }
         default:
           sendResponse({ error: "unknown message: " + (msg && msg.type) });
       }

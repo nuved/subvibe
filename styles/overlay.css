@@ -121,7 +121,10 @@
 }
 #copilot-subs.copilot-pos-custom .copilot-subs__line {
   position: absolute;
-  transform: translate(-50%, -50%);
+  /* --cs-shift-*: a rendering-only correction (keepLineInside in common.js)
+     that pulls a long line's box back inside the player when its dragged
+     CENTER sits near an edge — the saved drag position stays untouched. */
+  transform: translate(calc(-50% + var(--cs-shift-x, 0px)), calc(-50% + var(--cs-shift-y, 0px)));
   max-width: var(--cs-maxwidth, min(84%, 24em));
   margin: 0;
 }
@@ -197,6 +200,86 @@
   box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5);
 }
 #copilot-subs .copilot-subs__cta:hover { background: #3f7af0; }
+
+/* Karaoke highlight styles (karaokeStyle global setting) — pure CSS on .sung.
+   Classic = the existing gold var(--cs-hl) rule above; the other four override
+   it per overlay class. Aurora paints an animated gradient through the glyphs
+   (background-clip: text) and falls back to classic gold where unsupported —
+   outside the @supports block no aurora rule exists, so the base rule wins. */
+#copilot-subs.copilot-hl-neon-cyan .copilot-subs__w.sung {
+  color: #7df9ff;
+  text-shadow: 0 0 0.3em rgba(0, 229, 255, 0.9), 0 0 0.7em rgba(0, 229, 255, 0.45);
+}
+#copilot-subs.copilot-hl-neon-magenta .copilot-subs__w.sung {
+  color: #ff5ce1;
+  text-shadow: 0 0 0.3em rgba(255, 0, 200, 0.9), 0 0 0.7em rgba(255, 0, 200, 0.45);
+}
+#copilot-subs.copilot-hl-ember .copilot-subs__w.sung {
+  color: #ff9d4d;
+  text-shadow: 0 0 0.25em rgba(255, 94, 0, 0.85), 0 0.05em 0.5em rgba(255, 60, 0, 0.4);
+}
+@keyframes cs-aurora { to { background-position: 200% 50%; } }
+@supports ((-webkit-background-clip: text) or (background-clip: text)) {
+  #copilot-subs.copilot-hl-aurora .copilot-subs__w.sung {
+    background: linear-gradient(90deg, #4ade80, #22d3ee, #a78bfa, #f472b6, #4ade80) 0 50% / 200% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+    animation: cs-aurora 3s linear infinite;
+  }
+}
+
+/* Learn-pool hint: a word from this clip's trainer pool carries a dotted gold
+   underline in the original line (hover = meaning once enriched) — the
+   trainer's hints, directly on the video. */
+#copilot-subs .copilot-subs__w.lw {
+  text-decoration: underline dotted rgba(255, 212, 121, 0.75);
+  text-underline-offset: 0.18em;
+}
+
+/* Hover tooltip for hinted words: a fixed-size bubble anchored above the word
+   (never em-scaled with the subtitles — it's UI, not caption). */
+#copilot-subs .copilot-subs__wtip {
+  position: absolute;
+  display: none;
+  transform: translate(-50%, calc(-100% - 9px));
+  /* Size by CONTENT, not by the left offset — an absolute box near the player's
+     edge otherwise shrink-to-fits into a one-word-per-line column. */
+  width: max-content;
+  max-width: 340px;
+  padding: 5px 12px;
+  background: rgba(8, 10, 14, 0.94);
+  color: #ffe9b8;
+  font: 600 14px/1.45 -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  border: 1px solid rgba(255, 212, 121, 0.35);
+  border-radius: 9px;
+  pointer-events: none;
+  white-space: normal;
+  text-align: center;
+  unicode-bidi: isolate;
+  z-index: 6;
+}
+#copilot-subs .copilot-subs__wtip.show { display: block; }
+#copilot-subs .copilot-subs__wtip .wt-head { color: rgba(255, 233, 184, 0.75); font-size: 11.5px; font-weight: 600; margin-bottom: 2px; }
+#copilot-subs .copilot-subs__wtip .wt-mean { font-size: 15px; font-weight: 650; }
+#copilot-subs .copilot-subs__wtip .wt-phrase { color: rgba(255, 233, 184, 0.7); font-size: 11.5px; font-style: italic; margin-top: 3px; }
+#copilot-subs .copilot-subs__wtip .wt-gram { color: rgba(207, 216, 234, 0.85); font-size: 11.5px; margin-top: 4px;
+  border-top: 1px solid rgba(255, 212, 121, 0.18); padding-top: 4px; }
+
+/* Click-to-save (vocabulary trainer): original-line karaoke words are save
+   targets — pointer cursor, and a brief green pulse confirms the save. */
+#copilot-subs .copilot-subs__line--orig .copilot-subs__w { cursor: pointer; }
+@keyframes cs-saved-pulse {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.3); color: #7cfc9a; }
+  100% { transform: scale(1); }
+}
+#copilot-subs .copilot-subs__w.saved {
+  display: inline-block; /* transform needs a box; a one-word span never re-wraps */
+  animation: cs-saved-pulse 0.45s ease;
+  color: #7cfc9a;
+}
 
 /* Dub Mode's consent-gated transport: shows cost/percent, toggles play↔pause. */
 .copilot-subs__dubctl { position: absolute; top: 8px; right: 8px; z-index: 5; padding: 4px 10px;

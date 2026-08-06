@@ -15,6 +15,9 @@
       --radius: 10px; /* cards & inputs; pills and buttons use 8px */
     }
     * { box-sizing: border-box; }
+    /* Beats class-set display (e.g. .lnlvls{display:flex}) so hidden always wins —
+       without this, [hidden] elements with a display class render as EMPTY UI. */
+    [hidden] { display: none !important; }
     /* Chrome sizes the popup window from the <html> element's preferred width AT
        LOAD. Before, only body had a width (340px) and html was unconstrained, so
        any runtime-injected content wider than 340px let html expand toward
@@ -32,6 +35,58 @@
     header img { width: 30px; height: 30px; border-radius: 8px; }
     header h1 { font-size: 15px; margin: 0; letter-spacing: .2px; }
     header .tag { color: var(--muted); font-size: 10.5px; margin: 1px 0 0; }
+    .learnchip { margin-left: auto; align-self: flex-start; border: 1px solid var(--border, #262f49);
+      background: transparent; color: var(--text, #f9fafb); border-radius: 999px; padding: 5px 11px;
+      font: 600 12px/1 inherit; cursor: pointer; white-space: nowrap; }
+    .learnchip:hover { border-color: #6366f1; color: #818cf8; }
+    /* Learn tab — this video's words: word · level · Persian meaning on the
+       first line, the German sentence (word in karaoke gold) and its Persian
+       translation stacked below. */
+    .lnwords { display: flex; flex-direction: column; gap: 1px; max-height: 330px; overflow-y: auto; }
+    .lnw { border-radius: 8px; }
+    .lnw .head { display: block; width: 100%; text-align: left; border: 0; background: transparent;
+      color: var(--text); border-radius: 8px; padding: 6px 8px; font: inherit; cursor: pointer; }
+    .lnw .head:hover, .lnw.open { background: var(--hover); }
+    .lnw .detail { display: none; padding: 2px 8px 10px; }
+    .lnw.open .detail { display: block; }
+    .lnw .gram { font-size: 12px; font-weight: 600; }
+    .lnw .phrase { color: var(--muted); font-style: italic; font-size: 11.5px; margin-top: 3px; }
+    .lnw .sample { margin-top: 4px; }
+    .lnw .note { color: var(--muted); font-size: 11px; margin-top: 4px; }
+    .lnadd { margin-top: 8px; border: 0; border-radius: 8px; background: var(--accent); color: #fff;
+      font: 700 11.5px/1 inherit; padding: 7px 12px; cursor: pointer; }
+    .lnadd:disabled { opacity: .6; cursor: default; }
+    .lnaddall { display: block; width: 100%; margin: 0 0 7px; border: 1px solid var(--accent);
+      background: transparent; color: #818cf8; font: 700 12px/1 inherit; padding: 8px;
+      border-radius: 10px; cursor: pointer; }
+    .lnaddall:hover { background: rgba(99, 102, 241, .12); }
+    .lnaddall:disabled { opacity: .55; cursor: default; }
+    .lnw .top { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
+    .lnw b { font-size: 13.5px; flex: none; }
+    .lnw .n { color: var(--muted); font-size: 10.5px; flex: none; }
+    .lnw .lvl { flex: none; border-radius: 5px; padding: 0 5px; font-size: 10px; font-weight: 700;
+      background: rgba(99, 102, 241, .18); color: #818cf8; }
+    .lnw .mean { color: var(--text); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis;
+      white-space: nowrap; min-width: 0; }
+    .lnw .s { display: block; color: var(--muted); font-size: 11.5px; font-style: italic; overflow: hidden;
+      text-overflow: ellipsis; white-space: nowrap; margin-top: 1px; }
+    .lnw .s mark { background: transparent; color: #ffd479; font-style: normal; font-weight: 600; }
+    .lnw .fa { display: block; color: var(--muted); font-size: 11.5px; overflow: hidden;
+      text-overflow: ellipsis; white-space: nowrap; margin-top: 1px; }
+    .lnw.added { opacity: .6; cursor: default; }
+    .lnw.added b { color: #34d399; }
+    .lnlvls { display: flex; gap: 6px; margin: 2px 0 7px; }
+    .lnlvl { border: 1px solid var(--border); background: transparent; color: var(--muted); border-radius: 999px;
+      padding: 3px 11px; font: 600 11px/1.4 inherit; cursor: pointer; }
+    .lnlvl.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .lnlvls select { margin-left: auto; background: transparent; color: var(--muted); border: 1px solid var(--border);
+      border-radius: 999px; padding: 2px 8px; font: 600 11px/1.4 inherit; }
+    .lnw .t { flex: none; margin-left: auto; color: var(--muted); font-size: 10.5px; font-variant-numeric: tabular-nums;
+      border: 1px solid var(--border); border-radius: 6px; padding: 0 5px; cursor: pointer; }
+    .lnw .t:hover { color: #818cf8; border-color: #6366f1; }
+    .lnenrich { display: block; width: 100%; margin-top: 8px; border: 0; border-radius: 10px;
+      background: var(--accent); color: #fff; font: 700 12.5px/1 inherit; padding: 10px; cursor: pointer; }
+    .lnenrich:disabled { opacity: .5; cursor: default; }
     /* The version line doubles as the tribute's door: park the mouse on it and
        the 2.5s color/glow transition IS the countdown — full mint = unlocked. */
     header .ver { color: var(--muted); font-size: 10px; margin: 1px 0 0; transition: color 2.5s ease, text-shadow 2.5s ease; }
@@ -319,6 +374,7 @@
       <p class="tag">AI subtitles · in sync · cached free</p>
       <p class="ver" id="verTag"></p>
     </div>
+    <button id="learnChip" class="learnchip" title="Vocabulary trainer — review words you saved from videos">🎓 <span id="learnDue">Learn</span></button>
   </header>
 
   <!-- Scope: which video the language/appearance/timing settings below apply to -->
@@ -333,6 +389,7 @@
     <button class="tab on" data-tab="dub">Dub</button>
     <button class="tab" data-tab="translate">Translate</button>
     <button class="tab" data-tab="style">Style</button>
+    <button class="tab" data-tab="learn">Learn</button>
     <button class="tab" data-tab="keys">Keys</button>
   </nav>
 
@@ -505,6 +562,11 @@
       <summary>Appearance <span class="hint" id="lookVal"></span></summary>
       <div class="prevwrap"><span class="prevtext" id="stylePrevText">Subtitles look like this</span></div>
       <div class="presets" id="presetRow"></div>
+      <div class="row" style="margin-top:10px; margin-bottom:2px;">
+        <span style="color:var(--muted);">Highlight</span>
+        <span class="hint">the karaoke color as words are spoken</span>
+      </div>
+      <div class="presets" id="hlRow"></div>
       <div class="row" style="margin-top:10px;">
         <span style="min-width:58px; color:var(--muted);">Size</span>
         <input type="range" id="sizeRange" min="12" max="50" step="1" style="flex:1;"
@@ -581,6 +643,45 @@
         <button id="syncReset" class="syncreset">↺ Reset to 0.00s</button>
       </div>
     </details>
+  </section>
+  </div>
+
+  <div class="pane" data-pane="learn" hidden>
+  <!-- The trainer's MATERIAL, not its admin: this video's words with their
+       real sentences — tap a word to save it to the Leitner box. Review,
+       inbox and dictionary live on learn.html (the Open trainer link). -->
+  <section>
+    <div class="lbl">This video's words <button class="linkbtn" id="lnOpenFull">Open trainer</button></div>
+    <div class="row" style="margin: 2px 0 8px; gap: 8px;">
+      <span style="color:var(--muted); font-size:12px; flex:none;">Learning</span>
+      <select id="lnLang" style="flex:1;">
+        <!-- Every language the stopword detector recognizes qualifies here —
+             learning direction is fully generic (a Persian learner picks
+             Persian; their base language is simply the translation target). -->
+        <option value="">Auto (any language)</option>
+        <option value="de">German</option>
+        <option value="en">English</option>
+        <option value="fa">Persian</option>
+      </select>
+      <span class="hint" id="lnDir" style="flex:none;"></span>
+    </div>
+    <div class="lnlvls" id="lnLvls" hidden>
+      <button class="lnlvl on" data-min="">All</button>
+      <button class="lnlvl" data-min="A2">A2+</button>
+      <button class="lnlvl" data-min="B1">B1+</button>
+      <select id="lnPos" title="Word type">
+        <option value="">All types</option>
+        <option value="verb">Verbs</option>
+        <option value="noun">Nouns</option>
+        <option value="adj">Adjectives</option>
+        <option value="adv">Adverbs</option>
+        <option value="phrase">Phrases</option>
+      </select>
+    </div>
+    <button class="lnaddall" id="lnAddAll" hidden></button>
+    <div id="lnWords" class="lnwords"></div>
+    <button class="lnenrich" id="lnEnrich" hidden></button>
+    <div class="hint" id="lnFoot" style="margin-top:7px;"></div>
   </section>
   </div>
 

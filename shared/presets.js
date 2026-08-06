@@ -138,7 +138,19 @@
     };
   }
 
+  // Karaoke highlight styles (karaokeStyle setting). The LOOK lives in
+  // styles/overlay.css (.copilot-hl-* on .sung); this map only feeds the
+  // popup's swatch row — label + the css that paints the "Abc" tile.
+  const HL_STYLES = {
+    classic: { label: "Classic gold", css: "color:#ffd479" },
+    "neon-cyan": { label: "Neon cyan", css: "color:#7df9ff;text-shadow:0 0 6px rgba(0,229,255,.9)" },
+    "neon-magenta": { label: "Neon magenta", css: "color:#ff5ce1;text-shadow:0 0 6px rgba(255,0,200,.9)" },
+    ember: { label: "Ember", css: "color:#ff9d4d;text-shadow:0 0 5px rgba(255,94,0,.85)" },
+    aurora: { label: "Aurora", css: "background:linear-gradient(90deg,#4ade80,#22d3ee,#a78bfa,#f472b6);-webkit-background-clip:text;background-clip:text;color:transparent" },
+  };
+
   window.SV_PRESETS = PRESETS;
+  window.SV_HL_STYLES = HL_STYLES;
   window.SV_FONT_STACKS = FONT_STACKS;
   window.SV_RESOLVE_STYLE = resolveStyle;
   window.SV_PARSE_COLOR = parseColor;
