@@ -33,6 +33,11 @@
     }
     check("original line renders karaoke word spans", spans.length >= 2, spans.length + " spans");
 
+    // Wait for the trainer pool to arm (Hund gets the .lw hint) so the card
+    // shows the CACHED meaning deterministically, not a race with the pool fetch.
+    for (let i = 0; i < 40 && !(spans[1] && spans[1].classList.contains("lw")); i++) await new Promise((r) => setTimeout(r, 100));
+    check("trainer pool armed before click", !!(spans[1] && spans[1].classList.contains("lw")), spans[1] && spans[1].className);
+
     // Click word #1 ("Hund"): the new model PAUSES the video and pins a card
     // with a Save button — it does NOT save on the bare click.
     const w = spans[1];
@@ -80,8 +85,7 @@
     check("a drag does not pause", playing === true, "playing=" + playing);
     check("a drag does not save", window.__vocabMsgs.length === 1, window.__vocabMsgs.length + " msgs");
 
-    // Learn-pool hints: "Hund" is in the stubbed pool → dotted underline (.lw),
-    // hover → overlay tooltip with the meaning, mouseout hides it.
+    // Learn-pool hints: "Hund" is in the stubbed pool → dotted underline (.lw).
     check("pool word carries the .lw hint", !!(w && w.classList.contains("lw")), w && w.className);
 
     // CEFR-graded underline: a leveled pool word ("schnell", B1) carries its
@@ -91,27 +95,30 @@
     // Smart lightener: a learned / low-priority word (stub dim=["die"]) is dimmed.
     const wd = spans.find((s) => s.textContent.replace(/[^\p{L}]/gu, "").toLowerCase() === "die");
     check("a learned / low-priority word is dimmed", !!(wd && wd.classList.contains("known")), wd && wd.className);
-    if (w) w.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
-    await new Promise((r) => setTimeout(r, 50));
-    check("hover shows the overlay tooltip with the meaning", !!(tip && tip.classList.contains("show") && tip.textContent === "سگ"), tip && tip.textContent);
-    if (w) w.dispatchEvent(new MouseEvent("mouseout", { bubbles: true }));
-    await new Promise((r) => setTimeout(r, 50));
-    check("mouseout hides the tooltip", !!(tip && !tip.classList.contains("show")), tip && tip.className);
 
-    // On-demand hover translation: "Straße" is in the pool WITHOUT a meaning —
-    // a lingering hover (350ms intent) fetches it and the bubble updates.
+    // Hover does NOTHING now — the card is click-only, so a lookup never races
+    // the moving subtitle line. Hovering a word must not open the tooltip.
+    if (w) w.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 500));
+    check("hover does NOT open the tooltip (click-only)", !!(tip && !tip.classList.contains("show")), tip && tip.className);
+
+    // Clicking an UN-enriched pool word ("Straße", no cached meaning) fetches on
+    // demand — one call returns the word card AND the sentence's grammar.
     const w2 = spans.find((s) => /Straße/.test(s.textContent));
-    if (w2) w2.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    if (w2) { const r2 = w2.getBoundingClientRect(); const at2 = { bubbles: true, clientX: r2.left + 2, clientY: r2.top + 2 }; w2.dispatchEvent(new PointerEvent("pointerdown", at2)); w2.dispatchEvent(new MouseEvent("click", at2)); }
     await new Promise((r) => setTimeout(r, 1000));
-    check("lingering hover fetches the missing meaning on demand (card shows type+level too)", !!(tip && tip.classList.contains("show") && tip.textContent.includes("خیابان") && tip.textContent.includes("A1")), tip && tip.textContent);
+    check("clicking an un-enriched word fetches its meaning on demand", !!(tip && tip.classList.contains("pinned") && tip.textContent.includes("خیابان") && tip.textContent.includes("A1")), tip && tip.textContent);
+    check("the fetched card carries the sentence's grammar from the same call", !!(tip && tip.textContent.includes("زمان حال ساده")), tip && tip.textContent);
 
     // The underline is a recommendation, not a permission: a word OUTSIDE the
-    // pool ("läuft" — no .lw) must hover-translate on demand exactly the same.
+    // pool ("läuft" — no .lw) is clickable and fetches exactly the same.
+    const cb2 = tip && tip.querySelector(".wt-close");
+    if (cb2) cb2.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 80));
     const w3 = spans.find((s) => /läuft/.test(s.textContent) && !s.classList.contains("lw"));
-    if (w3) w3.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    if (w3) { const r3 = w3.getBoundingClientRect(); const at3 = { bubbles: true, clientX: r3.left + 2, clientY: r3.top + 2 }; w3.dispatchEvent(new PointerEvent("pointerdown", at3)); w3.dispatchEvent(new MouseEvent("click", at3)); }
     await new Promise((r) => setTimeout(r, 1000));
-    check("non-pool words hover-translate too", !!(w3 && tip.classList.contains("show") && tip.textContent.includes("خیابان")), (w3 ? "" : "no un-pooled span found; ") + (tip && tip.textContent));
-    check("the card carries the sentence's grammar from the same call", !!(tip && tip.textContent.includes("زمان حال ساده")), tip && tip.textContent);
+    check("a non-pool word is clickable and fetches too", !!(w3 && tip.classList.contains("pinned") && tip.textContent.includes("خیابان")), (w3 ? "" : "no un-pooled span found; ") + (tip && tip.textContent));
 
     const passed = results.filter((r) => r.ok).length;
     document.title = (passed === results.length ? "PASS " : "FAIL ") + passed + "/" + results.length;
