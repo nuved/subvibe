@@ -85,6 +85,28 @@
     check("a drag does not pause", playing === true, "playing=" + playing);
     check("a drag does not save", window.__vocabMsgs.length === 1, window.__vocabMsgs.length + " msgs");
 
+    // Regression (real-click bug): the line-drag handler calls setPointerCapture
+    // on pointerdown, so on real hardware the CLICK is retargeted to the LINE,
+    // not the word — e.target.closest(".copilot-subs__w") is null and the card
+    // never opened. The synthetic clicks above hit the word directly and hide
+    // this. Simulate the retarget: click the LINE with the point over a word;
+    // the card must still open (via elementFromPoint recovery).
+    {
+      const line = document.querySelector('.copilot-subs__line[data-cs-key="__orig"]');
+      const tw = line && [...line.querySelectorAll(".copilot-subs__w")][1];
+      if (tw) {
+        const rr = tw.getBoundingClientRect();
+        const at = { bubbles: true, clientX: Math.round(rr.left + rr.width / 2), clientY: Math.round(rr.top + rr.height / 2) };
+        line.dispatchEvent(new PointerEvent("pointerdown", at));
+        line.dispatchEvent(new MouseEvent("click", at)); // target = LINE, point over the word
+      }
+      await new Promise((r) => setTimeout(r, 150));
+      check("a click retargeted to the line still opens the card (elementFromPoint)", !!(tip && tip.classList.contains("show") && tip.classList.contains("pinned")), tip && tip.className);
+      const cb = tip && tip.querySelector(".wt-close");
+      if (cb) cb.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 60));
+    }
+
     // Learn-pool hints: "Hund" is in the stubbed pool → dotted underline (.lw).
     check("pool word carries the .lw hint", !!(w && w.classList.contains("lw")), w && w.className);
 

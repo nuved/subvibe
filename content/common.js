@@ -1605,7 +1605,11 @@
     let vocabDownX = 0, vocabDownY = 0;
     stack.addEventListener("pointerdown", (e) => { vocabDownX = e.clientX; vocabDownY = e.clientY; }, true);
     stack.addEventListener("click", (e) => {
-      const w = e.target && e.target.closest && e.target.closest(".copilot-subs__w");
+      let w = e.target && e.target.closest && e.target.closest(".copilot-subs__w");
+      // The line-drag handler calls setPointerCapture on pointerdown, which
+      // retargets this click to the LINE, not the word — so e.target is the line
+      // and closest() finds nothing. Recover the real word under the pointer.
+      if (!w) { const el = document.elementFromPoint(e.clientX, e.clientY); w = el && el.closest && el.closest(".copilot-subs__w"); }
       if (!w) return;
       const row = w.closest(".copilot-subs__line");
       if (!row || row.dataset.csKey !== "__orig") return; // original words only
