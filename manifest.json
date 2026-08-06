@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "SubVibe - AI Subtitle Translator",
-  "version": "1330.3.0",
-  "version_name": "1330.3 · Mansoor",
+  "version": "1330.4.0",
+  "version_name": "1330.4 · Mansoor",
   "description": "AI subtitles for streaming video — in sync, cached free on replay, or hear it translated aloud live in your language.",
   "homepage_url": "https://nimanou.com",
   "icons": {
@@ -142,6 +142,10 @@
     {
       "resources": ["fonts/*"],
       "matches": ["https://*.youtube.com/*", "https://*.netflix.com/*", "https://*.zdf.de/*", "https://*.dw.com/*", "https://www.amazon.de/*", "https://www.primevideo.com/*", "https://*.udemy.com/*"]
+    },
+    {
+      "resources": ["marker.png"],
+      "matches": ["https://nimanou.com/*"]
     }
   ]
 }
