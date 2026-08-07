@@ -869,7 +869,7 @@ function wordPrompt(source, target) {
   const fa = (target || "").split("-")[0] === "fa";
   return `You are a precise lexicographer for a learner of ${langName(source)}. The user message carries {"w":"<word>","s":"<the sentence it appeared in>"}.\n` +
     `Return STRICT JSON {"e":{…},"g":"…"}:\n` +
-    `- e: { lemma (dictionary form; the FULL phrasal/separable form when the sentence uses one, e.g. "give up", "aufgeben"), ` +
+    `- e: { lemma (dictionary form. For a German SEPARABLE verb whose prefix is detached later in the clause — "komm … zurück" → "zurückkommen", "steht … auf" → "aufstehen", "gibt … auf" → "aufgeben" — the lemma MUST be the FULL reunited verb, NEVER the bare stem, and meaning/phrase must match that full verb; same for English phrasal verbs, e.g. "give up"), ` +
     `pos (noun|verb|adj|adv|phrase|other), art ("der"/"die"/"das" for German nouns else "-"), plural (nouns else "-"), ` +
     `cefr (A1–C2), meaning (concise, in ${langName(target)}, matching this sentence's sense — ALWAYS a real translation, NEVER blank or "-"; for a proper noun give a one-word gloss), ` +
     `phrase (ONE short natural ${langName(source)} example), note (short usage note or "-") }.\n` +
