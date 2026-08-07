@@ -1786,9 +1786,14 @@
     const sentenceForWord = (idx, word) => {
       if (!(idx >= 0 && idx < cues.length)) return "";
       const txt = (c) => String((c && c.original) || "").trim();
-      let s = idx, e = idx;
-      while (s > 0 && !SENT_END.test(txt(cues[s - 1]))) s--;
-      while (e < cues.length - 1 && !SENT_END.test(txt(cues[e]))) e++;
+      // Bound the walk. Slow-German / ASR captions often have NO sentence
+      // punctuation, so an unbounded walk swallows the whole clip (a paragraph
+      // in the card AND a garbled model prompt). Stop at a sentence end, or after
+      // a small window — ±2 cues / ~200 chars — enough to complete a clause.
+      const MAX_CUES = 2, MAX_CHARS = 200;
+      let s = idx, e = idx, chars = txt(cues[idx]).length;
+      while (s > 0 && (idx - s) < MAX_CUES && chars < MAX_CHARS && !SENT_END.test(txt(cues[s - 1]))) { s--; chars += txt(cues[s]).length; }
+      while (e < cues.length - 1 && (e - idx) < MAX_CUES && chars < MAX_CHARS && !SENT_END.test(txt(cues[e]))) { e++; chars += txt(cues[e]).length; }
       const joined = cues.slice(s, e + 1).map(txt).join(" ").replace(/\s+/g, " ").trim();
       if (!word) return joined;
       const esc = String(word).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

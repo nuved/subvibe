@@ -2,6 +2,7 @@
 (function () {
   const NOPOOL = new URLSearchParams(location.search).get("nopool"); // clip's language isn't the one being learned → empty pool
   const SPLIT = new URLSearchParams(location.search).get("split");   // a sentence split across two cues (buildGroups breaks it)
+  const RUNAWAY = new URLSearchParams(location.search).get("runaway"); // many cues, NO sentence punctuation (slow-German ASR)
   const settings = {
     enabled: true, targets: ["en"], showOriginal: true, hideNative: true, karaokeHl: true,
     karaokeStyle: new URLSearchParams(location.search).get("hl") || "classic",
@@ -32,6 +33,14 @@
   // Split mode: ONE sentence across two cues with a >1.4s gap so buildGroups
   // cuts them into SEPARATE groups — cue.grp.orig would miss "nach Hause kommt".
   if (SPLIT) vtt = "WEBVTT\n\n1\n00:00:00.000 --> 00:00:10.000\nIch wünsche mir dass er\n\n2\n00:00:12.000 --> 00:00:18.000\nnach Hause kommt.\n\n";
+  // Runaway mode: 10 cues, NONE ending in sentence punctuation. An unbounded
+  // sentence walk would swallow all of them (the ENDE marker in the last cue);
+  // the bounded walk must not reach it.
+  if (RUNAWAY) {
+    const RL = ["ANFANG das ist ein sehr langer deutscher satz", "der einfach immer weiter geht ohne jedes", "satzzeichen und trotzdem noch weiter laeuft", "und weiter und weiter erzaehlt ohne pause", "hier kommt noch ein teil und noch einer", "dann folgt wieder mehr text ohne pause", "immer weiter geht dieser lange monolog", "fast schon unendlich lang wirkt der satz", "gleich sind wir am schluss angekommen", "und hier steht das allerletzte wort ENDE"];
+    vtt = "WEBVTT\n\n";
+    RL.forEach((l, i) => { const s = i * 10, e = s + 9; const ts = (t) => "00:" + String(Math.floor(t / 60)).padStart(2, "0") + ":" + String(Math.floor(t % 60)).padStart(2, "0") + ".000"; vtt += (i + 1) + "\n" + ts(s) + " --> " + ts(e) + "\n" + l + "\n\n"; });
+  }
   window.__vocabMsgs = []; // every VOCAB_ADD the content script sends
   window.chrome = {
     runtime: {
@@ -44,7 +53,7 @@
         else if (msg && msg.type === "TRANSLATE") r = { lines: (msg.cues || []).map((s) => "EN·" + s) };
         else if (msg && msg.type === "VOCAB_ADD") { window.__vocabMsgs.push(msg); r = { ok: true, key: "de:x", card: {} }; }
         else if (msg && msg.type === "VOCAB_WORD_ENRICH") { window.__enrichS = msg.s; r = { ok: true, e: { meaning: "خیابان", cefr: "A1", pos: "noun" }, g: "زمان حال ساده" }; }
-        else if (msg && msg.type === "VOCAB_CLIP_WORDS") r = (NOPOOL || SPLIT) ? { words: [], reason: "other-lang", lang: "de" } : { enriched: true, lang: "de", title: "t", dim: ["die"], words: [
+        else if (msg && msg.type === "VOCAB_CLIP_WORDS") r = (NOPOOL || SPLIT || RUNAWAY) ? { words: [], reason: "other-lang", lang: "de" } : { enriched: true, lang: "de", title: "t", dim: ["die"], words: [
           { w: "Hund", n: 1, sentence: "", st: "", meaning: "سگ" },              // enriched → tooltip shows the meaning
           { w: "Straße", n: 1, sentence: "", st: "" },                           // pool word without meaning → hinted, honest tooltip
           { w: "schnell", n: 2, sentence: "", st: "", cefr: "B1", meaning: "سریع" } ] }; // leveled → CEFR-colored underline
