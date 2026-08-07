@@ -296,6 +296,27 @@
   background: rgba(255, 255, 255, 0.1); color: #ffe9b8; font-size: 16px; line-height: 1; cursor: pointer; }
 #copilot-subs .copilot-subs__wtip .wt-close:hover { background: rgba(255, 255, 255, 0.2); }
 
+/* ﹖ "explain this line" button — floats on the overlay, tracked to the original
+   line by the tick (position set in JS). */
+#copilot-subs .copilot-subs__hint {
+  position: absolute; display: none; pointer-events: auto; cursor: pointer; z-index: 6;
+  width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%;
+  background: rgba(108, 92, 231, 0.92); color: #fff; font: 700 13px/22px -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  text-align: center; opacity: 0.85; transition: opacity 0.15s;
+}
+#copilot-subs .copilot-subs__hint:hover { opacity: 1; }
+
+/* Line-explain card: stacked labeled sections (Translation / Grammar / Words). */
+#copilot-subs .copilot-subs__wtip.wt-explain { text-align: start; max-width: 380px; }
+#copilot-subs .copilot-subs__wtip .wt-line { font-size: 13px; font-weight: 650; color: #fff4d6; margin-bottom: 4px; }
+#copilot-subs .copilot-subs__wtip .wt-sect { margin-top: 6px; }
+#copilot-subs .copilot-subs__wtip .wt-lbl { font-size: 9.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  color: #c4b5fd; margin-bottom: 1px; }
+#copilot-subs .copilot-subs__wtip .wt-val { font-size: 12.5px; color: #ffe9b8; line-height: 1.5; }
+#copilot-subs .copilot-subs__wtip .wt-words { display: flex; flex-direction: column; gap: 1px; }
+#copilot-subs .copilot-subs__wtip .wt-wordrow { font-size: 12.5px; color: #ffe9b8; }
+#copilot-subs .copilot-subs__wtip .wt-wordrow b { color: #fff4d6; }
+
 /* Original-line words are clickable — a click opens the word card (pointer
    cursor). The .saved pulse below is kept for any optimistic save confirmation. */
 #copilot-subs .copilot-subs__line--orig .copilot-subs__w { cursor: pointer; }
