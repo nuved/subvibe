@@ -22,6 +22,7 @@
   const AUTORUN = new URLSearchParams(location.search).get("autorun");
   const NOPOOL = new URLSearchParams(location.search).get("nopool"); // clip's language isn't the one being learned → empty pool
   const SPLIT = new URLSearchParams(location.search).get("split");   // a sentence split across two cues
+  const RUNAWAY = new URLSearchParams(location.search).get("runaway"); // many cues, no sentence punctuation
   if (AUTORUN) setTimeout(async () => {
     const results = [];
     const check = (name, ok, info) => results.push({ name, ok: !!ok, info: String(info || "").slice(0, 220) });
@@ -75,6 +76,26 @@
       await new Promise((r) => setTimeout(r, 900));
       check("split: enrich gets the sentence RECONSTRUCTED across cues (incl. 'nach Hause kommt')",
         !!(window.__enrichS && /nach Hause kommt/.test(window.__enrichS)), window.__enrichS);
+      finish();
+      return;
+    }
+
+    if (RUNAWAY) {
+      // Punctuation-less captions: an UNBOUNDED walk would send the model (and
+      // the card) the whole clip. The bounded walk must send a small window —
+      // never reaching the "ENDE" marker in the last cue.
+      let r4 = null, sp4 = [];
+      for (let i = 0; i < 50 && sp4.length < 2; i++) {
+        r4 = document.querySelector('.copilot-subs__line[data-cs-key="__orig"]');
+        sp4 = r4 ? [...r4.querySelectorAll(".copilot-subs__w")] : [];
+        await new Promise((r) => setTimeout(r, 200));
+      }
+      check("runaway: the first cue renders", sp4.length >= 2, (r4 && r4.textContent) || "");
+      const tw = sp4[1];
+      if (tw) { const rr = tw.getBoundingClientRect(); const at = { bubbles: true, clientX: rr.left + 2, clientY: rr.top + 2 }; tw.dispatchEvent(new PointerEvent("pointerdown", at)); tw.dispatchEvent(new MouseEvent("click", at)); }
+      await new Promise((r) => setTimeout(r, 900));
+      check("runaway: enrich context is BOUNDED (no runaway; never reaches 'ENDE')",
+        !!(window.__enrichS && window.__enrichS.length < 230 && !/ENDE/.test(window.__enrichS)), (window.__enrichS || "").length + " chars — " + window.__enrichS);
       finish();
       return;
     }
