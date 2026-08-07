@@ -20,9 +20,42 @@
   setInterval(() => window.postMessage({ __copilotSubs: true, type: "SUBS_URL", url: URL_ }, "*"), 1500);
 
   const AUTORUN = new URLSearchParams(location.search).get("autorun");
+  const NOPOOL = new URLSearchParams(location.search).get("nopool"); // clip's language isn't the one being learned → empty pool
   if (AUTORUN) setTimeout(async () => {
     const results = [];
     const check = (name, ok, info) => results.push({ name, ok: !!ok, info: String(info || "").slice(0, 220) });
+    const finish = () => {
+      const passed = results.filter((r) => r.ok).length;
+      document.title = (passed === results.length ? "PASS " : "FAIL ") + passed + "/" + results.length;
+      const out = document.createElement("pre");
+      out.id = "results";
+      out.style.cssText = "color:#ddd;padding:12px;white-space:pre-wrap;font:12px/1.5 ui-monospace,monospace;";
+      out.textContent = results.map((r) => (r.ok ? "PASS  " : "FAIL  ") + r.name + "\n      " + r.info).join("\n");
+      document.body.appendChild(out);
+    };
+
+    if (NOPOOL) {
+      // Regression: a clip whose language isn't the one being learned has an
+      // EMPTY pool (vocabPool null). Clicking a word must still FETCH and show
+      // its meaning — the bug discarded the fetched meaning and showed "no
+      // meaning yet" for every word (e.g. German words on an "en"-detected clip).
+      let r2 = null, sp2 = [];
+      for (let i = 0; i < 50 && sp2.length < 2; i++) {
+        r2 = document.querySelector('.copilot-subs__line[data-cs-key="__orig"]');
+        sp2 = r2 ? [...r2.querySelectorAll(".copilot-subs__w")] : [];
+        await new Promise((r) => setTimeout(r, 200));
+      }
+      check("no-pool clip: original line still renders", sp2.length >= 2, sp2.length + " spans");
+      const tw = sp2[1];
+      if (tw) { const rr = tw.getBoundingClientRect(); const at = { bubbles: true, clientX: rr.left + 2, clientY: rr.top + 2 }; tw.dispatchEvent(new PointerEvent("pointerdown", at)); tw.dispatchEvent(new MouseEvent("click", at)); }
+      await new Promise((r) => setTimeout(r, 1000));
+      const tip = document.querySelector(".copilot-subs__wtip");
+      check("no-pool clip: a word click STILL fetches + shows the meaning (not 'no meaning')",
+        !!(tip && tip.classList.contains("pinned") && tip.textContent.includes("خیابان") && !/no meaning/.test(tip.textContent)),
+        tip && tip.textContent);
+      finish();
+      return;
+    }
 
     // Wait for the ORIGINAL line to render karaoke word spans (≤ 10s).
     let row = null, spans = [];
