@@ -1805,10 +1805,12 @@
           .then((r) => {
             wtipFetching.delete(lw);
             const e2 = r && r.e;
-            if (e2 && e2.meaning && vocabPool) vocabPool.set(lw, { ...(vocabPool.get(lw) || { w: surface }), ...e2 });
+            if (e2 && e2.meaning && vocabPool) vocabPool.set(lw, { ...(vocabPool.get(lw) || { w: surface }), ...e2 }); // cache for the pool view, when there is one
             if (r && typeof r.g === "string") vocabGram.set(sentText, r.g);
             if (wtip._pinned && wtip._word === lw) {
-              const cur = (vocabPool && vocabPool.get(lw)) || entry;
+              // Use the FETCHED entry directly — vocabPool is null on a clip whose
+              // language isn't the one being learned, but a lookup must still work.
+              const cur = (e2 && e2.meaning) ? { ...(entry || { w: surface }), ...e2 } : ((vocabPool && vocabPool.get(lw)) || entry);
               renderPinnedCard(w, surface,
                 (cur && cur.meaning) ? { ...cur, gram: vocabGram.get(sentText) || "" }
                   : { ...entry, meaning: (r && r.error) ? "couldn't translate — check the provider key in the popup" : "no meaning yet — close & click the word again to retry" },
