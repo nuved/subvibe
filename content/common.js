@@ -1668,6 +1668,15 @@
     }
     const wtipFetching = new Set(); // words already being looked up
     const vocabGram = new Map();    // sentence text → grammar note (session-local; the worker caches per clip)
+    const lineExplainCache = new Map();   // sentence → { tr, g, words } (the ﹖ line-explain)
+    const lineExplainFetching = new Set();
+
+    // The ﹖ "explain this line" button lives on the OVERLAY (never inside a line,
+    // so it can't disturb word clicks). The tick tracks it to the original line's
+    // box; clicking it opens the stacked line card (openLineCard, defined below).
+    let hintBtn = overlay.querySelector(".copilot-subs__hint");
+    if (!hintBtn) { hintBtn = document.createElement("button"); hintBtn.type = "button"; hintBtn.className = "copilot-subs__hint"; hintBtn.textContent = "﹖"; hintBtn.title = "Explain this line"; overlay.appendChild(hintBtn); }
+    hintBtn.onclick = (e) => { e.stopPropagation(); openLineCard(els.__orig); };
 
     const positionWtip = (w) => {
       const or = overlay.getBoundingClientRect(), wr = w.getBoundingClientRect();
@@ -1686,8 +1695,9 @@
     // click off it) resumes playback — but only if the click is what paused it.
     const closeWtip = (resume) => {
       wtip._word = null;
+      wtip._lineSig = null;
       wtip._pinned = false;
-      wtip.classList.remove("show", "pinned");
+      wtip.classList.remove("show", "pinned", "wt-explain");
       document.removeEventListener("click", onDocClick, true);
       document.removeEventListener("keydown", onKey, true);
       if (resume && wtip._resume) {
@@ -1817,7 +1827,7 @@
       const v = liveVideoEl(video) || video;
       wtip._resume = !!(v && !v.paused);
       if (v && !v.paused) v.pause();
-      wtip._pinned = true; wtip._word = lw; wtip._saved = false;
+      wtip._pinned = true; wtip._word = lw; wtip._saved = false; wtip._lineSig = null;
       const entry = (vocabPool && vocabPool.get(lw)) || { w: surface };
       const gram = vocabGram.get(sentText);
       renderPinnedCard(w, surface, gram !== undefined ? { ...entry, gram } : entry, cue);
@@ -1844,6 +1854,76 @@
                 (cur && cur.meaning) ? { ...cur, gram: vocabGram.get(sentText) || "" }
                   : { ...entry, meaning: (r && r.error) ? "couldn't translate — check the provider key in the popup" : "no meaning yet — close & click the word again to retry" },
                 cue);
+            }
+          });
+      }
+    };
+
+    // ── "Explain this line" card (the ﹖ hint button) ────────────────────────
+    // Stacked, labeled sections — sentence, Translation, Grammar, Words — from
+    // one cached VOCAB_EXPLAIN call. Reuses the pinned bubble + close/resume.
+    const renderLineCard = (anchor, content) => {
+      wtip.textContent = "";
+      wtip.classList.add("pinned", "wt-explain");
+      const sent = document.createElement("div");
+      sent.className = "wt-line"; sent.dir = "auto"; sent.textContent = content.sentence || "";
+      wtip.appendChild(sent);
+      const addSect = (label, node) => {
+        const s = document.createElement("div"); s.className = "wt-sect";
+        const lb = document.createElement("div"); lb.className = "wt-lbl"; lb.textContent = label; s.appendChild(lb);
+        s.appendChild(node); wtip.appendChild(s);
+      };
+      const line = (text) => { const v = document.createElement("div"); v.className = "wt-val"; v.dir = "auto"; v.textContent = text; return v; };
+      if (content.loading) { wtip.appendChild(line("…")); }
+      else if (content.error) { wtip.appendChild(line(content.error)); }
+      else {
+        if (content.translation) addSect("Translation", line(content.translation));
+        if (content.grammar) addSect("Grammar", line(content.grammar));
+        if (content.words && content.words.length) {
+          const list = document.createElement("div"); list.className = "wt-words";
+          for (const x of content.words) {
+            const r = document.createElement("div"); r.className = "wt-wordrow"; r.dir = "auto";
+            const b = document.createElement("b"); b.textContent = x.w; r.appendChild(b);
+            const m = document.createElement("span"); m.textContent = " — " + x.m; r.appendChild(m);
+            list.appendChild(r);
+          }
+          addSect("Words", list);
+        }
+      }
+      const act = document.createElement("div"); act.className = "wt-actions";
+      const close = document.createElement("button"); close.type = "button"; close.className = "wt-close"; close.title = "Close"; close.textContent = "×";
+      close.addEventListener("click", (ev) => { ev.stopPropagation(); closeWtip(true); });
+      act.appendChild(close); wtip.appendChild(act);
+      wtip.dir = "auto";
+      positionWtip(anchor);
+    };
+
+    const openLineCard = (row) => {
+      const cue = curCue;
+      if (!cue) return;
+      const sentence = sentenceForWord(cues.indexOf(cue), null) || (cue.grp ? cue.grp.orig : cue.original) || (row && row.textContent) || "";
+      if (!sentence) return;
+      const anchor = row || els.__orig;
+      const v = liveVideoEl(video) || video;
+      wtip._resume = !!(v && !v.paused);
+      if (v && !v.paused) v.pause();
+      wtip._pinned = true; wtip._word = null; wtip._lineSig = sentence;
+      const cached = lineExplainCache.get(sentence);
+      renderLineCard(anchor, cached ? { sentence, translation: cached.tr, grammar: cached.g, words: cached.words } : { sentence, loading: true });
+      setTimeout(() => {
+        document.addEventListener("click", onDocClick, true);
+        document.addEventListener("keydown", onKey, true);
+      }, 0);
+      if (!cached && !lineExplainFetching.has(sentence)) {
+        lineExplainFetching.add(sentence);
+        send({ type: "VOCAB_EXPLAIN", base, s: sentence, lang: vocabPoolLang })
+          .then((r) => {
+            lineExplainFetching.delete(sentence);
+            if (r && r.tr) lineExplainCache.set(sentence, { tr: r.tr, g: r.g, words: r.words || [] });
+            if (wtip._pinned && wtip._lineSig === sentence) {
+              renderLineCard(anchor, (r && r.tr)
+                ? { sentence, translation: r.tr, grammar: r.g, words: r.words || [] }
+                : { sentence, error: (r && r.error) ? "couldn't explain — check the provider key in the popup" : "no explanation — close & click ﹖ again to retry" });
             }
           });
       }
@@ -1941,6 +2021,18 @@
           if (!d.target && vocabPool && el.__svW) markLearnWords(el); // learn-pool hint underline
         }
         if (kar) updateSung(el, t);
+      }
+      // Track the ﹖ hint button to the ORIGINAL line's top-right (hide when no
+      // original line is on screen). It lives on the overlay, so this never
+      // touches the line's own DOM.
+      if (hintBtn) {
+        const ol = els.__orig;
+        if (ol && ol.style.display !== "none" && ol.textContent) {
+          const or = overlay.getBoundingClientRect(), lr = ol.getBoundingClientRect();
+          hintBtn.style.display = "block";
+          hintBtn.style.left = Math.round(Math.min(lr.right - or.left + 4, or.width - 20)) + "px";
+          hintBtn.style.top = Math.round(lr.top - or.top) + "px";
+        } else hintBtn.style.display = "none";
       }
       // ── live proof of the lookahead — read window.csDiag() in the console ──
       if (performance.now() - diagAt > 1000) {

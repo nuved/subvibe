@@ -23,6 +23,7 @@
   const NOPOOL = new URLSearchParams(location.search).get("nopool"); // clip's language isn't the one being learned → empty pool
   const SPLIT = new URLSearchParams(location.search).get("split");   // a sentence split across two cues
   const RUNAWAY = new URLSearchParams(location.search).get("runaway"); // many cues, no sentence punctuation
+  const EXPLAIN = new URLSearchParams(location.search).get("explain"); // the ﹖ "explain this line" hint button
   if (AUTORUN) setTimeout(async () => {
     const results = [];
     const check = (name, ok, info) => results.push({ name, ok: !!ok, info: String(info || "").slice(0, 220) });
@@ -96,6 +97,37 @@
       await new Promise((r) => setTimeout(r, 900));
       check("runaway: enrich context is BOUNDED (no runaway; never reaches 'ENDE')",
         !!(window.__enrichS && window.__enrichS.length < 230 && !/ENDE/.test(window.__enrichS)), (window.__enrichS || "").length + " chars — " + window.__enrichS);
+      finish();
+      return;
+    }
+
+    if (EXPLAIN) {
+      // The ﹖ hint button lives on the overlay. It must NOT break word-clicks,
+      // and clicking it must open the stacked line card (Translation/Grammar/Words).
+      let re = null, sp = [], hint = null;
+      for (let i = 0; i < 50 && (sp.length < 2 || !hint); i++) {
+        re = document.querySelector('.copilot-subs__line[data-cs-key="__orig"]');
+        sp = re ? [...re.querySelectorAll(".copilot-subs__w")] : [];
+        hint = document.querySelector(".copilot-subs__hint");
+        await new Promise((r) => setTimeout(r, 200));
+      }
+      check("the ﹖ hint button exists on the overlay", !!hint, hint && hint.className);
+      // Regression guard: a WORD click must STILL open the word card.
+      const wtest = sp[1];
+      if (wtest) { const rr = wtest.getBoundingClientRect(); const at = { bubbles: true, clientX: rr.left + 2, clientY: rr.top + 2 }; wtest.dispatchEvent(new PointerEvent("pointerdown", at)); wtest.dispatchEvent(new MouseEvent("click", at)); }
+      await new Promise((r) => setTimeout(r, 150));
+      let tip = document.querySelector(".copilot-subs__wtip");
+      check("word click STILL opens the word card (hint button didn't break it)", !!(tip && tip.classList.contains("pinned") && !tip.classList.contains("wt-explain")), tip && tip.className);
+      const cb = tip && tip.querySelector(".wt-close"); if (cb) cb.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 60));
+      // Now the hint button → the stacked line card.
+      if (hint) hint.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 900));
+      tip = document.querySelector(".copilot-subs__wtip");
+      check("hint opens the line card with Translation + Grammar + Words",
+        !!(tip && tip.classList.contains("wt-explain") && /جملهٔ آزمایشی/.test(tip.textContent) && /حال ساده/.test(tip.textContent) && /سگ/.test(tip.textContent)),
+        tip && tip.textContent.slice(0, 160));
+      check("line card has the three labeled sections", (tip ? tip.querySelectorAll(".wt-lbl").length : 0) >= 3, tip && [...tip.querySelectorAll(".wt-lbl")].map((x) => x.textContent).join(","));
       finish();
       return;
     }

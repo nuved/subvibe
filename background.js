@@ -882,6 +882,24 @@ function wordPrompt(source, target) {
       `ALL Persian output must be STANDARD IRANIAN FARSI — never Urdu: no Urdu letters (ہ ھ ے ٹ ڈ ڑ ں) and no Urdu words (ہے، کلمہ).` : "");
 }
 
+// Sentence-explain (the on-video ﹖ "explain this line" button): the whole line
+// broken into labeled sections — translation, a plain structure note, and the
+// key words. Cached per sentence in clipexplain:${base}.
+const EXPLAIN_SCHEMA = { name: "sentence_explain", strict: true, schema: { type: "object", additionalProperties: false,
+  properties: {
+    tr: { type: "string" }, g: { type: "string" },
+    words: { type: "array", items: { type: "object", additionalProperties: false, properties: { w: { type: "string" }, m: { type: "string" } }, required: ["w", "m"] } },
+  }, required: ["tr", "g", "words"] } };
+function explainPrompt(source, target) {
+  const fa = (target || "").split("-")[0] === "fa";
+  return `You explain ONE ${langName(source)} sentence to a learner. The user message carries {"s":"<the sentence>"}.\n` +
+    `Return STRICT JSON {"tr":"…","g":"…","words":[{"w":"…","m":"…"}]}:\n` +
+    `- tr: a natural ${langName(target)} translation of the whole sentence.\n` +
+    `- g: a SHORT plain-${langName(target)} structure note — tense/mood, clauses, notable word order, any separable or phrasal verb. 1–2 sentences, everyday register, NEVER textbook grammar jargon.\n` +
+    `- words: the 2–5 most useful/learnable words or phrases in this sentence, each {w: the ${langName(source)} word or phrase (the FULL reunited separable verb if one applies, e.g. "anschauen"), m: its concise ${langName(target)} meaning}. Skip trivial function words.` +
+    (fa ? `\nفارسیِ سادهٔ روزمره؛ هرگز واژه‌های دستوریِ سنگین. STANDARD IRANIAN FARSI — no Urdu letters/words.` : "");
+}
+
 // CACHE-STABLE per (source, target) — same rule as systemPrompt(): nothing
 // per-call in here, so provider prompt caching can serve repeat batches.
 function enrichPrompt(source, target) {
@@ -1669,6 +1687,40 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             cg.at = Date.now();
             await idbVocabPut("clipgram:" + base, cg);
             sendResponse({ ok: true, e: entry, g: gram });
+          } catch (e2) {
+            sendResponse({ error: String((e2 && e2.message) || e2) });
+          }
+          break;
+        }
+        case "VOCAB_EXPLAIN": {
+          // The whole line in labeled sections (translation + structure + key
+          // words) for the on-video ﹖ button. Cached per sentence forever.
+          const base = String(msg.base || ""), sent = String(msg.s || "").slice(0, 320);
+          if (!sent) { sendResponse({ error: "missing sentence" }); break; }
+          let h = 5381;
+          for (let i = 0; i < sent.length; i++) h = ((h << 5) + h + sent.charCodeAt(i)) | 0;
+          const skey = "e1" + (h >>> 0).toString(36);
+          const cx = (await idbVocabGet("clipexplain:" + base)) || { base, at: Date.now(), e: {} };
+          const { targets: cfgX } = await chrome.storage.local.get(["targets"]);
+          const target = (Array.isArray(cfgX) && cfgX[0]) || "en";
+          const fa = (target || "").split("-")[0] === "fa";
+          const faS = (s) => (fa ? SV_VOCAB.normalizeFa(String(s || "")) : String(s || ""));
+          if (cx.e[skey] && cx.e[skey].tr) {
+            const c = cx.e[skey];
+            sendResponse({ ok: true, tr: faS(c.tr), g: faS(c.g), words: (c.words || []).map((x) => ({ w: x.w, m: faS(x.m) })), cached: true });
+            break;
+          }
+          const started = Date.now();
+          try {
+            const r = await llmJSON(explainPrompt(msg.lang && msg.lang !== "xx" ? msg.lang : "auto", target), { s: sent }, EXPLAIN_SCHEMA);
+            const p = (r && r.parsed) || {};
+            const out = { tr: String(p.tr || "").trim(), g: String(p.g || "").trim(),
+              words: Array.isArray(p.words) ? p.words.filter((x) => x && x.w && x.m).slice(0, 6).map((x) => ({ w: String(x.w).trim(), m: String(x.m).trim() })) : [] };
+            if (out.tr) { cx.e[skey] = out; cx.target = target; cx.at = Date.now(); await idbVocabPut("clipexplain:" + base, cx); }
+            await logCall({ ts: started, site: "learn", title: "Explain: " + sent.slice(0, 40), kind: "enrich", lines: 1, ms: Date.now() - started,
+              inTok: (r.usage && r.usage.prompt_tokens) || 0, outTok: (r.usage && r.usage.completion_tokens) || 0,
+              cacheR: (r.usage && r.usage.cache_r) || 0, cacheW: (r.usage && r.usage.cache_w) || 0, ok: true, provider: r.provider, model: r.model });
+            sendResponse({ ok: true, tr: faS(out.tr), g: faS(out.g), words: out.words.map((x) => ({ w: x.w, m: faS(x.m) })) });
           } catch (e2) {
             sendResponse({ error: String((e2 && e2.message) || e2) });
           }
