@@ -1777,15 +1777,36 @@
       positionWtip(w);
     };
 
+    // The FULL sentence a clicked word belongs to, reconstructed ACROSS cues.
+    // buildGroups can cut a group mid-sentence (110-char / 4-cue limit), so a
+    // separable prefix or a subordinate-clause verb often lands in the NEXT cue
+    // ("…dass er" | "nach Hause kommt."). Walk out to the nearest sentence
+    // boundaries, then return the one sentence that contains the word — so the
+    // model sees the whole clause, not a fragment.
+    const sentenceForWord = (idx, word) => {
+      if (!(idx >= 0 && idx < cues.length)) return "";
+      const txt = (c) => String((c && c.original) || "").trim();
+      let s = idx, e = idx;
+      while (s > 0 && !SENT_END.test(txt(cues[s - 1]))) s--;
+      while (e < cues.length - 1 && !SENT_END.test(txt(cues[e]))) e++;
+      const joined = cues.slice(s, e + 1).map(txt).join(" ").replace(/\s+/g, " ").trim();
+      if (!word) return joined;
+      const esc = String(word).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      let re = null; try { re = new RegExp("(?<![\\p{L}])" + esc + "(?![\\p{L}])", "iu"); } catch {}
+      const sentences = joined.split(/(?<=[.!?…])\s+/);
+      const hit = re ? sentences.find((x) => re.test(x)) : sentences.find((x) => x.toLowerCase().includes(String(word).toLowerCase()));
+      return (hit || joined).trim();
+    };
+
     const openWordCard = (w) => {
       const cue = curCue;
       if (!cue) return;
       const surface = w.textContent.replace(/^[^\p{L}]+|[^\p{L}]+$/gu, "");
       const lw = surface.toLowerCase();
-      // Send the WHOLE merged sentence (not just the on-screen cue fragment) so the
-      // model sees a separable verb's detached prefix — "komm … zurück" needs the
-      // "zurück" to resolve to "zurückkommen", not bare "kommen".
-      const sentText = (cue.grp ? cue.grp.orig : cue.original) || w.closest(".copilot-subs__line").textContent;
+      // Send the word's FULL sentence (reconstructed across cues) so the model
+      // sees a detached separable prefix or a clause verb that lands in the next
+      // line — "…dass er" needs "nach Hause kommt" to resolve the clause.
+      const sentText = sentenceForWord(cues.indexOf(cue), surface) || (cue.grp ? cue.grp.orig : cue.original) || w.closest(".copilot-subs__line").textContent;
       // Overlay clicks don't reach the player, so we pause the element ourselves
       // — and remember we did, so closing only resumes what WE paused.
       const v = liveVideoEl(video) || video;

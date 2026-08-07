@@ -21,6 +21,7 @@
 
   const AUTORUN = new URLSearchParams(location.search).get("autorun");
   const NOPOOL = new URLSearchParams(location.search).get("nopool"); // clip's language isn't the one being learned → empty pool
+  const SPLIT = new URLSearchParams(location.search).get("split");   // a sentence split across two cues
   if (AUTORUN) setTimeout(async () => {
     const results = [];
     const check = (name, ok, info) => results.push({ name, ok: !!ok, info: String(info || "").slice(0, 220) });
@@ -53,6 +54,27 @@
       check("no-pool clip: a word click STILL fetches + shows the meaning (not 'no meaning')",
         !!(tip && tip.classList.contains("pinned") && tip.textContent.includes("خیابان") && !/no meaning/.test(tip.textContent)),
         tip && tip.textContent);
+      finish();
+      return;
+    }
+
+    if (SPLIT) {
+      // Cross-cue context: "Ich wünsche mir dass er" | "nach Hause kommt." are
+      // two cues (buildGroups split them by the gap). Clicking a word in the
+      // FIRST cue must send the model the RECONSTRUCTED full sentence — including
+      // the verb "kommt" that lands in the next cue — not the truncated group.
+      let r3 = null, sp3 = [];
+      for (let i = 0; i < 50 && sp3.length < 2; i++) {
+        r3 = document.querySelector('.copilot-subs__line[data-cs-key="__orig"]');
+        sp3 = r3 ? [...r3.querySelectorAll(".copilot-subs__w")] : [];
+        await new Promise((r) => setTimeout(r, 200));
+      }
+      check("split: the first cue renders", sp3.length >= 2, (r3 && r3.textContent) || "");
+      const tw = sp3.find((s) => /wünsche/i.test(s.textContent)) || sp3[1];
+      if (tw) { const rr = tw.getBoundingClientRect(); const at = { bubbles: true, clientX: rr.left + 2, clientY: rr.top + 2 }; tw.dispatchEvent(new PointerEvent("pointerdown", at)); tw.dispatchEvent(new MouseEvent("click", at)); }
+      await new Promise((r) => setTimeout(r, 900));
+      check("split: enrich gets the sentence RECONSTRUCTED across cues (incl. 'nach Hause kommt')",
+        !!(window.__enrichS && /nach Hause kommt/.test(window.__enrichS)), window.__enrichS);
       finish();
       return;
     }

@@ -1621,7 +1621,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           const base = String(msg.base || ""), word = String(msg.w || "").trim();
           if (!base || !word) { sendResponse({ error: "missing word" }); break; }
           const wkey = word.toLowerCase();
-          const sent = String(msg.s || "").slice(0, 200);
+          const sent = String(msg.s || "").slice(0, 320); // room for a sentence reconstructed across cues
           // djb2 — stable, tiny key for the sentence cache.
           let h = 5381;
           for (let i = 0; i < sent.length; i++) h = ((h << 5) + h + sent.charCodeAt(i)) | 0;

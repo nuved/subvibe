@@ -1,6 +1,7 @@
 // chrome stub + YouTube-shaped adapter for the vocab click-to-save harness.
 (function () {
   const NOPOOL = new URLSearchParams(location.search).get("nopool"); // clip's language isn't the one being learned → empty pool
+  const SPLIT = new URLSearchParams(location.search).get("split");   // a sentence split across two cues (buildGroups breaks it)
   const settings = {
     enabled: true, targets: ["en"], showOriginal: true, hideNative: true, karaokeHl: true,
     karaokeStyle: new URLSearchParams(location.search).get("hl") || "classic",
@@ -28,6 +29,9 @@
     const ts = (t) => "00:" + String(Math.floor(t / 60)).padStart(2, "0") + ":" + String(Math.floor(t % 60)).padStart(2, "0") + "." + String(Math.round((t % 1) * 1000)).padStart(3, "0");
     vtt += (i + 1) + "\n" + ts(s) + " --> " + ts(e) + "\n" + l + "\n\n";
   });
+  // Split mode: ONE sentence across two cues with a >1.4s gap so buildGroups
+  // cuts them into SEPARATE groups — cue.grp.orig would miss "nach Hause kommt".
+  if (SPLIT) vtt = "WEBVTT\n\n1\n00:00:00.000 --> 00:00:10.000\nIch wünsche mir dass er\n\n2\n00:00:12.000 --> 00:00:18.000\nnach Hause kommt.\n\n";
   window.__vocabMsgs = []; // every VOCAB_ADD the content script sends
   window.chrome = {
     runtime: {
@@ -39,8 +43,8 @@
         else if (msg && msg.type === "CACHE_GET") r = { track: null };
         else if (msg && msg.type === "TRANSLATE") r = { lines: (msg.cues || []).map((s) => "EN·" + s) };
         else if (msg && msg.type === "VOCAB_ADD") { window.__vocabMsgs.push(msg); r = { ok: true, key: "de:x", card: {} }; }
-        else if (msg && msg.type === "VOCAB_WORD_ENRICH") r = { ok: true, e: { meaning: "خیابان", cefr: "A1", pos: "noun" }, g: "زمان حال ساده" };
-        else if (msg && msg.type === "VOCAB_CLIP_WORDS") r = NOPOOL ? { words: [], reason: "other-lang", lang: "de" } : { enriched: true, lang: "de", title: "t", dim: ["die"], words: [
+        else if (msg && msg.type === "VOCAB_WORD_ENRICH") { window.__enrichS = msg.s; r = { ok: true, e: { meaning: "خیابان", cefr: "A1", pos: "noun" }, g: "زمان حال ساده" }; }
+        else if (msg && msg.type === "VOCAB_CLIP_WORDS") r = (NOPOOL || SPLIT) ? { words: [], reason: "other-lang", lang: "de" } : { enriched: true, lang: "de", title: "t", dim: ["die"], words: [
           { w: "Hund", n: 1, sentence: "", st: "", meaning: "سگ" },              // enriched → tooltip shows the meaning
           { w: "Straße", n: 1, sentence: "", st: "" },                           // pool word without meaning → hinted, honest tooltip
           { w: "schnell", n: 2, sentence: "", st: "", cefr: "B1", meaning: "سریع" } ] }; // leveled → CEFR-colored underline
