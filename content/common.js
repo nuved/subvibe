@@ -1782,7 +1782,10 @@
       if (!cue) return;
       const surface = w.textContent.replace(/^[^\p{L}]+|[^\p{L}]+$/gu, "");
       const lw = surface.toLowerCase();
-      const sentText = w.closest(".copilot-subs__line").textContent;
+      // Send the WHOLE merged sentence (not just the on-screen cue fragment) so the
+      // model sees a separable verb's detached prefix — "komm … zurück" needs the
+      // "zurück" to resolve to "zurückkommen", not bare "kommen".
+      const sentText = (cue.grp ? cue.grp.orig : cue.original) || w.closest(".copilot-subs__line").textContent;
       // Overlay clicks don't reach the player, so we pause the element ourselves
       // — and remember we did, so closing only resumes what WE paused.
       const v = liveVideoEl(video) || video;
