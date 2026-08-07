@@ -869,7 +869,7 @@ function wordPrompt(source, target) {
   const fa = (target || "").split("-")[0] === "fa";
   return `You are a precise lexicographer for a learner of ${langName(source)}. The user message carries {"w":"<word>","s":"<the sentence it appeared in>"}.\n` +
     `Return STRICT JSON {"e":{…},"g":"…"}:\n` +
-    `- e: { lemma (dictionary form. For a German SEPARABLE verb whose prefix is detached later in the clause — "komm … zurück" → "zurückkommen", "steht … auf" → "aufstehen", "gibt … auf" → "aufgeben" — the lemma MUST be the FULL reunited verb, NEVER the bare stem, and meaning/phrase must match that full verb; same for English phrasal verbs, e.g. "give up"), ` +
+    `- e: { lemma (dictionary form. CRITICAL for German SEPARABLE verbs: the user may have clicked the bare stem, but if a separable prefix sits LATER in the sentence — even at the very END — the lemma is the REUNITED verb, never the bare stem: "schauen … an" → "anschauen" (also "schauen wir uns … an" → "anschauen"), "komm … zurück" → "zurückkommen", "steht … auf" → "aufstehen", "sieht … fern" → "fernsehen". Scan the WHOLE sentence for a detached prefix (an, auf, aus, ab, ein, mit, nach, vor, zu, zurück, weg, fern, her, hin); the lemma MUST agree with the separable verb you name in "g", and meaning/phrase must be for that full verb. Same for English phrasal verbs, e.g. "give up"), ` +
     `pos (noun|verb|adj|adv|phrase|other), art ("der"/"die"/"das" for German nouns else "-"), plural (nouns else "-"), ` +
     `cefr (A1–C2), meaning (concise, in ${langName(target)}, matching this sentence's sense — ALWAYS a real translation, NEVER blank or "-"; for a proper noun give a one-word gloss), ` +
     `phrase (ONE short natural ${langName(source)} example), note (short usage note or "-") }.\n` +
@@ -889,8 +889,11 @@ function enrichPrompt(source, target) {
     `{"words":[{"w":"<word>","s":"<the sentence it appeared in>"}, …]}.\n` +
     `Return STRICT JSON {"e":[…]} with EXACTLY one entry per input word, in the same order:\n` +
     `- lemma: the dictionary form (infinitive for verbs, nominative singular for nouns). ` +
-    `When the sentence uses the word as part of a PHRASAL or separable verb, lemma is the FULL phrase ` +
-    `("give up", "aufgeben" for a separated "gibt ... auf").\n` +
+    `For a German SEPARABLE verb, the prefix may sit LATER in the sentence — even at the very END — ` +
+    `and the lemma is still the REUNITED verb, never the bare stem: "schauen … an" → "anschauen", ` +
+    `"gibt … auf" → "aufgeben", "steht … auf" → "aufstehen", "sieht … fern" → "fernsehen". ` +
+    `Scan the whole sentence for a detached prefix (an, auf, aus, ab, ein, mit, nach, vor, zu, zurück, weg, fern). ` +
+    `Same for English phrasal verbs ("give up").\n` +
     `- pos: noun|verb|adj|adv|phrase|other — the word's role in the given sentence.\n` +
     `- art: for German nouns the article "der", "die" or "das"; otherwise "-".\n` +
     `- plural: for nouns the plural form; otherwise "-".\n` +
