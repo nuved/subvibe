@@ -104,6 +104,9 @@
     .lnenrich { display: block; width: 100%; margin-top: 8px; border: 0; border-radius: 10px;
       background: var(--accent); color: #fff; font: 700 12.5px/1 inherit; padding: 10px; cursor: pointer; }
     .lnenrich:disabled { opacity: .5; cursor: default; }
+    /* Dark mode: --accent → --coral-600 → #FF7A66 (light fill), so white text on
+       these accent-filled buttons drops to 2.55:1. Same fix as .livebtn above. */
+    @media (prefers-color-scheme: dark) { .lnadd, .lnlvl.on, .lnenrich { color: #191512; } }
     /* The version line doubles as the tribute's door: park the mouse on it and
        the 2.5s color/glow transition IS the countdown — full mint = unlocked. */
     header .ver { color: var(--muted); font-size: 10px; margin: 1px 0 0; transition: color 2.5s ease, text-shadow 2.5s ease; }
@@ -219,7 +222,7 @@
       background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
     .livecard .row { margin-top: 0; } /* the card's gap owns the spacing */
     .livebtn { width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px;
-      padding: 13px 16px; border-radius: 8px; background: var(--coral-600); color: var(--text);
+      padding: 13px 16px; border-radius: 8px; background: var(--coral-600); color: #fff;
       font-weight: 600; font-size: 14px; box-shadow: var(--shadow-glow);
       transition: background .15s ease, box-shadow .15s ease, transform .1s ease; }
     .livebtn:hover { background: var(--coral-700); box-shadow: var(--shadow-glow); }
@@ -232,13 +235,24 @@
     .livebtn .liveidle { display: inline-flex; align-items: center; gap: 5px; }
     .livebtn .idlering { width: 18px; height: 18px; transform: rotate(-90deg); flex: none; }
     .livebtn .idlering-bg { fill: none; stroke: rgba(255, 255, 255, .28); stroke-width: 3; }
-    .livebtn .idlering-fg { fill: none; stroke: var(--amber-600); stroke-width: 3; stroke-linecap: round; transition: stroke-dashoffset .5s linear; }
-    .livebtn .idletxt { font-size: 11.5px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--amber-600); }
+    .livebtn .idlering-fg { fill: none; stroke: #fff; stroke-width: 3; stroke-linecap: round; transition: stroke-dashoffset .5s linear; }
+    .livebtn .idletxt { font-size: 11.5px; font-weight: 700; font-variant-numeric: tabular-nums; color: #fff; }
     .livebtn .livestop { font-size: 11.5px; font-weight: 600; letter-spacing: .2px;
       padding: 3px 10px; border-radius: 999px; background: rgba(255, 255, 255, .16); }
     .livebtn.live-elsewhere { background: #475569; box-shadow: 0 4px 14px rgba(71, 85, 105, .45); } /* remote session — slate, click to stop */
     .livebtn.live-elsewhere:hover { background: #3E4C60; }
     .livebtn:hover .livestop { background: rgba(255, 255, 255, .26); }
+    /* Dark mode: --coral-600 flips to the light #FF7A66 fill (see tokens.css), so
+       the button's text/ring/timer must swap to dark ink — same pairing as
+       components.css's .btn-primary. live-elsewhere's slate fill doesn't change
+       in dark mode, so it must stay white explicitly (higher specificity wins
+       over .livebtn's ink override regardless of source order). */
+    @media (prefers-color-scheme: dark) {
+      .livebtn { color: #191512; }
+      .livebtn .idlering-fg { stroke: #191512; }
+      .livebtn .idletxt { color: #191512; }
+      .livebtn.live-elsewhere { color: #fff; }
+    }
     @keyframes livePulse {
       0%, 100% { box-shadow: var(--shadow-glow); }
       50% { box-shadow: 0 6px 26px rgba(244,93,72,.5); }

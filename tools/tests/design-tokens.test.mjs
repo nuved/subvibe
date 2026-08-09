@@ -75,6 +75,7 @@ test("text tokens meet WCAG AA on their backgrounds", () => {
   const darkBg = tokenValue(dark, "--bg");
   const darkSurface = tokenValue(dark, "--surface");
   const darkMuted = tokenValue(dark, "--muted");
+  const darkCoral600 = tokenValue(dark, "--coral-600");
 
   const pairs = [
     ["light --muted vs --bg", lightMuted, lightBg],
@@ -85,6 +86,10 @@ test("text tokens meet WCAG AA on their backgrounds", () => {
     ["dark --muted vs dark --surface", darkMuted, darkSurface],
     // .btn-primary is white text on --coral-600 in light mode (dark mode swaps to dark ink text)
     ["light --coral-600 button (white text)", "#FFFFFF", lightCoral600],
+    // .livebtn / .lnadd / .lnlvl.on / .lnenrich (popup.html): dark ink text on dark --coral-600 fill
+    ["dark --coral-600 button (dark-ink text)", "#191512", darkCoral600],
+    // .livebtn.live-elsewhere (popup.html): white text on the hardcoded slate fill, both modes
+    ["white on slate #475569 (live-elsewhere)", "#FFFFFF", "#475569"],
   ];
 
   for (const [label, fg, bg] of pairs) {
