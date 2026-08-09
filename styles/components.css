@@ -1,0 +1,80 @@
+/* Daylight shared components — consumed by popup, welcome, library, learn.
+   Depends on styles/tokens.css being linked first. Spec §6. */
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; } /* beats any class-set display */
+
+:focus-visible { outline: 2px solid var(--coral-600); outline-offset: 2px; border-radius: 6px; }
+::selection { background: var(--coral-100); }
+
+.overline { font-size: 11px; font-weight: 700; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--faint); }
+
+/* ── buttons: 4 variants × rest/hover/focus/disabled, min-height 32px ── */
+.btn-primary, .btn-secondary, .btn-quiet, .btn-danger {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  min-height: 32px; padding: 7px 14px; border-radius: var(--r-sm);
+  font: 600 13.5px/1.2 var(--ui); cursor: pointer;
+  transition: background var(--t-fast), color var(--t-fast), border-color var(--t-fast);
+}
+.btn-primary { border: 0; background: var(--coral-600); color: #fff; }
+.btn-primary:hover { background: var(--coral-700); }
+.btn-secondary { border: 1px solid var(--border); background: var(--surface); color: var(--ink); }
+.btn-secondary:hover { background: var(--surface-2); }
+.btn-quiet { border: 0; background: transparent; color: var(--coral-600); padding: 7px 8px; }
+.btn-quiet:hover { background: var(--coral-100); }
+.btn-danger { border: 1px solid var(--border); background: var(--surface); color: var(--red-600); }
+.btn-danger:hover { border-color: var(--red-600); background: color-mix(in srgb, var(--red-600) 8%, var(--surface)); }
+.btn-primary:disabled, .btn-secondary:disabled, .btn-quiet:disabled, .btn-danger:disabled {
+  opacity: .45; cursor: default; }
+@media (prefers-color-scheme: dark) { .btn-primary { color: #191512; } }
+
+/* ── cards ── */
+.card { background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r-md); box-shadow: var(--shadow-rest); }
+
+/* ── chips / pills ── */
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 11px;
+  border-radius: 999px; font: 600 12px/1.4 var(--ui);
+  background: var(--surface-2); color: var(--ink-2); border: 1px solid transparent; }
+.chip.on { background: var(--coral-100); color: var(--coral-600); border-color: var(--coral-500); }
+.chip.learn { background: var(--teal-100); color: var(--teal-600); }
+
+/* ── forms ── */
+.field { width: 100%; padding: 8px 10px; border-radius: var(--r-sm);
+  border: 1px solid var(--border); background: var(--surface); color: var(--ink);
+  font: 13.5px/1.4 var(--ui); }
+.field::placeholder { color: var(--faint); }
+.field:focus { outline: none; border-color: var(--coral-600); }
+.field-msg-ok { color: var(--green-600); font-size: 12px; }
+.field-msg-err { color: var(--red-600); font-size: 12px; }
+
+/* toggle — teal when on (spec §6) */
+.switch { position: relative; display: inline-block; width: 38px; height: 22px; flex: none; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.slider { position: absolute; inset: 0; cursor: pointer; background: var(--toggle-off);
+  border-radius: 22px; transition: background var(--t-fast); }
+.slider::before { content: ""; position: absolute; height: 16px; width: 16px; left: 3px; top: 3px;
+  background: #fff; border-radius: 50%; transition: transform var(--t-fast);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .25); }
+.switch input:checked + .slider { background: var(--teal-600); }
+.switch input:checked + .slider::before { transform: translateX(16px); }
+
+/* ── async states: no view renders blank (spec §6) ── */
+.skeleton { border-radius: var(--r-sm); background: var(--surface-2); min-height: 14px;
+  animation: sk 1.2s ease-in-out infinite; }
+@keyframes sk { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
+.empty-state { color: var(--muted); font-size: 13px; text-align: center; padding: 24px 12px; }
+.error-state { color: var(--red-600); font-size: 12.5px; }
+
+/* setup checklist rows (popup hero + welcome step 3) */
+.check-row { display: flex; align-items: center; gap: 8px; background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--r-sm); padding: 8px 10px;
+  font-size: 12.5px; color: var(--ink-2); }
+.check-row .ok { color: var(--green-600); font-weight: 800; }
+.check-row .todo { color: var(--amber-600); font-weight: 800; }
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; }
+  .btn-primary, .btn-secondary, .btn-quiet, .btn-danger, .slider, .slider::before { transition: none; }
+}
