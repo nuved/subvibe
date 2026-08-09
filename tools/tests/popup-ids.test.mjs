@@ -9,7 +9,11 @@ test("every id popup.js touches exists in popup.html", () => {
   const ids = new Set();
   for (const m of js.matchAll(/\bel\(\s*"([^"]+)"\s*\)/g)) ids.add(m[1]);
   for (const m of js.matchAll(/getElementById\(\s*"([^"]+)"\s*\)/g)) ids.add(m[1]);
-  const missing = [...ids].filter((id) => !html.includes(`id="${id}"`));
+  // Ids popup.js itself creates at runtime (innerHTML template strings) count
+  // as defined — e.g. #liveIdle is built inside the livebtn's markup.
+  const defined = new Set([...html.matchAll(/id="([^"]+)"/g)].map((m) => m[1]));
+  for (const m of js.matchAll(/id="([^"]+)"/g)) defined.add(m[1]);
+  const missing = [...ids].filter((id) => !defined.has(id));
   assert.deepEqual(missing, [], `popup.js references missing ids: ${missing.join(", ")}`);
 });
 
