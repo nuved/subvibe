@@ -15,7 +15,7 @@ function renderGrid(q) {
   $("langGrid").replaceChildren(...list.map(([code, name, flag]) => {
     const b = document.createElement("button");
     b.className = "chip" + (chosen === code ? " on" : "");
-    b.textContent = `${flag || ""} ${name}`.trim();
+    b.innerHTML = `<span class="fl">${flag || ""}</span> ${name}`;
     b.addEventListener("click", () => {
       chosen = code;
       chrome.storage.local.set({ targets: [chosen] });
@@ -34,7 +34,8 @@ function goto(n) {
   document.querySelectorAll(".stepdots i").forEach((d) => d.classList.toggle("on", +d.dataset.dot <= n));
 }
 $("next1").addEventListener("click", () => goto(2));
+$("skip1").addEventListener("click", () => goto(2));
 $("next2").addEventListener("click", () => goto(3));
 $("tryYoutube").addEventListener("click", () => { chrome.tabs.create({ url: "https://www.youtube.com" }); goto(3); });
-$("openKeys").addEventListener("click", () => { chrome.storage.local.set({ uiTab: "keys" }); window.close(); });
+$("openKeys").addEventListener("click", () => { chrome.storage.local.set({ uiTab: "keys" }).then(() => window.close()); });
 $("skipBtn").addEventListener("click", () => window.close());

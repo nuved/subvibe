@@ -8,7 +8,8 @@ const bg = fs.readFileSync(new URL("../../background.js", import.meta.url), "utf
 
 test("welcome page structure: 3 steps, skippable, tokens linked", () => {
   assert.ok(html.includes('href="styles/tokens.css"'));
-  for (const id of ["step1", "step2", "step3", "langGrid", "langSearch", "skipBtn"])
+  assert.ok(html.includes('href="styles/components.css"'));
+  for (const id of ["step1", "step2", "step3", "langGrid", "langSearch", "skipBtn", "skip1"])
     assert.ok(html.includes(`id="${id}"`), `#${id} missing`);
   assert.ok(html.includes('src="shared/langs.js"'), "langs.js not loaded");
 });
