@@ -1210,6 +1210,13 @@ async function logCall(rec) {
   } catch {}
 }
 
+// ─── Installation hook ───────────────────────────────────────────────────────
+
+// First run only — never on update: the welcome page sets up language + key.
+chrome.runtime.onInstalled.addListener(({ reason }) => {
+  if (reason === "install") chrome.tabs.create({ url: chrome.runtime.getURL("welcome.html") });
+});
+
 // ─── Message router ──────────────────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
