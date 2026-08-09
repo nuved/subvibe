@@ -52,8 +52,8 @@ understand · learn").
 | `--border` | `#EDE5DA` | hairlines |
 | `--ink` | `#241F1A` | primary text (warm near-black) |
 | `--ink-2` | `#5B5348` | secondary body text |
-| `--muted` | `#8A7F72` | hints, meta |
-| `--faint` | `#A39684` | overline labels |
+| `--muted` | `#786D60` | hints, meta (AA fix: was `#8A7F72`, failed 4.5:1 as text — see acceptance sweep) |
+| `--faint` | `#A39684` | placeholder/decoration only — never running text, fails AA; `.overline` moved to `--muted` |
 | `--coral-500` | `#F45D48` | brand accents, glows — never small text |
 | `--coral-600` | `#C93F2B` | button fills, links (AA with white text) |
 | `--coral-100` | `#FDE8E4` | selected chips, soft fills |
@@ -72,7 +72,8 @@ All text/background pairs must pass WCAG AA (4.5:1 body, 3:1 large).
 
 Same token names, swapped under `@media (prefers-color-scheme: dark)`. Warm
 stone, not blue-black: `--bg #191512`, `--surface #241F1A`, `--surface-2
-#2E2822`, `--border #3A332B`, `--ink #F3EDE4`, coral brightens to `#FF7A66`
+#2E2822`, `--border #3A332B`, `--ink #F3EDE4`, `--muted #918679` (AA fix: was
+`#8A7F72`, failed 4.5:1 against `--surface`), coral brightens to `#FF7A66`
 (dark ink text on coral fills), teal to `#2DD4BF`. Rationale: SubVibe is used
 at night over videos in dark rooms; a white-only popup is hostile there. Light
 remains the brand and the only screenshot theme. The on-video overlay ignores

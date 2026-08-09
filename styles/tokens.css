@@ -14,8 +14,8 @@
   --border: #EDE5DA;     /* hairlines */
   --ink: #241F1A;        /* primary text */
   --ink-2: #5B5348;      /* secondary body */
-  --muted: #8A7F72;      /* hints, meta */
-  --faint: #A39684;      /* overline labels */
+  --muted: #786D60;      /* hints, meta — AA vs bg 4.69:1, vs surface 5.05:1 */
+  --faint: #A39684;      /* placeholder/decoration only — never running text, fails AA as text */
   --toggle-off: #D8CFC2;
 
   /* coral = ACT (Live, primary buttons, active nav).
@@ -65,8 +65,8 @@
     --border: #3A332B;
     --ink: #F3EDE4;
     --ink-2: #C9BFB2;
-    --muted: #8A7F72;
-    --faint: #6E6458;
+    --muted: #918679;      /* AA vs dark bg 5.09:1, vs dark surface 4.58:1 */
+    --faint: #6E6458;      /* placeholder/decoration only — never running text */
     --toggle-off: #4A4238;
     --coral-500: #FF7A66;
     --coral-600: #FF7A66;  /* fills use dark ink text in dark mode */

@@ -8,7 +8,7 @@
 ::selection { background: var(--coral-100); }
 
 .overline { font-size: 11px; font-weight: 700; letter-spacing: .08em;
-  text-transform: uppercase; color: var(--faint); }
+  text-transform: uppercase; color: var(--muted); }
 
 /* ── buttons: 4 variants × rest/hover/focus/disabled, min-height 32px ── */
 .btn-primary, .btn-secondary, .btn-quiet, .btn-danger {
