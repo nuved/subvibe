@@ -5,7 +5,7 @@
    Spec: docs/superpowers/specs/2026-08-09-daylight-redesign-design.md §1 */
 
 :root {
-  color-scheme: light dark;
+  color-scheme: light; /* dark variant sets its own — a data-theme choice must drive the UA too */
 
   /* neutrals — warm paper + ink */
   --bg: #FAF6F0;         /* canvas */
@@ -55,10 +55,14 @@
   --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
 }
 
-/* Dark counterpart — warm stone, not blue-black. Same names, one query.
-   People use SubVibe at night over videos; light stays the brand default. */
-@media (prefers-color-scheme: dark) {
-  :root {
+/* Dark counterpart — warm stone, not blue-black. Same names, applied via
+   [data-theme="dark"] on <html>, set by each page's JS from the uiTheme
+   setting (light default · dark · auto = follow the system). Light is the
+   BRAND: first paint is always light (no attribute = light), so the popup
+   matches the store screenshots; dark is one click away behind the gear for
+   night viewing. Not a media query anymore — auto resolves in JS so a user
+   choice always wins over the OS. */
+:root[data-theme="dark"] {
     --bg: #191512;
     --surface: #241F1A;
     --surface-2: #2E2822;
@@ -79,5 +83,5 @@
     --amber-600: #FBBF24;
     --shadow-rest: 0 1px 2px rgba(0, 0, 0, .4);
     --shadow-raised: 0 6px 18px -4px rgba(0, 0, 0, .5);
-  }
+  color-scheme: dark;
 }
