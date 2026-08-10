@@ -70,14 +70,20 @@ All text/background pairs must pass WCAG AA (4.5:1 body, 3:1 large).
 
 ### Color tokens — dark counterpart
 
-Same token names, swapped under `@media (prefers-color-scheme: dark)`. Warm
-stone, not blue-black: `--bg #191512`, `--surface #241F1A`, `--surface-2
-#2E2822`, `--border #3A332B`, `--ink #F3EDE4`, `--muted #918679` (AA fix: was
-`#8A7F72`, failed 4.5:1 against `--surface`), coral brightens to `#FF7A66`
-(dark ink text on coral fills), teal to `#2DD4BF`. Rationale: SubVibe is used
-at night over videos in dark rooms; a white-only popup is hostile there. Light
-remains the brand and the only screenshot theme. The on-video overlay ignores
-themes entirely — subtitles always render on their own dark scrim.
+Same token names, swapped under `:root[data-theme="dark"]` (revised
+post-merge from the original `prefers-color-scheme` media query: the operator
+wants the brand-light look to be what users actually see, not only
+light-mode-OS users). **Light is the default for everyone** — no attribute =
+light, so first paint always matches the store screenshots. A `Theme` control
+in the popup's gear pane offers Light (default) · Dark · Auto
+(follow-system, resolved in JS via `matchMedia` so a user choice always wins
+over the OS); stored as `uiTheme`. Warm stone, not blue-black: `--bg
+#191512`, `--surface #241F1A`, `--surface-2 #2E2822`, `--border #3A332B`,
+`--ink #F3EDE4`, `--muted #918679` (AA fix: was `#8A7F72`, failed 4.5:1
+against `--surface`), coral brightens to `#FF7A66` (dark ink text on coral
+fills), teal to `#2DD4BF`. Rationale for keeping dark at all: SubVibe is
+used at night over videos in dark rooms. The on-video overlay ignores themes
+entirely — subtitles always render on their own dark scrim.
 
 ### Typography
 

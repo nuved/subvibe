@@ -660,6 +660,18 @@
   </div>
 
   <div class="pane" data-pane="keys" hidden>
+  <!-- Popup appearance — light is the brand default; dark for night viewing;
+       auto follows the OS. Lives with the gear (settings-ish) pane. -->
+  <section>
+    <div class="row" style="margin-top:0;">
+      <span class="rowlbl">Theme</span>
+      <div class="seg2" id="themeSeg" role="radiogroup" aria-label="Popup theme">
+        <button type="button" class="segopt" data-theme-opt="light"><b>Light</b></button>
+        <button type="button" class="segopt" data-theme-opt="dark"><b>Dark</b></button>
+        <button type="button" class="segopt" data-theme-opt="auto"><b>Auto</b><small>follow system</small></button>
+      </div>
+    </div>
+  </section>
   <!-- API keys — one place for every provider's key. The Dub and Translate tabs
        point here when the key their feature needs is missing. -->
   <section>

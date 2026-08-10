@@ -21,13 +21,13 @@ const DARK = {
 };
 
 test("light tokens present on :root with spec values", () => {
-  const root = css.split("@media")[0];
+  const root = css.split(':root[data-theme="dark"]')[0];
   for (const [k, v] of Object.entries(LIGHT))
     assert.match(root, new RegExp(`${k}:\\s*${v}`, "i"), `${k} missing/wrong in :root`);
 });
 
-test("dark counterparts under prefers-color-scheme: dark", () => {
-  const i = css.indexOf("prefers-color-scheme: dark");
+test("dark counterparts under :root[data-theme=\"dark\"]", () => {
+  const i = css.indexOf(':root[data-theme="dark"]');
   assert.ok(i > -1, "dark media block missing");
   const dark = css.slice(i);
   for (const [k, v] of Object.entries(DARK))
@@ -64,8 +64,8 @@ function tokenValue(source, name) {
 }
 
 test("text tokens meet WCAG AA on their backgrounds", () => {
-  const root = css.split("@media")[0];
-  const dark = css.slice(css.indexOf("prefers-color-scheme: dark"));
+  const root = css.split(':root[data-theme="dark"]')[0];
+  const dark = css.slice(css.indexOf(':root[data-theme="dark"]'));
 
   const lightBg = tokenValue(root, "--bg");
   const lightSurface = tokenValue(root, "--surface");

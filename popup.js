@@ -12,8 +12,26 @@ const LIVE_ALIAS = window.SV_LIVE_ALIAS || {};
 // Coerce a code to one Gemini's live model accepts, or null if it can't voice it.
 const normLiveCode = (code) => (LIVE_CODES.has(code) ? code : (LIVE_CODES.has(LIVE_ALIAS[code]) ? LIVE_ALIAS[code] : null));
 
-const DEFAULTS = { enabled: true, translateOn: true, targets: ["en"], showOriginal: true, hideNative: true, karaokeHl: true, karaokeStyle: "classic", learnLang: "", apiKey: "", translationProvider: "openai", claudeModel: "claude-sonnet-5", anthropicKey: "", keepNames: true, keepTerms: "", position: "bottom", size: "md", stylePreset: "classic", styleCustom: {}, syncOffset: 0, dubEnabled: false, ttsProvider: "openai", geminiKey: "", dubVoice: "marin", dubGeminiVoice: "Kore", dubMultiVoice: false, dubDuckLevel: 0.12, dubPace: 1, liveModel: "gemini-3.5-live-translate-preview", audioDeviceId: "", liveTarget: "", debugHud: false };
+const DEFAULTS = { enabled: true, translateOn: true, targets: ["en"], showOriginal: true, hideNative: true, karaokeHl: true, karaokeStyle: "classic", learnLang: "", apiKey: "", translationProvider: "openai", claudeModel: "claude-sonnet-5", anthropicKey: "", keepNames: true, keepTerms: "", position: "bottom", size: "md", stylePreset: "classic", styleCustom: {}, syncOffset: 0, dubEnabled: false, ttsProvider: "openai", geminiKey: "", dubVoice: "marin", dubGeminiVoice: "Kore", dubMultiVoice: false, dubDuckLevel: 0.12, dubPace: 1, liveModel: "gemini-3.5-live-translate-preview", audioDeviceId: "", liveTarget: "", debugHud: false, uiTheme: "light" };
 const el = (id) => document.getElementById(id);
+
+// Popup theme: light is the brand default (matches the store screenshots);
+// dark and follow-the-system live behind the gear. No attribute = light, so
+// the first paint is always brand-light and only a saved dark/auto repaints.
+const darkMedia = matchMedia("(prefers-color-scheme: dark)");
+function applyTheme(pref) {
+  const dark = pref === "dark" || (pref === "auto" && darkMedia.matches);
+  document.documentElement.dataset.theme = dark ? "dark" : "light";
+  for (const b of document.querySelectorAll("#themeSeg .segopt")) b.classList.toggle("on", b.dataset.themeOpt === pref);
+}
+darkMedia.addEventListener("change", () => { if (state.uiTheme === "auto") applyTheme("auto"); });
+el("themeSeg").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-theme-opt]");
+  if (!b) return;
+  state.uiTheme = b.dataset.themeOpt;
+  persist({ uiTheme: state.uiTheme });
+  applyTheme(state.uiTheme);
+});
 const fmtSync = (v) => (v > 0 ? "+" : "") + v.toFixed(2) + "s";
 const langMeta = (code) => window.svLangMeta(code);   // resolves a code from EITHER set
 
@@ -1445,6 +1463,7 @@ async function load() {
   el("liveLangSearch").value = langMeta(liveTargetCode())[1];
   showLiveFlag();
   el("dbgHud").checked = !!state.debugHud;
+  applyTheme(state.uiTheme || "light");
   chrome.runtime.sendMessage({ type: "LIVE_QUERY" }, async (r) => {
     if (r && r.hasOffscreen === false) { liveDisableNoOffscreen(); return; } // Firefox: mark Live as Chrome-only
     if (!r || !r.running) return;
