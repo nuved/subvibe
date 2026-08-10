@@ -1,0 +1,39 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>SubVibe icon — Daylight mark</title>
+<!--
+  The extension/toolbar icon: coral rounded square, Baloo "S", a subtle
+  subtitle-bar cue at the base. Rendered at 512 CSS px; capture the #mark
+  element (scale: css), then downscale with sips to 128/48/32/16.
+  Serve over http so the Baloo woff2 loads: python3 -m http.server 8642
+  → /tools/store-screenshots/icon.html
+-->
+<style>
+  @font-face { font-family: "Baloo 2"; font-weight: 800;
+    src: url("../../fonts/Baloo2-ExtraBold-latin.woff2") format("woff2"); }
+  body { margin: 0; background: #888; display: flex; align-items: center;
+    justify-content: center; min-height: 100vh; }
+  #mark { width: 512px; height: 512px; border-radius: 112px; position: relative;
+    background: linear-gradient(150deg, #F86A54 0%, #F45D48 45%, #D94A35 100%);
+    display: flex; align-items: center; justify-content: center; overflow: hidden; }
+  /* soft top light so the tile reads dimensional even at 16px */
+  #mark::before { content: ""; position: absolute; inset: 0;
+    background: radial-gradient(120% 90% at 30% 0%, rgba(255,255,255,.28) 0%, rgba(255,255,255,0) 55%); }
+  .s { font-family: "Baloo 2"; font-weight: 800; font-size: 340px; line-height: 1;
+    color: #FAF6F0; position: relative; top: -14px;
+    text-shadow: 0 10px 24px rgba(120, 30, 15, .35); }
+  /* the subtitle bar — SubVibe's whole reason to exist, one glyph tall */
+  .bar { position: absolute; left: 96px; right: 96px; bottom: 84px; height: 40px;
+    border-radius: 20px; background: rgba(24, 10, 6, .42); }
+  .bar i { position: absolute; left: 26px; top: 12px; width: 130px; height: 16px;
+    border-radius: 8px; background: #FFD9A8; }
+  .bar b { position: absolute; left: 170px; top: 12px; width: 180px; height: 16px;
+    border-radius: 8px; background: rgba(255, 246, 238, .85); }
+</style>
+</head>
+<body>
+  <div id="mark"><span class="s">S</span><div class="bar"><i></i><b></b></div></div>
+</body>
+</html>

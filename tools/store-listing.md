@@ -16,14 +16,25 @@ once:
   are functional, not decorative, and never appear as a marketing list. Product
   UI screenshots are fine. When in doubt, cut the brand.
 
+Daylight re-shoot (2026-08-10): assets regenerated on the light UI — see the
+Screenshots section at the bottom for the dashboard order.
+
+## Name (max 75 chars)
+
+SubVibe — Live translation & AI subtitles for any video
+
+## Short description (max 132 chars)
+
+Hear and read any video in your language — live voice translation, AI
+subtitles, and a vocab trainer built from what you watch.
+
 Paste everything below the line into Store listing → Description.
 
 ---
 
-Watch any video in your language. SubVibe adds AI subtitles to a video and keeps
-them perfectly timed to the player, with a karaoke highlight that lights up each
-word as it's spoken — and it can speak the translation aloud, in real time,
-while you watch.
+Every video speaks your language. SubVibe translates what you watch — as a
+live voice you hear, or as perfectly timed subtitles you read — and quietly
+turns it all into your personal vocabulary trainer.
 
 Bring your own API key (OpenAI, Anthropic, or Google). Everything runs directly
 from your browser to the provider you choose — no SubVibe servers, no account,
@@ -31,21 +42,27 @@ no tracking. Translated videos are cached on your device, so replays are free.
 
 Two ways to follow a video
 
+• Live Translate — hear the video in your language as it plays, powered by
+  Google Gemini. It captures the tab's own audio (never your microphone),
+  works across 70+ languages, and starts with one click.
 • Subtitles — reads the video's own caption track and translates ahead of the
   playhead, so lines land exactly on time. Show a second language beside the
   original for learning.
-• Live Translate — hear the video in your language as it plays, powered by
-  Google Gemini. You bring your own key; casual everyday listening is low-cost,
-  and it works across 70+ languages.
+
+Learn while you watch
+
+• Click any word for its meaning, level (A1–C2) and grammar, with the real
+  sentence it appeared in — one tap saves it to a built-in Leitner
+  spaced-repetition trainer
+• Your word list grows free from the subtitle cache of what you already
+  watched — review it any time, no extra cost
 
 More of what it does
 
-• Karaoke word highlight — follow along word by word as it's spoken, built for
-  language learners
+• Karaoke word highlight — follow along word by word as it's spoken
 • Make it yours — style presets plus full control of font, size, color, and
   position; drag the subtitles anywhere. Styling and karaoke also work on the
-  video's own original captions, with no translation and no cost — handy for
-  learners, or just to resync captions to the picture.
+  video's own original captions, with no translation and no cost.
 • Bring your own key — nothing is billed by SubVibe; you pay your provider
   directly, usually cents an hour
 • Sync dock for time-shifted live streams; recorded videos stay frame-exact
@@ -68,3 +85,24 @@ no tracking, no middleman. Full policy: see the Privacy link on this page.
 
 Made with care by an independent developer. Version numbers honor the maker's
 father — that's why they start at 1330.
+
+---
+
+## Screenshots (dashboard order — store max 5)
+
+1. store-hero-1280x800.jpg      — real footage, dual karaoke subtitles
+2. store-live-1280x800.jpg      — Live Translate running (the differentiator)
+3. store-subtitles-1280x800.jpg — engines, languages, cached-free story
+4. store-learn-1280x800.jpg     — words → Leitner trainer
+5. store-trust-1280x800.jpg     — private by architecture
+   (spare: store-style-1280x800.jpg)
+
+## Promo tiles
+
+promo-small-440x280.jpg · promo-marquee-1400x560.jpg — paper background, Baloo
+wordmark, "Every video speaks your language." (No third-party brands anywhere.)
+
+## Icon
+
+Daylight coral mark, regenerated at 16/32/48/128 in icons/ (tools/
+store-screenshots/icon.html is the source; capture recipe in the README).
