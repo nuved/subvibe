@@ -343,6 +343,9 @@
   let interceptedCues = null; // active subtitle cues (the current clip's file)
   let interceptedUrl = null;  // URL those cues came from
   let interceptedClipId = null; // the clip (URL-derived videoId) those cues belong to
+  let userTrackPick = null;   // the native track the PLAYER last showed — the viewer's language choice.
+                              // Remembered because hideNative flips "showing" back off moments later.
+  let nativeCueTrack = null;  // which native track supplied the held cue list (null = file/URL-sourced)
   let cueListActive = false;  // perfect-sync cue-list mode is the running engine
   let mainClockMs = null, mainClockAt = 0, mainClockPaused = false; // playhead relayed from the page world
   let lastClipChangeAt = 0; // SPA clip switches stamp this; 0 = initial page load (no hold-back)
@@ -1167,11 +1170,18 @@
   // (cross-origin tracks return null cues — then we can't, and fall back).
   function readVideoCueList(video) {
     if (!video || !video.textTracks) return null;
-    const tracks = [...video.textTracks].filter((t) => !t.kind || t.kind === "subtitles" || t.kind === "captions");
+    hookTrackSwitch(video);
+    let tracks = [...video.textTracks].filter((t) => !t.kind || t.kind === "subtitles" || t.kind === "captions");
     // Force the track to LOAD its cues without rendering them ("hidden"): this
     // means we get the text even when the site's subtitles look "off", and
     // nothing of the site's is drawn on screen.
     for (const tt of tracks) { if (tt.mode === "disabled") { try { tt.mode = "hidden"; } catch {} } }
+    // The PLAYER's selected track wins — "first track with cues" served whatever
+    // language happened to load first, so switching the site's subtitle menu
+    // mid-video changed nothing until a hard refresh. "showing" is the live
+    // selection; userTrackPick remembers it after hideNative flips it off.
+    const preferred = tracks.find((t) => t.mode === "showing") || (tracks.includes(userTrackPick) ? userTrackPick : null);
+    if (preferred) tracks = [preferred, ...tracks.filter((t) => t !== preferred)];
     for (const tt of tracks) {
       const cues = tt.cues;
       if (!cues || !cues.length) continue;
@@ -1181,9 +1191,47 @@
         const text = (c.text || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
         if (text) out.push({ startMs: Math.round((c.startTime || 0) * 1000), endMs: Math.round((c.endTime || 0) * 1000), text });
       }
-      if (out.length) { out.sort((a, b) => a.startMs - b.startMs); return out; }
+      if (out.length) { out.sort((a, b) => a.startMs - b.startMs); nativeCueTrack = tt; return out; }
     }
     return null;
+  }
+
+  // React to the PLAYER's subtitle menu: switching tracks fires "change" on the
+  // TextTrackList with NO network fetch (multi-track sites keep every language
+  // loaded), so the URL pipeline never sees it. When the shown track is a
+  // different one than the cue list we hold came from, drop the held list and
+  // re-adopt — the translate cache keys on cue text, so the new language simply
+  // translates fresh while the old one stays cached.
+  const trackSwitchHooked = new WeakSet();
+  let trackSwitchRetry = 0;
+  function hookTrackSwitch(video) {
+    if (!video.textTracks || trackSwitchHooked.has(video.textTracks)) return;
+    trackSwitchHooked.add(video.textTracks);
+    const onSwitch = (retries) => {
+      const tracks = [...video.textTracks].filter((t) => !t.kind || t.kind === "subtitles" || t.kind === "captions");
+      const showing = tracks.find((t) => t.mode === "showing");
+      if (showing) userTrackPick = showing; // remember before hideNative flips it off again
+      const pick = showing || (tracks.includes(userTrackPick) ? userTrackPick : null);
+      // Only a real switch restarts anything: native-sourced cues in hand, and the
+      // player now shows a DIFFERENT track than the one they came from. (URL/file
+      // sites refetch on switch — fetchSubsByUrl already owns that path.)
+      if (!pick || !nativeCueTrack || pick === nativeCueTrack || interceptedUrl) return;
+      if (!(interceptedCues && interceptedCues.length)) return;
+      if (!pick.cues || !pick.cues.length) {
+        // Lazy <track>: cue arrival fires no "change", so poll briefly — the
+        // hidden nudge starts the load and one of these ticks sees it land.
+        try { if (pick.mode === "disabled") pick.mode = "hidden"; } catch {}
+        if (retries < 8) trackSwitchRetry = setTimeout(() => onSwitch(retries + 1), 750);
+        return;
+      }
+      console.info("[CopilotSubs] player switched subtitle track (" + (nativeCueTrack.language || nativeCueTrack.label || "?") + " → " + (pick.language || pick.label || "?") + ") — re-adopting");
+      interceptedCues = null; interceptedClipId = null; nativeCueTrack = null;
+      const full = readVideoCueList(video); // preference now lands on the new pick
+      if (full && full.length > 3) onInterceptedCues(full);
+      cueListActive = false; currentRunKey = null;
+      schedule();
+    };
+    video.textTracks.addEventListener("change", () => { clearTimeout(trackSwitchRetry); onSwitch(0); });
   }
 
   // Identity of the clip a cue list belongs to, derived from the URL so it's STABLE
@@ -1267,6 +1315,7 @@
   // when the new clip has DIFFERENT subtitles, or (as on many ZDF clips) NONE.
   function dropInterceptedCues() {
     interceptedCues = null; interceptedUrl = null; interceptedClipId = null; cueListActive = false; currentRunKey = null;
+    userTrackPick = null; nativeCueTrack = null; // a new clip's tracks are new objects — never inherit the pick
     fetchedSubUrls.clear(); subFetchFails.clear();
   }
 

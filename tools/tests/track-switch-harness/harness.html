@@ -1,0 +1,30 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Track-switch harness — player language switch must swap the cue list</title>
+<!--
+  Reproduces the operator's report with the REAL content/common.js:
+  1. a video exposes TWO native subtitle tracks (German showing, English idle),
+  2. the engine adopts the cue list and translates it (German originals),
+  3. at t=8s the player switches tracks: German→disabled, English→showing —
+     exactly what a site's subtitle menu does; NO new network fetch happens,
+  4. EXPECT: within a few seconds the overlay shows ENGLISH-derived lines.
+  Before the fix the engine held the German list until a hard refresh.
+-->
+<link rel="stylesheet" href="../../../styles/overlay.css">
+<style>
+  body { background: #111; color: #ddd; font: 13px system-ui; margin: 0; }
+  #player { position: relative; width: 800px; height: 450px; background: #000; margin: 16px auto; }
+  #vid { width: 100%; height: 100%; background: #222; }
+</style>
+</head>
+<body>
+<div id="player"><video id="vid"></video></div>
+<script src="fake-env.js"></script>
+<script src="../../../shared/title.js"></script>
+<script src="../../../shared/presets.js"></script>
+<script src="../../../content/common.js"></script>
+<script src="driver.js"></script>
+</body>
+</html>
