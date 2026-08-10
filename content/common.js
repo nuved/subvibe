@@ -256,6 +256,23 @@
   // „quotes“ become the target language's marks. Guarded: harness pages that
   // don't load the shared file just render unchanged text.
   const fixQ = (s, lang) => (globalThis.SV_QUOTES ? globalThis.SV_QUOTES.fix(s, lang) : s);
+  // Cross-cue sentence groups translate as ONE unit and every member cue holds
+  // the identical full translation — shown raw, a short original line sat under
+  // a whole translated paragraph. Slice the group translation across its cues
+  // (weights = original text share) so the translated line paces with the
+  // original. Display-only; strict equality keeps per-cue cache rows untouched.
+  function groupSlice(c, tg) {
+    const mine = (c.t && c.t[tg]) || "";
+    const grp = c.grp;
+    if (!grp || !mine || grp.cues.length < 2 || !globalThis.SV_TEXTSLICE) return mine;
+    if (mine !== ((grp.t && grp.t[tg]) || "")) return mine; // per-cue translation — already paced
+    if (!grp.__sl) grp.__sl = {};
+    let sl = grp.__sl[tg];
+    if (!sl || sl.src !== mine) {
+      sl = grp.__sl[tg] = { src: mine, parts: SV_TEXTSLICE.split(mine, grp.cues.map((q) => ((q.original || "").length || 1))) };
+    }
+    return sl.parts[grp.cues.indexOf(c)] || "";
+  }
   function streamDisplayCue(cues, t, target) {
     let lo = 0, hi = cues.length - 1, ans = -1;
     while (lo <= hi) { const m = (lo + hi) >> 1; if (cues[m].startMs <= t) { ans = m; lo = m + 1; } else hi = m - 1; }
@@ -477,6 +494,8 @@
         if (q.w && q.w.length > 1) for (const x of q.w) units.push({ s: q.startMs + (x.o || 0), t: x.t });
         else units.push(...estimateUnits(q.original, q.startMs, endOf(q)));
       }
+    } else if (c.grp && c.grp.t && c.grp.t[target] && txt !== c.grp.t[target]) {
+      units = estimateUnits(txt, c.startMs, endOf(c)); // sliced group line — pace within THIS cue
     } else {
       units = estimateUnits(txt, cs[0].startMs, endOf(cs[cs.length - 1]));
     }
@@ -976,7 +995,7 @@
       const c = streamDisplayCue(cues, t, primaryTarget);
       for (const d of defs) {
         const el = els[d.key];
-        const txt = c ? (d.target ? fixQ(c.t?.[d.target] || "", d.target) : c.original) : "";
+        const txt = c ? (d.target ? fixQ(groupSlice(c, d.target), d.target) : c.original) : "";
         if (el.textContent !== txt) {
           setLineText(el, txt);
           el.style.display = txt ? "block" : "none";
@@ -1817,7 +1836,7 @@
       if (content.phrase) {
         const p = document.createElement("div");
         p.className = "wt-phrase";
-        p.textContent = "„" + content.phrase + "“";
+        p.textContent = globalThis.SV_QUOTES ? SV_QUOTES.wrap(content.phrase, vocabPoolLang) : content.phrase;
         wtip.appendChild(p);
       }
       if (content.gram) { // the sentence's grammar note, from the same call
@@ -2085,7 +2104,7 @@
       const kar = settings.karaokeHl !== false;
       for (const d of defs) {
         const el = els[d.key];
-        const txt = c ? (d.target ? fixQ(c.t[d.target] || "", d.target) : (c.grp ? c.grp.orig : c.original)) : "";
+        const txt = c ? (d.target ? fixQ(groupSlice(c, d.target), d.target) : (c.grp ? c.grp.orig : c.original)) : "";
         // Unit key: a REPEATED line (song refrain) keeps txt identical while the
         // cue changes — the karaoke fill must still restart from the new times.
         const uk = c && kar ? (c.grp ? c.grp.cues[0].startMs : c.startMs) + ":" + (d.target || "") : "";
@@ -2412,7 +2431,7 @@
       const c = streamDisplayCue(audioCues, t, primary);
       for (const d of audioDefs) {
         const el = audioEls[d.key];
-        const txt = c ? (d.target ? fixQ(c.t?.[d.target] || "", d.target) : c.original) : "";
+        const txt = c ? (d.target ? fixQ(groupSlice(c, d.target), d.target) : c.original) : "";
         if (el.textContent !== txt) {
           setLineText(el, txt);
           el.style.display = txt ? "block" : "none";

@@ -1277,7 +1277,7 @@ function lnWordDetail(w, r, row, nEl) {
   if (w.phrase) {
     const p = document.createElement("div");
     p.className = "phrase";
-    p.textContent = "„" + w.phrase + "“";
+    p.textContent = SV_QUOTES.wrap(w.phrase, r.lang);
     d.appendChild(p);
   }
   for (const s of w.samples || []) {
