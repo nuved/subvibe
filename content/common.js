@@ -485,7 +485,7 @@
   // reassemble into txt (odd spacing) — the line then renders plain, no churn.
   function lineUnits(c, target, txt) {
     if (!c || !txt) return null;
-    const cs = c.grp ? c.grp.cues : [c];
+    const cs = c.grp && (txt === c.grp.orig || (target && c.grp.t && txt === c.grp.t[target])) ? c.grp.cues : [c];
     const endOf = (q) => q.endMs || q.startMs + 2500;
     let units;
     if (!target) {
@@ -2104,7 +2104,7 @@
       const kar = settings.karaokeHl !== false;
       for (const d of defs) {
         const el = els[d.key];
-        const txt = c ? (d.target ? fixQ(groupSlice(c, d.target), d.target) : (c.grp ? c.grp.orig : c.original)) : "";
+        const txt = c ? (d.target ? fixQ(groupSlice(c, d.target), d.target) : c.original) : "";
         // Unit key: a REPEATED line (song refrain) keeps txt identical while the
         // cue changes — the karaoke fill must still restart from the new times.
         const uk = c && kar ? (c.grp ? c.grp.cues[0].startMs : c.startMs) + ":" + (d.target || "") : "";
