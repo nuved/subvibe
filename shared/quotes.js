@@ -15,5 +15,14 @@
       // first, then the unambiguous „ opens, so fresh opens aren't re-eaten.
       return s.split("“").join(close).split("„").join(open);
     },
+    // Wrap an example phrase in the quotation marks of ITS language — the
+    // word cards had „…“ hardcoded, which is right for German words only.
+    wrap(s, lang) {
+      if (!s) return s;
+      const l = (lang || "").toLowerCase();
+      if (GUILLEMET.has(l)) return "«" + s + "»";
+      if (l === "de") return "„" + s + "“";
+      return "“" + s + "”";
+    },
   };
 })(globalThis);

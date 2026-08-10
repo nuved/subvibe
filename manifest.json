@@ -54,6 +54,7 @@
         "shared/presets.js",
         "shared/voices.js",
         "content/dub.js",
+        "shared/textslice.js",
         "shared/quotes.js",
         "content/common.js"
       ],
@@ -69,6 +70,7 @@
         "shared/presets.js",
         "shared/voices.js",
         "content/dub.js",
+        "shared/textslice.js",
         "shared/quotes.js",
         "content/common.js"
       ],
@@ -84,6 +86,7 @@
         "shared/presets.js",
         "shared/voices.js",
         "content/dub.js",
+        "shared/textslice.js",
         "shared/quotes.js",
         "content/common.js"
       ],
@@ -99,6 +102,7 @@
         "shared/presets.js",
         "shared/voices.js",
         "content/dub.js",
+        "shared/textslice.js",
         "shared/quotes.js",
         "content/common.js"
       ],
@@ -114,6 +118,7 @@
         "shared/presets.js",
         "shared/voices.js",
         "content/dub.js",
+        "shared/textslice.js",
         "shared/quotes.js",
         "content/common.js"
       ],
@@ -129,6 +134,7 @@
         "shared/presets.js",
         "shared/voices.js",
         "content/dub.js",
+        "shared/textslice.js",
         "shared/quotes.js",
         "content/common.js"
       ],

@@ -104,7 +104,7 @@ function renderReview() {
     if (c.pos) bits.push(esc(c.pos));
     if (c.cefr) bits.push(esc(c.cefr));
     if (bits.length) html += `<div class="extra">${bits.join(" · ")}</div>`;
-    if (c.phrase) html += `<div class="extra">„${esc(c.phrase)}“</div>`;
+    if (c.phrase) html += `<div class="extra">${esc(SV_QUOTES.wrap(c.phrase, c.lang))}</div>`;
     if (c.sentence) html += `<div class="extra">${esc(c.sentence)}${c.sentenceT ? `<br>${esc(c.sentenceT)}` : ""}</div>`;
     if (c.note) html += `<div class="extra">${esc(c.note)}</div>`;
     if (c.pos === "verb") html += `<div style="margin-top:10px;"><button class="btn small" id="conjBtn">Conjugate</button></div>`;
@@ -324,7 +324,7 @@ function renderBrowse() {
   wrap.innerHTML = `<table><thead><tr><th>Word</th><th>Meaning</th><th>Type</th><th>Level</th><th>Box</th><th>Due</th><th></th></tr></thead><tbody>` +
     rows.map((c) => `<tr>
       <td>${c.art ? `<span class="art-tag">${esc(c.art)}</span> ` : ""}${esc(c.word)}${c.plural ? `<div class="muted" style="font-size:11px;">pl. ${esc(c.plural)}</div>` : ""}</td>
-      <td>${esc(c.meaning || "")}${c.phrase ? `<div class="muted" style="font-size:11.5px;">„${esc(c.phrase)}“</div>` : ""}</td>
+      <td>${esc(c.meaning || "")}${c.phrase ? `<div class="muted" style="font-size:11.5px;">${esc(SV_QUOTES.wrap(c.phrase, c.lang))}</div>` : ""}</td>
       <td>${esc(c.pos || "—")}</td>
       <td><span class="lvl">${esc(c.cefr || "·")}</span></td>
       <td>${c.box || 1}</td>
