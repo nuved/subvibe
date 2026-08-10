@@ -4,6 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>SubVibe Library</title>
+  <link rel="stylesheet" href="styles/tokens.css" />
+  <link rel="stylesheet" href="styles/components.css" />
   <style>
     /* Baloo 2 (bundled) — the wordmark and the big metric numbers only. A
        relative url() resolves against this extension page (chrome-extension://),
@@ -16,19 +18,19 @@
       unicode-range: U+0100-024F, U+1E00-1EFF; }
 
     :root {
-      color-scheme: dark;
-      /* Premium indigo dark theme — base palette pinned by spec */
-      --bg: #0B0F19; --surface: #161D30; --brand: #4F46E5; --text: #F9FAFB; --muted: #9CA3AF;
-      /* derived tones the UI needs beyond the five pinned values */
-      --sidebar: #0E1424; --surface-2: #1C2438; --surface-3: #26304A;
-      --border: #262F49; --border-soft: #1E2740;
-      --brand-2: #6366F1; --brand-3: #818CF8; --brand-soft: rgba(99,102,241,.13);
-      --muted-2: #6B7280;
-      --green: #34D399; --red: #F87171; --amber: #FBBF24;
-      --shadow: 0 12px 30px -12px rgba(0,0,0,.6);
-      --ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-      --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
-      --display: "Baloo 2", var(--ui);
+      /* Daylight aliases — legacy names → styles/tokens.css. Every rule below
+         is unchanged; only the palette source moved (was a local indigo copy).
+         --bg/--surface/--surface-2/--border/--muted/--ui/--mono/--display come
+         straight from tokens.css. */
+      --sidebar: var(--surface);
+      --surface-3: var(--surface-2);
+      --border-soft: var(--border);
+      --brand: var(--coral-600); --brand-2: var(--coral-600); --brand-3: var(--coral-600);
+      --brand-soft: var(--coral-100);
+      --text: var(--ink);
+      --muted-2: var(--faint);
+      --green: var(--green-600); --red: var(--red-600); --amber: var(--amber-600);
+      --shadow: var(--shadow-raised);
     }
     * { box-sizing: border-box; }
     [hidden] { display: none !important; } /* beats class-set display (e.g. .side-controls{display:flex}) so hidden wins */
@@ -37,7 +39,7 @@
       -webkit-font-smoothing: antialiased; }
     a { color: inherit; }
     button { font-family: inherit; }
-    ::selection { background: rgba(99,102,241,.35); }
+    ::selection { background: var(--coral-100); }
     :focus-visible { outline: 2px solid var(--brand-3); outline-offset: 2px; border-radius: 6px; }
 
     /* ── app shell: fixed sidebar + fluid canvas ──────────────────────────── */
@@ -74,7 +76,7 @@
     .search input { width: 100%; padding: 9px 11px 9px 33px; border-radius: 10px; font-size: 13px;
       border: 1px solid var(--border); background: var(--surface); color: var(--text); }
     .search input::placeholder { color: var(--muted-2); }
-    .search input:focus { outline: none; border-color: var(--brand); background: #12182a; }
+    .search input:focus { outline: none; border-color: var(--brand); background: var(--surface); }
 
     .platforms { display: flex; flex-direction: column; gap: 2px; }
     .pf { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
@@ -82,7 +84,7 @@
       font-size: 13px; font-weight: 600; padding: 7px 10px; border-radius: 9px; transition: background .12s, color .12s; }
     .pf:hover { background: var(--surface-2); color: var(--text); }
     .pf.on { background: var(--surface-2); color: var(--text); }
-    .pf .swatch { flex: none; width: 9px; height: 9px; border-radius: 3px; background: var(--muted-2); box-shadow: 0 0 0 3px rgba(255,255,255,.02); }
+    .pf .swatch { flex: none; width: 9px; height: 9px; border-radius: 3px; background: var(--muted-2); box-shadow: 0 0 0 3px var(--surface-2); }
     .pf .pf-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .pf .pf-count { color: var(--muted-2); font-size: 11.5px; font-variant-numeric: tabular-nums;
       background: var(--surface); border: 1px solid var(--border-soft); border-radius: 999px; padding: 1px 8px; }
@@ -93,13 +95,14 @@
     .seg button { flex: 1; border: 0; background: transparent; color: var(--muted); padding: 8px 13px; cursor: pointer; font-weight: 600; font-size: 12.5px; transition: background .12s, color .12s; }
     .seg button:hover { color: var(--text); }
     .seg button.on { background: var(--brand); color: #fff; }
+    :root[data-theme="dark"] .seg button.on { color: var(--bg); } /* dark coral is bright — ink text, like .btn-primary */
 
     .side-foot { margin-top: auto; padding-top: 8px; }
     .btn-danger { display: flex; align-items: center; gap: 9px; width: 100%; justify-content: center;
       border: 1px solid var(--border); background: var(--surface); color: var(--muted);
       border-radius: 10px; padding: 9px 12px; font-weight: 600; font-size: 12.5px; cursor: pointer; transition: .12s; }
     .btn-danger svg { width: 15px; height: 15px; }
-    .btn-danger:hover { color: var(--red); border-color: #5a2b34; background: #2a141a; }
+    .btn-danger:hover { color: var(--red); border-color: var(--red); background: color-mix(in srgb, var(--red) 8%, var(--surface)); }
 
     /* ── main canvas ──────────────────────────────────────────────────────── */
     .canvas { flex: 1 1 auto; min-width: 0; width: 100%; padding: 26px 40px 64px; }
@@ -165,10 +168,10 @@
       transition: background .12s, color .12s, border-color .12s; }
     .iconbtn svg { width: 16px; height: 16px; flex: none; }
     .iconbtn:hover { background: var(--surface-3); color: var(--text); }
-    .iconbtn.primary:hover { color: var(--brand-3); border-color: #35408a; background: #1a2142; }
-    .iconbtn.danger:hover { color: var(--red); border-color: #5a2b34; background: #2a141a; }
+    .iconbtn.primary:hover { color: var(--brand-3); border-color: var(--brand); background: var(--brand-soft); }
+    .iconbtn.danger:hover { color: var(--red); border-color: var(--red); background: color-mix(in srgb, var(--red) 8%, var(--surface)); }
     .iconbtn.quiet { background: transparent; border-color: transparent; color: var(--muted-2); padding: 0 7px; }
-    .iconbtn.quiet:hover { color: var(--red); background: #2a141a; }
+    .iconbtn.quiet:hover { color: var(--red); background: color-mix(in srgb, var(--red) 8%, var(--surface)); }
 
     .empty { text-align: center; color: var(--muted); padding: 90px 20px; }
     .empty .big { font-size: 44px; margin-bottom: 12px; opacity: .85; }
@@ -201,7 +204,7 @@
     #actList:empty::after { content: "No calls yet — play a video and the requests will show up here."; color: var(--muted); font-size: 12px; }
     .callrow, .callhead { display: grid; grid-template-columns: 116px 1fr 56px 64px 96px 60px 66px 20px; gap: 10px; align-items: center;
       padding: 9px 8px; border-bottom: 1px solid var(--border-soft); font-size: 12.5px; }
-    .callhead { color: var(--muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; border-bottom-color: var(--border); padding: 6px 8px; }
+    .callhead { position: sticky; top: 0; z-index: 1; background: var(--bg); color: var(--muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; border-bottom-color: var(--border); padding: 6px 8px; }
     .callrow .ct, .callrow .ctok, .callrow .cms, .callrow .cprov, .callrow .ccost { color: var(--muted); font-variant-numeric: tabular-nums; }
     .callrow .cs { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .callrow .cprov { text-align: center; font-size: 11px; }
@@ -210,7 +213,7 @@
     .callrow .ok { color: var(--green); } .callrow .err { color: var(--red); }
     .cerrline { color: var(--red); font-size: 11.5px; padding: 0 8px 8px 132px; border-bottom: 1px solid var(--border-soft); }
     .cerrline + .callrow { border-top: 0; }
-    .cgroup { border: 1px solid var(--border-soft); border-radius: 12px; margin-bottom: 10px; background: rgba(255,255,255,0.012); }
+    .cgroup { border: 1px solid var(--border-soft); border-radius: 12px; margin-bottom: 10px; background: var(--surface); }
     .cgroup summary { display: flex; gap: 12px; align-items: baseline; padding: 12px 14px; cursor: pointer; list-style: none; }
     .cgroup summary::-webkit-details-marker { display: none; }
     .cgroup summary::before { content: "▸"; color: var(--muted); font-size: 11px; }
@@ -335,6 +338,7 @@
     </main>
   </div>
 
+  <script src="shared/theme.js"></script>
   <script src="shared/title.js"></script>
   <script src="shared/langs.js"></script>
   <script src="shared/srt.js"></script>
