@@ -1,43 +1,42 @@
 # Chrome Web Store screenshots
 
 The `store-*-1280x800.jpg` files are the listing screenshots (exact store
-spec: 1280×800 JPEG). Suggested order in the dashboard: **action first**
-(the product doing its job), then translate, dub, style. Regenerate after any
-popup or overlay change worth showing.
+spec: 1280×800 JPEG). Daylight set (2026-08-10) — dashboard order in
+../store-listing.md: **hero** (real footage) → live → subtitles → learn →
+trust (style is the spare). Regenerate after any popup or overlay change
+worth showing.
 
-## The action shot
+## How they're made (repeatable, any agent session with Playwright MCP)
 
-`action.html` renders SubVibe's REAL subtitle output — the actual
-`styles/overlay.css` plus the exact DOM `setLineText()` produces (word spans,
-`.sung` karaoke fill, dual lines, RTL) — over a mock cinematic frame with
-generic player chrome. Mock scene on purpose: frames from other people's
-videos are their copyright. Two traps encoded in the file's comments: caption
-markup must be single-line (`pre-wrap` renders source newlines), and the
-overlay must keep its natural `inset: 0` geometry (only `--cs-font` and
-z-index are overridden). Capture at 1280×800 → same `sips` downscale.
+Serve the repo root: `python3 -m http.server 8642`.
 
-## How they're made (repeatable)
+1. **Popup captures** — `popup-stub.js` fakes `chrome.*` (Claude + Sonnet 5,
+   Persian primary, keys verified, a cached clip, enriched German words).
+   Inject it with Playwright `addInitScript`, viewport 500×672, open
+   `/popup.html`, then per shot:
+   - subtitles: default load
+   - live: `liveUI(true, "Live — running.")` (popup.js fns are globals)
+   - style: `selectTab("style")` + open `#lookFold`
+   - learn: `selectTab("learn")` (words come from the stub)
+   Save as `shots/raw-<tab>.png`. If the header logo shows the old cached
+   icon, re-point it: `header img` src → `/icons/icon-48.png?bust`.
+2. **Compose** — `compose.html?tab=live|subtitles|style|learn|trust` at
+   viewport 1280×800 (`trust` is a full-bleed text card, no popup) →
+   `shots/composed-<tab>.png`. Copy lives in the TABS map inside.
+3. **Hero** — `real-video.html?clip=sintel&style=classic` (see below), wait
+   for READY in the title, 1280×800 → `shots/hero-sintel.png`.
+4. **Finalize** — captures with `scale: "css"` are already 1280×800:
+   `sips -s format jpeg -s formatOptions 92 shots/<x>.png --out store-<x>-1280x800.jpg`
 
-1. **Capture each tab** — open `popup.html` in a Chromium with `chrome.*` stubbed
-   (seeded storage: Claude engine + Sonnet 5, Persian target, keys present,
-   dub enabled). Viewport 500×672 (Chrome's minimum window width is 500; the
-   340px popup fills the left side — the composer crops the rest).
-   - Translate: close `#keysDetails`, scroll top.
-   - Dub: enable dub, open `#voiceFold`, scroll top.
-   - Style: open `#lookFold`, scroll to bottom (`scrollHeight - innerHeight`)
-     so the expanded Appearance options and footer end cleanly.
-   Save as `shots/raw-<tab>.png`.
-2. **Compose** — open `compose.html?tab=<tab>` at viewport 1280×800 and
-   screenshot → `shots/composed-<tab>.png`. Headlines/bullets live in the
-   `TABS` map inside `compose.html`; edit copy there.
-3. **Finalize** — retina captures are 2560×1600; downscale:
-   `sips -z 800 1280 -s format jpeg -s formatOptions 92 shots/composed-<tab>.png --out store-<tab>-1280x800.jpg`
+## Icon
 
-Any agent session can re-run this via the chrome-devtools MCP (the capture
-stub + fold/scroll steps above are the whole recipe). The store dashboard
-upload itself is manual: Store listing → Screenshots → replace.
+`icon.html` renders the Daylight mark (coral tile, Baloo S, subtitle bar) at
+512 CSS px. Capture `#mark` with `omitBackground: true, scale: "css"` (body
+set transparent first), then `sips -z <s> <s>` to 128/48/32/16 → `icons/`.
+Viewport must be wider than 512 — a stale narrow viewport silently clips.
 
 ## Promo tiles
+
 
 `promo-small-440x280.jpg` (category grids / search rails — required for any
 featuring consideration) and `promo-marquee-1400x560.jpg` (featured banners).

@@ -4,58 +4,80 @@
 <meta charset="utf-8">
 <title>Store screenshot composer</title>
 <!--
-  Renders ONE 1280×800 Chrome Web Store screenshot per popup tab.
-  Open with ?tab=translate | dub | style, viewport exactly 1280×800, screenshot,
-  then downscale the retina capture to 1280×800 (see README.md).
+  Renders ONE 1280×800 Chrome Web Store screenshot per popup capture.
+  Open with ?tab=live | subtitles | style | learn | trust, viewport exactly
+  1280×800, screenshot, then downscale the retina capture (see README.md).
 
-  Board recolored to the 1330.2 indigo theme (bg #0B0F19, accent #4F46E5) to
-  match the redesigned popup. The popup is now 520px wide, so raw-*.png captures
-  are taken at a 520px viewport and the frame scales the whole width down — no
-  horizontal crop, so no brand chips or edges leak in.
+  Daylight board: warm paper, coral accents, Baloo wordmark — matches the
+  shipped light UI. Popup is 460px wide, captured at 500×672; the frame
+  scales it to width. ?tab=trust renders a full-bleed text card (no popup).
 -->
 <style>
+  @font-face { font-family: "Baloo 2"; font-weight: 800;
+    src: url("../../fonts/Baloo2-ExtraBold-latin.woff2") format("woff2"); }
   * { margin: 0; box-sizing: border-box; }
   body { width: 1280px; height: 800px; overflow: hidden; display: flex; align-items: center;
-    font-family: -apple-system, "Segoe UI", system-ui, sans-serif; color: #F9FAFB;
-    background: #0B0F19 radial-gradient(circle at 80% 50%, #1b2050 0%, #12162e 40%, #0B0F19 78%); }
+    font-family: -apple-system, "Segoe UI", system-ui, sans-serif; color: #241F1A;
+    background: #FAF6F0 radial-gradient(circle at 82% 45%, #FDE8E4 0%, #F7EFE5 38%, #FAF6F0 75%); }
   .left { flex: 1; padding: 0 40px 0 84px; }
-  .mark { font-size: 22px; font-weight: 800; letter-spacing: .3px; color: #8b93f8; margin-bottom: 26px; }
-  h1 { font-size: 46px; line-height: 1.16; font-weight: 800; margin-bottom: 30px; max-width: 560px; letter-spacing: -.5px; }
-  li { list-style: none; font-size: 21px; color: #c3cad8; margin: 15px 0; padding-left: 26px; position: relative; }
+  .mark { display: flex; align-items: center; gap: 12px; margin-bottom: 30px; }
+  .mark img { width: 40px; height: 40px; border-radius: 11px; }
+  .mark span { font-family: "Baloo 2"; font-size: 26px; letter-spacing: .2px; }
+  h1 { font-family: "Baloo 2"; font-size: 47px; line-height: 1.14; font-weight: 800;
+    margin-bottom: 30px; max-width: 570px; letter-spacing: -.3px; }
+  h1 em { font-style: normal; color: #C93F2B; }
+  li { list-style: none; font-size: 21px; color: #5B5348; margin: 15px 0; padding-left: 26px; position: relative; }
   li::before { content: ""; position: absolute; left: 0; top: 9px; width: 10px; height: 10px; border-radius: 50%;
-    background: #6d6af5; box-shadow: 0 0 12px rgba(109,106,245,.7); }
+    background: #F45D48; box-shadow: 0 0 10px rgba(244, 93, 72, .55); }
   .right { flex: none; width: 486px; display: flex; justify-content: center; }
-  .frame { width: 400px; height: 664px; overflow: hidden; border-radius: 16px; border: 2px solid #24324F;
-    box-shadow: 0 24px 70px rgba(0,0,0,.62), 0 0 0 1px rgba(79,70,229,.18); background: #0B0F19; }
-  .frame img { width: 400px; height: auto; display: block; } /* whole 520px popup scaled to width */
+  .frame { width: 400px; height: 664px; overflow: hidden; border-radius: 16px; border: 1px solid #EDE5DA;
+    box-shadow: 0 24px 70px -18px rgba(93, 64, 35, .45); background: #FAF6F0; }
+  .frame img { width: 400px; height: auto; display: block; } /* whole 460px popup scaled to width */
+  /* trust variant: no popup frame — one centered statement */
+  body.trust { justify-content: center; text-align: center; }
+  body.trust .left { flex: none; padding: 0; max-width: 860px; }
+  body.trust .mark { justify-content: center; }
+  body.trust h1 { max-width: none; }
+  body.trust ul { display: inline-block; text-align: left; }
 </style>
 </head>
 <body>
   <div class="left">
-    <div class="mark">SubVibe</div>
+    <div class="mark"><img src="../../icons/icon-128.png" alt=""><span>SubVibe</span></div>
     <h1 id="h"></h1>
     <ul id="b"></ul>
   </div>
-  <div class="right"><div class="frame"><img id="shot" alt=""></div></div>
+  <div class="right" id="rightCol"><div class="frame"><img id="shot" alt=""></div></div>
   <script>
+    // Spec §4 storyboard order: hero (real-video) → live → subtitles → words/learn → trust.
     const TABS = {
-      translate: { h: "AI subtitles in your language — in sync", b: [
-        "Pre-translated ahead of the playhead, never lagging",
-        "OpenAI or Claude — your key, your choice of model",
-        "Or just style the video's own captions, free" ] },
-      dub: { h: "Or hear it — live, in your language", b: [
-        "Real-time voice translation, powered by Gemini",
-        "Keeps the original speaker's own voice",
+      live: { h: "Hear any video <em>live</em> in your language", b: [
+        "Real-time voice translation of the tab's audio",
+        "No microphone access — captures the tab safely",
         "70+ languages, one click to start" ] },
-      style: { h: "Subtitles that look the way you want", b: [
+      subtitles: { h: "AI subtitles — <em>in sync</em>, cached free on replay", b: [
+        "Pre-translated ahead of the playhead, never lagging",
+        "OpenAI or Claude — your own key, your model",
+        "Or just style the video's captions, free" ] },
+      style: { h: "Subtitles that look the way <em>you</em> want", b: [
         "Presets from Classic to Cinema to Pill",
         "Custom font, color, background and outline",
         "Karaoke highlight, sized and placed per video" ] },
+      learn: { h: "The videos you watch become your <em>vocabulary</em>", b: [
+        "Every word: meaning, level and the real sentence",
+        "One tap into a Leitner spaced-repetition trainer",
+        "Collected free from your own subtitle cache" ] },
+      trust: { h: "Private <em>by architecture</em>", b: [
+        "Your key · your device · no account, no tracking",
+        "Calls go straight from your browser to the provider",
+        "Everything cached locally — replays cost nothing",
+        "Open source, auditable, no servers of ours" ] },
     };
-    const tab = new URLSearchParams(location.search).get("tab") || "translate";
-    document.getElementById("h").textContent = TABS[tab].h;
+    const tab = new URLSearchParams(location.search).get("tab") || "subtitles";
+    document.getElementById("h").innerHTML = TABS[tab].h;
     document.getElementById("b").innerHTML = TABS[tab].b.map((t) => "<li>" + t + "</li>").join("");
-    document.getElementById("shot").src = "shots/raw-" + tab + ".png";
+    if (tab === "trust") { document.body.classList.add("trust"); document.getElementById("rightCol").remove(); }
+    else document.getElementById("shot").src = "shots/raw-" + tab + ".png";
   </script>
 </body>
 </html>
