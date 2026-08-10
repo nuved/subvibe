@@ -817,16 +817,25 @@ function renderLiveMenu(showAll) {
   });
   menu.classList.add("show");
 }
+// The field shows the picked language's flag where the magnifier sits (an
+// <input> can't render the flag inline — Persian's is an SVG string).
+function showLiveFlag(searching) {
+  const flag = searching ? "" : langMeta(liveTargetCode())[2] || "";
+  el("liveLangFlag").innerHTML = flag;
+  el("liveLangFlag").hidden = !flag;
+  el("liveLangSearch").classList.toggle("hasflag", !!flag);
+}
 function setLiveTarget(code) {
   state.liveTarget = code;
   saveSetting({ liveTarget: code });
   el("liveLangSearch").value = langMeta(code)[1];
+  showLiveFlag();
   el("liveLangMenu").classList.remove("show");
 }
-el("liveLangSearch").addEventListener("input", () => renderLiveMenu());
-el("liveLangSearch").addEventListener("focus", () => { el("liveLangSearch").select(); renderLiveMenu(true); });
+el("liveLangSearch").addEventListener("input", () => { showLiveFlag(true); renderLiveMenu(); });
+el("liveLangSearch").addEventListener("focus", () => { showLiveFlag(true); el("liveLangSearch").select(); renderLiveMenu(true); });
 el("liveLangSearch").addEventListener("keydown", (e) => { if (e.key === "Escape") el("liveLangMenu").classList.remove("show"); });
-el("liveLangSearch").addEventListener("blur", () => setTimeout(() => { el("liveLangSearch").value = langMeta(liveTargetCode())[1]; el("liveLangMenu").classList.remove("show"); }, 150));
+el("liveLangSearch").addEventListener("blur", () => setTimeout(() => { el("liveLangSearch").value = langMeta(liveTargetCode())[1]; showLiveFlag(); el("liveLangMenu").classList.remove("show"); }, 150));
 document.addEventListener("click", (e) => { if (!el("liveLangSearch").contains(e.target) && !el("liveLangMenu").contains(e.target)) el("liveLangMenu").classList.remove("show"); });
 
 el("dbgHud").addEventListener("change", () => { state.debugHud = el("dbgHud").checked; persist({ debugHud: state.debugHud }); });
@@ -1434,6 +1443,7 @@ async function load() {
     if (ok !== state.liveTarget) { state.liveTarget = ok; persist({ liveTarget: ok }); }
   }
   el("liveLangSearch").value = langMeta(liveTargetCode())[1];
+  showLiveFlag();
   el("dbgHud").checked = !!state.debugHud;
   chrome.runtime.sendMessage({ type: "LIVE_QUERY" }, async (r) => {
     if (r && r.hasOffscreen === false) { liveDisableNoOffscreen(); return; } // Firefox: mark Live as Chrome-only

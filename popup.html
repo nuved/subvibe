@@ -188,6 +188,11 @@
     #langSearch, #liveLangSearch { padding-left: 31px;
       background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14'%3E%3Ccircle cx='6' cy='6' r='4.2' fill='none' stroke='%239CA3AF' stroke-width='1.5'/%3E%3Cpath d='M9.4 9.4L13 13' stroke='%239CA3AF' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
       background-repeat: no-repeat; background-position: left 10px center; background-size: 13px 13px; }
+    /* the picked language's flag replaces the magnifier while the field shows a
+       selection; searching (focus/typing) swaps the magnifier back in */
+    .acflag { position: absolute; left: 9px; top: 50%; transform: translateY(-50%);
+      display: flex; align-items: center; font-size: 14px; line-height: 1; pointer-events: none; }
+    #liveLangSearch.hasflag { background-image: none; }
     .menu { position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 5; max-height: 196px; overflow-y: auto;
       background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-raised);
       display: none; padding: 4px; }
@@ -418,6 +423,7 @@
         <div class="row liverow">
           <span class="rowlbl">Audio language</span>
           <div class="ac" style="flex:1;">
+            <span class="acflag" id="liveLangFlag" hidden></span>
             <input type="text" id="liveLangSearch" placeholder="Search a language…" autocomplete="off" spellcheck="false" />
             <div class="menu" id="liveLangMenu"></div>
           </div>
