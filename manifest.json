@@ -54,6 +54,7 @@
         "shared/presets.js",
         "shared/voices.js",
         "content/dub.js",
+        "shared/quotes.js",
         "content/common.js"
       ],
       "css": ["styles/overlay.css"],
@@ -68,6 +69,7 @@
         "shared/presets.js",
         "shared/voices.js",
         "content/dub.js",
+        "shared/quotes.js",
         "content/common.js"
       ],
       "css": ["styles/overlay.css"],
@@ -82,6 +84,7 @@
         "shared/presets.js",
         "shared/voices.js",
         "content/dub.js",
+        "shared/quotes.js",
         "content/common.js"
       ],
       "css": ["styles/overlay.css"],
@@ -96,6 +99,7 @@
         "shared/presets.js",
         "shared/voices.js",
         "content/dub.js",
+        "shared/quotes.js",
         "content/common.js"
       ],
       "css": ["styles/overlay.css"],
@@ -110,6 +114,7 @@
         "shared/presets.js",
         "shared/voices.js",
         "content/dub.js",
+        "shared/quotes.js",
         "content/common.js"
       ],
       "css": ["styles/overlay.css"],
@@ -124,6 +129,7 @@
         "shared/presets.js",
         "shared/voices.js",
         "content/dub.js",
+        "shared/quotes.js",
         "content/common.js"
       ],
       "css": ["styles/overlay.css"],

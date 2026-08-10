@@ -7,7 +7,7 @@
 (function () {
   "use strict";
 
-  const SANS = '-apple-system, "Segoe UI", Roboto, Arial, sans-serif';
+  const SANS = '"Vazirmatn", -apple-system, "Segoe UI", Roboto, Arial, sans-serif'; // Vazirmatn carries Latin too — one face for Persian AND originals
   const ROUNDED = '"Baloo 2", "Arial Rounded MT Bold", "Segoe UI", sans-serif';
 
   // Text outline via stacked shadows (works everywhere, incl. RTL). Em-scaled so
