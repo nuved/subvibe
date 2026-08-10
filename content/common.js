@@ -252,6 +252,10 @@
   //    so a line isn't blanked during the translation round-trip, and
   //  • holds each line for a reading-time minimum (so late translations still
   //    get a proper on-screen duration instead of a leftover sliver).
+  // Translated lines pass through SV_QUOTES (shared/quotes.js) so German-style
+  // „quotes“ become the target language's marks. Guarded: harness pages that
+  // don't load the shared file just render unchanged text.
+  const fixQ = (s, lang) => (globalThis.SV_QUOTES ? globalThis.SV_QUOTES.fix(s, lang) : s);
   function streamDisplayCue(cues, t, target) {
     let lo = 0, hi = cues.length - 1, ans = -1;
     while (lo <= hi) { const m = (lo + hi) >> 1; if (cues[m].startMs <= t) { ans = m; lo = m + 1; } else hi = m - 1; }
@@ -972,7 +976,7 @@
       const c = streamDisplayCue(cues, t, primaryTarget);
       for (const d of defs) {
         const el = els[d.key];
-        const txt = c ? (d.target ? c.t?.[d.target] || "" : c.original) : "";
+        const txt = c ? (d.target ? fixQ(c.t?.[d.target] || "", d.target) : c.original) : "";
         if (el.textContent !== txt) {
           setLineText(el, txt);
           el.style.display = txt ? "block" : "none";
@@ -2081,7 +2085,7 @@
       const kar = settings.karaokeHl !== false;
       for (const d of defs) {
         const el = els[d.key];
-        const txt = c ? (d.target ? c.t[d.target] || "" : (c.grp ? c.grp.orig : c.original)) : "";
+        const txt = c ? (d.target ? fixQ(c.t[d.target] || "", d.target) : (c.grp ? c.grp.orig : c.original)) : "";
         // Unit key: a REPEATED line (song refrain) keeps txt identical while the
         // cue changes — the karaoke fill must still restart from the new times.
         const uk = c && kar ? (c.grp ? c.grp.cues[0].startMs : c.startMs) + ":" + (d.target || "") : "";
@@ -2408,7 +2412,7 @@
       const c = streamDisplayCue(audioCues, t, primary);
       for (const d of audioDefs) {
         const el = audioEls[d.key];
-        const txt = c ? (d.target ? c.t?.[d.target] || "" : c.original) : "";
+        const txt = c ? (d.target ? fixQ(c.t?.[d.target] || "", d.target) : c.original) : "";
         if (el.textContent !== txt) {
           setLineText(el, txt);
           el.style.display = txt ? "block" : "none";
@@ -2517,7 +2521,7 @@
       if (settings.showOriginal && orig) { setLineText(ro, orig); ro.style.display = "block"; ro.dir = isRTL(orig) ? "rtl" : "ltr"; }
       else ro.style.display = "none";
     }
-    if (rt && out) { setLineText(rt, out); rt.style.display = "block"; rt.dir = isRTL(out) ? "rtl" : "ltr"; }
+    if (rt && out) { out = fixQ(out, (settings.targets && settings.targets[0]) || ""); setLineText(rt, out); rt.style.display = "block"; rt.dir = isRTL(out) ? "rtl" : "ltr"; }
     // A quiet room keeps the last line ~8s, then the overlay clears until the
     // next spoken line — live has no cue end times to honor.
     clearTimeout(liveIdleT);
