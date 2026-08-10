@@ -358,7 +358,7 @@ function renderPlatformNav() {
     b.onclick = () => { siteFilter = key; renderPlatformNav(); render(); };
     nav.appendChild(b);
   };
-  item("all", "All platforms", "#6366F1", allGroups.length);
+  item("all", "All platforms", "#C93F2B", allGroups.length);
   for (const site of SITE_ORDER) {
     const n = counts.get(site) || 0;
     if (!n) continue;
@@ -393,10 +393,10 @@ function renderLibStats() {
   if (!allGroups.length) return; // hero hides on the empty state — nothing to celebrate yet
   const platforms = platformCounts().size;
   const tracks = allGroups.reduce((a, g) => a + g.langs.size, 0);
-  wrap.appendChild(metricCard("Videos translated", String(allGroups.length), "", "cached for free replay", "#6366F1"));
-  wrap.appendChild(metricCard("Cached translations", String(tracks), tracks === 1 ? "track" : "tracks", "replay without re-charge", "#34D399"));
-  wrap.appendChild(metricCard("Active platforms", String(platforms), platforms === 1 ? "site" : "sites", "", "#F59E0B"));
-  wrap.appendChild(metricCard("Est. spent", "~" + fmtCost(totalSpend()), "", "one-time · replays are free", "#818CF8"));
+  wrap.appendChild(metricCard("Videos translated", String(allGroups.length), "", "cached for free replay", "#C93F2B"));
+  wrap.appendChild(metricCard("Cached translations", String(tracks), tracks === 1 ? "track" : "tracks", "replay without re-charge", "#0D9488"));
+  wrap.appendChild(metricCard("Active platforms", String(platforms), platforms === 1 ? "site" : "sites", "", "#B45309"));
+  wrap.appendChild(metricCard("Est. spent", "~" + fmtCost(totalSpend()), "", "one-time · replays are free", "#15803D"));
 }
 
 function render() {
