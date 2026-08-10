@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Welcome to SubVibe</title>
+  <link rel="stylesheet" href="styles/tokens.css" />
+  <link rel="stylesheet" href="styles/components.css" />
+  <style>
+    @font-face { font-family: "Baloo 2"; font-weight: 800; font-display: swap;
+      src: url("fonts/Baloo2-ExtraBold-latin.woff2") format("woff2"); }
+    body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.6 var(--ui);
+      -webkit-font-smoothing: antialiased; }
+    .wrap { max-width: 620px; margin: 0 auto; padding: 48px 24px 80px; }
+    .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 34px; }
+    .brand img { width: 40px; height: 40px; border-radius: 11px; }
+    .brand .name { font-family: var(--display); font-weight: 800; font-size: 24px; }
+    h1 { font-family: var(--display); font-weight: 800; font-size: 27px; margin: 0 0 6px; }
+    .sub { color: var(--ink-2); margin: 0 0 22px; }
+    .stepdots { display: flex; gap: 6px; margin-bottom: 26px; }
+    .stepdots i { width: 26px; height: 4px; border-radius: 2px; background: var(--border); }
+    .stepdots i.on { background: var(--coral-600); }
+    .grid { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 22px; }
+    .grid .chip { cursor: pointer; padding: 8px 14px; font-size: 13.5px; }
+    .sites { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 22px; }
+    .sites span { background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--r-sm); padding: 9px 14px; font-weight: 600; font-size: 13px; }
+    .row { display: flex; gap: 10px; align-items: center; margin-top: 18px; flex-wrap: wrap; }
+    .checks { display: flex; flex-direction: column; gap: 7px; margin: 16px 0; }
+    #langSearch { max-width: 300px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="brand"><img src="icons/icon-48.png" alt="" /><span class="name">SubVibe</span></div>
+    <div class="stepdots"><i class="on" data-dot="1"></i><i data-dot="2"></i><i data-dot="3"></i></div>
+
+    <section id="step1">
+      <h1>Welcome 👋 Which language do you want on screen?</h1>
+      <p class="sub">One question — this becomes your subtitle language everywhere. You can add more later.</p>
+      <input type="text" id="langSearch" class="field" placeholder="Search languages…" autocomplete="off" />
+      <div class="grid" id="langGrid"></div>
+      <div class="row"><button class="btn-primary" id="next1" disabled>Continue →</button><button class="btn-secondary" id="skip1">Skip for now</button></div>
+    </section>
+
+    <section id="step2" hidden>
+      <h1>Open any video — captions get beautiful, free</h1>
+      <p class="sub">Styled original captions cost nothing and need no account. Try it right now:</p>
+      <div class="sites"><span>▶ YouTube</span><span>Netflix</span><span>ZDF</span><span>ARD</span><span>Prime Video</span></div>
+      <div class="row">
+        <button class="btn-primary" id="tryYoutube">Try it on YouTube →</button>
+        <button class="btn-secondary" id="next2">I'll browse on my own</button>
+      </div>
+    </section>
+
+    <section id="step3" hidden>
+      <h1>Unlock translation &amp; Live voice</h1>
+      <p class="sub">Bring your own key (OpenAI, Claude or Gemini) — you pay cents directly to the provider, nothing to us, and every translated video is cached so replays are free.</p>
+      <div class="checks">
+        <div class="check-row"><span class="ok">✓</span> Subtitle language — <b id="chosenLang" style="margin-left:4px;"></b></div>
+        <div class="check-row"><span class="todo">○</span> API key — connect when ready</div>
+      </div>
+      <div class="row">
+        <button class="btn-primary" id="openKeys">Connect a key</button>
+        <button class="btn-secondary" id="skipBtn">Later — start watching</button>
+      </div>
+    </section>
+  </div>
+  <script src="shared/langs.js"></script>
+  <script src="welcome.js"></script>
+</body>
+</html>

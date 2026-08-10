@@ -3,16 +3,18 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="styles/tokens.css" />
+  <link rel="stylesheet" href="styles/components.css" />
   <style>
     :root {
-      color-scheme: dark;
-      /* Premium dark indigo theme */
-      --bg: #0B0F19; --panel: #161D30; --panel2: #1C2438; --border: #24324F;
-      --text: #F9FAFB; --text2: #E5E7EB; --muted: #9CA3AF;
-      --accent: #4F46E5; --accent2: #4338CA;
-      --accent-soft: rgba(79, 70, 229, .16); --hover: #1F2A44; --divider: #1B2740; --toggle-off: #313A55;
-      --green: #34D399; --red: #F87171; --amber: #FBBF24;
-      --radius: 10px; /* cards & inputs; pills and buttons use 8px */
+      /* Legacy aliases → Daylight tokens. Pane-internal rules below still use the
+         old names; the chrome uses tokens directly. Remove aliases when panes are
+         rewritten (phase d follow-up). */
+      --panel: var(--surface); --panel2: var(--surface-2); --hover: var(--surface-2);
+      --divider: var(--border); --text: var(--ink); --text2: var(--ink-2);
+      --accent: var(--coral-600); --accent2: var(--coral-700); --accent-soft: var(--coral-100);
+      --green: var(--green-600); --red: var(--red-600); --amber: var(--amber-600);
+      --radius: var(--r-md);
     }
     * { box-sizing: border-box; }
     /* Beats class-set display (e.g. .lnlvls{display:flex}) so hidden always wins —
@@ -23,22 +25,26 @@
        any runtime-injected content wider than 340px let html expand toward
        Chrome's 800px cap — the fixed body then sat left-aligned in the dead space
        (the "truncation"). Pinning html AND body to one width and clipping the
-       horizontal axis makes the popup render at exactly 520px, every time.
+       horizontal axis makes the popup render at exactly 460px, every time.
        A post-load JS width toggle cannot fix this: the window is already sized. */
-    html, body { width: 520px; min-width: 520px; max-width: 520px; overflow-x: hidden; box-sizing: border-box; }
+    html, body { width: 460px; min-width: 460px; max-width: 460px; overflow-x: hidden; box-sizing: border-box; }
     html { background: var(--bg); }
-    body { margin: 0; padding: 0 0 16px; background: var(--bg); color: var(--text);
-      font: 13px/1.5 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    body { margin: 0; padding: 0 0 16px; background: var(--bg); color: var(--ink);
+      font: 13.5px/1.5 var(--ui); }
     .pad { padding: 0 16px; }
 
-    header { display: flex; align-items: center; gap: 12px; padding: 14px 16px 12px; }
-    header img { width: 30px; height: 30px; border-radius: 8px; }
-    header h1 { font-size: 15px; margin: 0; letter-spacing: .2px; }
-    header .tag { color: var(--muted); font-size: 10.5px; margin: 1px 0 0; }
-    .learnchip { margin-left: auto; align-self: flex-start; border: 1px solid var(--border, #262f49);
-      background: transparent; color: var(--text, #f9fafb); border-radius: 999px; padding: 5px 11px;
-      font: 600 12px/1 inherit; cursor: pointer; white-space: nowrap; }
-    .learnchip:hover { border-color: #6366f1; color: #818cf8; }
+    header { display: flex; align-items: flex-start; gap: 11px; padding: 14px 16px 10px; }
+    header img { width: 30px; height: 30px; border-radius: 9px; }
+    .wordmark { font-family: var(--display); font-weight: 800; font-size: 19px; margin: 0; line-height: 1.1; }
+    .scopeline { margin: 2px 0 0; font-size: 11.5px; color: var(--muted); display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+    .gearbtn { margin-left: auto; border: 1px solid var(--border); background: var(--surface);
+      color: var(--muted); border-radius: var(--r-sm); width: 32px; height: 32px;
+      display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
+      transition: color var(--t-fast), border-color var(--t-fast); }
+    .gearbtn:hover, .gearbtn.on { color: var(--coral-600); border-color: var(--coral-600); }
+
+    .hero { padding: 2px 16px 12px; }
+    .hero .livecard { padding: 13px; gap: 10px; }
     /* Learn tab — this video's words: word · level · Persian meaning on the
        first line, the German sentence (word in karaoke gold) and its Persian
        translation stacked below. */
@@ -55,12 +61,12 @@
     .lnw .note { color: var(--muted); font-size: 11px; margin-top: 4px; }
     /* Cross-video history: "seen N×" badge + a collapsed "other videos" list. */
     .lnw .seenb { flex: none; border-radius: 5px; padding: 0 5px; font-size: 9.5px; font-weight: 700;
-      color: #c4b5fd; background: rgba(124, 92, 231, 0.18); }
-    .lnw .ctxtoggle { margin-top: 6px; border: 0; background: transparent; color: #818cf8; cursor: pointer;
+      color: var(--teal-600); background: var(--teal-100); }
+    .lnw .ctxtoggle { margin-top: 6px; border: 0; background: transparent; color: var(--teal-600); cursor: pointer;
       font-size: 11px; font-weight: 600; padding: 2px 0; }
     .lnw .ctxtoggle::before { content: "▸ "; }
     .lnw .ctxtoggle.open::before { content: "▾ "; }
-    .lnw .ctxlist { display: none; margin-top: 2px; padding-left: 7px; border-left: 2px solid rgba(124, 92, 231, 0.3); }
+    .lnw .ctxlist { display: none; margin-top: 2px; padding-left: 7px; border-left: 2px solid var(--teal-600); }
     .lnw .ctxlist.open { display: block; }
     .lnw .ctxvid { display: block; color: var(--muted); font-size: 10px; margin-bottom: 1px; overflow: hidden;
       text-overflow: ellipsis; white-space: nowrap; }
@@ -68,24 +74,24 @@
       font: 700 11.5px/1 inherit; padding: 7px 12px; cursor: pointer; }
     .lnadd:disabled { opacity: .6; cursor: default; }
     .lnaddall { display: block; width: 100%; margin: 0 0 7px; border: 1px solid var(--accent);
-      background: transparent; color: #818cf8; font: 700 12px/1 inherit; padding: 8px;
+      background: transparent; color: var(--coral-600); font: 700 12px/1 inherit; padding: 8px;
       border-radius: 10px; cursor: pointer; }
-    .lnaddall:hover { background: rgba(99, 102, 241, .12); }
+    .lnaddall:hover { background: var(--teal-100); }
     .lnaddall:disabled { opacity: .55; cursor: default; }
     .lnw .top { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
     .lnw b { font-size: 13.5px; flex: none; }
     .lnw .n { color: var(--muted); font-size: 10.5px; flex: none; }
     .lnw .lvl { flex: none; border-radius: 5px; padding: 0 5px; font-size: 10px; font-weight: 700;
-      background: rgba(99, 102, 241, .18); color: #818cf8; }
+      background: var(--teal-100); color: var(--teal-600); }
     .lnw .mean { color: var(--text); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis;
       white-space: nowrap; min-width: 0; }
     .lnw .s { display: block; color: var(--muted); font-size: 11.5px; font-style: italic; overflow: hidden;
       text-overflow: ellipsis; white-space: nowrap; margin-top: 1px; }
-    .lnw .s mark { background: transparent; color: #ffd479; font-style: normal; font-weight: 600; }
+    .lnw .s mark { background: transparent; color: var(--amber-600); font-style: normal; font-weight: 600; }
     .lnw .fa { display: block; color: var(--muted); font-size: 11.5px; overflow: hidden;
       text-overflow: ellipsis; white-space: nowrap; margin-top: 1px; }
     .lnw.added { opacity: .6; cursor: default; }
-    .lnw.added b { color: #34d399; }
+    .lnw.added b { color: var(--green-600); }
     .lnlvls { display: flex; gap: 6px; margin: 2px 0 7px; }
     .lnlvl { border: 1px solid var(--border); background: transparent; color: var(--muted); border-radius: 999px;
       padding: 3px 11px; font: 600 11px/1.4 inherit; cursor: pointer; }
@@ -94,15 +100,17 @@
       border-radius: 999px; padding: 2px 8px; font: 600 11px/1.4 inherit; }
     .lnw .t { flex: none; margin-left: auto; color: var(--muted); font-size: 10.5px; font-variant-numeric: tabular-nums;
       border: 1px solid var(--border); border-radius: 6px; padding: 0 5px; cursor: pointer; }
-    .lnw .t:hover { color: #818cf8; border-color: #6366f1; }
+    .lnw .t:hover { color: var(--coral-600); border-color: var(--coral-600); }
     .lnenrich { display: block; width: 100%; margin-top: 8px; border: 0; border-radius: 10px;
       background: var(--accent); color: #fff; font: 700 12.5px/1 inherit; padding: 10px; cursor: pointer; }
     .lnenrich:disabled { opacity: .5; cursor: default; }
+    /* Dark mode: --accent → --coral-600 → #FF7A66 (light fill), so white text on
+       these accent-filled buttons drops to 2.55:1. Same fix as .livebtn above. */
+    @media (prefers-color-scheme: dark) { .lnadd, .lnlvl.on, .lnenrich { color: #191512; } }
     /* The version line doubles as the tribute's door: park the mouse on it and
        the 2.5s color/glow transition IS the countdown — full mint = unlocked. */
     header .ver { color: var(--muted); font-size: 10px; margin: 1px 0 0; transition: color 2.5s ease, text-shadow 2.5s ease; }
     header .ver.arming { color: #7fe0b0; text-shadow: 0 0 9px rgba(127, 224, 176, .55); }
-    header .spacer { flex: 1; }
 
     /* toggle switch */
     .switch { position: relative; display: inline-block; width: 38px; height: 22px; flex: none; }
@@ -112,7 +120,7 @@
     .switch input:checked + .slider { background: var(--accent); }
     .switch input:checked + .slider::before { transform: translateX(16px); }
 
-    section { padding: 14px 16px; border-top: 1px solid var(--divider); }
+    section { padding: 12px 16px; border-top: 0; }
     .lbl { display: flex; align-items: baseline; justify-content: space-between; font-weight: 600; margin: 0 0 7px; }
     .lbl a { color: var(--accent); font-weight: 500; font-size: 11px; text-decoration: none; }
     .lbl a:hover { text-decoration: underline; }
@@ -180,8 +188,13 @@
     #langSearch, #liveLangSearch { padding-left: 31px;
       background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14'%3E%3Ccircle cx='6' cy='6' r='4.2' fill='none' stroke='%239CA3AF' stroke-width='1.5'/%3E%3Cpath d='M9.4 9.4L13 13' stroke='%239CA3AF' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
       background-repeat: no-repeat; background-position: left 10px center; background-size: 13px 13px; }
+    /* the picked language's flag replaces the magnifier while the field shows a
+       selection; searching (focus/typing) swaps the magnifier back in */
+    .acflag { position: absolute; left: 9px; top: 50%; transform: translateY(-50%);
+      display: flex; align-items: center; font-size: 14px; line-height: 1; pointer-events: none; }
+    #liveLangSearch.hasflag { background-image: none; }
     .menu { position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 5; max-height: 196px; overflow-y: auto;
-      background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 10px 30px rgba(0,0,0,.5);
+      background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-raised);
       display: none; padding: 4px; }
     .menu.show { display: block; }
     .opt { display: flex; align-items: center; gap: 9px; padding: 7px 8px; border-radius: 7px; cursor: pointer; }
@@ -214,10 +227,10 @@
       background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
     .livecard .row { margin-top: 0; } /* the card's gap owns the spacing */
     .livebtn { width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px;
-      padding: 13px 16px; border-radius: 8px; background: var(--accent); color: var(--text);
-      font-weight: 600; font-size: 14px; box-shadow: 0 4px 14px rgba(79, 70, 229, .4);
+      padding: 13px 16px; border-radius: 8px; background: var(--coral-600); color: #fff;
+      font-weight: 600; font-size: 14px; box-shadow: var(--shadow-glow);
       transition: background .15s ease, box-shadow .15s ease, transform .1s ease; }
-    .livebtn:hover { background: var(--accent2); box-shadow: 0 6px 18px rgba(79, 70, 229, .5); }
+    .livebtn:hover { background: var(--coral-700); box-shadow: var(--shadow-glow); }
     .livebtn:active { transform: translateY(1px); }
     .livebtn:disabled, .livebtn:disabled:hover { opacity: .5; cursor: not-allowed; box-shadow: none; animation: none; background: var(--panel2); transform: none; }
     .livebtn.live-on { animation: livePulse 2s ease-in-out infinite; }
@@ -227,16 +240,27 @@
     .livebtn .liveidle { display: inline-flex; align-items: center; gap: 5px; }
     .livebtn .idlering { width: 18px; height: 18px; transform: rotate(-90deg); flex: none; }
     .livebtn .idlering-bg { fill: none; stroke: rgba(255, 255, 255, .28); stroke-width: 3; }
-    .livebtn .idlering-fg { fill: none; stroke: #FBBF24; stroke-width: 3; stroke-linecap: round; transition: stroke-dashoffset .5s linear; }
-    .livebtn .idletxt { font-size: 11.5px; font-weight: 700; font-variant-numeric: tabular-nums; color: #FBBF24; }
+    .livebtn .idlering-fg { fill: none; stroke: #fff; stroke-width: 3; stroke-linecap: round; transition: stroke-dashoffset .5s linear; }
+    .livebtn .idletxt { font-size: 11.5px; font-weight: 700; font-variant-numeric: tabular-nums; color: #fff; }
     .livebtn .livestop { font-size: 11.5px; font-weight: 600; letter-spacing: .2px;
       padding: 3px 10px; border-radius: 999px; background: rgba(255, 255, 255, .16); }
     .livebtn.live-elsewhere { background: #475569; box-shadow: 0 4px 14px rgba(71, 85, 105, .45); } /* remote session — slate, click to stop */
     .livebtn.live-elsewhere:hover { background: #3E4C60; }
     .livebtn:hover .livestop { background: rgba(255, 255, 255, .26); }
+    /* Dark mode: --coral-600 flips to the light #FF7A66 fill (see tokens.css), so
+       the button's text/ring/timer must swap to dark ink — same pairing as
+       components.css's .btn-primary. live-elsewhere's slate fill doesn't change
+       in dark mode, so it must stay white explicitly (higher specificity wins
+       over .livebtn's ink override regardless of source order). */
+    @media (prefers-color-scheme: dark) {
+      .livebtn { color: #191512; }
+      .livebtn .idlering-fg { stroke: #191512; }
+      .livebtn .idletxt { color: #191512; }
+      .livebtn.live-elsewhere { color: #fff; }
+    }
     @keyframes livePulse {
-      0%, 100% { box-shadow: 0 4px 14px rgba(79, 70, 229, .4); }
-      50% { box-shadow: 0 6px 26px rgba(79, 70, 229, .85); }
+      0%, 100% { box-shadow: var(--shadow-glow); }
+      50% { box-shadow: 0 6px 26px rgba(244,93,72,.5); }
     }
     .liveperm { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
     .livesettings { margin-top: 10px; }
@@ -337,25 +361,16 @@
     .saved { color: var(--green); font-size: 11px; opacity: 0; transition: opacity .2s; }
     .saved.show { opacity: 1; }
 
-    /* per-clip scope bar */
-    .scopebar { display: flex; align-items: center; gap: 8px; padding: 8px 16px;
-      background: var(--panel2); border-bottom: 1px solid var(--divider); font-size: 11px; color: var(--muted); }
-    .scopebar .spacer { flex: 1; }
-    .scopebar #scopeText { font-weight: 600; color: var(--text2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .scopebar #scopeText .badge { color: var(--accent); }
     .scopelink { background: transparent; color: var(--accent); font-weight: 600; font-size: 11px; padding: 2px 4px; white-space: nowrap; }
     .scopelink:hover { text-decoration: underline; }
     .scopelink.muted { color: var(--muted); }
 
-    /* tab bar — three workflows, pinned right under the header/scope bar; the
-       This-video strip and Library stay visible on every tab, below the nav */
-    .tabs { display: flex; gap: 8px; padding: 12px 16px; }
-    .tabs .tab { flex: 1; padding: 9px 0; background: transparent; border: 1px solid var(--border);
-      border-radius: 8px; color: var(--muted); font-weight: 600; font-size: 12.5px;
-      transition: background .15s ease, color .15s ease, border-color .15s ease; }
-    .tabs .tab:hover { background: var(--hover); color: var(--text); }
-    .tabs .tab.on { background: var(--accent); border-color: var(--accent); color: #fff;
-      box-shadow: 0 3px 12px -4px rgba(79, 70, 229, .75); }
+    .tabs { display: flex; gap: 6px; padding: 0 16px 12px; }
+    .tabs .tab { flex: 1; padding: 8px 0; border: 0; border-radius: 999px; background: transparent;
+      color: var(--muted); font-weight: 600; font-size: 12.5px; cursor: pointer;
+      transition: background var(--t-fast), color var(--t-fast); }
+    .tabs .tab:hover { background: var(--surface-2); color: var(--ink); }
+    .tabs .tab.on { background: var(--ink); color: var(--bg); }
 
     /* hidden tribute card — logo triple-tap, or hold the version line 2.5s.
        The glow sits behind the text and the portrait's lower half (focal 62%),
@@ -380,31 +395,56 @@
 <body>
   <header>
     <img src="icons/icon-48.png" alt="" />
-    <div>
-      <h1>SubVibe</h1>
-      <p class="tag">AI subtitles · in sync · cached free</p>
+    <div class="hgroup">
+      <h1 class="wordmark">SubVibe</h1>
+      <p class="scopeline">
+        <span id="scopeText">Editing your defaults</span>
+        <button id="setDefault" class="scopelink" hidden title="Apply this video's languages, position, size and timing to every NEW video">Save as default</button>
+        <button id="resetClip" class="scopelink muted" hidden title="Revert this video to your defaults">Reset</button>
+      </p>
       <p class="ver" id="verTag"></p>
     </div>
-    <button id="learnChip" class="learnchip" title="Vocabulary trainer — review words you saved from videos">🎓 <span id="learnDue">Learn</span></button>
+    <button id="gearBtn" class="gearbtn" title="API keys">
+      <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </button>
   </header>
 
-  <!-- Scope: which video the language/appearance/timing settings below apply to -->
-  <div id="scopeBar" class="scopebar">
-    <span id="scopeText">Editing your defaults</span>
-    <span class="spacer"></span>
-    <button id="setDefault" class="scopelink" hidden title="Apply this video's languages, position, size and timing to every NEW video">Save as default</button>
-    <button id="resetClip" class="scopelink muted" hidden title="Revert this video to your defaults">Reset</button>
-  </div>
+  <section class="hero">
+    <div class="livecard card">
+      <div id="setupCard" hidden>
+        <div class="check-row"><span class="ok">✓</span> Free styled captions — active</div>
+        <div class="check-row" id="setupKeyLine"><span class="todo">○</span> Translation &amp; Live — need an API key</div>
+        <button class="btn-primary" id="finishSetup" style="width:100%; margin-top:8px;">Finish setup (2 min)</button>
+      </div>
+      <button class="livebtn" id="liveBtn">▶ Start Live Translate</button>
+      <p class="liveperm" id="livePerm">🔒 Capturing this tab's audio safely — no microphone access required.</p>
+      <details class="customize" id="liveSettingsFold">
+        <summary>Live settings <span class="hint">audio language · input device</span></summary>
+        <div class="row liverow">
+          <span class="rowlbl">Audio language</span>
+          <div class="ac" style="flex:1;">
+            <span class="acflag" id="liveLangFlag" hidden></span>
+            <input type="text" id="liveLangSearch" placeholder="Search a language…" autocomplete="off" spellcheck="false" />
+            <div class="menu" id="liveLangMenu"></div>
+          </div>
+        </div>
+        <div class="row liverow">
+          <span class="rowlbl">Input device</span>
+          <select id="liveDevice" style="flex:1;" title="Pick your loopback device (e.g. BlackHole) to hear the tab's audio — shared with the audio-transcription fallback"></select>
+          <span class="info" title="Experimental — hears the audio and speaks the translation a moment behind. Free on Gemini's live tier and works with any site's sound.">i</span>
+        </div>
+        <div id="liveStatus" class="hint" style="min-height:13px;"></div>
+      </details>
+    </div>
+  </section>
 
   <nav class="tabs" id="tabBar">
-    <button class="tab on" data-tab="dub">Dub</button>
-    <button class="tab" data-tab="translate">Translate</button>
+    <button class="tab on" data-tab="translate">Subtitles</button>
     <button class="tab" data-tab="style">Style</button>
     <button class="tab" data-tab="learn">Learn</button>
-    <button class="tab" data-tab="keys">Keys</button>
   </nav>
 
-  <div class="pane" data-pane="translate" hidden>
+  <div class="pane" data-pane="translate">
   <!-- One 3-way mode instead of a bare on/off. "Original" styles the video's own
        captions for free (no translation), so people don't have to clear every
        language to stop paying. Style/karaoke/timing ride whatever line shows. -->
@@ -486,83 +526,6 @@
     <div id="clipCache" class="clipcache muted">Loading…</div>
     <div id="clipStats" class="hint" style="margin-top:6px; min-height:13px;"></div>
     <div class="row" id="clipExports" style="flex-wrap:wrap; gap:6px;" hidden></div>
-  </section>
-  </div>
-
-  <div class="pane" data-pane="dub">
-  <!-- PRIMARY tab: the quick, near-free way to HEAR the translation — powered by
-       Live Translate, not the expensive per-line TTS. Live moved here so anyone can
-       start audio translation in one click. -->
-  <section>
-    <div class="livecard">
-      <button class="livebtn" id="liveBtn">▶ Start Live Translate</button>
-      <p class="liveperm" id="livePerm">🔒 Capturing this tab's audio safely — no microphone access required.</p>
-      <div class="row liverow">
-        <span class="rowlbl">Audio language</span>
-        <div class="ac" style="flex:1;">
-          <input type="text" id="liveLangSearch" placeholder="Search a language…" autocomplete="off" spellcheck="false" />
-          <div class="menu" id="liveLangMenu"></div>
-        </div>
-      </div>
-      <div class="row liverow">
-        <span class="rowlbl">Input device</span>
-        <select id="liveDevice" style="flex:1;" title="Pick your loopback device (e.g. BlackHole) to hear the tab's audio — shared with the audio-transcription fallback"></select>
-        <span class="info" title="Experimental — hears the audio and speaks the translation a moment behind. Free on Gemini's live tier and works with any site's sound.">i</span>
-      </div>
-      <div id="liveStatus" class="hint" style="min-height:13px;"></div>
-    </div>
-  </section>
-
-  <!-- Expensive per-line TTS dub — kept in the DOM for its logic, but HIDDEN so it
-       can't be triggered by accident (it burns tokens on every line). -->
-  <section hidden>
-    <details class="customize" id="dubFold">
-      <summary>Dub subtitles aloud <span class="hint">spoken TTS · extra cost · lower quality than Live</span></summary>
-    <div class="row" style="margin-top:9px;">
-      <label class="switch"><input type="checkbox" id="dubEnabled" /><span class="slider"></span></label>
-      <label for="dubEnabled">Dub subtitles aloud</label>
-      <span class="info" title="Speaks the translation aloud — the original soundtrack stays quiet underneath">i</span>
-    </div>
-    <div id="dubConfig" class="off" inert>
-    <details class="customize" id="voiceFold">
-      <summary>Voice <span class="hint" id="voiceVal"></span></summary>
-      <div class="row" style="margin-top:7px;">
-        <span class="rowlbl">TTS provider</span>
-        <select id="ttsProvider" style="flex:1;">
-          <option value="openai">OpenAI gpt-4o-mini-tts</option>
-          <option value="gemini">Gemini 2.5 Flash TTS (native Persian voices)</option>
-        </select>
-      </div>
-      <div id="ttsProviderWarn" class="selwarn" hidden></div>
-      <div class="row">
-        <span class="rowlbl">Voice</span>
-        <select id="dubVoice" style="flex:1;"></select>
-        <select id="dubGeminiVoice" style="flex:1;" hidden></select>
-      </div>
-      <div class="row" id="dubMultiVoiceRow">
-        <label class="switch"><input type="checkbox" id="dubMultiVoice" /><span class="slider"></span></label>
-        <label for="dubMultiVoice">Multi-voice</label>
-        <span class="info" title="Beta — a different voice per speaker (OpenAI voices only)">i</span>
-      </div>
-      <div class="row">
-        <span class="rowlbl">Original volume</span>
-        <input type="range" id="dubDuck" min="0" max="60" step="5" style="flex:1;" title="How loud the original soundtrack stays under the dub" />
-        <span class="sizeval" id="dubDuckVal"></span>
-      </div>
-      <div class="row">
-        <span class="rowlbl">Pace</span>
-        <input type="range" id="dubPace" min="90" max="130" step="5" style="flex:1;" title="Speech pace of the dub voice" />
-        <span class="sizeval" id="dubPaceVal"></span>
-      </div>
-    </details>
-    <button class="btn ghost" id="dubGenAll" style="width:100%; margin-top:9px;" hidden>Generate full dub</button>
-    </div>
-    <div id="dubStatus" class="hint" style="margin-top:6px; min-height:13px;"></div>
-    <div id="dubProg" style="height:4px; border-radius:2px; background:var(--panel2); margin-top:6px; overflow:hidden;" hidden>
-      <div id="dubProgFill" style="height:100%; width:0%; background:var(--accent); transition:width .4s;"></div>
-    </div>
-    <div id="dubNow" class="hint" style="margin-top:5px; min-height:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></div>
-    </details>
   </section>
   </div>
 
@@ -745,6 +708,62 @@
     <span id="status"></span>
     <span class="saved" id="saved">Saved ✓</span>
   </footer>
+
+  <!-- Expensive per-line TTS dub — kept in the DOM for its logic, but HIDDEN so it
+       can't be triggered by accident (it burns tokens on every line). Moved out of
+       the old Dub pane (removed in the Daylight restructure); the ids stay in the
+       DOM for popup.js, wrapped in a hidden div rather than a pane. -->
+  <div hidden>
+  <section>
+    <details class="customize" id="dubFold">
+      <summary>Dub subtitles aloud <span class="hint">spoken TTS · extra cost · lower quality than Live</span></summary>
+    <div class="row" style="margin-top:9px;">
+      <label class="switch"><input type="checkbox" id="dubEnabled" /><span class="slider"></span></label>
+      <label for="dubEnabled">Dub subtitles aloud</label>
+      <span class="info" title="Speaks the translation aloud — the original soundtrack stays quiet underneath">i</span>
+    </div>
+    <div id="dubConfig" class="off" inert>
+    <details class="customize" id="voiceFold">
+      <summary>Voice <span class="hint" id="voiceVal"></span></summary>
+      <div class="row" style="margin-top:7px;">
+        <span class="rowlbl">TTS provider</span>
+        <select id="ttsProvider" style="flex:1;">
+          <option value="openai">OpenAI gpt-4o-mini-tts</option>
+          <option value="gemini">Gemini 2.5 Flash TTS (native Persian voices)</option>
+        </select>
+      </div>
+      <div id="ttsProviderWarn" class="selwarn" hidden></div>
+      <div class="row">
+        <span class="rowlbl">Voice</span>
+        <select id="dubVoice" style="flex:1;"></select>
+        <select id="dubGeminiVoice" style="flex:1;" hidden></select>
+      </div>
+      <div class="row" id="dubMultiVoiceRow">
+        <label class="switch"><input type="checkbox" id="dubMultiVoice" /><span class="slider"></span></label>
+        <label for="dubMultiVoice">Multi-voice</label>
+        <span class="info" title="Beta — a different voice per speaker (OpenAI voices only)">i</span>
+      </div>
+      <div class="row">
+        <span class="rowlbl">Original volume</span>
+        <input type="range" id="dubDuck" min="0" max="60" step="5" style="flex:1;" title="How loud the original soundtrack stays under the dub" />
+        <span class="sizeval" id="dubDuckVal"></span>
+      </div>
+      <div class="row">
+        <span class="rowlbl">Pace</span>
+        <input type="range" id="dubPace" min="90" max="130" step="5" style="flex:1;" title="Speech pace of the dub voice" />
+        <span class="sizeval" id="dubPaceVal"></span>
+      </div>
+    </details>
+    <button class="btn ghost" id="dubGenAll" style="width:100%; margin-top:9px;" hidden>Generate full dub</button>
+    </div>
+    <div id="dubStatus" class="hint" style="margin-top:6px; min-height:13px;"></div>
+    <div id="dubProg" style="height:4px; border-radius:2px; background:var(--panel2); margin-top:6px; overflow:hidden;" hidden>
+      <div id="dubProgFill" style="height:100%; width:0%; background:var(--accent); transition:width .4s;"></div>
+    </div>
+    <div id="dubNow" class="hint" style="margin-top:5px; min-height:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></div>
+    </details>
+  </section>
+  </div>
 
   <!-- Hidden tribute — revealed by tapping the logo three times. -->
   <div id="memoryCard" class="memcard" hidden>

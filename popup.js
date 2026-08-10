@@ -175,17 +175,24 @@ async function initFolds() {
   }
 }
 
-// ── tabs: Translate / Dub / Style. Header, scope bar and the This-video strip
-// stay visible above whichever tab is open; the choice persists like uiFold.
-// Live sits in the Translate tab; the Dub tab holds the collapsed spoken-dub fold.
-const TAB_NAMES = ["translate", "dub", "style", "learn", "keys"];
+// ── tabs: Subtitles / Style / Learn, plus Keys (opened only via the header gear).
+// Header, scope bar and the This-video strip stay visible above whichever tab is
+// open; the choice persists like uiFold.
+const TABS = ["translate", "style", "learn", "keys"]; // keys reachable via gear only
 function selectTab(name) {
+  if (!TABS.includes(name)) name = "translate"; // heals stored "dub" (old default) or any unknown/absent value
   for (const b of el("tabBar").children) b.classList.toggle("on", b.dataset.tab === name);
+  el("gearBtn").classList.toggle("on", name === "keys");
   for (const p of document.querySelectorAll(".pane")) p.hidden = p.dataset.pane !== name;
 }
+el("gearBtn").addEventListener("click", () => {
+  const open = !el("gearBtn").classList.contains("on");
+  selectTab(open ? "keys" : "translate");
+  chrome.storage.local.set({ uiTab: open ? "keys" : "translate" });
+});
 async function initTabs() {
   const { uiTab } = await chrome.storage.local.get("uiTab");
-  if (TAB_NAMES.includes(uiTab)) selectTab(uiTab);
+  selectTab(uiTab);
   el("tabBar").addEventListener("click", (e) => {
     const b = e.target.closest(".tab");
     if (!b) return;
@@ -193,6 +200,21 @@ async function initTabs() {
     chrome.storage.local.set({ uiTab: b.dataset.tab });
   });
 }
+
+// ── Hero setup state: no key yet → show the setup checklist card; any key
+// present → show the live-translate hero. Called at load with the freshly
+// loaded settings, and again after each successful key verify (passing the
+// current input values — `state`'s key fields are only ever set at load,
+// see load(), so re-reading the inputs is what actually stays current).
+function updateSetupHero(s) {
+  const hasKey = !!(s.apiKey || s.anthropicKey || s.geminiKey);
+  el("setupCard").hidden = hasKey;
+  el("liveBtn").hidden = !hasKey;
+  el("livePerm").hidden = !hasKey;
+  el("liveSettingsFold").hidden = !hasKey;
+}
+const liveKeyInputs = () => ({ apiKey: el("apiKey").value, anthropicKey: el("anthropicKey").value, geminiKey: el("geminiKey").value });
+el("finishSetup").addEventListener("click", () => selectTab("keys"));
 
 function updateFoldSummaries() {
   const txt = (id, v) => { const n = el(id); if (n) n.textContent = v; };
@@ -228,7 +250,7 @@ el("verify").addEventListener("click", async () => {
   setKeyStatus("Checking…", "");
   const r = await chrome.runtime.sendMessage({ type: "VERIFY_KEY", apiKey: key }).catch(() => null);
   keyVerifyFailed = !(r && r.ok);
-  if (r && r.ok) setKeyStatus("Key works ✓ — you're all set.", "ok");
+  if (r && r.ok) { setKeyStatus("Key works ✓ — you're all set.", "ok"); updateSetupHero(liveKeyInputs()); }
   else setKeyStatus("Key rejected" + (r && r.status ? " (HTTP " + r.status + ")" : "") + " — check it and try again.", "err");
   refreshKeyDot();
 });
@@ -256,7 +278,7 @@ el("verifyAnthropic").addEventListener("click", async () => {
   setAnthropicKeyStatus("Checking…", "");
   const r = await chrome.runtime.sendMessage({ type: "VERIFY_ANTHROPIC", apiKey: key }).catch(() => null);
   anthropicKeyVerifyFailed = !(r && r.ok);
-  if (r && r.ok) setAnthropicKeyStatus("Key works ✓ — you're all set.", "ok");
+  if (r && r.ok) { setAnthropicKeyStatus("Key works ✓ — you're all set.", "ok"); updateSetupHero(liveKeyInputs()); }
   else setAnthropicKeyStatus("Key rejected" + (r && r.status ? " (HTTP " + r.status + ")" : "") + " — check it and try again.", "err");
   refreshAnthropicKeyDot();
 });
@@ -285,7 +307,7 @@ el("verifyGemini").addEventListener("click", async () => {
   setGeminiKeyStatus("Checking…", "");
   const r = await chrome.runtime.sendMessage({ type: "VERIFY_GEMINI", apiKey: key }).catch(() => null);
   geminiKeyVerifyFailed = !(r && r.ok);
-  if (r && r.ok) setGeminiKeyStatus("Key works ✓ — you're all set.", "ok");
+  if (r && r.ok) { setGeminiKeyStatus("Key works ✓ — you're all set.", "ok"); updateSetupHero(liveKeyInputs()); }
   else setGeminiKeyStatus("Key rejected" + (r && r.status ? " (HTTP " + r.status + ")" : "") + " — check it and try again.", "err");
   refreshGeminiKeyDot();
 });
@@ -795,16 +817,25 @@ function renderLiveMenu(showAll) {
   });
   menu.classList.add("show");
 }
+// The field shows the picked language's flag where the magnifier sits (an
+// <input> can't render the flag inline — Persian's is an SVG string).
+function showLiveFlag(searching) {
+  const flag = searching ? "" : langMeta(liveTargetCode())[2] || "";
+  el("liveLangFlag").innerHTML = flag;
+  el("liveLangFlag").hidden = !flag;
+  el("liveLangSearch").classList.toggle("hasflag", !!flag);
+}
 function setLiveTarget(code) {
   state.liveTarget = code;
   saveSetting({ liveTarget: code });
   el("liveLangSearch").value = langMeta(code)[1];
+  showLiveFlag();
   el("liveLangMenu").classList.remove("show");
 }
-el("liveLangSearch").addEventListener("input", () => renderLiveMenu());
-el("liveLangSearch").addEventListener("focus", () => { el("liveLangSearch").select(); renderLiveMenu(true); });
+el("liveLangSearch").addEventListener("input", () => { showLiveFlag(true); renderLiveMenu(); });
+el("liveLangSearch").addEventListener("focus", () => { showLiveFlag(true); el("liveLangSearch").select(); renderLiveMenu(true); });
 el("liveLangSearch").addEventListener("keydown", (e) => { if (e.key === "Escape") el("liveLangMenu").classList.remove("show"); });
-el("liveLangSearch").addEventListener("blur", () => setTimeout(() => { el("liveLangSearch").value = langMeta(liveTargetCode())[1]; el("liveLangMenu").classList.remove("show"); }, 150));
+el("liveLangSearch").addEventListener("blur", () => setTimeout(() => { el("liveLangSearch").value = langMeta(liveTargetCode())[1]; showLiveFlag(); el("liveLangMenu").classList.remove("show"); }, 150));
 document.addEventListener("click", (e) => { if (!el("liveLangSearch").contains(e.target) && !el("liveLangMenu").contains(e.target)) el("liveLangMenu").classList.remove("show"); });
 
 el("dbgHud").addEventListener("change", () => { state.debugHud = el("dbgHud").checked; persist({ debugHud: state.debugHud }); });
@@ -1412,6 +1443,7 @@ async function load() {
     if (ok !== state.liveTarget) { state.liveTarget = ok; persist({ liveTarget: ok }); }
   }
   el("liveLangSearch").value = langMeta(liveTargetCode())[1];
+  showLiveFlag();
   el("dbgHud").checked = !!state.debugHud;
   chrome.runtime.sendMessage({ type: "LIVE_QUERY" }, async (r) => {
     if (r && r.hasOffscreen === false) { liveDisableNoOffscreen(); return; } // Firefox: mark Live as Chrome-only
@@ -1438,7 +1470,6 @@ async function load() {
   // 🎓 Learn: the tab shows THIS video's words + sentences (tap to save);
   // review, inbox and dictionary live on learn.html.
   const openLearn = () => chrome.tabs.create({ url: chrome.runtime.getURL("learn.html") });
-  el("learnChip").addEventListener("click", openLearn);
   el("lnOpenFull").addEventListener("click", openLearn);
   el("lnLvls").addEventListener("click", (e) => {
     const b = e.target.closest(".lnlvl");
@@ -1459,15 +1490,12 @@ async function load() {
     renderLearnWords();
   });
   el("lnPos").addEventListener("change", () => { lnPos = el("lnPos").value; lnRenderRows(); });
-  chrome.runtime.sendMessage({ type: "VOCAB_DUE_COUNT" }, (r) => {
-    if (chrome.runtime.lastError || !r) return;
-    el("learnDue").textContent = r.total ? `${r.due} due` : "Learn";
-  });
   renderLearnWords();
   pollDub();
   updateStyleUI();
   renderChips();
   keyHint();
+  updateSetupHero(state);
   updateScope();
   loadThisVideo();
   updateFoldSummaries();
