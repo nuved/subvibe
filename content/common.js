@@ -1316,6 +1316,7 @@
   function dropInterceptedCues() {
     interceptedCues = null; interceptedUrl = null; interceptedClipId = null; cueListActive = false; currentRunKey = null;
     userTrackPick = null; nativeCueTrack = null; // a new clip's tracks are new objects — never inherit the pick
+    interceptedKey = null; subFilesByKey.clear(); // parsed files belong to the OLD clip
     fetchedSubUrls.clear(); subFetchFails.clear();
   }
 
@@ -1421,6 +1422,12 @@
   // background worker (CORS-exempt cross-origin) and merge its full cue list.
   const fetchedSubUrls = new Set();   // dedup KEYS we've claimed: in flight, done, or given up on
   const subFetchFails = new Map();    // key -> transient network-failure count (bounds retries)
+  const subFilesByKey = new Map();    // key -> { cues, url }: every file parsed for THIS clip. "Fetched
+                                      // once" must not mean "active forever" — switching the player
+                                      // original→translated→original re-spots the FIRST key, and without
+                                      // this memory the claimed-key skip left the middle track stuck on
+                                      // screen. Swap-backs re-adopt from here, no refetch.
+  let interceptedKey = null;          // dedup key of the ACTIVE cue list's URL
   // A CLIP-STABLE dedup key. YouTube re-fetches its timedtext with a fresh pot/ei
   // token on every seek (a different URL each time). Keying on v+lang+kind makes
   // those re-fetches resolve to the SAME key → skipped → so a seek doesn't REPLACE
@@ -1444,9 +1451,28 @@
   // its outcome here so a single screenshot shows where adoption died.
   const dbgSub = { spotted: "", fetch: "", adopt: "", hold: "", starts: 0 };
 
+  // Make a parsed subtitle file the ACTIVE cue list and restart the engine on it.
+  function adoptSubFile(cues, url, key, how) {
+    dbgSub.adopt = how + " " + cues.length;
+    interceptedCues = cues;
+    interceptedUrl = url;
+    interceptedKey = key;
+    interceptedClipId = currentClipId(); // tie this file to the clip now playing
+    cueListActive = false;
+    currentRunKey = null;
+    schedule();
+  }
+
   async function fetchSubsByUrl(url) {
     const key = subDedupKey(url);
-    if (!url || url === interceptedUrl || fetchedSubUrls.has(key)) return; // already active / in flight / done
+    if (!url || key === interceptedKey) return; // this track IS the active one (covers token-rotating re-posts)
+    const held = subFilesByKey.get(key);
+    if (held) { // the player switched BACK to a track we already parsed — swap, don't skip
+      console.info("[CopilotSubs] player returned to an earlier subtitle track — re-adopting", key);
+      adoptSubFile(held.cues, held.url, key, "switched back:");
+      return;
+    }
+    if (fetchedSubUrls.has(key)) return; // in flight, or given up on
     fetchedSubUrls.add(key); // claim NOW so the 1.5s re-post (subs-intercept.js) can't launch a duplicate fetch
     console.info("[CopilotSubs] fetching subtitle file:", url);
     dbgSub.fetch = "fetching…";
@@ -1484,12 +1510,9 @@
     setStatus(`Loaded subtitle file (${cues.length} lines) — perfect sync.`);
     // A subtitle file IS this clip's full cue list — REPLACE, never merge across
     // clips (merging is what bled one clip's lines onto another).
-    interceptedCues = cues;
-    interceptedUrl = url;
-    interceptedClipId = currentClipId(); // tie this file to the clip now playing
-    cueListActive = false;
-    currentRunKey = null;
-    schedule();
+    subFilesByKey.set(key, { cues, url }); // remembered for switch-backs
+    if (subFilesByKey.size > 12) subFilesByKey.delete(subFilesByKey.keys().next().value); // bound: a clip has a handful of tracks
+    adoptSubFile(cues, url, key, "fetched:");
   }
 
   // Perfect-sync display: cues carry their own timing, and we translate a window

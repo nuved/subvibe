@@ -33,9 +33,19 @@ browsers may heuristically cache `common.js` — hard-reload after edits):
     python3 -m http.server 8642
     open http://127.0.0.1:8642/tools/tests/track-switch-harness/harness.html?autorun=1
 
-Wait ~19s. Verdict lands in the tab title: `PASS 3/3` or `FAIL n/3`, details
-in the page. The three checks: German adopted before the switch (guards
-against a vacuous pass), English rendered after the switch, German never
-returns.
+Wait ~65s (two phases, chained by navigation; results carried in
+window.name). Verdict lands in the tab title: `PASS 6/6` or `FAIL n/6`.
 
-Pre-fix state fails 1/3 (baseline passes, both switch checks fail).
+Phase 1 (`autorun=1`) — NATIVE tracks: two programmatic tracks, the driver
+flips modes at t=8s like a site's subtitle menu (no network). Checks: German
+adopted before the switch (guards against a vacuous pass), English rendered
+after, German never returns. Pre-fix: FAIL (switch ignored).
+
+Phase 2 (`autorun=2`) — the URL/timedtext path (YouTube-shaped): each pick
+posts that track's file URL; the driver goes German → English → BACK to
+German (the operator's original → auto-translate → original sequence).
+Checks: first file adopted, switch-away adopts the new file, switch-BACK
+re-adopts the first. Pre-fix: switch-back FAILED — `fetchedSubUrls` treated
+"fetched once" as "active forever", so A→B→A stuck on B. The fix remembers
+parsed files per dedup key (`subFilesByKey`) and swaps back without a
+refetch.
