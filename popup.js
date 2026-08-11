@@ -1748,11 +1748,15 @@ el("lnPlayThese").addEventListener("click", async () => {
       return;
     }
     btn.disabled = true;
-    await send({ type: "VOCAB_ADD_MANY", lang: lnData.lang, videoTitle: lnData.title || "", base: clipBase,
-      channel: adapter?.getChannel?.() || "", items: enrichedWords.map((w) => ({ word: w.w, sentence: w.sentence, translation: w.st || "", ms: w.ms || 0 })) });
-    const r = await send({ type: "VOCAB_LIST" });
-    gamePool = r.cards || [];
-    btn.disabled = false;
+    try {
+      await send({ type: "VOCAB_ADD_MANY", lang: lnData.lang, videoTitle: lnData.title || "", base: clipBase,
+        channel: "", // popup-side adds don't know the channel (content-script-only); the base/video facet still scopes them
+        items: enrichedWords.map((w) => ({ word: w.w, sentence: w.sentence, translation: w.st || "", ms: w.ms || 0 })) });
+      const r = await send({ type: "VOCAB_LIST" });
+      gamePool = r.cards || [];
+    } finally {
+      btn.disabled = false;
+    }
   }
   startGameWithScope(lnData.lang, scope);
 });
