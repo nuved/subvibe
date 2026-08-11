@@ -81,8 +81,10 @@
     .lnw .top { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
     .lnw b { font-size: 13.5px; flex: none; }
     .lnw .n { color: var(--muted); font-size: 10.5px; flex: none; }
-    .lnw .lvl { flex: none; border-radius: 5px; padding: 0 5px; font-size: 10px; font-weight: 700;
-      background: var(--teal-100); color: var(--teal-600); }
+    /* .lvl is a standalone chip (not scoped to .lnw) so the arcade/game view
+       can reuse the same CEFR-level look outside the word-list rows. */
+    .lvl { display: inline-block; flex: none; border-radius: 5px; padding: 0 5px; font-size: 10px;
+      font-weight: 700; background: var(--teal-100); color: var(--teal-600); }
     .lnw .mean { color: var(--text); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis;
       white-space: nowrap; min-width: 0; }
     .lnw .s { display: block; color: var(--muted); font-size: 11.5px; font-style: italic; overflow: hidden;
@@ -107,6 +109,82 @@
     /* Dark mode: --accent → --coral-600 → #FF7A66 (light fill), so white text on
        these accent-filled buttons drops to 2.55:1. Same fix as .livebtn above. */
     @media (prefers-color-scheme: dark) { .lnadd, .lnlvl.on, .lnenrich { color: #191512; } }
+
+    /* ── Arcade: deck picker + active game view (Learn tab) ─────────────── */
+    #deckCards { display: flex; flex-direction: column; gap: 8px; }
+    .deckcard { display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md);
+      box-shadow: var(--shadow-rest); }
+    .deckcard.hot { border-color: var(--coral-600); }
+    .deckcard .dflag { flex: none; font-size: 24px; line-height: 1; }
+    .deckcard .dinfo { flex: 1; min-width: 0; }
+    .deckcard .dname { font-size: 14px; font-weight: 700; }
+    .deckcard .dscope { margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      color: var(--muted); font-size: 10.5px; }
+    .deckcard .dscope b { color: var(--teal-600); font-weight: 600; }
+    .deckcard .dbar { display: flex; gap: 2px; height: 5px; margin-top: 6px; border-radius: 3px; overflow: hidden; }
+    .deckcard .dbar span { flex: 1; background: var(--surface-2); }
+    .deckcard .dbar span.on { background: var(--teal-600); }
+    .deckcard .btn-primary { flex: none; padding: 6px 14px; font-size: 12px; }
+
+    .gamecard { overflow: hidden; }
+    .gamehead { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+    .gamedots { display: flex; align-items: center; gap: 5px; margin: 0 auto; }
+    .gamedots span { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--surface-2); }
+    .gamedots span.done { background: var(--teal-600); }
+    .gamedots span.current { background: var(--coral-600); }
+    .gamestreak { flex: none; color: var(--amber-600); font: 700 11px/1 inherit; }
+    /* CSS-only shell — JS animates the sweep later by writing the --gr custom
+       property (0..1) on the element; the gradient math lives here once. */
+    .gamering { flex: none; width: 18px; height: 18px; border-radius: 50%;
+      background: conic-gradient(var(--amber-600) calc(var(--gr, 1) * 360deg), var(--surface-2) 0); }
+    #gameBody { padding: 14px 14px 18px; }
+
+    /* game answer rows: full-width, rest → hit (teal) / miss (coral, struck) /
+       reveal (dashed coral info row shown after a miss) */
+    .gopt { display: block; width: 100%; margin-top: 6px; padding: 10px 12px; border: 0; border-radius: 10px;
+      background: var(--surface-2); color: var(--ink); font: 500 13px/1.4 var(--ui); text-align: left; cursor: pointer;
+      transition: background var(--t-fast), color var(--t-fast); }
+    .gopt:first-child { margin-top: 0; }
+    .gopt:hover { background: var(--border); }
+    .gopt.hit { background: var(--teal-100); color: var(--teal-600); font-weight: 700; }
+    .gopt.miss { background: var(--coral-100); color: var(--coral-600); text-decoration: line-through; }
+    .gopt.reveal { background: transparent; border: 1px dashed var(--coral-600); color: var(--coral-600); cursor: default; }
+
+    .gsent { font-style: italic; font-size: 13px; color: var(--ink-2); } /* no quote marks — the italic carries it */
+    .gword { font: 800 20px/1.25 var(--ui); }
+
+    /* round-end score ring: same conic mechanic as .gamering, donut-cut with a
+       score label in the middle (JS fills the child span and sets --gr). */
+    .ringbig { position: relative; width: 74px; height: 74px; margin: 0 auto;
+      border-radius: 50%; display: flex; align-items: center; justify-content: center;
+      background: conic-gradient(var(--amber-600) calc(var(--gr, 1) * 360deg), var(--surface-2) 0); }
+    .ringbig::before { content: ""; position: absolute; inset: 9px; border-radius: 50%; background: var(--surface); }
+    .ringbig span { position: relative; font: 800 20px/1 var(--ui); color: var(--ink); }
+
+    .recordbanner { margin-top: 10px; padding: 8px 12px; border-radius: var(--r-sm); background: var(--coral-100);
+      color: var(--coral-600); font: 700 12px/1.4 var(--ui); text-align: center; }
+    .recordbanner.gslide { animation: gslide .35s ease-out; }
+
+    /* game feedback keyframes — utility trigger classes so Task 3 can just add
+       class="gpop"/"gshake" to an element; guarded the same way as livePulse. */
+    @keyframes gpop { 0% { transform: scale(.9); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+    @keyframes gshake { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-6px); }
+      40% { transform: translateX(6px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(4px); } }
+    @keyframes gslide { from { transform: translateY(-8px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    .gpop { animation: gpop .25s ease-out; }
+    .gshake { animation: gshake .4s ease-in-out; }
+    .gslide { animation: gslide .35s ease-out; }
+    @media (prefers-reduced-motion: reduce) { .gpop, .gshake, .gslide, .recordbanner { animation: none !important; } }
+
+    /* word-status dots for the fold's word rows (JS applies new/learn/done in
+       Task 3). #F4A261 is a deliberate sandy-orange "in progress" color, kept
+       distinct from the --amber-600 token used for streaks/rings elsewhere. */
+    .wdot { display: inline-block; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--toggle-off); }
+    .wdot.new { background: var(--toggle-off); }
+    .wdot.learn { background: #F4A261; }
+    .wdot.done { background: var(--teal-600); }
+
     /* The version line doubles as the tribute's door: park the mouse on it and
        the 2.5s color/glow transition IS the countdown — full mint = unlocked. */
     header .ver { color: var(--muted); font-size: 10px; margin: 1px 0 0; transition: color 2.5s ease, text-shadow 2.5s ease; }
@@ -621,41 +699,60 @@
   </div>
 
   <div class="pane" data-pane="learn" hidden>
-  <!-- The trainer's MATERIAL, not its admin: this video's words with their
-       real sentences — tap a word to save it to the Leitner box. Review,
-       inbox and dictionary live on learn.html (the Open trainer link). -->
+  <!-- Learn tab: the arcade picks a game and takes over the pane as
+       #gameView while playing; this video's raw word list — the trainer's
+       MATERIAL, not its admin — folds underneath. Review, inbox and
+       dictionary live on learn.html (the Full trainer link). -->
+  <section id="arcade">
+    <div class="lbl">Your games <button class="linkbtn" id="lnOpenFull">Full trainer →</button></div>
+    <div id="deckCards"></div>
+  </section>
+  <section id="gameView" hidden>
+    <div class="gamecard card">
+      <div class="gamehead">
+        <button id="gameBack" class="linkbtn">← Done</button>
+        <div id="gameDots" class="gamedots"></div>
+        <span id="gameStreak" class="gamestreak"></span>
+        <span id="gameRing" class="gamering" hidden></span>
+      </div>
+      <div id="gameBody"></div>
+    </div>
+  </section>
   <section>
-    <div class="lbl">This video's words <button class="linkbtn" id="lnOpenFull">Open trainer</button></div>
-    <div class="row" style="margin: 2px 0 8px; gap: 8px;">
-      <span style="color:var(--muted); font-size:12px; flex:none;">Learning</span>
-      <select id="lnLang" style="flex:1;">
-        <!-- Every language the stopword detector recognizes qualifies here —
-             learning direction is fully generic (a Persian learner picks
-             Persian; their base language is simply the translation target). -->
-        <option value="">Auto (any language)</option>
-        <option value="de">German</option>
-        <option value="en">English</option>
-        <option value="fa">Persian</option>
-      </select>
-      <span class="hint" id="lnDir" style="flex:none;"></span>
-    </div>
-    <div class="lnlvls" id="lnLvls" hidden>
-      <button class="lnlvl on" data-min="">All</button>
-      <button class="lnlvl" data-min="A2">A2+</button>
-      <button class="lnlvl" data-min="B1">B1+</button>
-      <select id="lnPos" title="Word type">
-        <option value="">All types</option>
-        <option value="verb">Verbs</option>
-        <option value="noun">Nouns</option>
-        <option value="adj">Adjectives</option>
-        <option value="adv">Adverbs</option>
-        <option value="phrase">Phrases</option>
-      </select>
-    </div>
-    <button class="lnaddall" id="lnAddAll" hidden></button>
-    <div id="lnWords" class="lnwords"></div>
-    <button class="lnenrich" id="lnEnrich" hidden></button>
-    <div class="hint" id="lnFoot" style="margin-top:7px;"></div>
+    <details class="customize" id="clipWordsFold">
+      <summary>This video's words <span class="hint" id="lnCount"></span>
+        <button class="linkbtn" id="lnPlayThese" hidden>Play only these →</button></summary>
+      <div class="row" style="margin: 2px 0 8px; gap: 8px;">
+        <span style="color:var(--muted); font-size:12px; flex:none;">Learning</span>
+        <select id="lnLang" style="flex:1;">
+          <!-- Every language the stopword detector recognizes qualifies here —
+               learning direction is fully generic (a Persian learner picks
+               Persian; their base language is simply the translation target). -->
+          <option value="">Auto (any language)</option>
+          <option value="de">German</option>
+          <option value="en">English</option>
+          <option value="fa">Persian</option>
+        </select>
+        <span class="hint" id="lnDir" style="flex:none;"></span>
+      </div>
+      <div class="lnlvls" id="lnLvls" hidden>
+        <button class="lnlvl on" data-min="">All</button>
+        <button class="lnlvl" data-min="A2">A2+</button>
+        <button class="lnlvl" data-min="B1">B1+</button>
+        <select id="lnPos" title="Word type">
+          <option value="">All types</option>
+          <option value="verb">Verbs</option>
+          <option value="noun">Nouns</option>
+          <option value="adj">Adjectives</option>
+          <option value="adv">Adverbs</option>
+          <option value="phrase">Phrases</option>
+        </select>
+      </div>
+      <button class="lnaddall" id="lnAddAll" hidden></button>
+      <div id="lnWords" class="lnwords"></div>
+      <button class="lnenrich" id="lnEnrich" hidden></button>
+      <div class="hint" id="lnFoot" style="margin-top:7px;"></div>
+    </details>
   </section>
   </div>
 
