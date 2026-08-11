@@ -1863,7 +1863,7 @@
         const langHint = /[?&]lang=([a-z-]+)/i.exec(interceptedUrl || "");
         save.textContent = "Saving…";
         send({ type: "VOCAB_ADD", word: headword, sentence, translation: sentenceT,
-          lang: langHint ? langHint[1].toLowerCase() : null, videoTitle: pageTitle, base, ms: cue.startMs })
+          lang: langHint ? langHint[1].toLowerCase() : null, videoTitle: pageTitle, base, ms: cue.startMs, channel: adapter?.getChannel?.() || "" })
           .then((r) => {
             if (r && r.error) { save.textContent = "Save failed — retry"; return; }
             wtip._saved = true; save.textContent = "Saved ✓"; save.disabled = true;

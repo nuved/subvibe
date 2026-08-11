@@ -270,7 +270,7 @@ const isCardKey = (k) => !k.startsWith("inbox:") && !k.startsWith("dismissed:") 
 // Upsert one card. Language: explicit > stopword-detected from the sentence >
 // "xx" bucket. A repeat save bumps the seen-count and fills gaps (sentence,
 // translation, title) but never resets the box or the enrichment.
-async function vocabAdd({ word, sentence, translation, lang, videoTitle, base, ms }) {
+async function vocabAdd({ word, sentence, translation, lang, videoTitle, base, ms, channel }) {
   const clean = SV_VOCAB.tokenize(word)[0] || String(word || "").trim();
   if (!clean) throw new Error("empty word");
   const l = (lang || "").split("-")[0].toLowerCase() || SV_STOPWORDS.detect(SV_VOCAB.tokenize(sentence)) || "xx";
@@ -280,15 +280,15 @@ async function vocabAdd({ word, sentence, translation, lang, videoTitle, base, m
   // One save-context: the video + sentence this word was just saved from. Kept
   // in a capped `contexts` list so a saved card accumulates real examples across
   // every video it turns up in (the cross-video history).
-  const ctx = { base: base || "", ms: ms ?? 0, sentence: sentence || "", sentenceT: translation || "", videoTitle: videoTitle || "", at: now };
+  const ctx = { base: base || "", ms: ms ?? 0, sentence: sentence || "", sentenceT: translation || "", videoTitle: videoTitle || "", channel: channel || "", at: now };
   const card = cur ? {
     ...cur, n: (cur.n || 1) + 1,
     sentence: cur.sentence || sentence || "", sentenceT: cur.sentenceT || translation || "",
-    videoTitle: cur.videoTitle || videoTitle || "", base: cur.base || base || "", ms: cur.ms ?? ms ?? 0,
+    videoTitle: cur.videoTitle || videoTitle || "", base: cur.base || base || "", ms: cur.ms ?? ms ?? 0, channel: cur.channel || channel || "",
     contexts: SV_VOCAB.appendContext(cur.contexts, ctx),
   } : {
     word: clean, lang: l, box: 1, nextDueAt: now, addedAt: now, lastGradedAt: 0,
-    sentence: sentence || "", sentenceT: translation || "", videoTitle: videoTitle || "", base: base || "", ms: ms || 0,
+    sentence: sentence || "", sentenceT: translation || "", videoTitle: videoTitle || "", base: base || "", ms: ms || 0, channel: channel || "",
     n: 1, lemma: null, pos: null, art: null, plural: null, cefr: null, meaning: null, phrase: null, note: null,
     conj: null, history: [], contexts: SV_VOCAB.appendContext([], ctx),
   };
@@ -1536,7 +1536,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           for (const it of msg.items || []) {
             try {
               await vocabAdd({ word: it.word, sentence: it.sentence, translation: it.translation,
-                lang: msg.lang, videoTitle: msg.videoTitle, base: msg.base, ms: it.ms || 0 });
+                lang: msg.lang, videoTitle: msg.videoTitle, base: msg.base, ms: it.ms || 0, channel: msg.channel });
               added++;
             } catch {}
           }

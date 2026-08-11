@@ -1749,7 +1749,7 @@ el("lnPlayThese").addEventListener("click", async () => {
     }
     btn.disabled = true;
     await send({ type: "VOCAB_ADD_MANY", lang: lnData.lang, videoTitle: lnData.title || "", base: clipBase,
-      items: enrichedWords.map((w) => ({ word: w.w, sentence: w.sentence, translation: w.st || "", ms: w.ms || 0 })) });
+      channel: adapter?.getChannel?.() || "", items: enrichedWords.map((w) => ({ word: w.w, sentence: w.sentence, translation: w.st || "", ms: w.ms || 0 })) });
     const r = await send({ type: "VOCAB_LIST" });
     gamePool = r.cards || [];
     btn.disabled = false;
