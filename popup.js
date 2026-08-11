@@ -1726,14 +1726,35 @@ document.addEventListener("mousedown", (e) => {
 });
 
 function updatePlayThese() {
-  const btn = el("lnPlayThese");
-  const hasWords = !!(lnData && lnData.words && lnData.words.length);
-  const hasCards = !!(clipBase && lnData && gamePool.some((c) => c.base === clipBase && c.lang === lnData.lang));
-  btn.hidden = !(hasWords && hasCards);
+  // Visible whenever this video has collected words — NOT gated on already
+  // having saved cards for it: the click handler auto-adds enriched words on
+  // the spot when there aren't enough saved yet (see below).
+  el("lnPlayThese").hidden = !(lnData && lnData.words && lnData.words.length);
 }
-el("lnPlayThese").addEventListener("click", () => {
+el("lnPlayThese").addEventListener("click", async () => {
   if (!lnData || !clipBase) return;
-  startGameWithScope(lnData.lang, { source: "base:" + clipBase, minLevel: "", pos: "" });
+  const btn = el("lnPlayThese");
+  const scope = { source: "base:" + clipBase, minLevel: "", pos: "" };
+  // Mastered cards never enter a round (SV_GAME.buildSession excludes them),
+  // so they don't count toward "enough to play" here either.
+  const playable = gamePool.filter((c) => c.base === clipBase && c.lang === lnData.lang && SV_GAME.status(c) !== "mastered").length;
+  if (playable < 4) {
+    const enrichedWords = (lnData.words || []).filter((w) => w.meaning);
+    if (!enrichedWords.length) {
+      // No meanings yet anywhere in this clip's pool — a round would have no
+      // options to quiz on. Same nudge as the enrich button already in the
+      // fold, rather than starting a dead round.
+      el("lnFoot").textContent = "Enrich this video's words first (button below) so they have meanings to quiz on.";
+      return;
+    }
+    btn.disabled = true;
+    await send({ type: "VOCAB_ADD_MANY", lang: lnData.lang, videoTitle: lnData.title || "", base: clipBase,
+      items: enrichedWords.map((w) => ({ word: w.w, sentence: w.sentence, translation: w.st || "", ms: w.ms || 0 })) });
+    const r = await send({ type: "VOCAB_LIST" });
+    gamePool = r.cards || [];
+    btn.disabled = false;
+  }
+  startGameWithScope(lnData.lang, scope);
 });
 
 // ── Round engine ─────────────────────────────────────────────────────────
@@ -1910,7 +1931,7 @@ function recordMiss(card) {
 
 function requeueCard(card) {
   const s = gameSession;
-  const pos = Math.min(s.queue.length, s.i + 4); // "~3 positions later" than the current one
+  const pos = Math.min(s.queue.length, s.i + 4); // 3 cards in between before it comes back around
   s.queue.splice(pos, 0, card);
 }
 
@@ -2024,10 +2045,11 @@ function renderRoundEnd(round, records, newRecords, s) {
   // fastest perfect (design spec §2). Records only ever celebrate.
   const stripBits = [];
   if (records.streakDays) stripBits.push(records.streakDays + "-day streak");
-  // bestRound is a bare correct-count (the engine keeps no denominator for
-  // it) — showing it against THIS round's own size beats a hardcoded "/10"
-  // that lies the moment a round is smaller than 10 (a thin scope, few due).
-  if (records.bestRound) stripBits.push("best round " + records.bestRound + "/" + round.total);
+  // bestRound is a bare correct-count with no stored denominator, and it can
+  // be from a DIFFERENT (larger or smaller) round than the one just played —
+  // pairing it with round.total can read as "best round 8/3". No denominator
+  // at all, not even this round's, is the only honest option.
+  if (records.bestRound) stripBits.push("best round: " + records.bestRound);
   if (records.fastestPerfectSec) stripBits.push("fastest perfect " + records.fastestPerfectSec + "s");
   if (stripBits.length) {
     const strip = document.createElement("div");
