@@ -1457,6 +1457,7 @@ let gameIntroAll = {};    // storage: gameIntro
 let gameSession = null;   // { lang, scope, pool, queue, i, correct, streak, speedBonuses, missed, missedKeys, startedAt }
 let ringDeadline = 0;     // Date.now() cutoff for the current card's ⚡ speed-bonus window
 let ringRAF = 0;
+let advanceTimer = 0;     // pending 800ms auto-advance after a correct answer — cleared on any round teardown
 
 const prefersReducedMotion = () => window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const todayKey = () => new Date().toLocaleDateString("sv"); // "sv" formats as YYYY-MM-DD — the local ISO day key
@@ -1704,17 +1705,19 @@ function renderChannelSearch(lang, q, menu) {
   menu.classList.add("show");
 }
 
-function setScopeField(lang, field, value) {
+async function setScopeField(lang, field, value) {
+  gameScopeAll = (await chrome.storage.local.get("gameScope")).gameScope || {}; // re-read: see bumpIntro comment
   const scope = { ...(gameScopeAll[lang] || { source: "", minLevel: "", pos: "" }) };
   scope[field] = value;
   gameScopeAll[lang] = scope;
-  chrome.storage.local.set({ gameScope: gameScopeAll });
+  await chrome.storage.local.set({ gameScope: gameScopeAll });
   renderDecks(); // closes the sheet too — a rebuilt card has none open
 }
 
-function setPace(lang, n) {
+async function setPace(lang, n) {
+  gamePaceAll = (await chrome.storage.local.get("gamePace")).gamePace || {}; // re-read: see bumpIntro comment
   gamePaceAll[lang] = n;
-  chrome.storage.local.set({ gamePace: gamePaceAll });
+  await chrome.storage.local.set({ gamePace: gamePaceAll });
 }
 
 // One listener for every scope-sheet channel search, however many sheets get
@@ -1767,6 +1770,7 @@ function startGame(lang) {
 }
 
 function startGameWithScope(lang, scope) {
+  clearTimeout(advanceTimer);
   const pace = gamePaceAll[lang] || 20;
   const dayKey = todayKey();
   const introEntry = gameIntroAll[lang];
@@ -1792,6 +1796,7 @@ function startGameWithScope(lang, scope) {
 function backToArcade() {
   gameSession = null;
   stopRing();
+  clearTimeout(advanceTimer);
   el("gameView").hidden = true;
   el("arcade").hidden = false;
   const foldSection = el("clipWordsFold").closest("section");
@@ -1901,7 +1906,12 @@ function renderEmptyRound() {
   body.innerHTML = "";
   const msg = document.createElement("div");
   msg.style.cssText = "text-align:center; color:var(--muted); padding:20px 0;";
-  msg.textContent = "Nothing to play in this scope right now — try widening it.";
+  const s = gameSession;
+  const inScope = (s.pool || []).filter((c) => SV_GAME.matchesScope(c, s.scope));
+  const hasEnriched = inScope.some((c) => SV_GAME.isEnriched(c));
+  msg.textContent = inScope.length && !hasEnriched
+    ? "These words need enriching first — open the video's fold or tap ✨ Enrich."
+    : "Nothing to play in this scope right now — try widening it.";
   body.appendChild(msg);
   const back = document.createElement("button");
   back.className = "btn-primary";
@@ -1913,6 +1923,9 @@ function renderEmptyRound() {
 
 async function bumpIntro(lang) {
   const dayKey = todayKey();
+  // Re-read before writing — a trainer tab can sit open for hours, and its
+  // boot-time copy would otherwise clobber a fresher count from the popup.
+  gameIntroAll = (await chrome.storage.local.get("gameIntro")).gameIntro || {};
   const cur = gameIntroAll[lang];
   gameIntroAll[lang] = cur && cur.day === dayKey ? { day: dayKey, count: cur.count + 1 } : { day: dayKey, count: 1 };
   await chrome.storage.local.set({ gameIntro: gameIntroAll });
@@ -1992,7 +2005,7 @@ async function handleAnswer(card, picked, optWrap) {
     if (withinRing) s.speedBonuses++;
     el("gameStreak").textContent = "🔥 " + s.streak + (withinRing ? " ⚡" : "");
     showPlusOne(pickedBtn, withinRing);
-    setTimeout(() => { s.i++; renderCard(); }, 800);
+    advanceTimer = setTimeout(() => { advanceTimer = 0; s.i++; renderCard(); }, 800);
   } else {
     pickedBtn.classList.add("miss");
     if (!prefersReducedMotion()) pickedBtn.classList.add("gshake");
@@ -2019,6 +2032,7 @@ async function endRound() {
   // no requeue happened at all, i.e. zero mistakes anywhere in the round.
   const round = { correct: s.correct, total: s.originalTotal, seconds, perfect: s.correct === s.queue.length, speedBonuses: s.speedBonuses };
   const dayKey = todayKey();
+  gameRecordsAll = (await chrome.storage.local.get("gameRecords")).gameRecords || {}; // re-read: see bumpIntro comment
   const { records, newRecords } = SV_GAME.updateRecords(gameRecordsAll[s.lang] || {}, round, dayKey);
   gameRecordsAll[s.lang] = records;
   await chrome.storage.local.set({ gameRecords: gameRecordsAll });

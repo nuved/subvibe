@@ -15,6 +15,13 @@
     return card.sep === true || /\|/.test(card.lemma || "");
   }
 
+  // Enrichment is optional and paid — real decks mix enriched cards with
+  // meaning-null ones. A round needs a meaning to quiz on (it's the correct
+  // option), so unenriched cards never become session candidates.
+  function isEnriched(card) {
+    return !!(card.meaning && String(card.meaning).trim());
+  }
+
   function matchesScope(card, scope) {
     const s = scope || {};
     if (s.source) {
@@ -42,7 +49,7 @@
   }
 
   function buildSession({ cards, scope, perDay, introducedToday, now, rng, size = 10 }) {
-    const inScope = (cards || []).filter((c) => matchesScope(c, scope));
+    const inScope = (cards || []).filter((c) => matchesScope(c, scope) && isEnriched(c));
     const due = g.SV_LEITNER.sessionOrder(
       g.SV_LEITNER.dueCards(inScope.filter((c) => status(c) === "learning"), now));
     const allowance = Math.max(0, (perDay || 20) - (introducedToday || 0));
@@ -86,5 +93,5 @@
     return { records: r, newRecords };
   }
 
-  g.SV_GAME = { status, matchesScope, buildSession, distractors, shuffle, updateRecords };
+  g.SV_GAME = { status, matchesScope, isEnriched, buildSession, distractors, shuffle, updateRecords };
 })(globalThis);

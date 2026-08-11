@@ -47,6 +47,30 @@ test("buildSession: never introduces beyond allowance; mastered excluded", () =>
   assert.equal(s.items.length, 0);
 });
 
+test("buildSession: unenriched cards (null/empty meaning) never enter a session, due or fresh", () => {
+  const enrichedDue = card({ w: "d-e", lastGradedAt: 1, box: 1, nextDueAt: NOW - DAY });
+  const unenrichedDue = card({ w: "d-u", lastGradedAt: 1, box: 1, nextDueAt: NOW - DAY, meaning: null });
+  const enrichedFresh = card({ w: "f-e" });
+  const unenrichedFresh1 = card({ w: "f-u1", meaning: "" });
+  const unenrichedFresh2 = card({ w: "f-u2", meaning: "   " }); // whitespace-only counts as unenriched
+  const s = G.buildSession({
+    cards: [enrichedDue, unenrichedDue, enrichedFresh, unenrichedFresh1, unenrichedFresh2],
+    scope: { source: "", minLevel: "", pos: "" }, perDay: 20, introducedToday: 0, now: NOW, rng,
+  });
+  assert.deepEqual(s.items.map((c) => c.word).sort(), ["d-e", "f-e"]);
+});
+
+test("buildSession: a deck with zero enriched cards yields an empty session", () => {
+  const cards = [
+    card({ w: "u0", meaning: null, lastGradedAt: 1, box: 1, nextDueAt: NOW - DAY }),
+    card({ w: "u1", meaning: "" }),
+    card({ w: "u2", meaning: "   " }),
+  ];
+  const s = G.buildSession({ cards, scope: { source: "", minLevel: "", pos: "" }, perDay: 20, introducedToday: 0, now: NOW, rng });
+  assert.equal(s.items.length, 0);
+  assert.equal(s.newCount, 0);
+});
+
 test("distractors: 3 unique meanings, never the answer, prefer same pos", () => {
   const target = card({ w: "t", m: "right", p: "verb" });
   const pool = [target, card({ w: "a", m: "right" }), card({ w: "b", m: "w1", p: "verb" }),
