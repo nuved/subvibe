@@ -21,7 +21,6 @@
       if (!s) return s;
       const l = (lang || "").toLowerCase();
       if (GUILLEMET.has(l)) return "«" + s + "»";
-      if (l === "de") return "„" + s + "“";
       return "“" + s + "”";
     },
   };
