@@ -270,7 +270,7 @@ const isCardKey = (k) => !k.startsWith("inbox:") && !k.startsWith("dismissed:") 
 // Upsert one card. Language: explicit > stopword-detected from the sentence >
 // "xx" bucket. A repeat save bumps the seen-count and fills gaps (sentence,
 // translation, title) but never resets the box or the enrichment.
-async function vocabAdd({ word, sentence, translation, lang, videoTitle, base, ms }) {
+async function vocabAdd({ word, sentence, translation, lang, videoTitle, base, ms, channel }) {
   const clean = SV_VOCAB.tokenize(word)[0] || String(word || "").trim();
   if (!clean) throw new Error("empty word");
   const l = (lang || "").split("-")[0].toLowerCase() || SV_STOPWORDS.detect(SV_VOCAB.tokenize(sentence)) || "xx";
@@ -280,15 +280,15 @@ async function vocabAdd({ word, sentence, translation, lang, videoTitle, base, m
   // One save-context: the video + sentence this word was just saved from. Kept
   // in a capped `contexts` list so a saved card accumulates real examples across
   // every video it turns up in (the cross-video history).
-  const ctx = { base: base || "", ms: ms ?? 0, sentence: sentence || "", sentenceT: translation || "", videoTitle: videoTitle || "", at: now };
+  const ctx = { base: base || "", ms: ms ?? 0, sentence: sentence || "", sentenceT: translation || "", videoTitle: videoTitle || "", channel: channel || "", at: now };
   const card = cur ? {
     ...cur, n: (cur.n || 1) + 1,
     sentence: cur.sentence || sentence || "", sentenceT: cur.sentenceT || translation || "",
-    videoTitle: cur.videoTitle || videoTitle || "", base: cur.base || base || "", ms: cur.ms ?? ms ?? 0,
+    videoTitle: cur.videoTitle || videoTitle || "", base: cur.base || base || "", ms: cur.ms ?? ms ?? 0, channel: cur.channel || channel || "",
     contexts: SV_VOCAB.appendContext(cur.contexts, ctx),
   } : {
     word: clean, lang: l, box: 1, nextDueAt: now, addedAt: now, lastGradedAt: 0,
-    sentence: sentence || "", sentenceT: translation || "", videoTitle: videoTitle || "", base: base || "", ms: ms || 0,
+    sentence: sentence || "", sentenceT: translation || "", videoTitle: videoTitle || "", base: base || "", ms: ms || 0, channel: channel || "",
     n: 1, lemma: null, pos: null, art: null, plural: null, cefr: null, meaning: null, phrase: null, note: null,
     conj: null, history: [], contexts: SV_VOCAB.appendContext([], ctx),
   };
@@ -357,18 +357,25 @@ async function clipWordData(base, limit) {
   // other (or undetectable) language has no material for this learner.
   if (learnLang && lang !== learnLang) return { words: [], reason: "other-lang", lang };
   const knownRows = await idbVocabList(lang + ":");
-  const known = new Set(knownRows.map((r) => r.key.slice(lang.length + 1)));
+  const knownCards = new Map(knownRows.map((r) => [r.key.slice(lang.length + 1), r.value]));
   const dismissed = new Set((((await idbVocabGet("dismissed:" + lang)) || {}).words) || []);
   // 3 samples per word: the popup's word-detail view shows real context lines.
   // The pool is cut by LEARNABILITY, not raw frequency — a 2-hour interview's
   // most frequent words are filler; the vocabulary worth leveling is longer
   // and rarer (rankLearnable). 150 deep so the tail actually makes the list.
-  const all = SV_VOCAB.extractInboxWords(sentences, lang, dismissed, known, 3);
+  // The fold now shows a status dot for EVERY collected word, including ones
+  // already in the Leitner box, so already-known words stay in the pool here
+  // (only dismissed/tombstoned words are still excluded).
+  const all = SV_VOCAB.extractInboxWords(sentences, lang, dismissed, null, 3);
   const words = SV_VOCAB.rankLearnable(all).slice(0, limit || 150);
+  for (const w of words) {
+    const c = knownCards.get(w.w.toLowerCase());
+    if (c) { w.box = c.box; w.lastGradedAt = c.lastGradedAt || 0; }
+  }
   // The "smart lightener" set: words to de-emphasize on the video — cards you've
   // already learned (a high Leitner box, ≥ 4) plus anything you dismissed. The
   // pool above already excludes both; this just lets the overlay dim them.
-  const learned = knownRows.filter((r) => ((r.value && r.value.box) || 1) >= 4).map((r) => r.key.slice(lang.length + 1));
+  const learned = [...knownCards.entries()].filter(([, c]) => (c.box || 1) >= 4).map(([w]) => w);
   const dim = [...new Set([...learned, ...dismissed])];
   return { words, lang, title: pick.row.title, dim };
 }
@@ -1529,7 +1536,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           for (const it of msg.items || []) {
             try {
               await vocabAdd({ word: it.word, sentence: it.sentence, translation: it.translation,
-                lang: msg.lang, videoTitle: msg.videoTitle, base: msg.base, ms: it.ms || 0 });
+                lang: msg.lang, videoTitle: msg.videoTitle, base: msg.base, ms: it.ms || 0, channel: msg.channel });
               added++;
             } catch {}
           }
@@ -1579,6 +1586,28 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           const card = SV_LEITNER.grade(cur, !!msg.ok, Date.now());
           await idbVocabPut(msg.key, card);
           sendResponse({ ok: true, card });
+          break;
+        }
+        case "VOCAB_KNOWN": {
+          // "know it ✓" — instantly mastered (box 5), same card shape as
+          // vocabAdd for a word that was never saved yet (fold rows may or
+          // may not already have a Leitner card). Keyed the same way vocabAdd
+          // computes it, so an existing card is found and upgraded in place.
+          const clean = SV_VOCAB.tokenize(msg.word)[0] || String(msg.word || "").trim();
+          if (!clean) { sendResponse({ error: "missing word" }); break; }
+          const lang = (msg.lang || "xx").split("-")[0].toLowerCase();
+          const key = `${lang}:${clean.toLowerCase()}`;
+          const cur = await idbVocabGet(key);
+          const now = Date.now();
+          const nextDueAt = now + 16 * SV_LEITNER.DAY;
+          const card = cur
+            ? { ...cur, box: 5, lastGradedAt: now, nextDueAt }
+            : { word: clean, lang, box: 5, nextDueAt, addedAt: now, lastGradedAt: now,
+                sentence: "", sentenceT: "", videoTitle: "", base: "", ms: 0, n: 1,
+                lemma: null, pos: null, art: null, plural: null, cefr: null, meaning: null,
+                phrase: null, note: null, conj: null, history: [], contexts: [] };
+          await idbVocabPut(key, card);
+          sendResponse({ ok: true, key, card });
           break;
         }
         case "VOCAB_DUE_COUNT": {

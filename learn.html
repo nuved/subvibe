@@ -11,8 +11,6 @@
       /* Daylight aliases — legacy names → styles/tokens.css (same pattern as
          library.html); --bg/--surface/--surface-2/--border/--muted/--ui from tokens. */
       --border-soft: var(--border);
-      --brand: var(--coral-600); --brand-2: var(--coral-600); --brand-3: var(--coral-600);
-      --brand-soft: var(--coral-100);
       --text: var(--ink);
       --green: var(--green-600); --red: var(--red-600); --amber: var(--amber-600);
     }
@@ -20,7 +18,7 @@
     [hidden] { display: none !important; }
     body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 var(--ui); -webkit-font-smoothing: antialiased; }
     button { font-family: inherit; cursor: pointer; }
-    :focus-visible { outline: 2px solid var(--brand-3); outline-offset: 2px; border-radius: 6px; }
+    :focus-visible { outline: 2px solid var(--coral-600); outline-offset: 2px; border-radius: 6px; }
 
     .wrap { max-width: 880px; margin: 0 auto; padding: 26px 20px 60px; }
     header { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
@@ -32,98 +30,144 @@
     .tab { border: 0; background: transparent; color: var(--muted); font-weight: 600; font-size: 13.5px;
       padding: 9px 14px; border-radius: 9px 9px 0 0; }
     .tab.on { color: var(--text); background: var(--surface); }
-    .tab .n { color: var(--brand-3); }
-
-    .card { background: var(--surface); border: 1px solid var(--border-soft); border-radius: 14px; padding: 18px; margin-bottom: 14px; }
     .muted { color: var(--muted); }
-    .btn { border: 0; border-radius: 10px; padding: 9px 16px; font-weight: 700; font-size: 13.5px;
-      background: var(--surface-2); color: var(--text); }
-    .btn.primary { background: var(--brand); color: #fff; }
-    :root[data-theme="dark"] .btn.primary { color: var(--bg); }
-    .btn.primary:hover { background: var(--brand-2); }
-    .btn:disabled { opacity: .45; cursor: default; }
-    .btn.small { padding: 5px 10px; font-size: 12px; font-weight: 600; }
-
-    /* Today / review */
-    .due-big { font-size: 40px; font-weight: 800; line-height: 1.1; }
-    .review { text-align: center; padding: 30px 18px; }
-    .review .word { font-size: 34px; font-weight: 800; margin: 8px 0 2px; }
-    .review .sentence { color: var(--muted); margin: 10px auto 0; max-width: 560px; }
-    .review .back { border-top: 1px solid var(--border-soft); margin-top: 18px; padding-top: 16px; }
-    .review .meaning { font-size: 20px; font-weight: 700; }
-    .review .extra { color: var(--muted); font-size: 13px; margin-top: 6px; }
-    .grade { display: flex; gap: 10px; justify-content: center; margin-top: 18px; }
-    .again { background: var(--coral-100); color: var(--coral-600); }
-    .good { background: var(--teal-100); color: var(--teal-600); }
-    .arts { display: flex; gap: 10px; justify-content: center; margin: 14px 0 4px; }
-    .art { min-width: 74px; font-size: 15px; }
-    .art.right { background: var(--teal-100); color: var(--teal-600); }
-    .art.wrong { background: var(--coral-100); color: var(--coral-600); }
-    .progress { color: var(--muted); font-size: 12px; margin-top: 14px; }
-
-    /* Boxes */
-    .boxes { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
-    .box { background: var(--surface-2); border-radius: 12px; padding: 14px 10px; text-align: center; }
-    .box .cnt { font-size: 26px; font-weight: 800; }
-    .box .lbl { color: var(--muted); font-size: 12px; }
-    .box .nxt { color: var(--muted); font-size: 11px; margin-top: 4px; min-height: 14px; }
-
-    /* Inbox — one card per clip; each word is a row whose first sentence reads
-       like a subtitle line with the word lit in karaoke gold. */
-    .clip { background: var(--surface-2); border: 1px solid var(--border-soft); border-radius: 12px;
-      padding: 0 0 10px; margin-bottom: 14px; overflow: hidden; }
-    .clip__head { display: flex; align-items: baseline; gap: 10px; padding: 12px 14px 10px;
-      border-bottom: 1px solid var(--border-soft); }
-    .clip__title { font-weight: 700; font-size: 14.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-      color: inherit; text-decoration: none; }
-    a.clip__title:hover { text-decoration: underline; color: var(--brand-3); }
-    .clip__meta { color: var(--muted); font-size: 12px; flex: none; margin-left: auto; }
-    .clip__lang { display: inline-block; background: var(--brand-soft); color: var(--brand-3);
-      border-radius: 6px; padding: 1px 7px; font-size: 11px; font-weight: 700; text-transform: uppercase;
-      letter-spacing: .4px; vertical-align: 1px; }
-    .clip__acts { display: flex; gap: 8px; padding: 9px 14px 2px; }
-    .wgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 14px; padding: 8px 8px 2px; }
-    @media (max-width: 700px) { .wgrid { grid-template-columns: 1fr; } }
-    .wrow { display: block; width: 100%; text-align: left;
-      border: 0; background: transparent; color: var(--text); border-radius: 8px; padding: 5px 8px;
-      font: inherit; transition: background .1s; }
-    .wrow__top { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
-    .wrow__fa { display: block; color: var(--muted); font-size: 11.5px; overflow: hidden;
-      text-overflow: ellipsis; white-space: nowrap; margin-top: 1px; }
-    .wrow:hover { background: var(--surface-2); }
-    .wrow.sel { background: var(--brand-soft); box-shadow: inset 2px 0 0 var(--brand-2); }
-    .wrow__word { font-weight: 650; font-size: 14px; flex: none; }
-    .wrow.sel .wrow__word { color: var(--brand-3); }
-    .wrow__n { color: var(--muted); font-size: 11px; flex: none; }
-    .wrow__sent { color: var(--muted); font-size: 12px; font-style: italic; overflow: hidden;
-      text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-    .wrow__sent .wmark { background: transparent; color: var(--amber); font-style: normal; font-weight: 600; } /* the karaoke fill, at rest — reset <mark>'s default highlighter */
-    .clip__more { display: block; width: calc(100% - 16px); margin: 6px 8px 0; border: 0; border-radius: 8px;
-      background: transparent; color: var(--brand-3); font: 600 12px/1 var(--ui); padding: 8px; }
-    .clip__more:hover { background: var(--brand-soft); }
-    @media (prefers-reduced-motion: reduce) { .wrow { transition: none; } }
-
-    /* Browse */
-    .filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
-    .filters select { background: var(--surface-2); color: var(--text); border: 1px solid var(--border);
-      border-radius: 8px; padding: 6px 8px; font: inherit; font-size: 13px; }
-    table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
-    th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
-    th { color: var(--muted); font-size: 12px; font-weight: 600; }
-    td .art-tag { color: var(--brand-3); font-weight: 700; }
-    .lvl { display: inline-block; min-width: 26px; text-align: center; border-radius: 6px; padding: 1px 5px;
-      font-size: 11px; font-weight: 700; background: var(--surface-2); }
-
-    /* Conjugation modal */
-    .modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; }
-    .modal .inner { background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
-      padding: 20px; max-width: 520px; width: 92%; max-height: 80vh; overflow: auto; }
-    .modal h2 { margin: 0 0 10px; font-size: 18px; }
-    .modal table { font-size: 13px; }
+    .lbl { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
 
     .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
       background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
       padding: 9px 16px; border-radius: 10px; font-size: 13px; }
+
+    #enrichBar { padding: 14px 16px; margin-bottom: 18px; }
+
+    /* ── Practice: deck cards ─────────────────────────────────────────── */
+    #deckCards { display: flex; flex-direction: column; gap: 14px; }
+    .deckcard { padding: 16px 18px; background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--r-md); box-shadow: var(--shadow-rest); }
+    .deckcard.hot { border-color: var(--coral-600); }
+    .dtop { display: flex; align-items: center; gap: 14px; }
+    .dflag { flex: none; font-size: 34px; line-height: 1; }
+    .dinfo { flex: 1; min-width: 0; }
+    .dname { font-size: 17px; font-weight: 700; }
+    .dscope { margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      color: var(--muted); font-size: 12.5px; }
+    .dscope b { color: var(--teal-600); font-weight: 600; }
+    .dchange { margin-top: 4px; padding: 3px 4px; font-size: 12px; }
+    .dplay { flex: none; }
+    .dsheet { margin-top: 14px; padding: 12px 14px; background: var(--surface-2);
+      border: 1px solid var(--border); border-radius: var(--r-sm); }
+    .dsheet .fieldlbl { font-size: 12px; color: var(--muted); margin: 8px 0 4px; }
+    .dsheet .fieldlbl:first-child { margin-top: 0; }
+    .paceRow { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
+    .paceRow span:first-child { flex: none; min-width: 100px; color: var(--muted); font-size: 12px; }
+    .paceRow input[type="range"] { flex: 1; }
+    .paceRow .paceval { flex: none; color: var(--muted); font-size: 12px; min-width: 20px; text-align: right; }
+
+    .trecords { margin-top: 12px; color: var(--muted); font-size: 12.5px; }
+    .tprogress { margin-top: 10px; }
+    .tbar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--surface-2); }
+    .tbar span { display: block; height: 100%; }
+    .seg-new { background: var(--toggle-off); }
+    .seg-learning { background: #F4A261; }
+    .seg-mastered { background: var(--teal-600); }
+    .tlegend { display: flex; gap: 14px; margin-top: 6px; color: var(--muted); font-size: 11px; }
+    .tlegend .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 4px; vertical-align: 1px; }
+    .tlegend .dot.new { background: var(--toggle-off); }
+    .tlegend .dot.learning { background: #F4A261; }
+    .tlegend .dot.mastered { background: var(--teal-600); }
+
+    /* ── round loop (same mechanics as the popup arcade, trainer scale) ── */
+    .gamecard { overflow: hidden; }
+    .gamehead { display: flex; align-items: center; gap: 10px; padding: 12px 18px; border-bottom: 1px solid var(--border); }
+    .gamedots { display: flex; align-items: center; gap: 6px; margin: 0 auto; }
+    .gamedots span { flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--surface-2); }
+    .gamedots span.done { background: var(--teal-600); }
+    .gamedots span.current { background: var(--coral-600); }
+    .gamestreak { flex: none; color: var(--amber-600); font: 700 12px/1 var(--ui); }
+    .gamering { flex: none; width: 22px; height: 22px; border-radius: 50%;
+      background: conic-gradient(var(--amber-600) calc(var(--gr, 1) * 360deg), var(--surface-2) 0); }
+    #gameBody { padding: 22px 24px 28px; max-width: 520px; margin: 0 auto; }
+
+    .gopt { display: block; width: 100%; margin-top: 8px; padding: 13px 16px; border: 0; border-radius: 12px;
+      background: var(--surface-2); color: var(--ink); font: 500 15px/1.4 var(--ui); text-align: left; cursor: pointer;
+      transition: background var(--t-fast), color var(--t-fast); }
+    .gopt:first-child { margin-top: 0; }
+    .gopt:hover { background: var(--border); }
+    .gopt.hit { background: var(--teal-100); color: var(--teal-600); font-weight: 700; }
+    .gopt.miss { background: var(--coral-100); color: var(--coral-600); text-decoration: line-through; }
+    .gopt.reveal { background: transparent; border: 1px dashed var(--coral-600); color: var(--coral-600); cursor: default; }
+
+    .gsent { font-style: italic; font-size: 16px; color: var(--ink-2); margin-bottom: 8px; } /* no quote marks — the italic carries it */
+    .gsent mark, .gsent .amk { background: transparent; color: var(--amber-600); font-style: normal; font-weight: 600; }
+    .gword { font: 800 26px/1.25 var(--ui); }
+    .lvl { display: inline-block; flex: none; border-radius: 5px; padding: 1px 6px; font-size: 11px;
+      font-weight: 700; background: var(--teal-100); color: var(--teal-600); }
+
+    .ringbig { position: relative; width: 92px; height: 92px; margin: 0 auto;
+      border-radius: 50%; display: flex; align-items: center; justify-content: center;
+      background: conic-gradient(var(--amber-600) calc(var(--gr, 1) * 360deg), var(--surface-2) 0); }
+    .ringbig::before { content: ""; position: absolute; inset: 11px; border-radius: 50%; background: var(--surface); }
+    .ringbig span { position: relative; font: 800 24px/1 var(--ui); color: var(--ink); }
+
+    .recordbanner { margin-top: 12px; padding: 10px 14px; border-radius: var(--r-sm); background: var(--coral-100);
+      color: var(--coral-600); font: 700 13px/1.4 var(--ui); text-align: center; }
+    .recordbanner.gslide { animation: gslide .35s ease-out; }
+
+    @keyframes gpop { 0% { transform: scale(.9); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+    @keyframes gshake { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-6px); }
+      40% { transform: translateX(6px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(4px); } }
+    @keyframes gslide { from { transform: translateY(-8px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    .gpop { animation: gpop .25s ease-out; }
+    .gshake { animation: gshake .4s ease-in-out; }
+    .gslide { animation: gslide .35s ease-out; }
+    @media (prefers-reduced-motion: reduce) { .gpop, .gshake, .gslide, .recordbanner { animation: none !important; } }
+
+    .wdot { display: inline-block; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--toggle-off); }
+    .wdot.new { background: var(--toggle-off); }
+    .wdot.learn { background: #F4A261; }
+    .wdot.done { background: var(--teal-600); }
+
+    /* ── "How the schedule works" fold ───────────────────────────────── */
+    .fold { border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface);
+      padding: 2px 0; margin-top: 18px; }
+    .fold summary { cursor: pointer; padding: 12px 16px; font-weight: 700; font-size: 13.5px; list-style: none; }
+    .fold summary::-webkit-details-marker { display: none; }
+    .fold summary::before { content: "▸ "; color: var(--muted); }
+    .fold[open] summary::before { content: "▾ "; }
+    .fold .foldbody { padding: 0 16px 14px; color: var(--muted); font-size: 12.5px; }
+
+    /* ── Words pane ───────────────────────────────────────────────────── */
+    .wfilters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 6px; }
+    .wfilters input.field { flex: 1 1 200px; }
+    .wfilters select.field { flex: none; width: auto; }
+    .wchips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .wcount { color: var(--muted); font-size: 11.5px; margin: 2px 0 14px; }
+
+    .wordrows { display: flex; flex-direction: column; gap: 3px; }
+    .wordrow { border-radius: 10px; }
+    .wordrow .wr-head { display: block; width: 100%; text-align: left; border: 0; background: transparent;
+      color: var(--text); border-radius: 10px; padding: 9px 10px; font: inherit; cursor: pointer; }
+    .wordrow .wr-head:hover, .wordrow.open .wr-head { background: var(--surface-2); }
+    .wr-top { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+    .wr-word { font-size: 14.5px; }
+    .wr-meaning { flex: 1; min-width: 80px; color: var(--ink-2); font-size: 13px; overflow: hidden;
+      text-overflow: ellipsis; white-space: nowrap; }
+    .wr-know { flex: none; margin-left: auto; padding: 3px 8px; font-size: 11.5px; }
+    .wr-sent { display: block; margin-top: 3px; color: var(--muted); font-size: 12.5px; font-style: italic;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .wr-sent mark { background: transparent; color: var(--amber-600); font-style: normal; font-weight: 600; }
+    .wr-src { display: block; margin-top: 2px; color: var(--faint); font-size: 11px; overflow: hidden;
+      text-overflow: ellipsis; white-space: nowrap; }
+    .wr-detail { display: none; margin: 4px 10px 8px; padding-top: 8px; border-top: 1px dashed var(--border);
+      font-size: 12.5px; color: var(--ink-2); }
+    .wordrow.open .wr-detail { display: block; }
+
+    /* Conjugation modal */
+    .modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; z-index: 20; }
+    .modal .inner { background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+      padding: 20px; max-width: 520px; width: 92%; max-height: 80vh; overflow: auto; }
+    .modal h2 { margin: 0 0 10px; font-size: 18px; }
+    .modal table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .modal th, .modal td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border-soft); }
   </style>
 </head>
 <body>
@@ -137,52 +181,58 @@
     </header>
 
     <nav class="tabs" id="tabs">
-      <button class="tab on" data-tab="leitner">Leitner <span class="n" id="nDue"></span></button>
-      <button class="tab" data-tab="inbox">Inbox <span class="n" id="nInbox"></span></button>
-      <button class="tab" data-tab="dict">Dictionary <span class="n" id="nCards"></span></button>
+      <button class="tab on" data-tab="practice">Practice</button>
+      <button class="tab" data-tab="words">Words <span class="muted" id="wTabCount" style="font-size:11.5px;"></span></button>
     </nav>
 
     <div id="enrichBar" class="card" hidden>
       <span id="enrichText"></span>
-      <button class="btn primary" id="enrichBtn" style="margin-left:10px;"></button>
+      <button class="btn-primary" id="enrichBtn" style="margin-left:10px;"></button>
       <div class="muted" style="font-size:12px; margin-top:6px;">One batched request per 50 words on your selected translation provider — never automatic, logged in the Library's Activity meter.</div>
     </div>
 
-    <section data-pane="leitner">
-      <div class="card" id="todayCard">
-        <div class="due-big" id="dueBig">0</div>
-        <div class="muted" id="dueSub">cards due for review</div>
-        <div style="margin-top:14px;"><button class="btn primary" id="startBtn">Start review</button></div>
-      </div>
-      <div class="card review" id="reviewCard" hidden></div>
-      <div class="card"><div class="boxes" id="boxCols"></div>
-        <div class="muted" style="font-size:12px; margin-top:10px;">Right → next box (reviews spread to 1 · 2 · 4 · 8 · 16 days). Wrong → back to box 1.</div>
-      </div>
-    </section>
-
-    <section data-pane="inbox" hidden>
-      <div class="card">
-        <div class="muted" style="margin-bottom:8px;">Every watched video's words, collected free from your subtitle cache. Tap words to select, then promote them into the trainer — or dismiss what you already know.</div>
-        <div id="inboxList"></div>
-      </div>
-    </section>
-
-    <section data-pane="dict" hidden>
-      <div class="card">
-        <div class="filters">
-          <select id="fLevel"><option value="">Level: all</option><option>A1</option><option>A2</option><option>B1</option><option>B2</option><option>C1</option><option>C2</option><option value="?">?</option></select>
-          <select id="fArt"><option value="">Article: all</option><option>der</option><option>die</option><option>das</option></select>
-          <select id="fPos"><option value="">Type: all</option><option value="noun">Nouns</option><option value="verb">Verbs</option><option value="adj">Adjectives</option><option value="adv">Adverbs</option><option value="phrase">Phrases</option><option value="other">Other</option></select>
+    <section data-pane="practice">
+      <section id="arcade">
+        <div id="deckCards"></div>
+      </section>
+      <section id="gameView" hidden>
+        <div class="gamecard card">
+          <div class="gamehead">
+            <button id="gameBack" class="btn-quiet">← Done</button>
+            <div id="gameDots" class="gamedots"></div>
+            <span id="gameStreak" class="gamestreak"></span>
+            <span id="gameRing" class="gamering" hidden></span>
+          </div>
+          <div id="gameBody"></div>
         </div>
-        <div id="browseWrap"></div>
+      </section>
+      <section id="scheduleFold">
+        <details class="fold">
+          <summary>How the schedule works</summary>
+          <div class="foldbody" id="foldBody"></div>
+        </details>
+      </section>
+    </section>
+
+    <section data-pane="words" hidden>
+      <div class="wfilters">
+        <input type="search" class="field" id="wSearch" placeholder="Search words…" />
+        <select class="field" id="wSource"></select>
+        <div class="wchips" id="wLevelChips"></div>
+        <select class="field" id="wType"></select>
+        <div class="wchips" id="wStatusChips"></div>
       </div>
+      <div class="wcount" id="wCount"></div>
+      <div id="wordRows" class="wordrows"></div>
     </section>
   </div>
 
   <script src="shared/theme.js"></script>
+  <script src="shared/langs.js"></script>
   <script src="shared/quotes.js"></script>
   <script src="shared/pricing.js"></script>
   <script src="shared/leitner.js"></script>
+  <script src="shared/game.js"></script>
   <script src="learn.js"></script>
 </body>
 </html>

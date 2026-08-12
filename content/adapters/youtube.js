@@ -148,6 +148,14 @@
       return w ? w.innerText || w.textContent || "" : "";
     },
 
+    getChannel() {
+      try {
+        let el = document.querySelector("#owner #channel-name a") || document.querySelector("ytd-channel-name a");
+        if (el) return (el.textContent || "").trim();
+      } catch {}
+      return "";
+    },
+
     onNavigate(cb) {
       // ONLY real navigations. NOT yt-page-data-updated — that fires
       // repeatedly during playback and would restart the engine in a loop,

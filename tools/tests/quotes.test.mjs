@@ -21,3 +21,10 @@ test("unpaired German open-quote still converts", () => {
   assert.equal(Q.fix("„Half a quote", "en"), "“Half a quote");
   assert.equal(Q.fix("„Half a quote", "fa"), "«Half a quote");
 });
+
+
+test("wrap: never German low-quotes - operator rule; curly for Latin incl. de, guillemets for fa", () => {
+  assert.equal(Q.wrap("Hallo", "de"), "“Hallo”");
+  assert.equal(Q.wrap("سلام", "fa"), "«سلام»");
+  assert.ok(!Q.wrap("x", "de").includes("„"));
+});

@@ -14,6 +14,10 @@ const normLiveCode = (code) => (LIVE_CODES.has(code) ? code : (LIVE_CODES.has(LI
 
 const DEFAULTS = { enabled: true, translateOn: true, targets: ["en"], showOriginal: true, hideNative: true, karaokeHl: true, karaokeStyle: "classic", learnLang: "", apiKey: "", translationProvider: "openai", claudeModel: "claude-sonnet-5", anthropicKey: "", keepNames: true, keepTerms: "", position: "bottom", size: "md", stylePreset: "classic", styleCustom: {}, syncOffset: 0, dubEnabled: false, ttsProvider: "openai", geminiKey: "", dubVoice: "marin", dubGeminiVoice: "Kore", dubMultiVoice: false, dubDuckLevel: 0.12, dubPace: 1, liveModel: "gemini-3.5-live-translate-preview", audioDeviceId: "", liveTarget: "", debugHud: false, uiTheme: "light" };
 const el = (id) => document.getElementById(id);
+// Promise wrapper for chrome.runtime.sendMessage — same shape as learn.js's
+// helper, used by the word-game wiring below (async/await reads cleaner than
+// the callback style the rest of this file uses for its older messages).
+const send = (msg) => new Promise((res) => chrome.runtime.sendMessage(msg, (r) => res(r || {})));
 
 // Popup theme UI — the mechanics (light default, auto via matchMedia, cross-
 // page follow through storage.onChanged) live in shared/theme.js; this only
@@ -199,6 +203,10 @@ function selectTab(name) {
   for (const b of el("tabBar").children) b.classList.toggle("on", b.dataset.tab === name);
   el("gearBtn").classList.toggle("on", name === "keys");
   for (const p of document.querySelectorAll(".pane")) p.hidden = p.dataset.pane !== name;
+  // Deck render: on Learn-pane show, refresh from the vocab store — but never
+  // while a round is live (arcade is hidden then; a mid-flight VOCAB_LIST
+  // refetch would just be wasted work, and tab pills stay usable mid-round).
+  if (name === "learn" && !gameSession) renderDecks();
 }
 el("gearBtn").addEventListener("click", () => {
   const open = !el("gearBtn").classList.contains("on");
@@ -1153,8 +1161,7 @@ function lnRenderRows() {
   }
   // Enriched → important-first: highest level, then how often the video says it.
   if (r.enriched) rows = rows.slice().sort((a, b) => (LN_LVL[b.cefr] || 0) - (LN_LVL[a.cefr] || 0) || b.n - a.n);
-  const addAll = el("lnAddAll");
-  addAll.hidden = !rows.length;
+  el("lnAddAll").hidden = true; // retired — collected words are auto-available to the trainer; pacing feeds them in
   if (!rows.length) {
     if (min || lnPos) {
       // Say what the filters hid and hand back the way out — never a dead end.
@@ -1175,23 +1182,7 @@ function lnRenderRows() {
     }
     return;
   }
-  foot.textContent = "Tap a word for details (article, plural, examples) and to add it to your Leitner box";
-  addAll.disabled = false;
-  addAll.textContent = `Add ${lnMin ? "all " + lnMin + "+ " : "all "}${rows.length} word${rows.length === 1 ? "" : "s"} to the Leitner box`;
-  addAll.onclick = () => {
-    addAll.disabled = true;
-    addAll.textContent = "Adding…";
-    chrome.runtime.sendMessage({ type: "VOCAB_ADD_MANY", lang: r.lang, videoTitle: r.title || "", base: clipBase,
-      items: rows.map((w) => ({ word: w.w, sentence: w.sentence, translation: w.st || "", ms: w.ms || 0 })) }, (resp) => {
-      if (chrome.runtime.lastError || !resp || resp.error) {
-        addAll.disabled = false;
-        addAll.textContent = "Failed — try again";
-        return;
-      }
-      addAll.textContent = `✓ ${resp.added} in your box — review them on the Learn page`;
-      [...box.querySelectorAll(".lnw")].forEach((x) => x.classList.add("added"));
-    });
-  };
+  foot.textContent = "Tap a word for details (article, plural, examples) — or mark it known";
   for (const w of rows) box.appendChild(lnWordRow(w, r));
 }
 
@@ -1205,6 +1196,12 @@ function lnWordRow(w, r) {
   head.className = "head";
   const top = document.createElement("span");
   top.className = "top";
+  // Status dot — gray new / orange learning / teal mastered — from the box +
+  // lastGradedAt background.js now attaches to every collected word row.
+  const wstat = SV_GAME.status({ box: w.box, lastGradedAt: w.lastGradedAt });
+  const dot = document.createElement("span");
+  dot.className = "wdot " + (wstat === "mastered" ? "done" : wstat === "learning" ? "learn" : "new");
+  top.appendChild(dot);
   const word = document.createElement("b");
   word.textContent = w.art ? `${w.art} ${w.w}` : w.w;
   const n = document.createElement("span");
@@ -1240,6 +1237,28 @@ function lnWordRow(w, r) {
     t.title = "Jump the video to this line";
     t.addEventListener("click", (e) => { e.stopPropagation(); lnSeek(w.ms); });
     top.appendChild(t);
+  }
+  if (wstat !== "mastered") {
+    // Instant mastery — the fold's one per-word action now (bulk "Add all" is
+    // retired); a word never graded gets a fresh box-5 card, an existing one
+    // is upgraded in place (background.js VOCAB_KNOWN).
+    const know = document.createElement("button");
+    know.className = "linkbtn";
+    know.textContent = "know it ✓";
+    know.title = "Mark as already known — mastered, no more reviews";
+    know.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      know.disabled = true;
+      const resp = await send({ type: "VOCAB_KNOWN", word: w.w, lang: r.lang });
+      if (resp && resp.ok) {
+        w.box = 5; w.lastGradedAt = Date.now();
+        dot.className = "wdot done";
+        know.remove();
+      } else {
+        know.disabled = false;
+      }
+    });
+    top.appendChild(know);
   }
   head.appendChild(top);
   head.appendChild(lnSentence(w.sentence, w.w));
@@ -1362,6 +1381,8 @@ function renderLearnWords() {
   box.textContent = "";
   enrich.hidden = true;
   lvls.hidden = true;
+  el("lnCount").textContent = "";
+  el("lnPlayThese").hidden = true;
   if (!clipBase) {
     foot.textContent = "Open a video with subtitles — its words show up here to learn from.";
     return;
@@ -1415,8 +1436,685 @@ function renderLearnWords() {
         });
       };
     }
+    el("lnCount").textContent = r.words.length + " collected";
     lnRenderRows();
+    updatePlayThese();
   });
+}
+
+// ── Word game: arcade decks + rounds (Learn tab) ──────────────────────────
+// Storage: gameScope {lang:{source,minLevel,pos}}, gamePace {lang:n} (default
+// 20), gameRecords {lang:records}, gameIntro {lang:{day,count}}. The session
+// engine itself (scope filter, pacing, distractors, records) lives in
+// shared/game.js (SV_GAME) and shared/leitner.js (SV_LEITNER, via
+// VOCAB_GRADE/VOCAB_KNOWN worker-side) — this file only builds DOM and sends
+// messages, never reimplements that logic.
+let gamePool = [];        // every saved card, from VOCAB_LIST (each carries .key)
+let gameScopeAll = {};    // storage: gameScope
+let gamePaceAll = {};     // storage: gamePace
+let gameRecordsAll = {};  // storage: gameRecords
+let gameIntroAll = {};    // storage: gameIntro
+let gameSession = null;   // { lang, scope, pool, queue, i, correct, streak, speedBonuses, missed, missedKeys, startedAt }
+let ringDeadline = 0;     // Date.now() cutoff for the current card's ⚡ speed-bonus window
+let ringRAF = 0;
+let advanceTimer = 0;     // pending 800ms auto-advance after a correct answer — cleared on any round teardown
+
+const prefersReducedMotion = () => window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const todayKey = () => new Date().toLocaleDateString("sv"); // "sv" formats as YYYY-MM-DD — the local ISO day key
+
+async function loadGameStorage() {
+  const g = await chrome.storage.local.get(["gameScope", "gamePace", "gameRecords", "gameIntro"]);
+  gameScopeAll = g.gameScope || {};
+  gamePaceAll = g.gamePace || {};
+  gameRecordsAll = g.gameRecords || {};
+  gameIntroAll = g.gameIntro || {};
+}
+
+function deckStatus(cards) {
+  const now = Date.now();
+  let mastered = 0, due = 0;
+  for (const c of cards) {
+    const st = SV_GAME.status(c);
+    if (st === "mastered") mastered++;
+    else if (st === "learning" && (c.nextDueAt || 0) <= now) due++;
+  }
+  return { mastered, total: cards.length, hot: due > 0 };
+}
+
+// One bolded "filter word" (the source) plus the rest as plain muted text —
+// matches the .dscope contract from Task 2 (<b> is required for the teal color).
+function describeScope(scope) {
+  const s = scope || {};
+  const POS_LABEL = { verb: "verbs", noun: "nouns", adj: "adjectives", adv: "adverbs", phrase: "phrases", sep: "separable verbs" };
+  const rest = [s.minLevel ? s.minLevel + "+" : "", POS_LABEL[s.pos] || ""].filter(Boolean).join(" · ");
+  let filterWord = "Everything";
+  if (s.source && s.source.startsWith("base:")) filterWord = clipBase && s.source === "base:" + clipBase ? "this video" : "one video";
+  else if (s.source && s.source.startsWith("channel:")) filterWord = s.source.slice(8);
+  return { filterWord, rest };
+}
+
+function topChannels(lang, n) {
+  const counts = new Map();
+  for (const c of gamePool) {
+    if (c.lang !== lang || !c.channel || SV_GAME.status(c) === "mastered") continue;
+    counts.set(c.channel, (counts.get(c.channel) || 0) + 1);
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, n).map(([ch]) => ch);
+}
+
+async function renderDecks() {
+  const r = await send({ type: "VOCAB_LIST" });
+  gamePool = r.cards || [];
+  const box = el("deckCards");
+  box.innerHTML = "";
+  const byLang = new Map();
+  for (const c of gamePool) {
+    if (!byLang.has(c.lang)) byLang.set(c.lang, []);
+    byLang.get(c.lang).push(c);
+  }
+  if (!byLang.size) {
+    // Cards auto-exist, never created by hand — with nothing collected yet,
+    // the arcade just points down at the fold instead of showing an empty card.
+    const hint = document.createElement("div");
+    hint.className = "hint";
+    hint.textContent = "Collect words below and your first game appears here.";
+    box.appendChild(hint);
+  } else {
+    for (const [lang, cards] of byLang) box.appendChild(buildDeckCard(lang, cards));
+  }
+  updatePlayThese();
+}
+
+function buildDeckCard(lang, cards) {
+  const [, name, flag] = langMeta(lang);
+  const scope = gameScopeAll[lang] || { source: "", minLevel: "", pos: "" };
+  const st = deckStatus(cards);
+
+  const wrap = document.createElement("div");
+  const dcard = document.createElement("div");
+  dcard.className = "deckcard" + (st.hot ? " hot" : "");
+
+  const flagEl = document.createElement("span");
+  flagEl.className = "dflag";
+  flagEl.innerHTML = flag; // static table data — same pattern as the language chips elsewhere in this file
+
+  const info = document.createElement("div");
+  info.className = "dinfo";
+
+  const nameEl = document.createElement("div");
+  nameEl.className = "dname";
+  nameEl.textContent = name;
+
+  const scopeEl = document.createElement("div");
+  scopeEl.className = "dscope";
+  const { filterWord, rest } = describeScope(scope);
+  const bTag = document.createElement("b");
+  bTag.textContent = filterWord;
+  scopeEl.appendChild(bTag);
+  if (rest) scopeEl.append(" · " + rest);
+
+  const bar = document.createElement("div");
+  bar.className = "dbar";
+  const segs = st.total ? Math.min(3, Math.max(0, Math.round((st.mastered / st.total) * 3))) : 0;
+  for (let i = 0; i < 3; i++) {
+    const seg = document.createElement("span");
+    if (i < segs) seg.className = "on";
+    bar.appendChild(seg);
+  }
+
+  const change = document.createElement("button");
+  change.className = "linkbtn";
+  change.textContent = "Change";
+  change.addEventListener("click", () => toggleScopeSheet(lang, wrap));
+
+  info.append(nameEl, scopeEl, bar, change);
+
+  const play = document.createElement("button");
+  play.className = "btn-primary";
+  play.textContent = "Play";
+  play.addEventListener("click", () => startGame(lang));
+
+  dcard.append(flagEl, info, play);
+  wrap.appendChild(dcard);
+  return wrap;
+}
+
+// ── Scope "Change" sheet — inline, per deck card ────────────────────────────
+const POS_OPTIONS = [["", "All"], ["noun", "Nouns"], ["verb", "Verbs"], ["sep", "Separable"], ["phrase", "Phrases"]];
+const LEVEL_OPTIONS = [["", "All"], ["A2", "A2+"], ["B1", "B1+"], ["C1", "C1+"]];
+
+function toggleScopeSheet(lang, wrap) {
+  const existing = wrap.querySelector(".dsheet");
+  if (existing) { existing.remove(); return; }
+  const sheet = buildScopeSheet(lang);
+  sheet.className = "dsheet";
+  wrap.appendChild(sheet);
+}
+
+function buildScopeSheet(lang) {
+  const scope = gameScopeAll[lang] || { source: "", minLevel: "", pos: "" };
+  const sheet = document.createElement("div");
+  sheet.style.cssText = "margin-top:6px; padding:10px 12px; background:var(--surface); border:1px solid var(--border); border-radius:var(--r-md);";
+
+  const srcLbl = document.createElement("div");
+  srcLbl.className = "hint";
+  srcLbl.textContent = "Source";
+  sheet.appendChild(srcLbl);
+
+  const srcRow = document.createElement("div");
+  srcRow.className = "lnlvls";
+  srcRow.style.margin = "3px 0 8px";
+  const srcChips = [["", "Everything"]];
+  if (clipBase) srcChips.push(["base:" + clipBase, "This video"]);
+  for (const ch of topChannels(lang, 3)) srcChips.push(["channel:" + ch, ch]);
+  for (const [val, label] of srcChips) {
+    const chip = document.createElement("button");
+    chip.className = "lnlvl" + (scope.source === val ? " on" : "");
+    chip.textContent = label;
+    chip.addEventListener("click", () => setScopeField(lang, "source", val));
+    srcRow.appendChild(chip);
+  }
+  sheet.appendChild(srcRow);
+
+  const srcSearch = document.createElement("div");
+  srcSearch.className = "ac";
+  srcSearch.style.marginBottom = "10px";
+  const input = document.createElement("input");
+  input.type = "text";
+  input.placeholder = "Search a channel…";
+  input.autocomplete = "off";
+  const menu = document.createElement("div");
+  menu.className = "menu";
+  const runSearch = () => renderChannelSearch(lang, input.value, menu);
+  input.addEventListener("input", runSearch);
+  input.addEventListener("focus", runSearch);
+  // Closing the dropdown on an outside click is handled by ONE listener
+  // registered once at module scope below — not here, which would otherwise
+  // add a fresh document-level listener (never removed) every time a scope
+  // sheet is opened.
+  srcSearch.append(input, menu);
+  sheet.appendChild(srcSearch);
+
+  const lvlLbl = document.createElement("div");
+  lvlLbl.className = "hint";
+  lvlLbl.textContent = "Level";
+  sheet.appendChild(lvlLbl);
+  const lvlRow = document.createElement("div");
+  lvlRow.className = "lnlvls";
+  lvlRow.style.margin = "3px 0 8px";
+  for (const [val, label] of LEVEL_OPTIONS) {
+    const chip = document.createElement("button");
+    chip.className = "lnlvl" + (scope.minLevel === val ? " on" : "");
+    chip.textContent = label;
+    chip.addEventListener("click", () => setScopeField(lang, "minLevel", val));
+    lvlRow.appendChild(chip);
+  }
+  sheet.appendChild(lvlRow);
+
+  const posLbl = document.createElement("div");
+  posLbl.className = "hint";
+  posLbl.textContent = "Type";
+  sheet.appendChild(posLbl);
+  const posRow = document.createElement("div");
+  posRow.className = "lnlvls";
+  posRow.style.margin = "3px 0 8px";
+  for (const [val, label] of POS_OPTIONS) {
+    const chip = document.createElement("button");
+    chip.className = "lnlvl" + (scope.pos === val ? " on" : "");
+    chip.textContent = label;
+    chip.addEventListener("click", () => setScopeField(lang, "pos", val));
+    posRow.appendChild(chip);
+  }
+  sheet.appendChild(posRow);
+
+  const paceRow = document.createElement("div");
+  paceRow.className = "row";
+  paceRow.style.marginTop = "6px";
+  const paceLbl = document.createElement("span");
+  paceLbl.style.cssText = "min-width:98px; color:var(--muted); font-size:12px;";
+  paceLbl.textContent = "New words/day";
+  const paceRange = document.createElement("input");
+  paceRange.type = "range";
+  paceRange.min = "5"; paceRange.max = "50"; paceRange.step = "1";
+  paceRange.style.flex = "1";
+  paceRange.value = String(gamePaceAll[lang] || 20);
+  const paceVal = document.createElement("span");
+  paceVal.className = "sizeval";
+  paceVal.textContent = paceRange.value;
+  paceRange.addEventListener("input", () => { paceVal.textContent = paceRange.value; });
+  paceRange.addEventListener("change", () => setPace(lang, +paceRange.value));
+  paceRow.append(paceLbl, paceRange, paceVal);
+  sheet.appendChild(paceRow);
+
+  return sheet;
+}
+
+function renderChannelSearch(lang, q, menu) {
+  const query = (q || "").trim().toLowerCase();
+  const channels = [...new Set(gamePool.filter((c) => c.lang === lang && c.channel).map((c) => c.channel))]
+    .filter((c) => !query || c.toLowerCase().includes(query)).slice(0, 20);
+  menu.innerHTML = "";
+  if (!channels.length) { menu.innerHTML = '<div class="none">No match</div>'; menu.classList.add("show"); return; }
+  for (const ch of channels) {
+    const row = document.createElement("div");
+    row.className = "opt";
+    row.textContent = ch;
+    row.addEventListener("mousedown", (e) => { e.preventDefault(); setScopeField(lang, "source", "channel:" + ch); });
+    menu.appendChild(row);
+  }
+  menu.classList.add("show");
+}
+
+async function setScopeField(lang, field, value) {
+  gameScopeAll = (await chrome.storage.local.get("gameScope")).gameScope || {}; // re-read: see bumpIntro comment
+  const scope = { ...(gameScopeAll[lang] || { source: "", minLevel: "", pos: "" }) };
+  scope[field] = value;
+  gameScopeAll[lang] = scope;
+  await chrome.storage.local.set({ gameScope: gameScopeAll });
+  renderDecks(); // closes the sheet too — a rebuilt card has none open
+}
+
+async function setPace(lang, n) {
+  gamePaceAll = (await chrome.storage.local.get("gamePace")).gamePace || {}; // re-read: see bumpIntro comment
+  gamePaceAll[lang] = n;
+  await chrome.storage.local.set({ gamePace: gamePaceAll });
+}
+
+// One listener for every scope-sheet channel search, however many sheets get
+// opened and rebuilt over the popup's life — avoids stacking a fresh
+// document-level listener (never removed) on each "Change" click.
+document.addEventListener("mousedown", (e) => {
+  const openMenu = document.querySelector("#deckCards .menu.show");
+  if (openMenu && !openMenu.closest(".ac").contains(e.target)) openMenu.classList.remove("show");
+});
+
+function updatePlayThese() {
+  // Visible whenever this video has collected words — NOT gated on already
+  // having saved cards for it: the click handler auto-adds enriched words on
+  // the spot when there aren't enough saved yet (see below).
+  el("lnPlayThese").hidden = !(lnData && lnData.words && lnData.words.length);
+}
+el("lnPlayThese").addEventListener("click", async () => {
+  if (!lnData || !clipBase) return;
+  const btn = el("lnPlayThese");
+  const scope = { source: "base:" + clipBase, minLevel: "", pos: "" };
+  // Mastered cards never enter a round (SV_GAME.buildSession excludes them),
+  // so they don't count toward "enough to play" here either.
+  const playable = gamePool.filter((c) => c.base === clipBase && c.lang === lnData.lang && SV_GAME.status(c) !== "mastered").length;
+  if (playable < 4) {
+    const enrichedWords = (lnData.words || []).filter((w) => w.meaning);
+    if (!enrichedWords.length) {
+      // No meanings yet anywhere in this clip's pool — a round would have no
+      // options to quiz on. Same nudge as the enrich button already in the
+      // fold, rather than starting a dead round.
+      el("lnFoot").textContent = "Enrich this video's words first (button below) so they have meanings to quiz on.";
+      return;
+    }
+    btn.disabled = true;
+    try {
+      await send({ type: "VOCAB_ADD_MANY", lang: lnData.lang, videoTitle: lnData.title || "", base: clipBase,
+        channel: "", // popup-side adds don't know the channel (content-script-only); the base/video facet still scopes them
+        items: enrichedWords.map((w) => ({ word: w.w, sentence: w.sentence, translation: w.st || "", ms: w.ms || 0 })) });
+      const r = await send({ type: "VOCAB_LIST" });
+      gamePool = r.cards || [];
+    } finally {
+      btn.disabled = false;
+    }
+  }
+  startGameWithScope(lnData.lang, scope);
+});
+
+// ── Round engine ─────────────────────────────────────────────────────────
+function startGame(lang) {
+  startGameWithScope(lang, gameScopeAll[lang] || { source: "", minLevel: "", pos: "" });
+}
+
+function startGameWithScope(lang, scope) {
+  clearTimeout(advanceTimer);
+  const pace = gamePaceAll[lang] || 20;
+  const dayKey = todayKey();
+  const introEntry = gameIntroAll[lang];
+  const introducedToday = introEntry && introEntry.day === dayKey ? introEntry.count : 0;
+  const pool = gamePool.filter((c) => c.lang === lang);
+  const built = SV_GAME.buildSession({ cards: pool, scope, perDay: pace, introducedToday, now: Date.now(), rng: Math.random, size: 10 });
+  gameSession = {
+    lang, scope, pool,
+    queue: built.items.slice(),
+    originalTotal: built.items.length, // fixed at start — requeues grow queue.length, this doesn't
+    i: 0, correct: 0, streak: 0, speedBonuses: 0,
+    missed: [], missedKeys: new Set(),
+    startedAt: Date.now(),
+  };
+  el("arcade").hidden = true;
+  const foldSection = el("clipWordsFold").closest("section");
+  if (foldSection) foldSection.hidden = true;
+  el("gameView").hidden = false;
+  el("gameRing").hidden = true;
+  renderCard();
+}
+
+function backToArcade() {
+  gameSession = null;
+  stopRing();
+  clearTimeout(advanceTimer);
+  el("gameView").hidden = true;
+  el("arcade").hidden = false;
+  const foldSection = el("clipWordsFold").closest("section");
+  if (foldSection) foldSection.hidden = false;
+  renderDecks();
+}
+el("gameBack").addEventListener("click", backToArcade);
+
+function renderDots() {
+  const wrap = el("gameDots");
+  wrap.innerHTML = "";
+  gameSession.queue.forEach((_, idx) => {
+    const d = document.createElement("span");
+    if (idx < gameSession.i) d.className = "done";
+    else if (idx === gameSession.i) d.className = "current";
+    wrap.appendChild(d);
+  });
+}
+
+function stopRing() {
+  if (ringRAF) cancelAnimationFrame(ringRAF);
+  ringRAF = 0;
+}
+function startRing() {
+  const ring = el("gameRing");
+  const RING_MS = 6000;
+  ringDeadline = Date.now() + RING_MS;
+  // Reduced motion: no sweep to watch, but the ⚡ speed-bonus window still
+  // runs off ringDeadline underneath — the mechanic isn't purely decorative.
+  if (prefersReducedMotion()) { ring.hidden = true; return; }
+  ring.hidden = false;
+  ring.style.setProperty("--gr", "1");
+  const tick = () => {
+    const frac = Math.max(0, (ringDeadline - Date.now()) / RING_MS);
+    ring.style.setProperty("--gr", String(frac));
+    if (frac > 0) ringRAF = requestAnimationFrame(tick);
+  };
+  ringRAF = requestAnimationFrame(tick);
+}
+
+// Sentence with its target word lit amber, no surrounding quote marks at all
+// (design spec §1/§2) — same highlighting logic as lnSentence(), rebuilt here
+// because .gsent has no ancestor-scoped mark rule to lean on.
+function gameSentenceEl(sentence, word) {
+  const s = document.createElement("div");
+  s.className = "gsent";
+  const txt = sentence || "";
+  const i = word ? txt.toLowerCase().indexOf(String(word).toLowerCase()) : -1;
+  if (i < 0) { s.textContent = txt; return s; }
+  s.append(txt.slice(0, i));
+  const m = document.createElement("mark");
+  m.style.cssText = "background:transparent; color:var(--amber-600); font-style:normal; font-weight:600;";
+  m.textContent = txt.slice(i, i + word.length);
+  s.append(m, txt.slice(i + word.length));
+  return s;
+}
+
+function renderCard() {
+  const s = gameSession;
+  if (!s.queue.length) return renderEmptyRound();
+  if (s.i >= s.queue.length) return endRound();
+  const card = s.queue[s.i];
+  renderDots();
+  el("gameStreak").textContent = s.streak > 0 ? "🔥 " + s.streak : "";
+  const body = el("gameBody");
+  body.innerHTML = "";
+
+  body.appendChild(gameSentenceEl(card.sentence, card.word));
+
+  const wordRow = document.createElement("div");
+  wordRow.style.cssText = "display:flex; align-items:center; gap:8px; margin:4px 0 12px;";
+  const wordEl = document.createElement("span");
+  wordEl.className = "gword";
+  wordEl.textContent = card.art ? card.art + " " + card.word : card.word;
+  wordRow.appendChild(wordEl);
+  if (card.cefr && card.cefr !== "?") {
+    const lvl = document.createElement("span");
+    lvl.className = "lvl";
+    lvl.textContent = card.cefr;
+    wordRow.appendChild(lvl);
+  }
+  body.appendChild(wordRow);
+
+  // Options reshuffle position AND distractor set every appearance (spec §2).
+  const picks = SV_GAME.distractors(card, s.pool, Math.random, 3);
+  const options = SV_GAME.shuffle([card.meaning, ...picks], Math.random);
+  const optWrap = document.createElement("div");
+  for (const meaning of options) {
+    const opt = document.createElement("button");
+    opt.className = "gopt";
+    opt.dir = "auto";
+    opt.textContent = meaning;
+    opt.addEventListener("click", () => handleAnswer(card, meaning, optWrap));
+    optWrap.appendChild(opt);
+  }
+  body.appendChild(optWrap);
+
+  if (!prefersReducedMotion()) { body.classList.remove("gpop"); void body.offsetWidth; body.classList.add("gpop"); }
+  startRing();
+}
+
+function renderEmptyRound() {
+  el("gameDots").innerHTML = "";
+  el("gameStreak").textContent = "";
+  el("gameRing").hidden = true;
+  const body = el("gameBody");
+  body.innerHTML = "";
+  const msg = document.createElement("div");
+  msg.style.cssText = "text-align:center; color:var(--muted); padding:20px 0;";
+  const s = gameSession;
+  const inScope = (s.pool || []).filter((c) => SV_GAME.matchesScope(c, s.scope));
+  const hasEnriched = inScope.some((c) => SV_GAME.isEnriched(c));
+  msg.textContent = inScope.length && !hasEnriched
+    ? "These words need enriching first — open the video's fold or tap ✨ Enrich."
+    : "Nothing to play in this scope right now — try widening it.";
+  body.appendChild(msg);
+  const back = document.createElement("button");
+  back.className = "btn-primary";
+  back.style.cssText = "display:block; width:100%; margin-top:12px;";
+  back.textContent = "← Back";
+  back.addEventListener("click", backToArcade);
+  body.appendChild(back);
+}
+
+async function bumpIntro(lang) {
+  const dayKey = todayKey();
+  // Re-read before writing — a trainer tab can sit open for hours, and its
+  // boot-time copy would otherwise clobber a fresher count from the popup.
+  gameIntroAll = (await chrome.storage.local.get("gameIntro")).gameIntro || {};
+  const cur = gameIntroAll[lang];
+  gameIntroAll[lang] = cur && cur.day === dayKey ? { day: dayKey, count: cur.count + 1 } : { day: dayKey, count: 1 };
+  await chrome.storage.local.set({ gameIntro: gameIntroAll });
+}
+
+// Every answer commits instantly (popup close mid-round loses nothing) — the
+// grade itself always goes through VOCAB_GRADE/SV_LEITNER.grade worker-side.
+async function gradeCard(card, ok) {
+  const wasNew = SV_GAME.status(card) === "new";
+  const resp = await send({ type: "VOCAB_GRADE", key: card.key, ok });
+  if (resp && resp.card) Object.assign(card, resp.card);
+  if (wasNew) await bumpIntro(card.lang); // first grade of a "new" card counts as introduced
+}
+
+function recordMiss(card) {
+  if (gameSession.missedKeys.has(card.key)) return; // unique per round, however many times it's missed
+  gameSession.missedKeys.add(card.key);
+  gameSession.missed.push({ word: card.word, meaning: card.meaning, sentence: card.sentence });
+}
+
+function requeueCard(card) {
+  const s = gameSession;
+  const pos = Math.min(s.queue.length, s.i + 4); // 3 cards in between before it comes back around
+  s.queue.splice(pos, 0, card);
+}
+
+function showPlusOne(btn, withinRing) {
+  if (prefersReducedMotion()) return;
+  const badge = document.createElement("span");
+  badge.className = "gpop";
+  badge.style.cssText = "float:right; font-weight:800;";
+  badge.textContent = withinRing ? "+1 ⚡" : "+1";
+  btn.appendChild(badge);
+}
+
+// "💡 <meaning> = <its word> — <its sentence>" — the tapped distractor's own
+// word, found by tracing its meaning back to the pool card it came from.
+function showReveal(card, picked, optWrap) {
+  const owner = gameSession.pool.find((c) => c !== card && (c.meaning || "").trim() === picked);
+  const reveal = document.createElement("div");
+  reveal.className = "gopt reveal";
+  const parts = ["💡 " + picked];
+  if (owner) {
+    parts.push(" = " + owner.word);
+    if (owner.sentence) parts.push(" — " + owner.sentence);
+  }
+  reveal.textContent = parts.join(""); // textContent composition — never innerHTML for word-derived text
+  optWrap.appendChild(reveal);
+}
+
+function showNextButton() {
+  const body = el("gameBody");
+  const next = document.createElement("button");
+  next.className = "btn-primary";
+  next.style.cssText = "display:block; width:100%; margin-top:10px;";
+  next.textContent = "Next →";
+  next.addEventListener("click", () => { gameSession.i++; renderCard(); });
+  body.appendChild(next);
+}
+
+async function handleAnswer(card, picked, optWrap) {
+  const s = gameSession;
+  const withinRing = Date.now() < ringDeadline;
+  stopRing();
+  [...optWrap.children].forEach((btn) => { btn.disabled = true; });
+  const pickedBtn = [...optWrap.children].find((btn) => btn.textContent === picked);
+  const correctBtn = [...optWrap.children].find((btn) => btn.textContent === card.meaning);
+  const ok = picked === card.meaning;
+
+  await gradeCard(card, ok);
+
+  if (ok) {
+    pickedBtn.classList.add("hit");
+    if (!prefersReducedMotion()) pickedBtn.classList.add("gpop");
+    s.streak++;
+    s.correct++;
+    if (withinRing) s.speedBonuses++;
+    el("gameStreak").textContent = "🔥 " + s.streak + (withinRing ? " ⚡" : "");
+    showPlusOne(pickedBtn, withinRing);
+    advanceTimer = setTimeout(() => { advanceTimer = 0; s.i++; renderCard(); }, 800);
+  } else {
+    pickedBtn.classList.add("miss");
+    if (!prefersReducedMotion()) pickedBtn.classList.add("gshake");
+    if (correctBtn) correctBtn.classList.add("hit");
+    s.streak = 0;
+    el("gameStreak").textContent = "";
+    recordMiss(card);
+    showReveal(card, picked, optWrap);
+    requeueCard(card);
+    showNextButton(); // Next → only — no auto-advance on a miss
+  }
+}
+
+const RECORD_LABEL = { streak: "New streak record!", bestRound: "New best round!", fastestPerfect: "Fastest perfect round!", speedBonuses: "Most speed bonuses in a round!" };
+
+async function endRound() {
+  stopRing();
+  const s = gameSession;
+  const seconds = Math.round((Date.now() - s.startedAt) / 1000);
+  // total = the round's ORIGINAL size, not the live queue — requeues grow
+  // queue.length on every miss, which would understate the score (e.g. a
+  // 4-card round with one miss-then-retry showed "4/5" instead of "4/4").
+  // perfect still reads the live queue: it only ever equals s.correct when
+  // no requeue happened at all, i.e. zero mistakes anywhere in the round.
+  const round = { correct: s.correct, total: s.originalTotal, seconds, perfect: s.correct === s.queue.length, speedBonuses: s.speedBonuses };
+  const dayKey = todayKey();
+  gameRecordsAll = (await chrome.storage.local.get("gameRecords")).gameRecords || {}; // re-read: see bumpIntro comment
+  const { records, newRecords } = SV_GAME.updateRecords(gameRecordsAll[s.lang] || {}, round, dayKey);
+  gameRecordsAll[s.lang] = records;
+  await chrome.storage.local.set({ gameRecords: gameRecordsAll });
+  renderRoundEnd(round, records, newRecords, s);
+}
+
+function renderRoundEnd(round, records, newRecords, s) {
+  el("gameDots").innerHTML = "";
+  el("gameStreak").textContent = "";
+  el("gameRing").hidden = true;
+  const body = el("gameBody");
+  body.innerHTML = "";
+
+  const ring = document.createElement("div");
+  ring.className = "ringbig";
+  ring.style.setProperty("--gr", String(round.total ? round.correct / round.total : 0));
+  const ringLbl = document.createElement("span");
+  ringLbl.textContent = round.correct + "/" + round.total;
+  ring.appendChild(ringLbl);
+  body.appendChild(ring);
+
+  const meta = document.createElement("div");
+  meta.style.cssText = "text-align:center; color:var(--muted); font-size:11.5px; margin-top:6px;";
+  meta.textContent = round.seconds + "s" + (round.speedBonuses ? " · ⚡" + round.speedBonuses : "");
+  body.appendChild(meta);
+
+  // Records strip — quiet meta, not a stress number: day streak, best round,
+  // fastest perfect (design spec §2). Records only ever celebrate.
+  const stripBits = [];
+  if (records.streakDays) stripBits.push(records.streakDays + "-day streak");
+  // bestRound is a bare correct-count with no stored denominator, and it can
+  // be from a DIFFERENT (larger or smaller) round than the one just played —
+  // pairing it with round.total can read as "best round 8/3". No denominator
+  // at all, not even this round's, is the only honest option.
+  if (records.bestRound) stripBits.push("best round: " + records.bestRound);
+  if (records.fastestPerfectSec) stripBits.push("fastest perfect " + records.fastestPerfectSec + "s");
+  if (stripBits.length) {
+    const strip = document.createElement("div");
+    strip.style.cssText = "text-align:center; color:var(--muted); font-size:11px; margin-top:10px;";
+    strip.textContent = stripBits.join(" · ");
+    body.appendChild(strip);
+  }
+
+  if (newRecords.length) {
+    const banner = document.createElement("div");
+    banner.className = "recordbanner" + (prefersReducedMotion() ? "" : " gslide");
+    banner.textContent = "🏆 " + newRecords.map((k) => RECORD_LABEL[k] || k).join(" · ");
+    body.appendChild(banner);
+  }
+
+  if (s.missed.length) {
+    const lbl = document.createElement("div");
+    lbl.className = "lbl";
+    lbl.style.marginTop = "14px";
+    lbl.textContent = "Missed this round";
+    body.appendChild(lbl);
+    for (const m of s.missed) {
+      const row = document.createElement("div");
+      row.style.marginTop = "8px";
+      const w = document.createElement("div");
+      w.style.cssText = "font-weight:700; font-size:13px;";
+      w.textContent = m.word + " · " + m.meaning;
+      row.appendChild(w);
+      row.appendChild(gameSentenceEl(m.sentence, m.word));
+      body.appendChild(row);
+    }
+  }
+
+  const btnRow = document.createElement("div");
+  btnRow.style.cssText = "display:flex; gap:8px; margin-top:16px;";
+  const again = document.createElement("button");
+  again.className = "btn-primary";
+  again.style.flex = "1";
+  again.textContent = "One more round";
+  again.addEventListener("click", () => startGameWithScope(s.lang, s.scope));
+  const done = document.createElement("button");
+  done.className = "btn ghost";
+  done.style.flex = "1";
+  done.textContent = "Done";
+  done.addEventListener("click", backToArcade);
+  btnRow.append(again, done);
+  body.appendChild(btnRow);
 }
 
 // ── load ─────────────────────────────────────────────────────────────────────
@@ -1515,6 +2213,8 @@ async function load() {
   updateScope();
   loadThisVideo();
   updateFoldSummaries();
+  await loadGameStorage();
+  renderDecks();
 }
 
 // ── hidden tribute: tap the logo three times, or hold the version line ────────
