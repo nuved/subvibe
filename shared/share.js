@@ -23,8 +23,9 @@
 
   const MAX_CARDS = 5000;
   const MAX_NAME = 24;
-  const MAX_TEXT = 2 * 1024 * 1024; // 2MB raw text cap — reject before JSON.parse ever runs
+  const MAX_TEXT = 2 * 1024 * 1024; // 2M UTF-16 code units (string .length, not bytes) — reject before JSON.parse ever runs
   const NAME_CHARS = /[^A-Za-z0-9 _-]/g;
+  const LANG_RE = /^[a-z]{2,8}$/;
 
   // Builds a brand-new object by copying ONLY whitelisted, type/length-valid
   // fields off `raw` — never `{...raw}`, never `Object.assign({}, raw)`. This
@@ -55,27 +56,45 @@
     return String(name).replace(NAME_CHARS, "").trim().slice(0, MAX_NAME);
   }
 
-  function buildFilename(lang, cleanName) {
-    const code = String(lang || "");
-    const langPart = code.slice(0, 1).toUpperCase() + code.slice(1);
-    return cleanName ? `${langPart}-by-${cleanName}.svbox` : `${langPart}.svbox`;
+  // Feature-detected, never imported: shared/langs.js is optional to this
+  // pure module. When it's loaded (globalThis.svLangMeta from shared/langs.js,
+  // bound to globalThis so it's reachable from a node:test process too), use
+  // its display name ("de" → "German"); otherwise fall back to the
+  // capitalized code ("de" → "De"). `code` here is already regex-validated
+  // by the caller, but the result is guarded regardless — a hostile or
+  // future svLangMeta returning something odd never reaches the filename raw.
+  function langDisplayName(code) {
+    const meta = typeof globalThis.svLangMeta === "function" ? globalThis.svLangMeta(code) : null;
+    const fromMeta = meta && typeof meta[1] === "string" ? meta[1].trim() : "";
+    if (fromMeta) return fromMeta;
+    return code.slice(0, 1).toUpperCase() + code.slice(1);
   }
 
-  // No langMeta-style display-name table is available to this pure module,
-  // so the filename uses the lang CODE capitalized ("de" → "De"), not a full
-  // language name. A caller wanting "German-by-Nima.svbox" would need to
-  // rename the returned file client-side — documented, not implemented here.
+  function buildFilename(lang, cleanName) {
+    const langPart = langDisplayName(String(lang || ""));
+    let name = cleanName ? `${langPart}-by-${cleanName}.svbox` : `${langPart}.svbox`;
+    // Belt-and-suspenders: nothing in the current call graph can produce a
+    // leading '-' (langPart always starts with a letter), but a filename
+    // starting with '-' is a classic footgun once it reaches any shell/CLI
+    // (mistaken for a flag) — guard the OUTPUT, not just today's inputs.
+    if (name.startsWith("-")) name = "_" + name;
+    return name;
+  }
+
   function exportDeck(cards, lang, opts) {
+    if (!Array.isArray(cards)) return null;
+    const langCode = typeof lang === "string" ? lang.toLowerCase() : "";
+    if (!LANG_RE.test(langCode)) return null;
     const o = opts || {};
     const cleanName = sanitizeName(o.name);
     // requireWord: a card without a usable word would write an svbox entry
     // that validateImport itself would reject on re-import — so it's
     // silently dropped here rather than written out malformed. Real deck
     // cards always have a word; this only guards against bad input.
-    const outCards = (cards || []).map((c) => whitelistCard(c, { requireWord: true })).filter(Boolean);
-    const payload = { v: 1, kind: "svbox", lang, cards: outCards };
+    const outCards = cards.map((c) => whitelistCard(c, { requireWord: true })).filter(Boolean);
+    const payload = { v: 1, kind: "svbox", lang: langCode, cards: outCards };
     if (cleanName) payload.name = cleanName;
-    return { filename: buildFilename(lang, cleanName), text: JSON.stringify(payload) };
+    return { filename: buildFilename(langCode, cleanName), text: JSON.stringify(payload) };
   }
 
   function validateImport(text) {
@@ -92,7 +111,7 @@
     if (!data || typeof data !== "object" || Array.isArray(data)) return { ok: false, error: "parse-error" };
     if (data.v !== 1) return { ok: false, error: "bad-version" };
     if (data.kind !== "svbox") return { ok: false, error: "bad-kind" };
-    if (typeof data.lang !== "string" || !/^[a-z]{2,8}$/.test(data.lang)) return { ok: false, error: "bad-lang" };
+    if (typeof data.lang !== "string" || !LANG_RE.test(data.lang)) return { ok: false, error: "bad-lang" };
     if (!Array.isArray(data.cards)) return { ok: false, error: "bad-cards" };
     if (data.cards.length > MAX_CARDS) return { ok: false, error: "too-many-cards" };
 
@@ -118,7 +137,7 @@
   }
 
   function dedupeKey(lang, word) {
-    return String(lang) + ":" + String(word).toLowerCase();
+    return String(lang).toLowerCase() + ":" + String(word).toLowerCase();
   }
 
   // existingCards/importedCards are both treated as untrusted here too
@@ -126,24 +145,37 @@
   // validateImport's output, but mergeImport re-applies the same
   // whitelist-copy rather than trust that blindly).
   function mergeImport(existingCards, importedCards, lang) {
+    // Both args are expected to be arrays; a caller handing in an array-like
+    // (e.g. {0: card, length: 1}) instead of a real array would blow up the
+    // `for...of` below with an uncaught TypeError (array-likes aren't
+    // iterable) — fail closed with the same empty shape rather than throw.
+    if (!Array.isArray(existingCards) || !Array.isArray(importedCards)) return { toAdd: [], toUpdate: [] };
+
+    // Canonicalize the same way exportDeck/validateImport do. Without this,
+    // a caller passing "DE" here while existing cards carry lowercase
+    // .lang "de" would silently defeat both the filter below AND dedupeKey
+    // (which used to lowercase only the WORD half of the key) — every card
+    // would look "new" instead of matching, turning updates into duplicates.
+    const langCode = String(lang == null ? "" : lang).toLowerCase();
+
     // Real card objects carry their own .lang (decks are per-language) — guard
     // against a caller accidentally passing an unfiltered, multi-language
     // store by excluding any card whose OWN lang explicitly disagrees. Cards
     // silent on lang (no field at all) are still included, for callers that
     // already pre-filter to a single-language array before calling in.
     const byKey = new Map();
-    for (const c of existingCards || []) {
+    for (const c of existingCards) {
       if (!c || typeof c.word !== "string") continue;
-      if (c.lang !== undefined && c.lang !== lang) continue;
-      byKey.set(dedupeKey(lang, c.word), c);
+      if (c.lang !== undefined && String(c.lang).toLowerCase() !== langCode) continue;
+      byKey.set(dedupeKey(langCode, c.word), c);
     }
 
     const toAdd = [];
     const toUpdate = [];
-    for (const raw of importedCards || []) {
+    for (const raw of importedCards) {
       const imp = whitelistCard(raw, { requireWord: true });
       if (!imp) continue;
-      const key = dedupeKey(lang, imp.word);
+      const key = dedupeKey(langCode, imp.word);
       const existing = byKey.get(key);
       if (!existing) {
         toAdd.push(imp);
@@ -163,9 +195,12 @@
 
   function buildShareText(langName, count, opts) {
     const o = opts || {};
-    const name = typeof o.name === "string" ? o.name.trim() : "";
+    // sanitizeName (not a bare .trim()) so a name carrying "\n" or other
+    // control/markup characters can't inject extra lines or content into a
+    // message that's about to be pasted straight into WhatsApp/Telegram.
+    const name = sanitizeName(o.name);
     const lang = langName || "language";
-    const n = Number.isFinite(count) ? count : 0;
+    const n = Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0;
     const words = `${n} ${lang} word${n === 1 ? "" : "s"}`;
     const intro = name
       ? `${name} put together a deck of ${words} for you — a gift, free to play.`

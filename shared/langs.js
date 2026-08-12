@@ -73,4 +73,4 @@
   g.SV_LIVE_ALIAS = LIVE_ALIAS;
   // Resolve a code from EITHER set so both pickers can name any stored value.
   g.svLangMeta = (code) => META[code] || [code, (code || "").toUpperCase(), "🏳️"];
-})(window);
+})(globalThis);

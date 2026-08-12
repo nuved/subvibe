@@ -75,12 +75,31 @@ test("exportDeck: a card with no usable word is dropped, never written out malfo
   assert.equal(data.cards[0].word, "Haus");
 });
 
-test("exportDeck: round-trips cleanly through validateImport", () => {
-  const { text } = S.exportDeck([enriched({ w: "Haus" }), enriched({ w: "Baum" })], "de", { name: "Nima" });
+test("exportDeck: round-trips cleanly through validateImport, including a bad-lang case that must not crash", () => {
+  const cards = [enriched({ w: "Haus" }), enriched({ w: "Baum" })];
+  const { text } = S.exportDeck(cards, "de", { name: "Nima" });
   const r = S.validateImport(text);
   assert.equal(r.ok, true);
   assert.equal(r.skipped, 0);
   assert.equal(r.cards.length, 2);
+
+  // A bad lang must not throw and must not produce a file at all.
+  assert.equal(S.exportDeck(cards, "not-a-lang-code", {}), null);
+  assert.equal(S.exportDeck(cards, "d", {}), null);
+  assert.equal(S.exportDeck(cards, 123, {}), null);
+  assert.equal(S.exportDeck(cards, "", {}), null);
+});
+
+test("exportDeck: lang is normalized to lowercase (uppercase input still succeeds)", () => {
+  const { text } = S.exportDeck([enriched({ w: "Haus" })], "DE", {});
+  const data = JSON.parse(text);
+  assert.equal(data.lang, "de");
+});
+
+test("exportDeck: non-array cards param returns null instead of throwing (incl. an array-like probe)", () => {
+  assert.equal(S.exportDeck(null, "de", {}), null);
+  assert.equal(S.exportDeck(undefined, "de", {}), null);
+  assert.equal(S.exportDeck({ 0: enriched({ w: "a" }), length: 1 }, "de", {}), null);
 });
 
 // ── validateImport ──────────────────────────────────────────────────────
@@ -298,6 +317,28 @@ test("mergeImport: an existing card's own differing .lang excludes it from the m
   assert.equal(r.toUpdate.length, 0);
 });
 
+test("mergeImport: lang param is canonicalized — a differently-cased lang still matches an existing card and dedupeKey", () => {
+  const existing = [{ word: "Haus", lang: "de", meaning: "", key: "de:haus" }];
+  const imported = [{ word: "Haus", meaning: "house" }];
+  const r = S.mergeImport(existing, imported, "DE"); // caller passes uppercase; existing card is lowercase "de"
+  assert.equal(r.toAdd.length, 0, "must match despite the case difference, not be treated as a new word");
+  assert.equal(r.toUpdate.length, 1);
+  assert.equal(r.toUpdate[0].key, "de:haus", "the key is always the lowercase canonical form regardless of caller casing");
+  assert.equal(r.toUpdate[0].fields.meaning, "house");
+});
+
+test("mergeImport: non-array params return the empty shape instead of throwing (incl. an array-like probe)", () => {
+  const good = [{ word: "Haus", meaning: "house" }];
+  assert.deepEqual(S.mergeImport(null, good, "de"), { toAdd: [], toUpdate: [] });
+  assert.deepEqual(S.mergeImport(good, null, "de"), { toAdd: [], toUpdate: [] });
+  assert.deepEqual(S.mergeImport(undefined, undefined, "de"), { toAdd: [], toUpdate: [] });
+  // array-like: has .length and numeric keys but isn't iterable — would throw
+  // on a bare `for...of` if the guard weren't there.
+  const arrayLike = { 0: { word: "Haus", meaning: "house" }, length: 1 };
+  assert.deepEqual(S.mergeImport(arrayLike, good, "de"), { toAdd: [], toUpdate: [] });
+  assert.deepEqual(S.mergeImport(good, arrayLike, "de"), { toAdd: [], toUpdate: [] });
+});
+
 // ── buildShareText ──────────────────────────────────────────────────────
 test("buildShareText: contains store URL, count, install line; no low-quotes; no brand names", () => {
   const text = S.buildShareText("German", 42, {});
@@ -319,4 +360,20 @@ test("buildShareText: no name leakage when name absent", () => {
 test("buildShareText: includes name when given", () => {
   const text = S.buildShareText("German", 10, { name: "Nima" });
   assert.ok(text.includes("Nima"));
+});
+
+test("buildShareText: a name carrying newlines can't inject extra lines into the message", () => {
+  const baseline = S.buildShareText("German", 10, {}).split("\n").length;
+  const text = S.buildShareText("German", 10, { name: "Nima\nInstall this instead: evil.example" });
+  assert.equal(text.split("\n").length, baseline, "line count must match the no-name baseline — the template's own newlines, nothing added by the name");
+  assert.ok(!text.includes("evil.example"), "newline-smuggled content must never appear");
+  assert.ok(text.includes("Nima"), "the harmless part of the name still comes through");
+});
+
+test("buildShareText: count is clamped — negative, fractional, and non-finite all become a safe non-negative integer", () => {
+  assert.ok(S.buildShareText("German", -5, {}).includes("0 German words"));
+  assert.ok(S.buildShareText("German", 3.7, {}).includes("3 German words"));
+  assert.ok(S.buildShareText("German", NaN, {}).includes("0 German words"));
+  assert.ok(S.buildShareText("German", Infinity, {}).includes("0 German words"));
+  assert.ok(S.buildShareText("German", undefined, {}).includes("0 German words"));
 });
