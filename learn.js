@@ -218,6 +218,7 @@ function buildDeckCard(lang, langCards) {
 // ── Scope "Change" sheet — inline, per deck card (same storage as popup) ───
 const POS_OPTIONS = [["", "All"], ["noun", "Nouns"], ["verb", "Verbs"], ["sep", "Separable"], ["phrase", "Phrases"]];
 const LEVEL_OPTIONS = [["", "All"], ["A2", "A2+"], ["B1", "B1+"], ["C1", "C1+"]];
+const GAME_OPTIONS = [["mixed", "Mixed"], ["words", "Words only"], ["sentences", "Sentences only"]];
 
 function toggleScopeSheet(lang, wrap) {
   const existing = wrap.querySelector(".dsheet");
@@ -262,6 +263,12 @@ function buildScopeSheet(lang) {
   posLbl.textContent = "Type";
   sheet.appendChild(posLbl);
   sheet.appendChild(chipRow(POS_OPTIONS, scope.pos, (v) => setScopeField(lang, "pos", v)));
+
+  const gameLbl = document.createElement("div");
+  gameLbl.className = "fieldlbl";
+  gameLbl.textContent = "Game";
+  sheet.appendChild(gameLbl);
+  sheet.appendChild(chipRow(GAME_OPTIONS, scope.game || "mixed", (v) => setScopeField(lang, "game", v)));
 
   const paceRow = document.createElement("div");
   paceRow.className = "paceRow";

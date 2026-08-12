@@ -184,6 +184,15 @@
     return s;
   }
 
+  // mm:ss for the find-card source citation ("you heard it in <title> at 04:12") —
+  // minutes zero-padded too, matching the design spec's own example.
+  function fmtMmSs(ms) {
+    const totalSec = Math.max(0, Math.round(ms / 1000));
+    const m = Math.floor(totalSec / 60);
+    const sec = totalSec % 60;
+    return String(m).padStart(2, "0") + ":" + String(sec).padStart(2, "0");
+  }
+
   function renderCard() {
     const s = gameSession;
     if (!s.queue.length) return renderEmptyRound();
@@ -194,6 +203,23 @@
     const body = qs("gameBody");
     body.innerHTML = "";
 
+    // Kind picked per card at render time — mixing (or Words only / Sentences
+    // only via the Game scope row) never changes buildSession's pool, only
+    // which of the 4 templates a given card renders as this time round.
+    const gameMode = (s.scope && s.scope.game) || "mixed";
+    const kind = SV_GAME.pickKind(card, gameMode, Math.random);
+    if (kind === "builder") renderBuilderCard(card, SV_GAME.builderFor(card, Math.random), body);
+    else if (kind === "gap") renderGapCard(card, SV_GAME.gapFor(card), body);
+    else if (kind === "find") renderFindCard(card, SV_GAME.findFor(card), body);
+    else renderWordCard(card, body);
+
+    if (!reducedMotion()) { body.classList.remove("gpop"); void body.offsetWidth; body.classList.add("gpop"); }
+    startRing();
+  }
+
+  // ── Card type 1: word (meaning choice) — unchanged from step 1 ─────────────
+  function renderWordCard(card, body) {
+    const s = gameSession;
     body.appendChild(gameSentenceEl(card.sentence, card.word));
 
     const wordRow = document.createElement("div");
@@ -223,9 +249,229 @@
       optWrap.appendChild(opt);
     }
     body.appendChild(optWrap);
+  }
 
-    if (!reducedMotion()) { body.classList.remove("gpop"); void body.offsetWidth; body.classList.add("gpop"); }
-    startRing();
+  // ── Card type 2: sentence builder ───────────────────────────────────────────
+  // Tap a tray chip → moves into the answer strip in tap order; tap a placed
+  // chip → returns it to the tray. Check fires automatically once every chip
+  // is placed (no explicit submit button) — correctness is judged against
+  // `built.solution` array equality, never a rejoin-and-compare-strings shortcut
+  // (see task-2 report: solution.join(" ") rebuilding the sentence is whitespace-
+  // tokenization coincidence, not a contract).
+  function renderBuilderCard(card, built, body) {
+    const transEl = document.createElement("div");
+    transEl.className = "gsent";
+    transEl.dir = "auto";
+    transEl.textContent = card.sentenceT || card.meaning || "";
+    body.appendChild(transEl);
+
+    const strip = document.createElement("div");
+    strip.className = "gstrip";
+    body.appendChild(strip);
+
+    const tray = document.createElement("div");
+    tray.className = "gtray";
+    body.appendChild(tray);
+
+    let locked = false;
+
+    function trayChip(text) {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "gopt gchip";
+      chip.textContent = text;
+      chip.addEventListener("click", () => {
+        if (locked) return;
+        chip.remove();
+        strip.appendChild(stripChip(text));
+        if (strip.children.length === built.chips.length) checkBuilder();
+      });
+      return chip;
+    }
+    function stripChip(text) {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "gopt gchip placed";
+      chip.textContent = text;
+      chip.addEventListener("click", () => {
+        if (locked) return;
+        chip.remove();
+        tray.appendChild(trayChip(text));
+      });
+      return chip;
+    }
+    for (const c of built.chips) tray.appendChild(trayChip(c));
+
+    async function checkBuilder() {
+      locked = true;
+      const withinRing = Date.now() < ringDeadline;
+      stopRing();
+      strip.classList.add("glocked");
+      tray.classList.add("glocked");
+      const order = [...strip.children].map((c) => c.textContent);
+      const ok = order.length === built.solution.length && order.every((t, i) => t === built.solution[i]);
+      const s = gameSession;
+      await gradeCard(card, ok);
+      if (ok) {
+        strip.classList.add("hit");
+        if (!reducedMotion()) strip.classList.add("gpop");
+        s.streak++; s.correct++;
+        if (withinRing) s.speedBonuses++;
+        qs("gameStreak").textContent = "🔥 " + s.streak + (withinRing ? " ⚡" : "");
+        advanceTimer = setTimeout(() => { advanceTimer = 0; if (gameSession !== s) return; s.i++; renderCard(); }, 800);
+      } else {
+        strip.classList.add("miss");
+        if (!reducedMotion()) strip.classList.add("gshake");
+        s.streak = 0;
+        qs("gameStreak").textContent = "";
+        recordMiss(card);
+        const hint = document.createElement("div");
+        hint.className = "ghint";
+        hint.textContent = SV_GAME.builderHint(card);
+        qs("gameBody").appendChild(hint);
+        const correctRow = document.createElement("div");
+        correctRow.className = "gcorrect";
+        correctRow.textContent = built.solution.join(" ");
+        qs("gameBody").appendChild(correctRow);
+        requeueCard(card);
+        showNextButton();
+      }
+    }
+  }
+
+  // ── Card type 3: grammar gap (article) ──────────────────────────────────────
+  // before/after are exact slices of card.sentence (gapFor's contract) — render
+  // verbatim, never rejoined, so original spacing/casing survives untouched.
+  function renderGapCard(card, gap, body) {
+    const sentEl = document.createElement("div");
+    sentEl.className = "gsent";
+    sentEl.append(gap.before);
+    const blank = document.createElement("span");
+    blank.className = "ggap";
+    sentEl.append(blank);
+    sentEl.append(gap.after);
+    body.appendChild(sentEl);
+
+    const row = document.createElement("div");
+    row.className = "gartrow";
+    for (const opt of gap.options) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "gopt gart";
+      btn.textContent = opt;
+      btn.addEventListener("click", () => handleGapAnswer(card, gap, opt, row));
+      row.appendChild(btn);
+    }
+    body.appendChild(row);
+  }
+
+  async function handleGapAnswer(card, gap, picked, row) {
+    const withinRing = Date.now() < ringDeadline;
+    stopRing();
+    [...row.children].forEach((btn) => { btn.disabled = true; });
+    const pickedBtn = [...row.children].find((btn) => btn.textContent === picked);
+    const correctBtn = [...row.children].find((btn) => btn.textContent === gap.correct);
+    const ok = picked === gap.correct;
+    const s = gameSession;
+
+    await gradeCard(card, ok);
+
+    if (ok) {
+      pickedBtn.classList.add("hit");
+      if (!reducedMotion()) pickedBtn.classList.add("gpop");
+      s.streak++; s.correct++;
+      if (withinRing) s.speedBonuses++;
+      qs("gameStreak").textContent = "🔥 " + s.streak + (withinRing ? " ⚡" : "");
+      showPlusOne(pickedBtn, withinRing);
+      advanceTimer = setTimeout(() => { advanceTimer = 0; if (gameSession !== s) return; s.i++; renderCard(); }, 800);
+    } else {
+      pickedBtn.classList.add("miss");
+      if (!reducedMotion()) pickedBtn.classList.add("gshake");
+      if (correctBtn) correctBtn.classList.add("hit");
+      s.streak = 0;
+      qs("gameStreak").textContent = "";
+      recordMiss(card);
+      const rule = document.createElement("div");
+      rule.className = "ghint";
+      rule.textContent = SV_GAME.gapRule(card);
+      qs("gameBody").appendChild(rule);
+      requeueCard(card);
+      showNextButton();
+    }
+  }
+
+  // ── Card type 4: find it (separable prefix / verb) ──────────────────────────
+  // Sentence tokens (builder-tokenizer order, punctuation attached) rendered as
+  // tappable inline spans — no pre-marking of the answer (that would give it
+  // away). A wrong tap flashes and lets the round continue (no grade, no
+  // lockout, ring keeps running); the FIRST tap decides the eventual grade —
+  // later taps just help the player find it. Only the correct tap advances.
+  const ASK_LABEL = { prefix: "Tap the separable prefix", verb: "Tap the verb" };
+
+  function renderFindCard(card, found, body) {
+    let hadWrongTap = false;
+    let resolved = false;
+
+    const askLbl = document.createElement("div");
+    askLbl.className = "ghint";
+    askLbl.textContent = ASK_LABEL[found.ask] || "Tap the word";
+    body.appendChild(askLbl);
+
+    const sentEl = document.createElement("div");
+    sentEl.className = "gsent";
+    const btns = [];
+    found.tokens.forEach((tok, idx) => {
+      if (idx) sentEl.append(" ");
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "gtok";
+      btn.textContent = tok;
+      btn.addEventListener("click", () => onTap(idx, btn));
+      btns.push(btn);
+      sentEl.appendChild(btn);
+    });
+    body.appendChild(sentEl);
+
+    async function onTap(idx, btn) {
+      if (resolved) return;
+      if (idx !== found.answerIndex) {
+        hadWrongTap = true;
+        btn.classList.add("miss");
+        if (!reducedMotion()) { btn.classList.remove("gshake"); void btn.offsetWidth; btn.classList.add("gshake"); }
+        setTimeout(() => btn.classList.remove("miss", "gshake"), 350);
+        return;
+      }
+      resolved = true;
+      const withinRing = Date.now() < ringDeadline;
+      stopRing();
+      btns.forEach((b) => { b.disabled = true; });
+      btn.classList.add("hit");
+      if (!reducedMotion()) btn.classList.add("gpop");
+      const ok = !hadWrongTap;
+      const s = gameSession;
+
+      await gradeCard(card, ok);
+
+      if (ok) {
+        s.streak++; s.correct++;
+        if (withinRing) s.speedBonuses++;
+        qs("gameStreak").textContent = "🔥 " + s.streak + (withinRing ? " ⚡" : "");
+      } else {
+        s.streak = 0;
+        qs("gameStreak").textContent = "";
+        recordMiss(card);
+        requeueCard(card);
+      }
+      if (card.videoTitle) {
+        const reward = document.createElement("div");
+        reward.className = "greward";
+        let txt = "you heard it in " + card.videoTitle;
+        if (card.ms) txt += " at " + fmtMmSs(card.ms);
+        reward.textContent = txt;
+        qs("gameBody").appendChild(reward);
+      }
+      advanceTimer = setTimeout(() => { advanceTimer = 0; if (gameSession !== s) return; s.i++; renderCard(); }, 800);
+    }
   }
 
   function renderEmptyRound() {
@@ -341,7 +587,7 @@
       if (withinRing) s.speedBonuses++;
       qs("gameStreak").textContent = "🔥 " + s.streak + (withinRing ? " ⚡" : "");
       showPlusOne(pickedBtn, withinRing);
-      advanceTimer = setTimeout(() => { advanceTimer = 0; s.i++; renderCard(); }, 800);
+      advanceTimer = setTimeout(() => { advanceTimer = 0; if (gameSession !== s) return; s.i++; renderCard(); }, 800);
     } else {
       pickedBtn.classList.add("miss");
       if (!reducedMotion()) pickedBtn.classList.add("gshake");

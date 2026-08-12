@@ -14,12 +14,12 @@
   const now = Date.now();
   const DAY = 86400000;
   const deCards = [
-    { word: "Geduld", box: 1, cefr: "B1", pos: "noun", art: "die", meaning: "صبر، شکیبایی", sentence: "Man braucht viel Geduld beim Lernen.", sentenceT: "برای یادگیری صبر زیادی لازم است.", channel: "Easy German", videoTitle: "Café in Berlin", base: "youtube:demo1" },
+    { word: "Geduld", box: 1, cefr: "B1", pos: "noun", art: "die", meaning: "صبر، شکیبایی", sentence: "Die Geduld beim Lernen zahlt sich aus.", sentenceT: "شکیبایی در یادگیری ارزشش را دارد.", channel: "Easy German", videoTitle: "Café in Berlin", base: "youtube:demo1" },
     { word: "verbessern", box: 2, cefr: "B1", pos: "verb", meaning: "بهبود دادن", sentence: "Ich möchte mein Deutsch verbessern.", sentenceT: "می‌خواهم آلمانی‌ام را بهتر کنم.", channel: "Easy German", videoTitle: "Café in Berlin", base: "youtube:demo1" },
-    { word: "Erfahrung", box: 3, cefr: "A2", pos: "noun", art: "die", meaning: "تجربه", sentence: "Jede Reise ist eine neue Erfahrung.", channel: "Deutsch für Euch", videoTitle: "Reisen in Deutschland", base: "youtube:demo2" },
+    { word: "Erfahrung", box: 3, cefr: "A2", pos: "noun", art: "die", meaning: "تجربه", sentence: "Die Erfahrung hat mir sehr geholfen.", channel: "Deutsch für Euch", videoTitle: "Reisen in Deutschland", base: "youtube:demo2", ms: 252000 },
     { word: "neugierig", box: 2, cefr: "A2", pos: "adj", meaning: "کنجکاو", sentence: "Kinder sind von Natur aus neugierig.", channel: "Easy German", videoTitle: "Café in Berlin", base: "youtube:demo1" },
     { word: "Wortschatz", box: 4, cefr: "B2", pos: "noun", art: "der", meaning: "دایره واژگان", sentence: "Filme erweitern deinen Wortschatz.", channel: "Deutsch für Euch", videoTitle: "Reisen in Deutschland", base: "youtube:demo2" },
-    { word: "aufstehen", box: 1, cefr: "A2", pos: "verb", lemma: "auf|stehen", sep: true, meaning: "بلند شدن", sentence: "Ich stehe jeden Tag um sieben Uhr auf.", channel: "Easy German", videoTitle: "Café in Berlin", base: "youtube:demo1" },
+    { word: "aufstehen", box: 1, cefr: "A2", pos: "verb", lemma: "auf|stehen", sep: true, meaning: "بلند شدن", sentence: "Ich stehe jeden Tag um sieben Uhr auf.", channel: "Easy German", videoTitle: "Café in Berlin", base: "youtube:demo1", ms: 47000 },
     { word: "Möglichkeit", box: 5, cefr: "B1", pos: "noun", art: "die", meaning: "امکان", sentence: "Es gibt viele Möglichkeiten, Deutsch zu lernen.", channel: "Deutsch für Euch", videoTitle: "Reisen in Deutschland", base: "youtube:demo2" },
     { word: "erreichen", box: 5, cefr: "B1", pos: "verb", meaning: "رسیدن به", sentence: "Wir haben unser Ziel erreicht.", channel: "Easy German", videoTitle: "Café in Berlin", base: "youtube:demo1" },
     { word: "Freiheit", box: 0, cefr: "B2", pos: "noun", art: "die", meaning: "آزادی", sentence: "Freiheit bedeutet für jeden etwas anderes.", channel: "Deutsch für Euch", videoTitle: "Reisen in Deutschland", base: "youtube:demo2" },

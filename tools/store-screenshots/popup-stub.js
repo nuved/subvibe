@@ -34,18 +34,18 @@
     // `art` carries der/die/das separately, exactly like enrichment attaches it.
     // These two carry base: "youtube:demo" — the GET_CLIP stub's clip id —
     // so "Play only these →" on the fold has something to scope a round to.
-    { word: "Geduld", box: 1, cefr: "B1", pos: "noun", art: "die", meaning: "صبر، شکیبایی", sentence: "Man braucht viel Geduld beim Lernen.", channel: "Easy German", base: "youtube:demo" },
-    { word: "verbessern", box: 2, cefr: "B1", pos: "verb", meaning: "بهبود دادن", sentence: "Ich möchte mein Deutsch verbessern.", channel: "Easy German", base: "youtube:demo" },
-    { word: "Erfahrung", box: 3, cefr: "A2", pos: "noun", art: "die", meaning: "تجربه", sentence: "Jede Reise ist eine neue Erfahrung.", channel: "Deutsch für Euch" },
-    { word: "neugierig", box: 2, cefr: "A2", pos: "adj", meaning: "کنجکاو", sentence: "Kinder sind von Natur aus neugierig.", channel: "Easy German" },
-    { word: "Wortschatz", box: 4, cefr: "B2", pos: "noun", art: "der", meaning: "دایره واژگان", sentence: "Filme erweitern deinen Wortschatz.", channel: "Deutsch für Euch" },
-    { word: "aufstehen", box: 1, cefr: "A2", pos: "verb", lemma: "auf|stehen", meaning: "بلند شدن", sentence: "Ich stehe jeden Tag um sieben Uhr auf.", channel: "Easy German" },
-    { word: "Möglichkeit", box: 5, cefr: "B1", pos: "noun", art: "die", meaning: "امکان", sentence: "Es gibt viele Möglichkeiten, Deutsch zu lernen.", channel: "Deutsch für Euch" },
-    { word: "erreichen", box: 5, cefr: "B1", pos: "verb", meaning: "رسیدن به", sentence: "Wir haben unser Ziel erreicht.", channel: "Easy German" },
-    { word: "Freiheit", box: 0, cefr: "B2", pos: "noun", art: "die", meaning: "آزادی", sentence: "Freiheit bedeutet für jeden etwas anderes.", channel: "Deutsch für Euch" },
-    { word: "vorschlagen", box: 0, cefr: "B1", pos: "verb", lemma: "vor|schlagen", meaning: "پیشنهاد دادن", sentence: "Ich schlage vor, dass wir morgen anfangen.", channel: "Easy German" },
-    { word: "gemütlich", box: 3, cefr: "A2", pos: "adj", meaning: "دنج، راحت", sentence: "Das Café ist sehr gemütlich.", channel: "Deutsch für Euch" },
-    { word: "Herausforderung", box: 1, cefr: "B2", pos: "noun", art: "die", meaning: "چالش", sentence: "Das war eine große Herausforderung für mich.", channel: "Easy German" },
+    { word: "Geduld", box: 1, cefr: "B1", pos: "noun", art: "die", meaning: "صبر، شکیبایی", sentence: "Die Geduld beim Lernen zahlt sich aus.", sentenceT: "شکیبایی در یادگیری ارزشش را دارد.", channel: "Easy German", videoTitle: "Café in Berlin", base: "youtube:demo" },
+    { word: "verbessern", box: 2, cefr: "B1", pos: "verb", meaning: "بهبود دادن", sentence: "Ich möchte mein Deutsch verbessern.", sentenceT: "می‌خواهم آلمانی‌ام را بهتر کنم.", channel: "Easy German", videoTitle: "Café in Berlin", base: "youtube:demo" },
+    { word: "Erfahrung", box: 3, cefr: "A2", pos: "noun", art: "die", meaning: "تجربه", sentence: "Die Erfahrung hat mir sehr geholfen.", channel: "Deutsch für Euch", videoTitle: "Reisen in Deutschland", ms: 252000 },
+    { word: "neugierig", box: 2, cefr: "A2", pos: "adj", meaning: "کنجکاو", sentence: "Kinder sind von Natur aus neugierig.", channel: "Easy German", videoTitle: "Café in Berlin" },
+    { word: "Wortschatz", box: 4, cefr: "B2", pos: "noun", art: "der", meaning: "دایره واژگان", sentence: "Filme erweitern deinen Wortschatz.", channel: "Deutsch für Euch", videoTitle: "Reisen in Deutschland" },
+    { word: "aufstehen", box: 1, cefr: "A2", pos: "verb", lemma: "auf|stehen", meaning: "بلند شدن", sentence: "Ich stehe jeden Tag um sieben Uhr auf.", channel: "Easy German", videoTitle: "Café in Berlin", ms: 47000 },
+    { word: "Möglichkeit", box: 5, cefr: "B1", pos: "noun", art: "die", meaning: "امکان", sentence: "Es gibt viele Möglichkeiten, Deutsch zu lernen.", channel: "Deutsch für Euch", videoTitle: "Reisen in Deutschland" },
+    { word: "erreichen", box: 5, cefr: "B1", pos: "verb", meaning: "رسیدن به", sentence: "Wir haben unser Ziel erreicht.", channel: "Easy German", videoTitle: "Café in Berlin" },
+    { word: "Freiheit", box: 0, cefr: "B2", pos: "noun", art: "die", meaning: "آزادی", sentence: "Freiheit bedeutet für jeden etwas anderes.", channel: "Deutsch für Euch", videoTitle: "Reisen in Deutschland" },
+    { word: "vorschlagen", box: 0, cefr: "B1", pos: "verb", lemma: "vor|schlagen", meaning: "پیشنهاد دادن", sentence: "Ich schlage vor, dass wir morgen anfangen.", channel: "Easy German", videoTitle: "Café in Berlin" },
+    { word: "gemütlich", box: 3, cefr: "A2", pos: "adj", meaning: "دنج، راحت", sentence: "Das Café ist sehr gemütlich.", channel: "Deutsch für Euch", videoTitle: "Reisen in Deutschland" },
+    { word: "Herausforderung", box: 1, cefr: "B2", pos: "noun", art: "die", meaning: "چالش", sentence: "Das war eine große Herausforderung für mich.", channel: "Easy German", videoTitle: "Café in Berlin" },
   ].map((c, i) => {
     const graded = c.box > 0;
     return { key: "de:" + c.word.toLowerCase(), lang: "de", n: 1, addedAt: now - i * DAY,

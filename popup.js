@@ -1579,6 +1579,7 @@ function buildDeckCard(lang, cards) {
 // ── Scope "Change" sheet — inline, per deck card ────────────────────────────
 const POS_OPTIONS = [["", "All"], ["noun", "Nouns"], ["verb", "Verbs"], ["sep", "Separable"], ["phrase", "Phrases"]];
 const LEVEL_OPTIONS = [["", "All"], ["A2", "A2+"], ["B1", "B1+"], ["C1", "C1+"]];
+const GAME_OPTIONS = [["mixed", "Mixed"], ["words", "Words only"], ["sentences", "Sentences only"]];
 
 function toggleScopeSheet(lang, wrap) {
   const existing = wrap.querySelector(".dsheet");
@@ -1663,6 +1664,22 @@ function buildScopeSheet(lang) {
     posRow.appendChild(chip);
   }
   sheet.appendChild(posRow);
+
+  const gameLbl = document.createElement("div");
+  gameLbl.className = "hint";
+  gameLbl.textContent = "Game";
+  sheet.appendChild(gameLbl);
+  const gameRow = document.createElement("div");
+  gameRow.className = "lnlvls";
+  gameRow.style.margin = "3px 0 8px";
+  for (const [val, label] of GAME_OPTIONS) {
+    const chip = document.createElement("button");
+    chip.className = "lnlvl" + ((scope.game || "mixed") === val ? " on" : "");
+    chip.textContent = label;
+    chip.addEventListener("click", () => setScopeField(lang, "game", val));
+    gameRow.appendChild(chip);
+  }
+  sheet.appendChild(gameRow);
 
   const paceRow = document.createElement("div");
   paceRow.className = "row";
