@@ -74,6 +74,119 @@
     return pick(pool.filter((c) => c !== card), out);
   }
 
+  // Strips leading/trailing punctuation so "auf." and "Kino," compare equal
+  // to their bare word, without disturbing internal characters (umlauts, ß).
+  function cleanToken(tok) {
+    return String(tok || "").replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+  }
+
+  function sentenceTokens(card) {
+    const s = card && card.sentence;
+    if (!s || typeof s !== "string") return null;
+    const tokens = s.trim().split(/\s+/).filter(Boolean);
+    return tokens.length ? tokens : null;
+  }
+
+  // Playable range: too short has no order to scramble, too long is a slog.
+  function builderTokens(card) {
+    const tokens = sentenceTokens(card);
+    if (!tokens || tokens.length < 3 || tokens.length > 12) return null;
+    return tokens;
+  }
+
+  function builderFor(card, rng) {
+    const tokens = builderTokens(card);
+    if (!tokens) return null;
+    return { solution: tokens, chips: shuffle(tokens, rng) };
+  }
+
+  // Blanks the ONE occurrence of card.art sitting directly before the noun
+  // it declines — first match wins when a sentence has more than one.
+  function gapFor(card) {
+    if (!card || !/^(der|die|das)$/i.test(card.art || "")) return null;
+    const tokens = sentenceTokens(card);
+    if (!tokens) return null;
+    const art = String(card.art).toLowerCase();
+    const word = String(card.lemma || card.word || "");
+    if (!word) return null;
+    const stem = (word.length > 3 ? word.slice(0, -1) : word).toLowerCase();
+    for (let i = 0; i < tokens.length - 1; i++) {
+      if (cleanToken(tokens[i]).toLowerCase() !== art) continue;
+      const noun = cleanToken(tokens[i + 1]);
+      if (!noun || !/^\p{Lu}/u.test(noun)) continue;
+      if (!noun.toLowerCase().includes(stem)) continue;
+      return {
+        before: tokens.slice(0, i).join(" "),
+        after: tokens.slice(i + 1).join(" "),
+        options: ["der", "die", "das"],
+        correct: art,
+      };
+    }
+    return null;
+  }
+
+  // Separable verbs: the prefix rides at the end of the clause, so we hunt
+  // for it there first — the German word order the card is teaching.
+  function findFor(card) {
+    if (!card) return null;
+    const tokens = sentenceTokens(card);
+    if (!tokens) return null;
+    if (isSep(card)) {
+      const lemma = String(card.lemma || "");
+      if (!lemma.includes("|")) return null; // sep flagged but no usable prefix — bail conservatively
+      const prefix = lemma.split("|")[0].trim();
+      if (!prefix) return null;
+      let answerIndex = -1;
+      for (let i = 0; i < tokens.length; i++) {
+        if (cleanToken(tokens[i]).toLowerCase() === prefix.toLowerCase()) answerIndex = i; // last wins
+      }
+      return answerIndex === -1 ? null : { tokens, answerIndex, ask: "prefix" };
+    }
+    if (card.pos === "verb" && card.word) {
+      const idx = tokens.findIndex((t) => cleanToken(t).toLowerCase() === String(card.word).toLowerCase());
+      if (idx !== -1) return { tokens, answerIndex: idx, ask: "verb" };
+    }
+    return null;
+  }
+
+  function kindsFor(card) {
+    const kinds = ["word"];
+    if (builderTokens(card)) kinds.push("builder");
+    if (gapFor(card)) kinds.push("gap");
+    if (findFor(card)) kinds.push("find");
+    return kinds;
+  }
+
+  function pickKind(card, gameMode, rng) {
+    const sentenceKinds = kindsFor(card).filter((k) => k !== "word");
+    if (gameMode === "words") return "word";
+    if (gameMode === "sentences") {
+      if (!sentenceKinds.length) return "word";
+      return sentenceKinds[Math.floor(rng() * sentenceKinds.length)];
+    }
+    // mixed (default): ~40% word, the rest split across supported sentence kinds
+    if (!sentenceKinds.length) return "word";
+    if (rng() < 0.4) return "word";
+    return sentenceKinds[Math.floor(rng() * sentenceKinds.length)];
+  }
+
+  function builderHint(card) {
+    return card && isSep(card)
+      ? "Separable verbs: the prefix moves to the very end of the clause."
+      : "German main clauses put the conjugated verb in second position.";
+  }
+
+  const GENDER_WORD = { der: "masculine", die: "feminine", das: "neuter" };
+
+  function gapRule(card) {
+    if (!card || !/^(der|die|das)$/i.test(card.art || "")) return "";
+    const art = String(card.art).toLowerCase();
+    const word = card.lemma || card.word || "";
+    let s = `${art} ${word} — ${GENDER_WORD[art]}`;
+    if (card.note) s += `; ${card.note}`;
+    return s;
+  }
+
   function updateRecords(records, round, dayKey) {
     const r = { ...(records || {}) };
     const newRecords = [];
@@ -93,5 +206,8 @@
     return { records: r, newRecords };
   }
 
-  g.SV_GAME = { status, matchesScope, isEnriched, buildSession, distractors, shuffle, updateRecords };
+  g.SV_GAME = {
+    status, matchesScope, isEnriched, buildSession, distractors, shuffle, updateRecords,
+    builderFor, gapFor, findFor, kindsFor, pickKind, builderHint, gapRule,
+  };
 })(globalThis);

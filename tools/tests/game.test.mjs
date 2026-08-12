@@ -89,6 +89,145 @@ test("shuffle: permutation, deterministic under seeded rng, input untouched", ()
   assert.deepEqual(a, [1, 2, 3, 4, 5]);
 });
 
+test("builderFor: tokens, permutation chips, punctuation attached, length bounds, missing sentence", () => {
+  const c = card({ w: "gehen", sentence: "Ich gehe heute ins Kino." });
+  const b = G.builderFor(c, rng);
+  assert.deepEqual(b.solution, ["Ich", "gehe", "heute", "ins", "Kino."]);
+  assert.equal(b.solution.join(" "), c.sentence, "solution rejoins into the source sentence");
+  assert.deepEqual([...b.chips].sort(), [...b.solution].sort(), "chips are a permutation of solution");
+  assert.equal(b.chips.length, b.solution.length);
+
+  assert.equal(G.builderFor(card({ w: "x", sentence: "Zu kurz." }), rng), null, "2 tokens < 3 → null");
+  assert.ok(G.builderFor(card({ w: "x", sentence: "Drei Wörter hier." }), rng), "3 tokens is the playable floor");
+  const twelve = Array.from({ length: 12 }, (_, i) => "w" + i).join(" ");
+  assert.ok(G.builderFor(card({ w: "x", sentence: twelve }), rng), "12 tokens is the playable ceiling");
+  const thirteen = Array.from({ length: 13 }, (_, i) => "w" + i).join(" ");
+  assert.equal(G.builderFor(card({ w: "x", sentence: thirteen }), rng), null, "13 tokens > 12 → null");
+  assert.equal(G.builderFor(card({ w: "x", sentence: "" }), rng), null, "missing sentence → null");
+  assert.equal(G.builderFor(card({ w: "x", sentence: null }), rng), null, "null sentence → null");
+});
+
+test("gapFor: blanks the article before the noun; options fixed; art/absence → null; case-insensitive", () => {
+  const midSentence = card({ w: "Wortschatz", art: "der", sentence: "Ich finde, der Wortschatz ist schön." });
+  const g1 = G.gapFor(midSentence);
+  assert.deepEqual(g1.options, ["der", "die", "das"]);
+  assert.equal(g1.correct, "der");
+  assert.equal(g1.before, "Ich finde,");
+  assert.equal(g1.after, "Wortschatz ist schön.");
+  assert.equal(`${g1.before} ${g1.correct} ${g1.after}`, midSentence.sentence, "before + correct + after reconstructs the sentence");
+
+  // case-insensitivity: sentence-initial "Die" still matches art "die"
+  const initial = card({ w: "Geduld", art: "die", sentence: "Die Geduld ist wichtig beim Lernen." });
+  const g2 = G.gapFor(initial);
+  assert.equal(g2.before, "");
+  assert.equal(g2.correct, "die");
+  assert.equal(g2.after, "Geduld ist wichtig beim Lernen.");
+
+  assert.equal(G.gapFor(card({ w: "Zufall", sentence: "Der Zufall wollte es so." })), null, "no art field → null");
+  assert.equal(
+    G.gapFor(card({ w: "Erfahrung", art: "die", sentence: "Viele Erfahrungen prägen das Leben." })),
+    null,
+    "article not immediately before the noun (plural phrasing) → null",
+  );
+});
+
+test("findFor: separable prefix (last occurrence), plain verb token, else null, word-boundary discipline", () => {
+  const sep = card({ w: "aufstehen", p: "verb", lm: "auf|stehen", sep: true,
+    sentence: "Wenn ich auf Reisen bin, stehe ich immer früh auf." });
+  const f1 = G.findFor(sep);
+  assert.equal(f1.ask, "prefix");
+  // "auf" appears at token 2 ("auf" before "Reisen") and again as the final token — LAST wins.
+  assert.equal(f1.tokens[f1.answerIndex].replace(/[.,!?]+$/, ""), "auf");
+  assert.equal(f1.answerIndex, f1.tokens.length - 1);
+
+  const plainVerb = card({ w: "erreichen", p: "verb", sentence: "Wir haben unser Ziel erreicht." });
+  assert.equal(G.findFor(plainVerb), null, "conjugated form differs from the infinitive word → no token match");
+
+  const plainVerbToken = card({ w: "erreicht", p: "verb", sentence: "Wir haben unser Ziel erreicht." });
+  const f2 = G.findFor(plainVerbToken);
+  assert.equal(f2.ask, "verb");
+  assert.equal(f2.tokens[f2.answerIndex], "erreicht.");
+
+  const noun = card({ w: "Kino", p: "noun", sentence: "Wir gehen ins Kino heute." });
+  assert.equal(G.findFor(noun), null, "word appears as a token but pos isn't verb → null");
+
+  const buriedPrefix = card({ w: "aufmerksam", p: "adj", sep: true, lm: "auf|merksam",
+    sentence: "Sie war sehr aufmerksam im Unterricht." });
+  assert.equal(G.findFor(buriedPrefix), null, "prefix only inside another word, no standalone token → null");
+
+  assert.equal(G.findFor(card({ w: "x", sentence: "" })), null, "missing sentence → null");
+});
+
+test("kindsFor / pickKind: kinds mirror *For nullability; mode-driven selection with fallback", () => {
+  const full = card({ w: "aufstehen", p: "verb", lm: "auf|stehen", sep: true,
+    sentence: "Ich stehe jeden Tag früh auf." });
+  assert.deepEqual(G.kindsFor(full).sort(), ["builder", "find", "word"]);
+
+  const nounGap = card({ w: "Geduld", art: "die", sentence: "Die Geduld ist wichtig beim Lernen." });
+  const nounKinds = G.kindsFor(nounGap);
+  assert.ok(nounKinds.includes("gap") && nounKinds.includes("builder") && nounKinds.includes("word"));
+  assert.ok(!nounKinds.includes("find"));
+
+  const bare = card({ w: "x", sentence: "kurz." });
+  assert.deepEqual(G.kindsFor(bare), ["word"]);
+
+  for (let i = 0; i < 10; i++) assert.equal(G.pickKind(full, "words", rng), "word");
+
+  for (let i = 0; i < 20; i++) assert.notEqual(G.pickKind(full, "sentences", rng), "word");
+  assert.equal(G.pickKind(bare, "sentences", rng), "word", "no sentence kind supported → falls back to word");
+
+  const seen = new Set();
+  for (let i = 0; i < 60; i++) seen.add(G.pickKind(full, "mixed", rng));
+  assert.ok(seen.has("word"), "mixed still lands on word sometimes");
+  assert.ok(seen.has("builder") || seen.has("find"), "mixed reaches a sentence kind too");
+});
+
+test("builderHint / gapRule: non-empty plain strings, no low-first quotes, no HTML", () => {
+  const sep = card({ w: "aufstehen", p: "verb", lm: "auf|stehen", sep: true, sentence: "Ich stehe früh auf." });
+  const plain = card({ w: "gehen", p: "verb", sentence: "Ich gehe heute ins Kino." });
+  for (const c of [sep, plain]) {
+    const h = G.builderHint(c);
+    assert.ok(h && h.length > 0);
+    assert.ok(!h.includes("„"));
+    assert.ok(!/[<>]/.test(h));
+  }
+  assert.notEqual(G.builderHint(sep), G.builderHint(plain), "separable hint differs from the generic verb-second hint");
+
+  const noun = card({ w: "Geduld", art: "die", note: "-ung → die", sentence: "Die Geduld ist wichtig." });
+  const r = G.gapRule(noun);
+  assert.ok(r && r.length > 0);
+  assert.ok(!r.includes("„"));
+  assert.ok(!/[<>]/.test(r));
+  assert.ok(r.includes("die") && r.toLowerCase().includes("feminine") && r.includes("-ung"));
+
+  assert.equal(G.gapRule(card({ w: "x", sentence: "kurz." })), "", "no art → empty rule string");
+});
+
+test("null-safety: every new function tolerates null/undefined cards and pre-step2 cards missing fields", () => {
+  const fns = [
+    (c) => G.builderFor(c, rng),
+    (c) => G.gapFor(c),
+    (c) => G.findFor(c),
+    (c) => G.kindsFor(c),
+    (c) => G.pickKind(c, "mixed", rng),
+    (c) => G.builderHint(c),
+    (c) => G.gapRule(c),
+  ];
+  for (const nullish of [null, undefined]) {
+    for (const f of fns) assert.doesNotThrow(() => f(nullish));
+  }
+  // A card saved before step-2 shipped: no sentence, no art, no sep, no lemma, no pos.
+  const ancient = { word: "Wort", lang: "de", cefr: "B1", meaning: "word" };
+  for (const f of fns) assert.doesNotThrow(() => f(ancient));
+  assert.equal(G.builderFor(ancient, rng), null);
+  assert.equal(G.gapFor(ancient), null);
+  assert.equal(G.findFor(ancient), null);
+  assert.deepEqual(G.kindsFor(ancient), ["word"]);
+  assert.equal(G.pickKind(ancient, "mixed", rng), "word");
+  assert.ok(G.builderHint(ancient).length > 0);
+  assert.equal(G.gapRule(ancient), "");
+});
+
 test("records: streak counts consecutive days; bests only improve; new-record labels", () => {
   let r = { };
   let u = G.updateRecords(r, { correct: 8, total: 10, seconds: 42, speedBonuses: 5, perfect: false }, "2026-08-11");
