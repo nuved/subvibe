@@ -296,6 +296,31 @@
       optWrap.appendChild(feedback);
     }
 
+    // `auto` = resolved by elimination (the last untapped option), not a
+    // tap — gets an extra calm verdict line ABOVE the resolution block
+    // explaining why, since nothing was actually chosen. Re-invoked as its
+    // own "upgraded" callback so an on-demand ✨ Explain success re-renders
+    // this same wrapper (the verdict line included) instead of losing it.
+    function renderResolutionBlock(auto) {
+      const wrap = document.createElement("div");
+      if (auto) wrap.appendChild(verdictLine(true, "✓ the remaining one —"));
+      wrap.appendChild(wordCorrectBlock(card, () => renderResolutionBlock(auto)));
+      swapFeedback(wrap);
+    }
+
+    function resolveCorrect(btn, auto) {
+      btn.classList.add("hit");
+      if (!reducedMotion()) btn.classList.add("gpop");
+      if (firstTryOk) showPlusOne(btn, firstTryFast); // scoring was already decided on the first tap
+      renderResolutionBlock(auto);
+      for (const b of optionButtons) b.disabled = true; // resolved — no more taps
+      if (firstTryOk) {
+        advanceTimer = setTimeout(() => { advanceTimer = 0; if (gameSession !== s) return; s.i++; renderCard(); }, 800);
+      } else {
+        showNextButton(); // found it, but not on the first try — let them read
+      }
+    }
+
     async function onTap(picked, btn) {
       if (btn.disabled) return; // an already-struck option, or a resolved round, is inert
       const isCorrect = picked === card.meaning;
@@ -317,20 +342,19 @@
 
       btn.disabled = true;
       if (isCorrect) {
-        btn.classList.add("hit");
-        if (!reducedMotion()) btn.classList.add("gpop");
-        if (firstTryOk) showPlusOne(btn, firstTryFast); // scoring was already decided on the first tap
-        swapFeedback(wordCorrectBlock(card));
-        for (const b of optionButtons) b.disabled = true; // resolved — no more taps
-        if (firstTryOk) {
-          advanceTimer = setTimeout(() => { advanceTimer = 0; if (gameSession !== s) return; s.i++; renderCard(); }, 800);
-        } else {
-          showNextButton(); // found it, but not on the first try — let them read
-        }
+        resolveCorrect(btn, false);
       } else {
         btn.classList.add("miss");
         if (!reducedMotion()) btn.classList.add("gshake");
         swapFeedback(wordWrongLesson(s, card, picked));
+
+        // Last-option auto-resolve: elimination already proved the
+        // survivor (exactly one correct meaning exists among the options,
+        // and every other one is now struck) — no tap required. Grade
+        // semantics are unchanged: the FIRST tap already decided `ok`,
+        // long before this fires.
+        const remaining = optionButtons.filter((b) => !b.disabled);
+        if (remaining.length === 1) resolveCorrect(remaining[0], true);
       }
     }
 
@@ -679,35 +703,127 @@
   }
 
   // The resolution block for renderWordCard — replaces the old bare
-  // "✓ word=meaning" pairing line with a richer one. Line 1 is always
-  // "✓ <word> = <meaning>" (teal, same visual family as .hit — inline style
-  // copied from .gopt.hit, no CSS file touched); line 2 is the sentence's
-  // own translation when the card carries one (card.sentenceT); line 3 is
-  // the simple-language paraphrase ("≈ ") when present. Never bare when
-  // either exists; cleanly minimal (just line 1) when neither does. One
-  // wrapper div so onTap's swapFeedback can remove the whole thing as a unit
-  // (playtest fix: rich correct-answer teaching block).
-  function wordCorrectBlock(card) {
+  // "✓ word=meaning" pairing line with a richer one that NEVER stays thin.
+  // Line 1 is always "✓ <word> = <meaning>" (teal, same visual family as
+  // .hit — inline style copied from .gopt.hit, no CSS file touched); every
+  // OTHER teaching line the card actually has renders too, each
+  // independently guarded: the sentence's own translation (card.sentenceT),
+  // the simple-language paraphrase ("≈ ", card.para), the grammar/usage
+  // note (card.note), an example phrase (card.phrase, quoted via
+  // SV_QUOTES.wrap in the card's own language). When NONE of those four
+  // exist — an old card enriched before this shipped, or never enriched
+  // beyond its bare meaning — an on-demand ✨ Explain affordance replaces
+  // the silence instead of leaving the block at just line 1 (playtest fix:
+  // a 3-wrong-taps resolution on a thin card showed only the pairing line).
+  // `onUpgraded` fires once that on-demand enrichment succeeds, so the
+  // caller can re-render this same block now that the card carries fresh
+  // fields — see renderWordCard's renderResolutionBlock.
+  function wordCorrectBlock(card, onUpgraded) {
     const wrap = document.createElement("div");
     const head = document.createElement("div");
     head.className = "gopt";
     head.style.cssText = "background: var(--teal-100); color: var(--teal-600); font-weight: 700; cursor: default;";
     head.textContent = "✓ " + card.word + " = " + card.meaning;
     wrap.appendChild(head);
-    if (card.sentenceT) {
+
+    const hasSentenceT = !!card.sentenceT;
+    const hasPara = !!card.para;
+    const hasNote = !!card.note;
+    const hasPhrase = !!card.phrase;
+
+    if (hasSentenceT) {
       const tr = document.createElement("div");
       tr.className = "gsent";
       tr.dir = "auto";
       tr.textContent = card.sentenceT;
       wrap.appendChild(tr);
     }
-    if (card.para) {
+    if (hasPara) {
       const pa = document.createElement("div");
       pa.className = "ghint";
       pa.textContent = "≈ " + card.para;
       wrap.appendChild(pa);
     }
+    if (hasNote) {
+      const nt = document.createElement("div");
+      nt.className = "ghint";
+      nt.textContent = card.note;
+      wrap.appendChild(nt);
+    }
+    if (hasPhrase) {
+      const ph = document.createElement("div");
+      ph.className = "gsent";
+      ph.dir = "auto";
+      ph.textContent = SV_QUOTES.wrap(card.phrase, card.lang);
+      wrap.appendChild(ph);
+    }
+
+    if (!hasSentenceT && !hasPara && !hasNote && !hasPhrase) {
+      const slot = document.createElement("div");
+      wrap.appendChild(slot);
+      renderExplainAffordance(card, slot, onUpgraded);
+    }
+
     return wrap;
+  }
+
+  // Gates on the SAME storage keys popup.js's own hasKey check reads
+  // (updateSetupHero: apiKey/anthropicKey/geminiKey) — mirrors that
+  // established convention rather than inventing a new one. Async (a
+  // storage read via the existing adapter, current.storage), so it fills
+  // `slot` in place once resolved rather than blocking wordCorrectBlock's
+  // synchronous return.
+  async function renderExplainAffordance(card, slot, onUpgraded) {
+    const keys = await current.storage.get(["apiKey", "anthropicKey", "geminiKey"]);
+    if (!(keys.apiKey || keys.anthropicKey || keys.geminiKey)) {
+      const hint = document.createElement("div");
+      hint.className = "ghint";
+      hint.textContent = "enrich to see more";
+      slot.appendChild(hint);
+      return;
+    }
+    const label = "✨ Explain — uses your key";
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn-secondary";
+    btn.style.cssText = "margin-top:6px;";
+    btn.textContent = label;
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      btn.textContent = "…";
+      const result = await enrichCard(card);
+      if (result.error) {
+        btn.disabled = false;
+        btn.textContent = label;
+        const err = document.createElement("div");
+        err.className = "ghint";
+        err.textContent = result.error;
+        slot.appendChild(err);
+        return;
+      }
+      if (onUpgraded) onUpgraded(); // card now carries fresh fields — caller re-renders the whole block
+    });
+    slot.appendChild(btn);
+  }
+
+  // On-demand enrichment for ONE card, triggered from a resolved word-card's
+  // never-thin block. VOCAB_ENRICH — not VOCAB_WORD_ENRICH (the on-video
+  // hover-to-enrich path): that one persists to the CLIP cache
+  // (clipenrich:${base}), not this Leitner card, so a hover elsewhere would
+  // look upgraded while this exact card stayed bare forever. VOCAB_ENRICH
+  // writes the merged entry straight to idbVocabPut(card.key, …) — the
+  // permanent upgrade the spec asks for — but its response carries no
+  // entry data (just a count), so a VOCAB_LIST refetch pulls the
+  // freshly-persisted fields back: the same "enrich, then refetch" idiom
+  // learn.js's own deck-level "✨ Enrich" button already uses.
+  async function enrichCard(card) {
+    const resp = await current.send({ type: "VOCAB_ENRICH", keys: [card.key] });
+    if (!resp || resp.error) return { error: (resp && resp.error) || "couldn't enrich this word" };
+    if (!resp.enriched) return { error: resp.err || "couldn't enrich this word" };
+    const list = await current.send({ type: "VOCAB_LIST" });
+    const fresh = (list && list.cards || []).find((c) => c.key === card.key);
+    if (fresh) Object.assign(card, fresh); // same in-place mutation gradeCard already does
+    return { ok: true };
   }
 
   // One wrong tap's lesson for renderWordCard: the tapped distractor's own
