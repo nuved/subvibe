@@ -232,7 +232,7 @@
   }
 
   g.SV_GAME = {
-    status, matchesScope, isEnriched, buildSession, distractors, shuffle, updateRecords,
+    status, matchesScope, isEnriched, isSep, buildSession, distractors, shuffle, updateRecords,
     builderFor, gapFor, findFor, kindsFor, pickKind, builderHint, gapRule,
   };
 })(globalThis);

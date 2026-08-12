@@ -80,8 +80,9 @@ const ENRICH_SCHEMA = {
             meaning: { type: "string" },
             phrase: { type: "string" },
             note: { type: "string" },
+            sep: { type: "boolean" },
           },
-          required: ["lemma", "pos", "art", "plural", "cefr", "meaning", "phrase", "note"],
+          required: ["lemma", "pos", "art", "plural", "cefr", "meaning", "phrase", "note", "sep"],
         },
       },
     },
@@ -925,7 +926,8 @@ function enrichPrompt(source, target) {
     `- cefr: the word's CEFR level, A1–C2.\n` +
     `- meaning: a concise meaning in ${langName(target)}, matching the sentence's sense.\n` +
     `- phrase: ONE short, natural ${langName(source)} example phrase using the word.\n` +
-    `- note: a short usage or irregularity note when genuinely useful, else "-".` +
+    `- note: a short usage or irregularity note when genuinely useful, else "-".\n` +
+    `- sep: true ONLY for German separable verbs (trennbare Verben), false otherwise.` +
     ((target || "").split("-")[0] === "fa"
       ? `\nALL Persian output must be STANDARD IRANIAN FARSI — never Urdu: no Urdu letters (ہ ھ ے ٹ ڈ ڑ ں) and no Urdu words.`
       : "");
@@ -1795,7 +1797,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 merged.forEach((m, j) => {
                   // tl = the meaning's language: De→Fa data is a different pair
                   // than De→En and must never masquerade as it.
-                  cached0.e[batch[j].w.toLowerCase()] = faClean(target, { lemma: m.lemma, pos: m.pos, art: m.art, plural: m.plural, cefr: m.cefr, meaning: m.meaning, phrase: m.phrase, note: m.note, tl: target }, ENTRY_FA_KEYS);
+                  cached0.e[batch[j].w.toLowerCase()] = faClean(target, { lemma: m.lemma, pos: m.pos, art: m.art, plural: m.plural, cefr: m.cefr, meaning: m.meaning, phrase: m.phrase, note: m.note, sep: m.sep, tl: target }, ENTRY_FA_KEYS);
                 });
                 enriched += merged.length;
               } catch (e2) { lastErr = e2; }

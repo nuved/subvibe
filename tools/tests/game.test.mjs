@@ -27,6 +27,17 @@ test("scope: source, level floor, pos incl separable", () => {
   assert.ok(G.matchesScope(c, { source: "base:youtube:v1", minLevel: "", pos: "verb" }));
 });
 
+test("isSep: sep flag from enrichment (without pipe-lemma fallback)", () => {
+  const sepViaFlag = card({ w: "aufstehen", p: "verb", lm: "aufstehen", sep: true, c: "A2" });
+  assert.ok(G.isSep(sepViaFlag), "sep flag true identifies separable verb");
+
+  const nonSepViaFlag = card({ w: "gehen", p: "verb", lm: "gehen", sep: false, c: "A2" });
+  assert.ok(!G.isSep(nonSepViaFlag), "sep flag false is not separable");
+
+  const noSepField = card({ w: "erreichen", p: "verb", lm: "erreichen", c: "B1" });
+  assert.ok(!G.isSep(noSepField), "missing sep field defaults to false");
+});
+
 test("buildSession: due reviews first, new capped by pacing, size 10", () => {
   const due = Array.from({ length: 4 }, (_, i) => card({ w: "due" + i, lastGradedAt: 1, box: 1, nextDueAt: NOW - DAY }));
   const fresh = Array.from({ length: 30 }, (_, i) => card({ w: "new" + i }));
