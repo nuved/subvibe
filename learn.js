@@ -9,10 +9,9 @@
 // updates the same deck): gameScope, gamePace, gameRecords, gameIntro, all
 // keyed by language. The pure session engine (scope filter, pacing,
 // distractors, records) lives in shared/game.js (SV_GAME); the round LOOP
-// below is a lean, trainer-scaled duplicate of popup.js's arcade (see
-// popup.js's "Word game" section) — not factored into a shared module this
-// step, to avoid touching popup.js's already-shipped round loop; see the
-// task report for why.
+// itself (session start, card render, answer handling, round end) lives in
+// shared/gameui.js (SV_GAMEUI) — shared with popup.js's arcade — this file
+// only builds the Practice/Words pane DOM and hands rounds off to it.
 "use strict";
 
 const send = (msg) => new Promise((res) => chrome.runtime.sendMessage(msg, (r) => res(r || {})));
@@ -23,12 +22,8 @@ let gameScopeAll = {};    // storage: gameScope
 let gamePaceAll = {};     // storage: gamePace
 let gameRecordsAll = {};  // storage: gameRecords
 let gameIntroAll = {};    // storage: gameIntro
-let gameSession = null;   // { lang, scope, pool, queue, i, correct, streak, speedBonuses, missed, missedKeys, startedAt }
-let ringDeadline = 0, ringRAF = 0;
-let advanceTimer = 0;     // pending 800ms auto-advance after a correct answer — cleared on any round teardown
 
 const prefersReducedMotion = () => window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-const todayKey = () => new Date().toLocaleDateString("sv"); // "sv" formats as YYYY-MM-DD — the local ISO day key
 
 function toast(text) {
   const t = document.createElement("div");
@@ -288,7 +283,7 @@ function buildScopeSheet(lang) {
 }
 
 async function setScopeField(lang, field, value) {
-  gameScopeAll = (await chrome.storage.local.get("gameScope")).gameScope || {}; // re-read: see bumpIntro comment
+  gameScopeAll = (await chrome.storage.local.get("gameScope")).gameScope || {}; // re-read: a second tab/popup instance can write in between — see shared/gameui.js bumpIntro() for the same pattern
   const scope = { ...(gameScopeAll[lang] || { source: "", minLevel: "", pos: "" }) };
   scope[field] = value;
   gameScopeAll[lang] = scope;
@@ -296,353 +291,37 @@ async function setScopeField(lang, field, value) {
   renderPractice(); // closes the sheet too — a rebuilt card has none open
 }
 async function setPace(lang, n) {
-  gamePaceAll = (await chrome.storage.local.get("gamePace")).gamePace || {}; // re-read: see bumpIntro comment
+  gamePaceAll = (await chrome.storage.local.get("gamePace")).gamePace || {}; // re-read: a second tab/popup instance can write in between — see shared/gameui.js bumpIntro() for the same pattern
   gamePaceAll[lang] = n;
   await chrome.storage.local.set({ gamePace: gamePaceAll });
 }
 
-// ── Round engine — same mechanics as popup.js's arcade, trainer scale ──────
+// ── Round engine — delegates to the shared runner (shared/gameui.js) ───────
+// Everything session/round-specific (build, render, answer, requeue, round
+// end + records) lives in SV_GAMEUI now; this file only resolves the chrome
+// plumbing + this surface's own chrome (the schedule fold) and hands off.
+function onGameExit({ lang, records } = {}) {
+  if (lang && records) gameRecordsAll[lang] = records;
+  renderPractice();
+}
+
 function startGame(lang) {
   startGameWithScope(lang, gameScopeAll[lang] || { source: "", minLevel: "", pos: "" });
 }
 
 function startGameWithScope(lang, scope) {
-  clearTimeout(advanceTimer);
-  const pace = gamePaceAll[lang] || 20;
-  const dayKey = todayKey();
-  const introEntry = gameIntroAll[lang];
-  const introducedToday = introEntry && introEntry.day === dayKey ? introEntry.count : 0;
-  const pool = cards.filter((c) => c.lang === lang);
-  const built = SV_GAME.buildSession({ cards: pool, scope, perDay: pace, introducedToday, now: Date.now(), rng: Math.random, size: 10 });
-  gameSession = {
-    lang, scope, pool,
-    queue: built.items.slice(),
-    originalTotal: built.items.length, // fixed at start — requeues grow queue.length, this doesn't
-    i: 0, correct: 0, streak: 0, speedBonuses: 0,
-    missed: [], missedKeys: new Set(),
-    startedAt: Date.now(),
-  };
-  el("arcade").hidden = true;
-  el("scheduleFold").hidden = true;
-  el("gameView").hidden = false;
-  el("gameRing").hidden = true;
-  renderCard();
-}
-
-function backToArcade() {
-  gameSession = null;
-  stopRing();
-  clearTimeout(advanceTimer);
-  el("gameView").hidden = true;
-  el("arcade").hidden = false;
-  el("scheduleFold").hidden = false;
-  renderPractice();
-}
-el("gameBack").addEventListener("click", backToArcade);
-
-function renderDots() {
-  const wrap = el("gameDots");
-  wrap.innerHTML = "";
-  gameSession.queue.forEach((_, idx) => {
-    const d = document.createElement("span");
-    if (idx < gameSession.i) d.className = "done";
-    else if (idx === gameSession.i) d.className = "current";
-    wrap.appendChild(d);
+  SV_GAMEUI.start({
+    mount: document,
+    cards,
+    lang, scope,
+    perDay: gamePaceAll[lang] || 20,
+    introSeed: gameIntroAll,
+    storage: { get: (keys) => chrome.storage.local.get(keys), set: (obj) => chrome.storage.local.set(obj) },
+    send,
+    foldEl: el("scheduleFold"),
+    onExit: onGameExit,
+    ui: { reducedMotion: prefersReducedMotion, host: "learn" },
   });
-}
-
-function stopRing() {
-  if (ringRAF) cancelAnimationFrame(ringRAF);
-  ringRAF = 0;
-}
-function startRing() {
-  const ring = el("gameRing");
-  const RING_MS = 6000;
-  ringDeadline = Date.now() + RING_MS;
-  // Reduced motion: no sweep to watch, but the ⚡ speed-bonus window still
-  // runs off ringDeadline underneath — the mechanic isn't purely decorative.
-  if (prefersReducedMotion()) { ring.hidden = true; return; }
-  ring.hidden = false;
-  ring.style.setProperty("--gr", "1");
-  const tick = () => {
-    const frac = Math.max(0, (ringDeadline - Date.now()) / RING_MS);
-    ring.style.setProperty("--gr", String(frac));
-    if (frac > 0) ringRAF = requestAnimationFrame(tick);
-  };
-  ringRAF = requestAnimationFrame(tick);
-}
-
-// Sentence with its target word lit amber, no surrounding quote marks at all
-// (design spec §1/§2) — same highlighting logic as the Words-pane rows.
-function gameSentenceEl(sentence, word) {
-  const s = document.createElement("div");
-  s.className = "gsent";
-  const txt = sentence || "";
-  const i = word ? txt.toLowerCase().indexOf(String(word).toLowerCase()) : -1;
-  if (i < 0) { s.textContent = txt; return s; }
-  s.append(txt.slice(0, i));
-  const m = document.createElement("mark");
-  m.className = "amk";
-  m.textContent = txt.slice(i, i + word.length);
-  s.append(m, txt.slice(i + word.length));
-  return s;
-}
-
-function renderCard() {
-  const s = gameSession;
-  if (!s.queue.length) return renderEmptyRound();
-  if (s.i >= s.queue.length) return endRound();
-  const card = s.queue[s.i];
-  renderDots();
-  el("gameStreak").textContent = s.streak > 0 ? "🔥 " + s.streak : "";
-  const body = el("gameBody");
-  body.innerHTML = "";
-
-  body.appendChild(gameSentenceEl(card.sentence, card.word));
-
-  const wordRow = document.createElement("div");
-  wordRow.style.cssText = "display:flex; align-items:center; gap:8px; margin:4px 0 14px;";
-  const wordEl = document.createElement("span");
-  wordEl.className = "gword";
-  wordEl.textContent = card.art ? card.art + " " + card.word : card.word;
-  wordRow.appendChild(wordEl);
-  if (card.cefr && card.cefr !== "?") {
-    const lvl = document.createElement("span");
-    lvl.className = "lvl";
-    lvl.textContent = card.cefr;
-    wordRow.appendChild(lvl);
-  }
-  body.appendChild(wordRow);
-
-  // Options reshuffle position AND distractor set every appearance (spec §2).
-  const picks = SV_GAME.distractors(card, s.pool, Math.random, 3);
-  const options = SV_GAME.shuffle([card.meaning, ...picks], Math.random);
-  const optWrap = document.createElement("div");
-  for (const meaning of options) {
-    const opt = document.createElement("button");
-    opt.className = "gopt";
-    opt.dir = "auto";
-    opt.textContent = meaning;
-    opt.addEventListener("click", () => handleAnswer(card, meaning, optWrap));
-    optWrap.appendChild(opt);
-  }
-  body.appendChild(optWrap);
-
-  if (!prefersReducedMotion()) { body.classList.remove("gpop"); void body.offsetWidth; body.classList.add("gpop"); }
-  startRing();
-}
-
-function renderEmptyRound() {
-  el("gameDots").innerHTML = "";
-  el("gameStreak").textContent = "";
-  el("gameRing").hidden = true;
-  const body = el("gameBody");
-  body.innerHTML = "";
-  const msg = document.createElement("div");
-  msg.className = "empty-state";
-  const s = gameSession;
-  const inScope = (s.pool || []).filter((c) => SV_GAME.matchesScope(c, s.scope));
-  const hasEnriched = inScope.some((c) => SV_GAME.isEnriched(c));
-  msg.textContent = inScope.length && !hasEnriched
-    ? "These words need enriching first — open the video's fold or tap ✨ Enrich."
-    : "Nothing to play in this scope right now — try widening it.";
-  body.appendChild(msg);
-  const back = document.createElement("button");
-  back.className = "btn-primary";
-  back.style.cssText = "display:block; width:100%; margin-top:12px;";
-  back.textContent = "← Back";
-  back.addEventListener("click", backToArcade);
-  body.appendChild(back);
-}
-
-async function bumpIntro(lang) {
-  const dayKey = todayKey();
-  // Re-read before writing — a trainer tab can sit open for hours, and its
-  // boot-time copy would otherwise clobber a fresher count from the popup.
-  gameIntroAll = (await chrome.storage.local.get("gameIntro")).gameIntro || {};
-  const cur = gameIntroAll[lang];
-  gameIntroAll[lang] = cur && cur.day === dayKey ? { day: dayKey, count: cur.count + 1 } : { day: dayKey, count: 1 };
-  await chrome.storage.local.set({ gameIntro: gameIntroAll });
-}
-
-// Every answer commits instantly (closing the tab mid-round loses nothing) —
-// the grade itself always goes through VOCAB_GRADE/SV_LEITNER.grade worker-side.
-async function gradeCard(card, ok) {
-  const wasNew = SV_GAME.status(card) === "new";
-  const resp = await send({ type: "VOCAB_GRADE", key: card.key, ok });
-  if (resp && resp.card) Object.assign(card, resp.card);
-  if (wasNew) await bumpIntro(card.lang); // first grade of a "new" card counts as introduced
-}
-
-function recordMiss(card) {
-  if (gameSession.missedKeys.has(card.key)) return; // unique per round, however many times it's missed
-  gameSession.missedKeys.add(card.key);
-  gameSession.missed.push({ word: card.word, meaning: card.meaning, sentence: card.sentence });
-}
-
-function requeueCard(card) {
-  const s = gameSession;
-  const pos = Math.min(s.queue.length, s.i + 4); // 3 cards in between before it comes back around
-  s.queue.splice(pos, 0, card);
-}
-
-function showPlusOne(btn, withinRing) {
-  if (prefersReducedMotion()) return;
-  const badge = document.createElement("span");
-  badge.className = "gpop";
-  badge.style.cssText = "float:right; font-weight:800;";
-  badge.textContent = withinRing ? "+1 ⚡" : "+1";
-  btn.appendChild(badge);
-}
-
-// "💡 <meaning> = <its word> — <its sentence>" — the tapped distractor's own
-// word, found by tracing its meaning back to the pool card it came from.
-function showReveal(card, picked, optWrap) {
-  const owner = gameSession.pool.find((c) => c !== card && (c.meaning || "").trim() === picked);
-  const reveal = document.createElement("div");
-  reveal.className = "gopt reveal";
-  const parts = ["💡 " + picked];
-  if (owner) {
-    parts.push(" = " + owner.word);
-    if (owner.sentence) parts.push(" — " + owner.sentence);
-  }
-  reveal.textContent = parts.join(""); // textContent composition — never innerHTML for word-derived text
-  optWrap.appendChild(reveal);
-}
-
-function showNextButton() {
-  const body = el("gameBody");
-  const next = document.createElement("button");
-  next.className = "btn-primary";
-  next.style.cssText = "display:block; width:100%; margin-top:12px;";
-  next.textContent = "Next →";
-  next.addEventListener("click", () => { gameSession.i++; renderCard(); });
-  body.appendChild(next);
-}
-
-async function handleAnswer(card, picked, optWrap) {
-  const s = gameSession;
-  const withinRing = Date.now() < ringDeadline;
-  stopRing();
-  [...optWrap.children].forEach((btn) => { btn.disabled = true; });
-  const pickedBtn = [...optWrap.children].find((btn) => btn.textContent === picked);
-  const correctBtn = [...optWrap.children].find((btn) => btn.textContent === card.meaning);
-  const ok = picked === card.meaning;
-
-  await gradeCard(card, ok);
-
-  if (ok) {
-    pickedBtn.classList.add("hit");
-    if (!prefersReducedMotion()) pickedBtn.classList.add("gpop");
-    s.streak++;
-    s.correct++;
-    if (withinRing) s.speedBonuses++;
-    el("gameStreak").textContent = "🔥 " + s.streak + (withinRing ? " ⚡" : "");
-    showPlusOne(pickedBtn, withinRing);
-    advanceTimer = setTimeout(() => { advanceTimer = 0; s.i++; renderCard(); }, 800);
-  } else {
-    pickedBtn.classList.add("miss");
-    if (!prefersReducedMotion()) pickedBtn.classList.add("gshake");
-    if (correctBtn) correctBtn.classList.add("hit");
-    s.streak = 0;
-    el("gameStreak").textContent = "";
-    recordMiss(card);
-    showReveal(card, picked, optWrap);
-    requeueCard(card);
-    showNextButton(); // Next → only — no auto-advance on a miss
-  }
-}
-
-const RECORD_LABEL = { streak: "New streak record!", bestRound: "New best round!", fastestPerfect: "Fastest perfect round!", speedBonuses: "Most speed bonuses in a round!" };
-
-async function endRound() {
-  stopRing();
-  const s = gameSession;
-  const seconds = Math.round((Date.now() - s.startedAt) / 1000);
-  // total = the round's ORIGINAL size, not the live queue — requeues grow
-  // queue.length on every miss, which would understate the score.
-  const round = { correct: s.correct, total: s.originalTotal, seconds, perfect: s.correct === s.queue.length, speedBonuses: s.speedBonuses };
-  const dayKey = todayKey();
-  gameRecordsAll = (await chrome.storage.local.get("gameRecords")).gameRecords || {}; // re-read: see bumpIntro comment
-  const { records, newRecords } = SV_GAME.updateRecords(gameRecordsAll[s.lang] || {}, round, dayKey);
-  gameRecordsAll[s.lang] = records;
-  await chrome.storage.local.set({ gameRecords: gameRecordsAll });
-  renderRoundEnd(round, records, newRecords, s);
-}
-
-function renderRoundEnd(round, records, newRecords, s) {
-  el("gameDots").innerHTML = "";
-  el("gameStreak").textContent = "";
-  el("gameRing").hidden = true;
-  const body = el("gameBody");
-  body.innerHTML = "";
-
-  const ring = document.createElement("div");
-  ring.className = "ringbig";
-  ring.style.setProperty("--gr", String(round.total ? round.correct / round.total : 0));
-  const ringLbl = document.createElement("span");
-  ringLbl.textContent = round.correct + "/" + round.total;
-  ring.appendChild(ringLbl);
-  body.appendChild(ring);
-
-  const meta = document.createElement("div");
-  meta.style.cssText = "text-align:center; color:var(--muted); font-size:12px; margin-top:8px;";
-  meta.textContent = round.seconds + "s" + (round.speedBonuses ? " · ⚡" + round.speedBonuses : "");
-  body.appendChild(meta);
-
-  // Records strip — quiet meta, not a stress number. bestRound is a bare
-  // correct-count with no stored denominator (it can be from a different
-  // round size), so no denominator at all is the only honest option.
-  const stripBits = [];
-  if (records.streakDays) stripBits.push(records.streakDays + "-day streak");
-  if (records.bestRound) stripBits.push("best round: " + records.bestRound);
-  if (records.fastestPerfectSec) stripBits.push("fastest perfect " + records.fastestPerfectSec + "s");
-  if (stripBits.length) {
-    const strip = document.createElement("div");
-    strip.style.cssText = "text-align:center; color:var(--muted); font-size:12px; margin-top:12px;";
-    strip.textContent = stripBits.join(" · ");
-    body.appendChild(strip);
-  }
-
-  if (newRecords.length) {
-    const banner = document.createElement("div");
-    banner.className = "recordbanner" + (prefersReducedMotion() ? "" : " gslide");
-    banner.textContent = "🏆 " + newRecords.map((k) => RECORD_LABEL[k] || k).join(" · ");
-    body.appendChild(banner);
-  }
-
-  if (s.missed.length) {
-    const lbl = document.createElement("div");
-    lbl.className = "lbl";
-    lbl.style.cssText = "margin-top:18px; font-size:12.5px; font-weight:700; color:var(--ink-2);";
-    lbl.textContent = "Missed this round";
-    body.appendChild(lbl);
-    for (const m of s.missed) {
-      const row = document.createElement("div");
-      row.style.marginTop = "10px";
-      const w = document.createElement("div");
-      w.style.cssText = "font-weight:700; font-size:14px;";
-      w.textContent = m.word + " · " + m.meaning;
-      row.appendChild(w);
-      row.appendChild(gameSentenceEl(m.sentence, m.word));
-      body.appendChild(row);
-    }
-  }
-
-  const btnRow = document.createElement("div");
-  btnRow.style.cssText = "display:flex; gap:8px; margin-top:18px;";
-  const again = document.createElement("button");
-  again.className = "btn-primary";
-  again.style.flex = "1";
-  again.textContent = "One more round";
-  again.addEventListener("click", () => startGameWithScope(s.lang, s.scope));
-  const done = document.createElement("button");
-  done.className = "btn-secondary";
-  done.style.flex = "1";
-  done.textContent = "Done";
-  done.addEventListener("click", backToArcade);
-  btnRow.append(again, done);
-  body.appendChild(btnRow);
 }
 
 // ── "How the schedule works" fold ───────────────────────────────────────────
