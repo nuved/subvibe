@@ -193,6 +193,38 @@
     return String(m).padStart(2, "0") + ":" + String(sec).padStart(2, "0");
   }
 
+  // Renders SV_GAME.builderHint/gapRule's array as stacked lines inside ONE
+  // "ghint" container — the container keeps its existing styling (margin,
+  // muted color), each line is its own textContent div underneath it.
+  function renderHintLines(lines) {
+    const hint = document.createElement("div");
+    hint.className = "ghint";
+    for (const line of lines || []) {
+      const l = document.createElement("div");
+      l.textContent = line;
+      hint.appendChild(l);
+    }
+    qs("gameBody").appendChild(hint);
+  }
+
+  // Explicit ✗/✓ verdict — the FIRST thing appended to the feedback area for
+  // EVERY card kind, both outcomes (playtest fix: a wrong grade must never
+  // hide behind color-only cues — e.g. find's flashed-then-cleared wrong tap
+  // otherwise leaves no visible trace once the eventual right tap lands —
+  // and a correct-answer restatement, like builder's solution line below,
+  // must never read as ambiguous praise). Same technique as showReveal's ✓
+  // line: inline style copied from .gopt.hit/.gopt.miss's own declared
+  // colors — no CSS file touched. Short, symbol-led, no stress framing.
+  function verdictLine(ok) {
+    const v = document.createElement("div");
+    v.className = "gopt";
+    v.style.cssText = ok
+      ? "background: var(--teal-100); color: var(--teal-600); font-weight: 700; cursor: default;"
+      : "background: var(--coral-100); color: var(--coral-600); font-weight: 700; cursor: default;";
+    v.textContent = ok ? "✓" : "✗ Not quite";
+    return v;
+  }
+
   function renderCard() {
     const s = gameSession;
     if (!s.queue.length) return renderEmptyRound();
@@ -316,19 +348,25 @@
         strip.classList.add("hit");
         if (!reducedMotion()) strip.classList.add("gpop");
         settleAnswer(s, { ok: true, fast: withinRing });
+        qs("gameBody").appendChild(verdictLine(true));
         advanceTimer = setTimeout(() => { advanceTimer = 0; if (gameSession !== s) return; s.i++; renderCard(); }, 800);
       } else {
+        // The user's OWN built order stays visible exactly as tapped — the
+        // strip keeps its "miss" (coral) state, untouched below — so a wrong
+        // attempt is never silently replaced by the correct one.
         strip.classList.add("miss");
         if (!reducedMotion()) strip.classList.add("gshake");
         settleAnswer(s, { ok: false });
         recordMiss(s, card);
-        const hint = document.createElement("div");
-        hint.className = "ghint";
-        hint.textContent = SV_GAME.builderHint(card);
-        qs("gameBody").appendChild(hint);
+        qs("gameBody").appendChild(verdictLine(false));
+        renderHintLines(SV_GAME.builderHint(card));
+        // Explicit "✓ correct order:" label — an unlabeled teal sentence
+        // here previously read as ambiguous praise (playtest fix): the user
+        // couldn't tell whether it was celebrating their (wrong) input or
+        // correcting it.
         const correctRow = document.createElement("div");
         correctRow.className = "gcorrect";
-        correctRow.textContent = built.solution.join(" ");
+        correctRow.textContent = "✓ correct order: " + built.solution.join(" ");
         qs("gameBody").appendChild(correctRow);
         requeueCard(s, card);
         showNextButton();
@@ -378,6 +416,7 @@
       if (!reducedMotion()) pickedBtn.classList.add("gpop");
       settleAnswer(s, { ok: true, fast: withinRing });
       showPlusOne(pickedBtn, withinRing);
+      qs("gameBody").appendChild(verdictLine(true));
       advanceTimer = setTimeout(() => { advanceTimer = 0; if (gameSession !== s) return; s.i++; renderCard(); }, 800);
     } else {
       pickedBtn.classList.add("miss");
@@ -385,10 +424,8 @@
       if (correctBtn) correctBtn.classList.add("hit");
       settleAnswer(s, { ok: false });
       recordMiss(s, card);
-      const rule = document.createElement("div");
-      rule.className = "ghint";
-      rule.textContent = SV_GAME.gapRule(card);
-      qs("gameBody").appendChild(rule);
+      qs("gameBody").appendChild(verdictLine(false));
+      renderHintLines(SV_GAME.gapRule(card));
       requeueCard(s, card);
       showNextButton();
     }
@@ -445,6 +482,12 @@
       const s = gameSession;
 
       await gradeCard(card, ok);
+
+      // A wrong grade must stay visible: the flash on an earlier wrong tap
+      // already cleared itself, and the final tap always lands on the
+      // (now teal) correct token either way — without this line the round
+      // silently graded "wrong" behind what looked like a normal correct tap.
+      qs("gameBody").appendChild(verdictLine(ok));
 
       if (ok) {
         settleAnswer(s, { ok: true, fast: withinRing });
@@ -539,7 +582,7 @@
     if (!s || gameSession !== s) return;
     if (s.missedKeys.has(card.key)) return; // unique per round, however many times it's missed
     s.missedKeys.add(card.key);
-    s.missed.push({ word: card.word, meaning: card.meaning, sentence: card.sentence });
+    s.missed.push({ word: card.word, meaning: card.meaning, sentence: card.sentence, para: card.para });
   }
 
   function requeueCard(s, card) {
@@ -557,13 +600,33 @@
     btn.appendChild(badge);
   }
 
-  // "💡 <meaning> = <its word> — <its sentence>" — the tapped distractor's own
-  // word, found by tracing its meaning back to the pool card it came from.
-  // Same stale-session guard as recordMiss/requeueCard — it sits between
-  // those two calls in handleAnswer's wrong branch and reads the session's
-  // pool, so it needed the identical fix to actually close the race.
+  // Wrong-answer feedback, in order: (1) "✓ <word> = <meaning>" for the card
+  // that was actually asked — teal, same visual family as the .hit state
+  // (background/color values copied from .gopt.hit — no CSS file touched
+  // here, same technique as gameSentenceEl's inline amber mark below); (2) its
+  // simple-source-language paraphrase when enrichment provided one ("≈ " —
+  // a generic symbol prefix, never a hardcoded language name/label); (3) the
+  // tapped distractor's own word ("💡 <meaning> = <its word> — <its
+  // sentence>"), found by tracing its meaning back to the pool card it came
+  // from. Same stale-session guard as recordMiss/requeueCard — it sits
+  // between those two calls in handleAnswer's wrong branch and reads the
+  // session's pool, so it needed the identical fix to actually close the race.
   function showReveal(s, card, picked, optWrap) {
     if (!s || gameSession !== s) return;
+
+    const correct = document.createElement("div");
+    correct.className = "gopt";
+    correct.style.cssText = "background: var(--teal-100); color: var(--teal-600); font-weight: 700; cursor: default;";
+    correct.textContent = "✓ " + card.word + " = " + card.meaning;
+    optWrap.appendChild(correct);
+
+    if (card.para) {
+      const para = document.createElement("div");
+      para.className = "ghint";
+      para.textContent = "≈ " + card.para;
+      optWrap.appendChild(para);
+    }
+
     const owner = s.pool.find((c) => c !== card && (c.meaning || "").trim() === picked);
     const reveal = document.createElement("div");
     reveal.className = "gopt reveal";
@@ -602,6 +665,7 @@
       if (!reducedMotion()) pickedBtn.classList.add("gpop");
       settleAnswer(s, { ok: true, fast: withinRing });
       showPlusOne(pickedBtn, withinRing);
+      optWrap.appendChild(verdictLine(true));
       advanceTimer = setTimeout(() => { advanceTimer = 0; if (gameSession !== s) return; s.i++; renderCard(); }, 800);
     } else {
       pickedBtn.classList.add("miss");
@@ -609,6 +673,7 @@
       if (correctBtn) correctBtn.classList.add("hit");
       settleAnswer(s, { ok: false });
       recordMiss(s, card);
+      optWrap.appendChild(verdictLine(false));
       showReveal(s, card, picked, optWrap);
       requeueCard(s, card);
       showNextButton(); // Next → only — no auto-advance on a miss
@@ -694,6 +759,12 @@
         w.textContent = m.word + " · " + m.meaning;
         row.appendChild(w);
         row.appendChild(gameSentenceEl(m.sentence, m.word));
+        if (m.para) {
+          const p = document.createElement("div");
+          p.className = "ghint";
+          p.textContent = "≈ " + m.para;
+          row.appendChild(p);
+        }
         body.appendChild(row);
       }
     }

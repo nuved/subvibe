@@ -265,25 +265,72 @@ test("kindsFor / pickKind: kinds mirror *For nullability; mode-driven selection 
   assert.ok(seen.has("builder") || seen.has("find"), "mixed reaches a sentence kind too");
 });
 
-test("builderHint / gapRule: non-empty plain strings, no low-first quotes, no HTML", () => {
-  const sep = card({ w: "aufstehen", p: "verb", lm: "auf|stehen", sep: true, sentence: "Ich stehe früh auf." });
-  const plain = card({ w: "gehen", p: "verb", sentence: "Ich gehe heute ins Kino." });
-  for (const c of [sep, plain]) {
-    const h = G.builderHint(c);
-    assert.ok(h && h.length > 0);
-    assert.ok(!h.includes("„"));
-    assert.ok(!/[<>]/.test(h));
+test("builderHint: arrays — general rule always present; position-2/prefix-at-end lines ONLY when verified against real tokens", () => {
+  // Genuine verb-second sentence: card.word ("gehe") is the sentence's ACTUAL
+  // token at index 1 — the illustration is verified true and quoted verbatim.
+  const plain = card({ w: "gehe", p: "verb", sentence: "Ich gehe heute ins Kino." });
+  const plainHint = G.builderHint(plain);
+  assert.equal(plainHint[1], "Das Verb steht an Position 2: 'Ich gehe …'", "line 2 illustrates the rule with THIS sentence's actual tokens");
+  assert.equal(plainHint.length, 2, "no sep-prefix line, no note → exactly rule + verified illustration");
+
+  // Separable verb, prefix genuinely the LAST token: both claims verified.
+  const sepFinal = card({ w: "aufstehen", p: "verb", lm: "auf|stehen", sep: true, sentence: "Ich stehe früh auf." });
+  const sepFinalHint = G.builderHint(sepFinal);
+  assert.equal(sepFinalHint[1], "Das Verb steht an Position 2: 'Ich stehe …'");
+  assert.equal(sepFinalHint[2], "Das Präfix 'auf' steht am Satzende: '… auf.'", "sep verbs get an extra line naming the actual prefix token");
+
+  for (const h of [plainHint, sepFinalHint]) {
+    const joined = h.join(" ");
+    assert.ok(!joined.includes("„"));
+    assert.ok(!/[<>]/.test(joined));
   }
-  assert.notEqual(G.builderHint(sep), G.builderHint(plain), "separable hint differs from the generic verb-second hint");
+  assert.notEqual(G.builderHint(sepFinal)[0], G.builderHint(plain)[0], "separable rule line differs from the generic verb-second line");
 
-  const noun = card({ w: "Geduld", art: "die", note: "-ung → die", sentence: "Die Geduld ist wichtig." });
-  const r = G.gapRule(noun);
-  assert.ok(r && r.length > 0);
-  assert.ok(!r.includes("„"));
-  assert.ok(!/[<>]/.test(r));
-  assert.ok(r.includes("die") && r.toLowerCase().includes("feminine") && r.includes("-ung"));
+  const withNote = card({ w: "gehe", p: "verb", sentence: "Ich gehe heute ins Kino.", note: "irregular imperative" });
+  const noted = G.builderHint(withNote);
+  assert.equal(noted.length, 3);
+  assert.equal(noted[noted.length - 1], "irregular imperative", "card.note rides verbatim as the final line when present");
 
-  assert.equal(G.gapRule(card({ w: "x", sentence: "kurz." })), "", "no art → empty rule string");
+  // Fragment-safety (playtest repro): a verb-final subordinate-clause
+  // fragment must NEVER get a false "position 2" claim — omitted entirely,
+  // not asserted for a sentence that doesn't demonstrate it.
+  const verbFinal = card({ w: "ist", p: "verb", sentence: "bis nur noch deine Nähe ist." });
+  const verbFinalHint = G.builderHint(verbFinal);
+  assert.equal(verbFinalHint.length, 1, "verb sits at the end, not position 2 — line 2 omitted, never asserted falsely");
+  assert.ok(!verbFinalHint.join(" ").includes("Position 2"));
+
+  // Same fragment, a non-verb card — no verb identity to check at all, so
+  // line 2 never even attempts a claim.
+  const nonVerbFragment = card({ w: "Nähe", p: "noun", sentence: "bis nur noch deine Nähe ist." });
+  assert.equal(G.builderHint(nonVerbFragment).length, 1);
+
+  // Separable verb, prefix present but NOT the final token (a trailing
+  // subordinate clause) — neither claim is verifiable, both omitted together.
+  const sepNotFinal = card({ w: "aufstehen", p: "verb", lm: "auf|stehen", sep: true,
+    sentence: "Ich stehe auf, wenn der Wecker klingelt." });
+  assert.equal(G.builderHint(sepNotFinal).length, 1, "prefix isn't genuinely final — no false claim on either line");
+});
+
+test("gapRule: arrays — art/gender line, -ung/-heit/-keit pattern hint ONLY on a genuinely matching noun, optional note", () => {
+  const matching = card({ w: "Freiheit", art: "die", sentence: "Die Freiheit ist wichtig." });
+  const r1 = G.gapRule(matching);
+  assert.ok(Array.isArray(r1) && r1.length >= 2);
+  assert.equal(r1[0], "die Freiheit — feminine");
+  assert.ok(r1[1].includes("-heit") && r1[1].toLowerCase().includes("feminin"), "pattern line names the noun's actual suffix");
+  const joined1 = r1.join(" ");
+  assert.ok(!joined1.includes("„"));
+  assert.ok(!/[<>]/.test(joined1));
+
+  const nonMatching = card({ w: "Geduld", art: "die", sentence: "Die Geduld ist wichtig." });
+  const r2 = G.gapRule(nonMatching);
+  assert.deepEqual(r2, ["die Geduld — feminine"], "no false pattern hint on a noun that doesn't end in -ung/-heit/-keit");
+
+  const withNote = card({ w: "Freiheit", art: "die", note: "pl. Freiheiten", sentence: "Die Freiheit ist wichtig." });
+  const r3 = G.gapRule(withNote);
+  assert.equal(r3.length, 3);
+  assert.equal(r3[r3.length - 1], "pl. Freiheiten", "card.note rides verbatim as the final line when present");
+
+  assert.deepEqual(G.gapRule(card({ w: "x", sentence: "kurz." })), [], "no art → empty array, not an empty string");
 });
 
 test("null-safety: every new function tolerates null/undefined cards and pre-step2 cards missing fields", () => {
@@ -308,7 +355,7 @@ test("null-safety: every new function tolerates null/undefined cards and pre-ste
   assert.deepEqual(G.kindsFor(ancient), ["word"]);
   assert.equal(G.pickKind(ancient, "mixed", rng), "word");
   assert.ok(G.builderHint(ancient).length > 0);
-  assert.equal(G.gapRule(ancient), "");
+  assert.deepEqual(G.gapRule(ancient), []);
 });
 
 test("records: streak counts consecutive days; bests only improve; new-record labels", () => {

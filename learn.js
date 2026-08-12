@@ -482,6 +482,12 @@ function buildWordDetail(c) {
     n.textContent = c.note;
     d.appendChild(n);
   }
+  if (c.para) {
+    const pa = document.createElement("div");
+    pa.style.marginTop = "4px";
+    pa.textContent = "≈ " + c.para;
+    d.appendChild(pa);
+  }
   if (c.pos === "verb") {
     const conj = document.createElement("button");
     conj.className = "btn-secondary";

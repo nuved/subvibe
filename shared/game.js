@@ -162,6 +162,19 @@
     "ab", "an", "da", "um", "zu",
   ]);
 
+  // Stub/demo data names the separable prefix directly via a pipe
+  // ("auf|stehen"). Real enrichment always returns the REUNITED lemma
+  // ("aufstehen", no pipe) — fall back to matching it against the known
+  // prefix list (fail closed: no match → null). Shared by findFor (locating
+  // the prefix token) and builderHint (illustrating where it lands).
+  function prefixFor(card) {
+    if (!isSep(card)) return null;
+    const lemma = String((card && card.lemma) || "").toLowerCase();
+    if (lemma.includes("|")) return lemma.split("|")[0].trim() || null;
+    if (card && card.sep === true) return SEP_PREFIXES.find((p) => lemma.startsWith(p)) || null;
+    return null;
+  }
+
   // Separable verbs: the prefix rides at the end of the clause, so we hunt
   // for it there first — the German word order the card is teaching.
   function findFor(card) {
@@ -169,14 +182,7 @@
     const tokens = sentenceTokens(card);
     if (!tokens) return null;
     if (isSep(card)) {
-      const lemma = String(card.lemma || "").toLowerCase();
-      // Stub/demo data names the prefix directly via a pipe ("auf|stehen").
-      // Real enrichment always returns the REUNITED lemma ("aufstehen", no
-      // pipe) — fall back to matching it against the known prefix list and
-      // requiring a standalone sentence token (fail closed: no match → null).
-      let prefix = null;
-      if (lemma.includes("|")) prefix = lemma.split("|")[0].trim();
-      else if (card.sep === true) prefix = SEP_PREFIXES.find((p) => lemma.startsWith(p)) || null;
+      const prefix = prefixFor(card);
       if (!prefix) return null;
       let answerIndex = -1;
       for (let i = 0; i < tokens.length; i++) {
@@ -212,21 +218,75 @@
     return sentenceKinds[Math.floor(rng() * sentenceKinds.length)];
   }
 
+  // Multi-line composer: line 1 is the general rule, line 2 illustrates it
+  // against THIS card's own sentence tokens (a sep verb gets a further line
+  // pinpointing its actual prefix), and an optional final line surfaces the
+  // enrichment note verbatim. Returns an array of short strings — never a
+  // single joined string — so gameui can render each as its own stacked line.
+  //
+  // Line 2 (and the sep-prefix line) are FRAGMENT-SAFE: subtitle cues are
+  // often mid-sentence fragments ("bis nur noch deine Nähe ist." — verb
+  // final, not second: no verb-second claim holds here) or have a subject
+  // spanning more than one token (verb genuinely at index 2+, not index 1).
+  // Rather than blindly quote tokens[0]/tokens[1], each claim only renders
+  // once it's VERIFIED against the card's own data — never an illustration
+  // that contradicts the visible sentence (playtest fix). Line 1's general
+  // rule always stays; it's a standalone grammar fact, not a claim ABOUT
+  // this sentence.
   function builderHint(card) {
-    return card && isSep(card)
+    if (!card) return [];
+    const sep = isSep(card);
+    const lines = [sep
       ? "Separable verbs: the prefix moves to the very end of the clause."
-      : "German main clauses put the conjugated verb in second position.";
+      : "German main clauses put the conjugated verb in second position."];
+    const tokens = builderTokens(card);
+    if (tokens && tokens.length >= 2) {
+      if (sep) {
+        // Verified ONLY when the prefix is a standalone token AND it's
+        // genuinely the LAST one — a reunited form (subordinate clause,
+        // "weil ich früh aufstehe") or an interior placement (a trailing
+        // clause after the prefix) can't confirm either claim, so BOTH are
+        // omitted together rather than assert a half-true illustration.
+        const prefix = prefixFor(card);
+        const lastTok = tokens[tokens.length - 1];
+        if (prefix && cleanToken(lastTok).toLowerCase() === prefix) {
+          lines.push(`Das Verb steht an Position 2: '${tokens[0]} ${tokens[1]} …'`);
+          lines.push(`Das Präfix '${prefix}' steht am Satzende: '… ${lastTok}'`);
+        }
+      } else if (card.pos === "verb" && card.word && cleanToken(tokens[1]).toLowerCase() === String(card.word).toLowerCase()) {
+        // Verified ONLY when this is a verb-pos card AND its own surface
+        // form genuinely sits at index 1 — any other position (verb-final,
+        // multi-token subject) or no verb identity to check at all (a
+        // noun/adj/adv card) omits the line instead of guessing.
+        lines.push(`Das Verb steht an Position 2: '${tokens[0]} ${tokens[1]} …'`);
+      }
+    }
+    if (card.note) lines.push(card.note);
+    return lines;
   }
 
   const GENDER_WORD = { der: "masculine", die: "feminine", das: "neuter" };
+  // These three suffixes are (with vanishingly rare loanword exceptions)
+  // ALWAYS feminine in German — a genuine pattern worth teaching, unlike a
+  // generic "nouns can be gendered by ending" claim that doesn't hold up.
+  // Only fires when the noun's own ending actually matches AND the card's
+  // gender agrees (die) — never a false generality on a non-matching noun.
+  const FEMININE_SUFFIXES = ["ung", "heit", "keit"];
 
+  // Multi-line composer mirroring builderHint: line 1 is the existing art/
+  // gender line, an optional line 2 names the -ung/-heit/-keit pattern only
+  // when this noun genuinely fits it, and an optional final line surfaces
+  // the enrichment note verbatim. Empty array (not "") when there's no art.
   function gapRule(card) {
-    if (!card || !/^(der|die|das)$/i.test(card.art || "")) return "";
+    if (!card || !/^(der|die|das)$/i.test(card.art || "")) return [];
     const art = String(card.art).toLowerCase();
     const word = card.lemma || card.word || "";
-    let s = `${art} ${word} — ${GENDER_WORD[art]}`;
-    if (card.note) s += `; ${card.note}`;
-    return s;
+    const lines = [`${art} ${word} — ${GENDER_WORD[art]}`];
+    const lower = String(word).toLowerCase();
+    const suffix = art === "die" && FEMININE_SUFFIXES.find((suf) => lower.length > suf.length && lower.endsWith(suf));
+    if (suffix) lines.push(`Nomen auf '-${suffix}' sind (fast) immer feminin (die).`);
+    if (card.note) lines.push(card.note);
+    return lines;
   }
 
   function updateRecords(records, round, dayKey) {

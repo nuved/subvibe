@@ -108,6 +108,7 @@
         meaning: val(e.meaning) || "",
         phrase: val(e.phrase) || "",
         note: val(e.note),
+        para: val(e.para),
         sep: e.sep === true ? true : false,
       };
     });

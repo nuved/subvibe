@@ -1373,6 +1373,12 @@ function lnWordDetail(w, r, row, nEl) {
     nt.textContent = w.note;
     d.appendChild(nt);
   }
+  if (w.para) {
+    const pa = document.createElement("div");
+    pa.className = "note"; // same muted small-text family — no new CSS needed
+    pa.textContent = "≈ " + w.para;
+    d.appendChild(pa);
+  }
   const add = document.createElement("button");
   add.className = "lnadd";
   add.textContent = "Add to Leitner box";
