@@ -497,8 +497,13 @@ function buildWordRow(c) {
   const row = document.createElement("div");
   row.className = "wordrow";
 
-  const head = document.createElement("button");
+  // A row-level button once wrapped the "know it ✓" button below — invalid
+  // button-in-button nesting. A div+role="button" gives the same click/keyboard
+  // affordance without nesting an interactive element inside another.
+  const head = document.createElement("div");
   head.className = "wr-head";
+  head.setAttribute("role", "button");
+  head.tabIndex = 0;
   const top = document.createElement("span");
   top.className = "wr-top";
 
@@ -561,6 +566,16 @@ function buildWordRow(c) {
   head.addEventListener("click", () => {
     if (!detail) { detail = buildWordDetail(c); row.appendChild(detail); }
     row.classList.toggle("open");
+  });
+  // Native <button> gets Enter/Space-activates-click for free; a div role="button"
+  // needs it wired by hand. Guard on e.target so a keypress on the nested "know
+  // it ✓" button (which bubbles through here) doesn't double-fire the row toggle.
+  head.addEventListener("keydown", (e) => {
+    if (e.target !== head) return;
+    if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") {
+      e.preventDefault();
+      head.click();
+    }
   });
 
   return row;

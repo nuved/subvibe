@@ -1192,8 +1192,13 @@ function lnRenderRows() {
 function lnWordRow(w, r) {
   const b = document.createElement("div");
   b.className = "lnw";
-  const head = document.createElement("button");
+  // A row-level button once wrapped the "know it ✓" button below — invalid
+  // button-in-button nesting. A div+role="button" gives the same click/keyboard
+  // affordance without nesting an interactive element inside another.
+  const head = document.createElement("div");
   head.className = "head";
+  head.setAttribute("role", "button");
+  head.tabIndex = 0;
   const top = document.createElement("span");
   top.className = "top";
   // Status dot — gray new / orange learning / teal mastered — from the box +
@@ -1275,6 +1280,16 @@ function lnWordRow(w, r) {
   head.addEventListener("click", () => {
     if (!detail) { detail = lnWordDetail(w, r, b, n); b.appendChild(detail); }
     b.classList.toggle("open");
+  });
+  // Native <button> gets Enter/Space-activates-click for free; a div role="button"
+  // needs it wired by hand. Guard on e.target so a keypress on the nested "know
+  // it ✓" button (which bubbles through here) doesn't double-fire the row toggle.
+  head.addEventListener("keydown", (e) => {
+    if (e.target !== head) return;
+    if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") {
+      e.preventDefault();
+      head.click();
+    }
   });
   return b;
 }
@@ -1469,13 +1484,14 @@ async function loadGameStorage() {
 
 function deckStatus(cards) {
   const now = Date.now();
-  let mastered = 0, due = 0;
+  let nw = 0, learning = 0, mastered = 0, due = 0;
   for (const c of cards) {
     const st = SV_GAME.status(c);
-    if (st === "mastered") mastered++;
-    else if (st === "learning" && (c.nextDueAt || 0) <= now) due++;
+    if (st === "new") nw++;
+    else if (st === "mastered") mastered++;
+    else { learning++; if ((c.nextDueAt || 0) <= now) due++; }
   }
-  return { mastered, total: cards.length, hot: due > 0 };
+  return { new: nw, learning, mastered, total: cards.length, hot: due > 0 };
 }
 
 // One bolded "filter word" (the source) plus the rest as plain muted text —
@@ -1550,12 +1566,16 @@ function buildDeckCard(lang, cards) {
   scopeEl.appendChild(bTag);
   if (rest) scopeEl.append(" · " + rest);
 
+  // True composition bar — segment widths proportional to new/learning/mastered
+  // counts, same flexGrow math as the trainer's .tbar (learn.js buildDeckCard).
+  // No numerals here — the popup stays quiet.
   const bar = document.createElement("div");
   bar.className = "dbar";
-  const segs = st.total ? Math.min(3, Math.max(0, Math.round((st.mastered / st.total) * 3))) : 0;
-  for (let i = 0; i < 3; i++) {
+  for (const [key, n] of [["new", st.new], ["learning", st.learning], ["mastered", st.mastered]]) {
     const seg = document.createElement("span");
-    if (i < segs) seg.className = "on";
+    seg.className = "seg-" + key;
+    seg.style.flexGrow = String(n);
+    seg.style.flexBasis = "0";
     bar.appendChild(seg);
   }
 

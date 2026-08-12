@@ -67,12 +67,12 @@
     .tbar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--surface-2); }
     .tbar span { display: block; height: 100%; }
     .seg-new { background: var(--toggle-off); }
-    .seg-learning { background: #F4A261; }
+    .seg-learning { background: var(--learning); }
     .seg-mastered { background: var(--teal-600); }
     .tlegend { display: flex; gap: 14px; margin-top: 6px; color: var(--muted); font-size: 11px; }
     .tlegend .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 4px; vertical-align: 1px; }
     .tlegend .dot.new { background: var(--toggle-off); }
-    .tlegend .dot.learning { background: #F4A261; }
+    .tlegend .dot.learning { background: var(--learning); }
     .tlegend .dot.mastered { background: var(--teal-600); }
 
     /* ── round loop (same mechanics as the popup arcade, trainer scale) ── */
@@ -155,7 +155,7 @@
 
     .wdot { display: inline-block; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--toggle-off); }
     .wdot.new { background: var(--toggle-off); }
-    .wdot.learn { background: #F4A261; }
+    .wdot.learn { background: var(--learning); }
     .wdot.done { background: var(--teal-600); }
 
     /* ── "How the schedule works" fold ───────────────────────────────── */
