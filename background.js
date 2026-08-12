@@ -1606,7 +1606,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           // whitelist of writable fields) rather than trust an already-clean
           // payload, same discipline as shared/share.js's whitelistCard.
           const lang = typeof msg.lang === "string" ? msg.lang.toLowerCase() : "";
-          if (!/^[a-z]{2,8}$/.test(lang)) { sendResponse({ error: "bad lang" }); break; }
+          // isCardKey(lang + ":x") is false exactly when `lang` collides with
+          // a reserved internal key namespace (inbox/dismissed/clipenrich/
+          // clipgram) — two of those are short enough to pass the regex
+          // below, and a colliding lang would let BOTH toAdd's derived key
+          // (`${lang}:word`) and toUpdate's key.startsWith(lang+":") guard
+          // land inside a reserved prefix (review fix round 1).
+          if (!/^[a-z]{2,8}$/.test(lang) || !isCardKey(lang + ":x")) { sendResponse({ error: "bad lang" }); break; }
           // Same sanitizeName rule as shared/share.js: strip to [A-Za-z0-9 _-], cap 24.
           const gift = String(msg.name || "").replace(/[^A-Za-z0-9 _-]/g, "").trim().slice(0, 24);
           const toAddIn = Array.isArray(msg.toAdd) ? msg.toAdd.slice(0, 5000) : [];
@@ -1627,6 +1633,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             if (typeof raw.ms === "number" && Number.isFinite(raw.ms)) out.ms = raw.ms;
             return out;
           };
+          // Shared by both loops below: patch ONLY the whitelisted enrichment
+          // fields present in `raw` onto an already-stored `cur` card — never
+          // box/nextDueAt/lastGradedAt/history/n/key/gift. Returns false (no
+          // write happened) when `raw` carries nothing new, so a no-op merge
+          // never gets counted as though something changed.
+          const mergeOntoExisting = async (key, cur, raw) => {
+            const f = pickImportFields(raw);
+            if (!Object.keys(f).length) return false;
+            await idbVocabPut(key, { ...cur, ...f });
+            return true;
+          };
 
           const now = Date.now();
           let added = 0, updated = 0;
@@ -1636,6 +1653,23 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               if (!word || word.length > 80) continue;
               const clean = SV_VOCAB.tokenize(word)[0] || word;
               const key = `${lang}:${clean.toLowerCase()}`;
+              // vocabAdd is idempotent by always idbVocabGet-ing before it
+              // writes (background.js:275-306) — this loop has to be too.
+              // A "new" card can already have a row here: a second surface's
+              // concurrent import, a duplicate word within this same toAdd
+              // batch (an earlier iteration's write is already visible to
+              // this idbVocabGet), or a reimport whose file-side word didn't
+              // tokenize-match the CLIENT's dedupe key (mergeImport's own
+              // dedupeKey is a bare lowercase compare, not SV_VOCAB.tokenize
+              // — shared/share.js) even though it matches the key the SERVER
+              // derives right here. Any of those must never blindly overwrite
+              // an existing card's review state — merge onto it instead and
+              // count it as an update, not a fresh add (review fix round 1).
+              const cur = await idbVocabGet(key);
+              if (cur) {
+                if (await mergeOntoExisting(key, cur, raw)) updated++;
+                continue;
+              }
               const f = pickImportFields(raw);
               // Store defaults for a fresh card (vocabAdd's new-card shape) —
               // no review-state field ever arrives from the wire, so every one
@@ -1658,16 +1692,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           for (const u of toUpdateIn) {
             try {
               const key = typeof (u && u.key) === "string" ? u.key : "";
-              if (!key || !key.startsWith(lang + ":")) continue;
+              // isCardKey guard is belt-and-suspenders on top of the lang-level
+              // check above (review fix round 1) — key.startsWith(lang + ":")
+              // alone only excludes reserved namespaces THROUGH lang being
+              // clean; this keeps the exclusion correct even if that changes.
+              if (!key || !key.startsWith(lang + ":") || !isCardKey(key)) continue;
               const cur = await idbVocabGet(key);
               if (!cur) continue;
-              const f = pickImportFields(u.fields);
-              if (!Object.keys(f).length) continue;
-              // Only the whitelisted enrichment fields in `f` ever land here —
-              // box/nextDueAt/lastGradedAt/history/key stay whatever `cur`
-              // already had, never overwritten by an import.
-              await idbVocabPut(key, { ...cur, ...f });
-              updated++;
+              if (await mergeOntoExisting(key, cur, u.fields)) updated++;
             } catch {}
           }
           sendResponse({ ok: true, added, updated });
