@@ -22,6 +22,7 @@ let gameScopeAll = {};    // storage: gameScope
 let gamePaceAll = {};     // storage: gamePace
 let gameRecordsAll = {};  // storage: gameRecords
 let gameIntroAll = {};    // storage: gameIntro
+let shareName = "";       // storage: shareName — optional sender name for the share sheet, blank by default
 
 const prefersReducedMotion = () => window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -59,11 +60,12 @@ async function initTab() {
 
 // ── data ─────────────────────────────────────────────────────────────────
 async function loadGameStorage() {
-  const g = await chrome.storage.local.get(["gameScope", "gamePace", "gameRecords", "gameIntro"]);
+  const g = await chrome.storage.local.get(["gameScope", "gamePace", "gameRecords", "gameIntro", "shareName"]);
   gameScopeAll = g.gameScope || {};
   gamePaceAll = g.gamePace || {};
   gameRecordsAll = g.gameRecords || {};
   gameIntroAll = g.gameIntro || {};
+  shareName = typeof g.shareName === "string" ? g.shareName : "";
 }
 async function refresh() {
   const r = await send({ type: "VOCAB_LIST" });
@@ -118,7 +120,8 @@ function fmtRecordsStrip(records) {
 
 function renderPractice() {
   const box = el("deckCards");
-  box.innerHTML = "";
+  box.innerHTML = ""; // wipes any open share sheet's DOM too — drop the dangling reference
+  openShareSheet = null;
   const byLang = new Map();
   for (const c of cards) {
     if (!byLang.has(c.lang)) byLang.set(c.lang, []);
@@ -168,12 +171,19 @@ function buildDeckCard(lang, langCards) {
   change.addEventListener("click", () => toggleScopeSheet(lang, wrap));
   info.append(nameEl, scopeEl, change);
 
+  const share = document.createElement("button");
+  share.className = "btn-quiet dshare";
+  share.textContent = "⇪";
+  share.title = "Share this deck";
+  share.setAttribute("aria-label", "Share this deck");
+  share.addEventListener("click", () => toggleShareSheet(lang, langCards, wrap));
+
   const play = document.createElement("button");
   play.className = "btn-primary dplay";
   play.textContent = "Play";
   play.addEventListener("click", () => startGame(lang));
 
-  top.append(flagEl, info, play);
+  top.append(flagEl, info, share, play);
   dcard.appendChild(top);
 
   const stripTxt = fmtRecordsStrip(gameRecordsAll[lang]); // records only ever celebrate — nothing renders until there's something to celebrate
@@ -221,8 +231,9 @@ const LEVEL_OPTIONS = [["", "All"], ["A2", "A2+"], ["B1", "B1+"], ["C1", "C1+"]]
 const GAME_OPTIONS = [["mixed", "Mixed"], ["words", "Words only"], ["sentences", "Sentences only"]];
 
 function toggleScopeSheet(lang, wrap) {
-  const existing = wrap.querySelector(".dsheet");
+  const existing = wrap.querySelector(".dsheet:not(.sharesheet)");
   if (existing) { existing.remove(); return; }
+  closeCardShareSheet(wrap); // one inline sheet per card — the share sheet (if open here) makes way
   const sheet = buildScopeSheet(lang);
   sheet.className = "dsheet";
   wrap.appendChild(sheet);
@@ -302,6 +313,212 @@ async function setPace(lang, n) {
   gamePaceAll[lang] = n;
   await chrome.storage.local.set({ gamePace: gamePaceAll });
 }
+
+// ── Share sheet — inline, per deck card (shared/share.js: SV_SHARE, pure) ──
+// Only one share sheet open at a time, across every deck card — opening a
+// new one (or toggling the same card's) closes whatever else is open.
+let openShareSheet = null;
+
+function closeShareSheet() {
+  if (openShareSheet) openShareSheet.remove();
+  openShareSheet = null;
+}
+
+// Used by toggleScopeSheet (below) so opening the "Change" sheet on a card
+// that currently has its share sheet open closes that one first — otherwise
+// the two inline sheets stack under the same card.
+function closeCardShareSheet(wrap) {
+  const sheet = wrap.querySelector(".sharesheet");
+  if (sheet) { sheet.remove(); if (openShareSheet === sheet) openShareSheet = null; }
+}
+
+function toggleShareSheet(lang, langCards, wrap) {
+  const existing = wrap.querySelector(".sharesheet");
+  closeShareSheet();
+  if (existing) return; // was already open on this card — just closed it
+  const scopeSheet = wrap.querySelector(".dsheet:not(.sharesheet)");
+  if (scopeSheet) scopeSheet.remove(); // one inline sheet per card
+  const sheet = buildShareSheet(lang, langCards);
+  sheet.className = "dsheet sharesheet";
+  wrap.appendChild(sheet);
+  openShareSheet = sheet;
+}
+
+// exportDeck returns { filename, text } — the exportable cards live inside
+// the JSON `text`, not as a separate array on the return value. Deriving the
+// count FROM that text (rather than re-implementing exportDeck's own
+// requireWord filter here) means it can never drift from what's actually
+// shared.
+function exportedCardCount(exported) {
+  try { return (JSON.parse(exported.text).cards || []).length; } catch { return 0; }
+}
+
+function buildShareSheet(lang, langCards) {
+  const sheet = document.createElement("div");
+
+  const head = document.createElement("div");
+  head.className = "shead";
+  const headLbl = document.createElement("div");
+  headLbl.className = "fieldlbl";
+  headLbl.textContent = "Share this deck";
+  const closeBtn = document.createElement("button");
+  closeBtn.className = "btn-quiet";
+  closeBtn.textContent = "✕";
+  closeBtn.title = "Close";
+  closeBtn.setAttribute("aria-label", "Close share sheet");
+  closeBtn.addEventListener("click", closeShareSheet);
+  head.append(headLbl, closeBtn);
+  sheet.appendChild(head);
+
+  // exportDeck returns null on bad input (non-array cards, malformed lang) —
+  // langCards/lang always come from a real deck card here, but guard anyway
+  // rather than let a null.text throw.
+  let exported = SV_SHARE.exportDeck(langCards, lang, { name: shareName });
+  if (!exported) {
+    const err = document.createElement("div");
+    err.className = "muted";
+    err.style.cssText = "font-size:12.5px; padding:2px 0;";
+    err.textContent = "Couldn't prepare this deck for sharing.";
+    sheet.appendChild(err);
+    return sheet;
+  }
+
+  const [, langDisplayName] = window.svLangMeta(lang);
+
+  const nameLbl = document.createElement("div");
+  nameLbl.className = "fieldlbl";
+  nameLbl.textContent = "Your name (optional)";
+  sheet.appendChild(nameLbl);
+  const nameInput = document.createElement("input");
+  nameInput.type = "text";
+  nameInput.className = "field";
+  nameInput.placeholder = "Blank — no name in the gift";
+  nameInput.maxLength = 24; // matches SV_SHARE's own sanitizeName cap
+  nameInput.value = shareName;
+  sheet.appendChild(nameInput);
+
+  const msgLbl = document.createElement("div");
+  msgLbl.className = "fieldlbl";
+  msgLbl.textContent = "Message";
+  sheet.appendChild(msgLbl);
+  const msg = document.createElement("textarea");
+  msg.className = "field";
+  msg.rows = 5;
+  sheet.appendChild(msg);
+
+  function currentMessage() {
+    return SV_SHARE.buildShareText(langDisplayName, exportedCardCount(exported), { name: nameInput.value });
+  }
+  msg.value = currentMessage();
+
+  const linkRow = document.createElement("div");
+  linkRow.className = "shareRow";
+  const waLink = document.createElement("a");
+  waLink.className = "btn-secondary";
+  waLink.target = "_blank";
+  waLink.rel = "noopener";
+  waLink.textContent = "WhatsApp";
+  const tgLink = document.createElement("a");
+  tgLink.className = "btn-secondary";
+  tgLink.target = "_blank";
+  tgLink.rel = "noopener";
+  tgLink.textContent = "Telegram";
+  function refreshLinks() {
+    const text = encodeURIComponent(msg.value);
+    waLink.href = `https://wa.me/?text=${text}`;
+    tgLink.href = `https://t.me/share/url?url=${encodeURIComponent(SV_SHARE.STORE_URL)}&text=${text}`;
+  }
+  refreshLinks();
+  linkRow.append(waLink, tgLink);
+
+  msg.addEventListener("input", refreshLinks);
+
+  // Name changes regenerate filename + message live (every keystroke, cheap
+  // for a deck-sized card list); storage is only written on commit
+  // (blur/Enter) — same input/change split as the pace slider above.
+  nameInput.addEventListener("input", () => {
+    exported = SV_SHARE.exportDeck(langCards, lang, { name: nameInput.value }) || exported;
+    msg.value = currentMessage();
+    refreshLinks();
+  });
+  nameInput.addEventListener("change", () => setShareName(nameInput.value));
+
+  // Primary OS-share button — only when the platform can actually share a
+  // file (navigator.share/canShare are both feature-detected; some browsers
+  // don't have canShare at all, or throw on an unfamiliar File — treat any
+  // of that as "can't share files here" rather than let it crash the sheet).
+  let canOsShare = false;
+  try {
+    const probe = new File([exported.text], exported.filename, { type: "application/json" });
+    canOsShare = typeof navigator.share === "function" && typeof navigator.canShare === "function" &&
+      navigator.canShare({ files: [probe] }) === true;
+  } catch { canOsShare = false; }
+  if (canOsShare) {
+    const shareBtn = document.createElement("button");
+    shareBtn.className = "btn-primary";
+    shareBtn.textContent = "⇪ Share…";
+    shareBtn.addEventListener("click", async () => {
+      const f = new File([exported.text], exported.filename, { type: "application/json" });
+      try {
+        await navigator.share({ text: msg.value, files: [f] });
+        closeShareSheet();
+      } catch (e) {
+        if (e && e.name === "AbortError") return; // user cancelled — silent
+        toast("Couldn't open the share sheet — try a link below.");
+      }
+    });
+    sheet.appendChild(shareBtn);
+  }
+
+  sheet.appendChild(linkRow);
+
+  const actionRow = document.createElement("div");
+  actionRow.className = "shareRow";
+  const copyBtn = document.createElement("button");
+  copyBtn.className = "btn-secondary";
+  copyBtn.textContent = "📋 Copy text";
+  const copied = document.createElement("span");
+  copied.className = "sharecopied";
+  copied.textContent = "copied ✓";
+  copied.hidden = true;
+  copyBtn.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(msg.value);
+      copied.hidden = false;
+      setTimeout(() => { copied.hidden = true; }, 1800);
+    } catch {
+      toast("Couldn't copy — select and copy the text by hand.");
+    }
+  });
+
+  const dlBtn = document.createElement("button");
+  dlBtn.className = "btn-secondary";
+  dlBtn.textContent = "⬇️ File only";
+  dlBtn.addEventListener("click", () => {
+    const url = URL.createObjectURL(new Blob([exported.text], { type: "application/json" }));
+    const a = document.createElement("a");
+    a.href = url; a.download = exported.filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  actionRow.append(copyBtn, copied, dlBtn);
+  sheet.appendChild(actionRow);
+
+  return sheet;
+}
+
+async function setShareName(name) {
+  // A flat scalar key, not a per-lang dict like gameScope/gamePace — no
+  // cross-tab merge to protect, so (unlike setScopeField/setPace) writing
+  // straight from this tab's just-typed value can't drop anyone else's edit.
+  shareName = name;
+  await chrome.storage.local.set({ shareName: name });
+}
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && openShareSheet) closeShareSheet();
+});
 
 // ── Round engine — delegates to the shared runner (shared/gameui.js) ───────
 // Everything session/round-specific (build, render, answer, requeue, round
