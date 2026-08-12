@@ -315,16 +315,13 @@
       if (ok) {
         strip.classList.add("hit");
         if (!reducedMotion()) strip.classList.add("gpop");
-        s.streak++; s.correct++;
-        if (withinRing) s.speedBonuses++;
-        qs("gameStreak").textContent = "🔥 " + s.streak + (withinRing ? " ⚡" : "");
+        settleAnswer(s, { ok: true, fast: withinRing });
         advanceTimer = setTimeout(() => { advanceTimer = 0; if (gameSession !== s) return; s.i++; renderCard(); }, 800);
       } else {
         strip.classList.add("miss");
         if (!reducedMotion()) strip.classList.add("gshake");
-        s.streak = 0;
-        qs("gameStreak").textContent = "";
-        recordMiss(card);
+        settleAnswer(s, { ok: false });
+        recordMiss(s, card);
         const hint = document.createElement("div");
         hint.className = "ghint";
         hint.textContent = SV_GAME.builderHint(card);
@@ -333,7 +330,7 @@
         correctRow.className = "gcorrect";
         correctRow.textContent = built.solution.join(" ");
         qs("gameBody").appendChild(correctRow);
-        requeueCard(card);
+        requeueCard(s, card);
         showNextButton();
       }
     }
@@ -379,23 +376,20 @@
     if (ok) {
       pickedBtn.classList.add("hit");
       if (!reducedMotion()) pickedBtn.classList.add("gpop");
-      s.streak++; s.correct++;
-      if (withinRing) s.speedBonuses++;
-      qs("gameStreak").textContent = "🔥 " + s.streak + (withinRing ? " ⚡" : "");
+      settleAnswer(s, { ok: true, fast: withinRing });
       showPlusOne(pickedBtn, withinRing);
       advanceTimer = setTimeout(() => { advanceTimer = 0; if (gameSession !== s) return; s.i++; renderCard(); }, 800);
     } else {
       pickedBtn.classList.add("miss");
       if (!reducedMotion()) pickedBtn.classList.add("gshake");
       if (correctBtn) correctBtn.classList.add("hit");
-      s.streak = 0;
-      qs("gameStreak").textContent = "";
-      recordMiss(card);
+      settleAnswer(s, { ok: false });
+      recordMiss(s, card);
       const rule = document.createElement("div");
       rule.className = "ghint";
       rule.textContent = SV_GAME.gapRule(card);
       qs("gameBody").appendChild(rule);
-      requeueCard(card);
+      requeueCard(s, card);
       showNextButton();
     }
   }
@@ -453,14 +447,12 @@
       await gradeCard(card, ok);
 
       if (ok) {
-        s.streak++; s.correct++;
-        if (withinRing) s.speedBonuses++;
-        qs("gameStreak").textContent = "🔥 " + s.streak + (withinRing ? " ⚡" : "");
+        settleAnswer(s, { ok: true, fast: withinRing });
+        showPlusOne(btn, withinRing);
       } else {
-        s.streak = 0;
-        qs("gameStreak").textContent = "";
-        recordMiss(card);
-        requeueCard(card);
+        settleAnswer(s, { ok: false });
+        recordMiss(s, card);
+        requeueCard(s, card);
       }
       if (card.videoTitle) {
         const reward = document.createElement("div");
@@ -522,14 +514,36 @@
     if (wasNew) await bumpIntro(card.lang); // first grade of a "new" card counts as introduced
   }
 
-  function recordMiss(card) {
-    if (gameSession.missedKeys.has(card.key)) return; // unique per round, however many times it's missed
-    gameSession.missedKeys.add(card.key);
-    gameSession.missed.push({ word: card.word, meaning: card.meaning, sentence: card.sentence });
+  // Same per-answer streak/correct/speedBonus bookkeeping was duplicated
+  // across all 4 kind handlers (and was exactly why fixing the auto-advance
+  // race turned into a 4-site sweep) — one helper now, called with the
+  // captured session `s`, never the global.
+  function settleAnswer(s, { ok, fast }) {
+    if (ok) {
+      s.streak++; s.correct++;
+      if (fast) s.speedBonuses++;
+      qs("gameStreak").textContent = "🔥 " + s.streak + (fast ? " ⚡" : "");
+    } else {
+      s.streak = 0;
+      qs("gameStreak").textContent = "";
+    }
   }
 
-  function requeueCard(card) {
-    const s = gameSession;
+  // recordMiss/requeueCard/showReveal all take the CAPTURED session `s` (not
+  // the global `gameSession`) and bail out if it's gone stale — the global is
+  // reassigned (to null by backToArcade, or to a new round's session) by the
+  // time these run whenever the user hits "← Done" during the gradeCard()
+  // await in a wrong-answer branch. Reading the global directly here used to
+  // throw in exactly that sequence (review fix round 1).
+  function recordMiss(s, card) {
+    if (!s || gameSession !== s) return;
+    if (s.missedKeys.has(card.key)) return; // unique per round, however many times it's missed
+    s.missedKeys.add(card.key);
+    s.missed.push({ word: card.word, meaning: card.meaning, sentence: card.sentence });
+  }
+
+  function requeueCard(s, card) {
+    if (!s || gameSession !== s) return;
     const pos = Math.min(s.queue.length, s.i + 4); // 3 cards in between before it comes back around
     s.queue.splice(pos, 0, card);
   }
@@ -545,8 +559,12 @@
 
   // "💡 <meaning> = <its word> — <its sentence>" — the tapped distractor's own
   // word, found by tracing its meaning back to the pool card it came from.
-  function showReveal(card, picked, optWrap) {
-    const owner = gameSession.pool.find((c) => c !== card && (c.meaning || "").trim() === picked);
+  // Same stale-session guard as recordMiss/requeueCard — it sits between
+  // those two calls in handleAnswer's wrong branch and reads the session's
+  // pool, so it needed the identical fix to actually close the race.
+  function showReveal(s, card, picked, optWrap) {
+    if (!s || gameSession !== s) return;
+    const owner = s.pool.find((c) => c !== card && (c.meaning || "").trim() === picked);
     const reveal = document.createElement("div");
     reveal.className = "gopt reveal";
     const parts = ["💡 " + picked];
@@ -582,21 +600,17 @@
     if (ok) {
       pickedBtn.classList.add("hit");
       if (!reducedMotion()) pickedBtn.classList.add("gpop");
-      s.streak++;
-      s.correct++;
-      if (withinRing) s.speedBonuses++;
-      qs("gameStreak").textContent = "🔥 " + s.streak + (withinRing ? " ⚡" : "");
+      settleAnswer(s, { ok: true, fast: withinRing });
       showPlusOne(pickedBtn, withinRing);
       advanceTimer = setTimeout(() => { advanceTimer = 0; if (gameSession !== s) return; s.i++; renderCard(); }, 800);
     } else {
       pickedBtn.classList.add("miss");
       if (!reducedMotion()) pickedBtn.classList.add("gshake");
       if (correctBtn) correctBtn.classList.add("hit");
-      s.streak = 0;
-      qs("gameStreak").textContent = "";
-      recordMiss(card);
-      showReveal(card, picked, optWrap);
-      requeueCard(card);
+      settleAnswer(s, { ok: false });
+      recordMiss(s, card);
+      showReveal(s, card, picked, optWrap);
+      requeueCard(s, card);
       showNextButton(); // Next → only — no auto-advance on a miss
     }
   }
