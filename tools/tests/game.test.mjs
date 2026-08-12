@@ -241,6 +241,60 @@ test("findFor: reunited-lemma fallback (real enrichment data has no pipe)", () =
   assert.equal(G.findFor(noPrefix), null, "lemma doesn't start with any known separable prefix");
 });
 
+test("findFor: carries the display target word (lemma preferred, pipes stripped); a word matching MULTIPLE tokens fails closed", () => {
+  const verbCard = card({ w: "frisst", lm: "fressen", p: "verb",
+    sentence: "Ich sehe nur noch dich, wenn der Lärm den Himmel frisst." });
+  const f = G.findFor(verbCard);
+  assert.equal(f.ask, "verb");
+  assert.equal(f.word, "fressen", "the LEMMA names the target, not the bare conjugated surface form");
+
+  const sepCard = card({ w: "aufstehen", lm: "auf|stehen", p: "verb", sep: true, sentence: "Ich stehe früh auf." });
+  const fs = G.findFor(sepCard);
+  assert.equal(fs.ask, "prefix");
+  assert.equal(fs.word, "aufstehen", "stub-only pipe notation stripped for display");
+
+  // The operator's repro, generalized: a sentence with the target word
+  // appearing twice can't confirm a single unambiguous answer — the player
+  // would be unfairly wrong for tapping "the other one" either way.
+  const twoForms = card({ w: "geht", p: "verb", sentence: "Er geht, dann geht sie auch." });
+  assert.equal(G.findFor(twoForms), null, "two occurrences of the target word — fail closed, not a coin flip");
+});
+
+test("findTeaching: the operator's repro — a wenn-clause verb genuinely at the clause end gets the clause-final line", () => {
+  const c = card({ w: "frisst", lm: "fressen", p: "verb",
+    sentence: "Ich sehe nur noch dich, wenn der Lärm den Himmel frisst." });
+  const found = G.findFor(c);
+  const lines = G.findTeaching(c, found);
+  assert.equal(lines[0], "frisst is the form of fressen here");
+  assert.equal(lines[1], "In a 'wenn' clause the verb moves to the end.");
+  assert.ok(!lines.join(" ").includes("„"));
+});
+
+test("findTeaching: no governing clause — a genuinely position-2 verb gets the verb-second line instead", () => {
+  const c = card({ w: "geht", p: "verb", sentence: "Er geht heute ins Kino." });
+  const lines = G.findTeaching(c, G.findFor(c));
+  assert.equal(lines[1], "Das Verb steht an Position 2: 'Er geht …'");
+});
+
+test("findTeaching: neither clause condition verifiable → line 2 omitted, never a false claim", () => {
+  const c = card({ w: "erreicht", p: "verb", sentence: "Wir haben unser Ziel erreicht." }); // not clause-final-after-a-conjunction, not position 2
+  const lines = G.findTeaching(c, G.findFor(c));
+  assert.deepEqual(lines, ["erreicht is the form of erreicht here"]);
+});
+
+test("findTeaching: sep-prefix line names what it belongs to, with the split shown when derivable; card.note rides as the final line", () => {
+  const c = card({ w: "aufstehen", lm: "auf|stehen", p: "verb", sep: true, sentence: "Ich stehe jeden Tag früh auf." });
+  const found = G.findFor(c);
+  const lines = G.findTeaching(c, found);
+  assert.equal(lines[0], "auf belongs to aufstehen (auf|stehen)");
+  assert.equal(lines.length, 1, "no clause claim verifiable here — the prefix itself isn't at position 2 or clause-governed");
+
+  const withNote = card({ w: "frisst", lm: "fressen", p: "verb", note: "irregular: du frisst, er frisst",
+    sentence: "Ich sehe nur noch dich, wenn der Lärm den Himmel frisst." });
+  const notedLines = G.findTeaching(withNote, G.findFor(withNote));
+  assert.equal(notedLines[notedLines.length - 1], "irregular: du frisst, er frisst");
+});
+
 test("kindsFor / pickKind: kinds mirror *For nullability; mode-driven selection with fallback", () => {
   const full = card({ w: "aufstehen", p: "verb", lm: "auf|stehen", sep: true,
     sentence: "Ich stehe jeden Tag früh auf." });
@@ -342,6 +396,7 @@ test("null-safety: every new function tolerates null/undefined cards and pre-ste
     (c) => G.pickKind(c, "mixed", rng),
     (c) => G.builderHint(c),
     (c) => G.gapRule(c),
+    (c) => G.findTeaching(c, G.findFor(c)),
   ];
   for (const nullish of [null, undefined]) {
     for (const f of fns) assert.doesNotThrow(() => f(nullish));
@@ -356,6 +411,7 @@ test("null-safety: every new function tolerates null/undefined cards and pre-ste
   assert.equal(G.pickKind(ancient, "mixed", rng), "word");
   assert.ok(G.builderHint(ancient).length > 0);
   assert.deepEqual(G.gapRule(ancient), []);
+  assert.deepEqual(G.findTeaching(ancient, G.findFor(ancient)), [], "no find match to teach → empty array, not a crash");
 });
 
 test("records: streak counts consecutive days; bests only improve; new-record labels", () => {

@@ -175,8 +175,20 @@
     return null;
   }
 
+  // The word a find-card's ask/teaching names to the player — lemma
+  // preferred (the dictionary form a learner recognizes, e.g. "fressen" for
+  // a card whose surface token is "frisst"), falling back to the surface
+  // word, with any stub-only pipe notation ("auf|stehen") stripped for a
+  // clean display ("aufstehen").
+  function displayTarget(card) {
+    return String((card && (card.lemma || card.word)) || "").replace(/\|/g, "");
+  }
+
   // Separable verbs: the prefix rides at the end of the clause, so we hunt
-  // for it there first — the German word order the card is teaching.
+  // for it there first — the German word order the card is teaching. Every
+  // returned match also carries `word` (displayTarget) so the ask/teaching
+  // can name the specific target instead of a generic "Tap the verb" —
+  // ambiguous on any sentence with more than one verb (playtest fix).
   function findFor(card) {
     if (!card) return null;
     const tokens = sentenceTokens(card);
@@ -188,13 +200,83 @@
       for (let i = 0; i < tokens.length; i++) {
         if (cleanToken(tokens[i]).toLowerCase() === prefix) answerIndex = i; // last wins
       }
-      return answerIndex === -1 ? null : { tokens, answerIndex, ask: "prefix" };
+      return answerIndex === -1 ? null : { tokens, answerIndex, ask: "prefix", word: displayTarget(card) };
     }
     if (card.pos === "verb" && card.word) {
-      const idx = tokens.findIndex((t) => cleanToken(t).toLowerCase() === String(card.word).toLowerCase());
-      if (idx !== -1) return { tokens, answerIndex: idx, ask: "verb" };
+      const target = String(card.word).toLowerCase();
+      const matches = [];
+      tokens.forEach((t, i) => { if (cleanToken(t).toLowerCase() === target) matches.push(i); });
+      // Exactly one occurrence — anything else (none, or more than one)
+      // can't confirm a single unambiguous target, so fail closed rather
+      // than let the player guess between two visually-identical verbs
+      // (playtest repro: "Tap the verb" on a sentence with two verbs was
+      // unfairly wrong however the player guessed).
+      if (matches.length === 1) return { tokens, answerIndex: matches[0], ask: "verb", word: displayTarget(card) };
     }
     return null;
+  }
+
+  // Subordinating conjunctions that push the finite verb to the END of
+  // their own clause (verb-final word order) — a frozen, deliberately
+  // small list of the common ones a learner will actually meet.
+  const SUBORDINATING_CONJUNCTIONS = Object.freeze([
+    "wenn", "dass", "weil", "ob", "obwohl", "als", "während", "bevor", "nachdem",
+  ]);
+
+  // True when nothing but punctuation-only tokens follow `idx` — i.e. the
+  // answer is genuinely the last WORD of the sentence, not just literally
+  // the last token (a trailing stray punctuation token, rare with this
+  // tokenizer's whitespace split, still shouldn't break the check).
+  function clauseFinal(tokens, idx) {
+    for (let i = idx + 1; i < tokens.length; i++) {
+      if (/[\p{L}\p{N}]/u.test(tokens[i])) return false;
+    }
+    return true;
+  }
+
+  // Post-answer teaching for a find card — shown after EITHER outcome, once
+  // the round has already graded the tap (gameui's job, not this function's).
+  // Line 1 names what the answer token actually IS. An optional line 2
+  // applies the clause rule that explains WHY it sits where it does — but
+  // only when that's verified from this sentence's own tokens: a
+  // subordinating conjunction genuinely governs this clause AND the answer
+  // is genuinely that clause's last word (never a guess — the operator's
+  // "bis nur noch deine Nähe ist." class of complaint, generalized: a
+  // fragment or an unrelated sentence structure gets no false claim), else
+  // the existing verb-second line when the answer is genuinely at position
+  // 2, else line 2 is omitted entirely. An optional final line surfaces
+  // card.note verbatim. Array of lines, same convention as builderHint/
+  // gapRule — gameui renders it via the same renderHintLines.
+  function findTeaching(card, found) {
+    if (!card || !found) return [];
+    const { tokens, answerIndex, ask, word } = found;
+    const token = cleanToken(tokens[answerIndex]);
+    const lines = [];
+
+    if (ask === "prefix") {
+      const lemma = String(word || "").replace(/\|/g, "");
+      const hasSplit = lemma.toLowerCase().startsWith(token.toLowerCase());
+      const split = hasSplit ? ` (${token}|${lemma.slice(token.length)})` : "";
+      lines.push(`${token} belongs to ${lemma}${split}`);
+    } else if (ask === "verb") {
+      lines.push(`${token} is the form of ${word} here`);
+    }
+
+    // The CLOSEST conjunction before the answer governs the clause it's
+    // actually sitting in (relevant on a sentence with more than one clause).
+    let conj = null;
+    for (let i = answerIndex - 1; i >= 0; i--) {
+      const t = cleanToken(tokens[i]).toLowerCase();
+      if (SUBORDINATING_CONJUNCTIONS.includes(t)) { conj = t; break; }
+    }
+    if (conj && clauseFinal(tokens, answerIndex)) {
+      lines.push(`In a '${conj}' clause the verb moves to the end.`);
+    } else if (answerIndex === 1) {
+      lines.push(`Das Verb steht an Position 2: '${tokens[0]} ${tokens[1]} …'`);
+    }
+
+    if (card.note) lines.push(card.note);
+    return lines;
   }
 
   function kindsFor(card) {
@@ -310,6 +392,6 @@
 
   g.SV_GAME = {
     status, matchesScope, isEnriched, isSep, buildSession, distractors, shuffle, updateRecords,
-    builderFor, gapFor, findFor, kindsFor, pickKind, builderHint, gapRule,
+    builderFor, gapFor, findFor, kindsFor, pickKind, builderHint, gapRule, findTeaching,
   };
 })(globalThis);

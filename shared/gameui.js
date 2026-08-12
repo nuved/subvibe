@@ -500,7 +500,13 @@
   // away). A wrong tap flashes and lets the round continue (no grade, no
   // lockout, ring keeps running); the FIRST tap decides the eventual grade —
   // later taps just help the player find it. Only the correct tap advances.
-  const ASK_LABEL = { prefix: "Tap the separable prefix", verb: "Tap the verb" };
+  // Names the specific target (found.word, from SV_GAME.findFor) instead of
+  // a generic "Tap the verb" — ambiguous, and unfairly wrong however the
+  // player guessed, on any sentence with more than one verb (playtest fix).
+  const ASK_LABEL = {
+    prefix: (word) => "Tap the prefix of " + word,
+    verb: (word) => "Tap the form of " + word,
+  };
 
   function renderFindCard(card, found, body) {
     let hadWrongTap = false;
@@ -508,7 +514,8 @@
 
     const askLbl = document.createElement("div");
     askLbl.className = "ghint";
-    askLbl.textContent = ASK_LABEL[found.ask] || "Tap the word";
+    const askLabelFn = ASK_LABEL[found.ask];
+    askLbl.textContent = askLabelFn ? askLabelFn(found.word) : "Tap the word";
     body.appendChild(askLbl);
 
     const sentEl = document.createElement("div");
@@ -560,6 +567,12 @@
         recordMiss(s, card);
         requeueCard(s, card);
       }
+
+      // Post-answer teaching — both outcomes, before the reward/advance:
+      // what the tapped token actually IS, and (only when verifiable from
+      // this sentence's own tokens) why it sits where it does.
+      renderHintLines(SV_GAME.findTeaching(card, found));
+
       if (card.videoTitle) {
         const reward = document.createElement("div");
         reward.className = "greward";
