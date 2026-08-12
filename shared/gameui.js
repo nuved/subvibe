@@ -107,6 +107,12 @@
     const introducedToday = introEntry && introEntry.day === dayKey ? introEntry.count : 0;
     const pool = (current.cards || []).filter((c) => c.lang === lang);
     const built = SV_GAME.buildSession({ cards: pool, scope, perDay: pace, introducedToday, now: Date.now(), rng: Math.random, size: 10 });
+    // Computed once here, not per card: Sentences-only scope but this round's
+    // pool has no sentence-capable card (builder/gap/find) at all — pickKind
+    // silently falls back to "word" for every card either way, so the player
+    // just sees an all-word round with no explanation unless we say so once.
+    const hasSentenceCard = built.items.some((c) => SV_GAME.kindsFor(c).some((k) => k !== "word"));
+    const sentencesOnlyNotice = (scope && scope.game) === "sentences" && built.items.length > 0 && !hasSentenceCard;
     gameSession = {
       lang, scope, pool,
       queue: built.items.slice(),
@@ -114,6 +120,7 @@
       i: 0, correct: 0, streak: 0, speedBonuses: 0,
       missed: [], missedKeys: new Set(),
       startedAt: Date.now(),
+      sentencesOnlyNotice,
     };
     qs("arcade").hidden = true;
     if (current.foldEl) current.foldEl.hidden = true;
@@ -227,6 +234,20 @@
     return v;
   }
 
+  // One calm line above card 1 only, when Sentences-only scope has nothing
+  // sentence-capable to show and every card this round is quietly falling
+  // back to "word" via pickKind — appended inside gameBody, so it's cleared
+  // away like everything else the moment the player moves past the first
+  // card (no explicit dismiss needed).
+  function renderSentencesOnlyNotice(body) {
+    const s = gameSession;
+    if (!s.sentencesOnlyNotice || s.i !== 0) return;
+    const notice = document.createElement("div");
+    notice.style.cssText = "text-align:center; color:var(--muted); font-size:12px; margin-bottom:8px;";
+    notice.textContent = "No sentence cards in this scope yet — playing word cards.";
+    body.appendChild(notice);
+  }
+
   function renderCard() {
     const s = gameSession;
     if (!s.queue.length) return renderEmptyRound();
@@ -236,6 +257,7 @@
     qs("gameStreak").textContent = s.streak > 0 ? "🔥 " + s.streak : "";
     const body = qs("gameBody");
     body.innerHTML = "";
+    renderSentencesOnlyNotice(body);
 
     // Kind picked per card at render time — mixing (or Words only / Sentences
     // only via the Game scope row) never changes buildSession's pool, only
@@ -856,7 +878,17 @@
     next.className = "btn-primary";
     next.style.cssText = "display:block; width:100%; margin-top:" + skin().nextBtnMarginTop + ";";
     next.textContent = "Next →";
-    next.addEventListener("click", () => { gameSession.i++; renderCard(); });
+    // Disable synchronously on the FIRST click, before renderCard's async
+    // continuation (endRound reads/writes storage) has a chance to run —
+    // a rapid second click on this same button while that's in flight used
+    // to fire a second gameSession.i++ / endRound(), double-advancing (or
+    // double-recording) the round (step-2 final review).
+    next.addEventListener("click", () => {
+      if (next.disabled) return;
+      next.disabled = true;
+      gameSession.i++;
+      renderCard();
+    });
     body.appendChild(next);
   }
 

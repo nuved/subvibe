@@ -187,7 +187,9 @@ test("findFor: separable prefix (last occurrence), plain verb token, else null, 
   assert.equal(f1.answerIndex, f1.tokens.length - 1);
 
   const plainVerb = card({ w: "erreichen", p: "verb", sentence: "Wir haben unser Ziel erreicht." });
-  assert.equal(G.findFor(plainVerb), null, "conjugated form differs from the infinitive word → no token match");
+  const fStem = G.findFor(plainVerb);
+  assert.equal(fStem.ask, "verb", "infinitive stem \"erreich\" matches the conjugated token \"erreicht\"");
+  assert.equal(fStem.tokens[fStem.answerIndex], "erreicht.");
 
   const plainVerbToken = card({ w: "erreicht", p: "verb", sentence: "Wir haben unser Ziel erreicht." });
   const f2 = G.findFor(plainVerbToken);
@@ -258,6 +260,36 @@ test("findFor: carries the display target word (lemma preferred, pipes stripped)
   // would be unfairly wrong for tapping "the other one" either way.
   const twoForms = card({ w: "geht", p: "verb", sentence: "Er geht, dann geht sie auch." });
   assert.equal(G.findFor(twoForms), null, "two occurrences of the target word — fail closed, not a coin flip");
+});
+
+test("findFor: verb-branch stemming — conjugated token matched via infinitive stem, only lowercase tokens qualify", () => {
+  const erreichen = card({ w: "erreichen", p: "verb", sentence: "Wir haben unser Ziel erreicht." });
+  const f1 = G.findFor(erreichen);
+  assert.equal(f1.ask, "verb");
+  assert.equal(f1.tokens[f1.answerIndex], "erreicht.", "\"erreichen\" stem \"erreich\" matches \"erreicht\"");
+
+  const gehen = card({ w: "gehen", p: "verb", sentence: "Er geht heute ins Kino." });
+  const f2 = G.findFor(gehen);
+  assert.equal(f2.ask, "verb");
+  assert.equal(f2.tokens[f2.answerIndex], "geht", "\"gehen\" stem \"geh\" matches \"geht\"");
+
+  // The stem "geh" also prefixes the capitalized noun "Gehweg" — capitalized
+  // tokens never qualify as verb candidates (conservative: German capitalizes
+  // all nouns, so a capitalized stem-prefix match is never this card's verb).
+  const nounFalsePositive = card({ w: "gehen", p: "verb", sentence: "Der Gehweg ist heute leer." });
+  assert.equal(G.findFor(nounFalsePositive), null, "stem-prefixing capitalized noun doesn't count as a candidate");
+
+  // Two lowercase tokens both stem-match — fail closed, same discipline as
+  // the exact-match ambiguity guard, now applied across exact+stem together.
+  const twoStemMatches = card({ w: "gehen", p: "verb", sentence: "Er geht, und sie geht auch." });
+  assert.equal(G.findFor(twoStemMatches), null, "two stem-matching lowercase tokens — fail closed, not a coin flip");
+
+  // The bare infinitive appears verbatim AND a different token elsewhere
+  // stem-matches the same infinitive — just as ambiguous to the player as
+  // two identical exact occurrences, so the guard must combine both pools
+  // rather than short-circuit on the exact hit alone.
+  const exactPlusStem = card({ w: "gehen", p: "verb", sentence: "Sie gehen gerne, wenn sie geht." });
+  assert.equal(G.findFor(exactPlusStem), null, "exact match + a separate stem match — combined guard fails closed");
 });
 
 test("findTeaching: the operator's repro — a wenn-clause verb genuinely at the clause end gets the clause-final line", () => {

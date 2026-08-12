@@ -184,6 +184,27 @@
     return String((card && (card.lemma || card.word)) || "").replace(/\|/g, "");
   }
 
+  // A conjugated token rarely equals the infinitive verbatim ("gehen" vs.
+  // "geht"), so the verb branch falls back to a stem match: strip the
+  // infinitive's "-en"/"-n" ending and see whether a token starts with what's
+  // left. Guarded to ≥3 chars so a short stem ("tun" → "tu") doesn't turn
+  // into a promiscuous prefix match against unrelated words.
+  function verbStem(word) {
+    const w = String(word || "").toLowerCase();
+    if (w.endsWith("en") && w.length - 2 >= 3) return w.slice(0, -2);
+    if (w.endsWith("n") && w.length - 1 >= 3) return w.slice(0, -1);
+    return null;
+  }
+
+  // True only when the token's own first character is lowercase — the
+  // stem match's guard against German noun capitalization: a stem like
+  // "geh" also prefixes "Gehweg", but that's a capitalized noun, never the
+  // verb this card is teaching, so it never qualifies as a candidate.
+  function lowercaseLed(token) {
+    const first = token.charAt(0);
+    return !!first && first === first.toLowerCase() && first !== first.toUpperCase();
+  }
+
   // Separable verbs: the prefix rides at the end of the clause, so we hunt
   // for it there first — the German word order the card is teaching. Every
   // returned match also carries `word` (displayTarget) so the ask/teaching
@@ -204,8 +225,25 @@
     }
     if (card.pos === "verb" && card.word) {
       const target = String(card.word).toLowerCase();
+      const stem = verbStem(target);
       const matches = [];
-      tokens.forEach((t, i) => { if (cleanToken(t).toLowerCase() === target) matches.push(i); });
+      // ONE pass, exact and stem checked together against every token, so a
+      // token can never be double-counted (an exact hit like "gehen" also
+      // starts with its own stem "geh" — isStem explicitly excludes it) and
+      // the fail-closed guard below sees exact+stem as a single combined
+      // pool: a sentence with both the bare infinitive ("...möchten gehen")
+      // AND a stem-matching conjugated form elsewhere ("...wenn sie geht")
+      // is exactly as ambiguous to the player as two identical exact
+      // occurrences, and must fail closed the same way. Stem candidates are
+      // further restricted to lowercase-led tokens (skips capitalized nouns
+      // that happen to start with the same stem, e.g. "Gehweg" for "geh").
+      tokens.forEach((t, i) => {
+        const clean = cleanToken(t);
+        const lower = clean.toLowerCase();
+        const isExact = lower === target;
+        const isStem = !isExact && stem && lowercaseLed(clean) && lower.startsWith(stem);
+        if (isExact || isStem) matches.push(i);
+      });
       // Exactly one occurrence — anything else (none, or more than one)
       // can't confirm a single unambiguous target, so fail closed rather
       // than let the player guess between two visually-identical verbs
