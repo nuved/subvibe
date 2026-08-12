@@ -22,6 +22,7 @@ let gameScopeAll = {};    // storage: gameScope
 let gamePaceAll = {};     // storage: gamePace
 let gameRecordsAll = {};  // storage: gameRecords
 let gameIntroAll = {};    // storage: gameIntro
+let shareName = "";       // storage: shareName — optional sender name for the share sheet, blank by default
 
 const prefersReducedMotion = () => window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -59,11 +60,12 @@ async function initTab() {
 
 // ── data ─────────────────────────────────────────────────────────────────
 async function loadGameStorage() {
-  const g = await chrome.storage.local.get(["gameScope", "gamePace", "gameRecords", "gameIntro"]);
+  const g = await chrome.storage.local.get(["gameScope", "gamePace", "gameRecords", "gameIntro", "shareName"]);
   gameScopeAll = g.gameScope || {};
   gamePaceAll = g.gamePace || {};
   gameRecordsAll = g.gameRecords || {};
   gameIntroAll = g.gameIntro || {};
+  shareName = typeof g.shareName === "string" ? g.shareName : "";
 }
 async function refresh() {
   const r = await send({ type: "VOCAB_LIST" });
@@ -118,7 +120,8 @@ function fmtRecordsStrip(records) {
 
 function renderPractice() {
   const box = el("deckCards");
-  box.innerHTML = "";
+  box.innerHTML = ""; // wipes any open share sheet's DOM too — drop the dangling reference
+  openShareSheet = null;
   const byLang = new Map();
   for (const c of cards) {
     if (!byLang.has(c.lang)) byLang.set(c.lang, []);
@@ -168,13 +171,43 @@ function buildDeckCard(lang, langCards) {
   change.addEventListener("click", () => toggleScopeSheet(lang, wrap));
   info.append(nameEl, scopeEl, change);
 
+  const share = document.createElement("button");
+  share.className = "btn-quiet dshare";
+  share.textContent = "⇪";
+  // 0-exportable-cards guard (parked from task 3's review): exportDeck only
+  // requires a card to carry a usable .word, so this is rare for a real deck,
+  // but a disabled button with a calm hint beats ever opening a sheet that
+  // can only offer an empty file — no click handler attached at all when
+  // disabled, so the sheet can never open from here.
+  const shareable = exportedCardCount(SV_SHARE.exportDeck(langCards, lang, {}) || { text: "{}" }) > 0;
+  if (shareable) {
+    share.title = "Share this deck";
+    share.setAttribute("aria-label", "Share this deck");
+    share.addEventListener("click", () => toggleShareSheet(lang, langCards, wrap));
+  } else {
+    share.disabled = true;
+    share.title = "Nothing to share yet — play a round first";
+    share.setAttribute("aria-label", "Nothing to share yet — play a round first");
+  }
+
   const play = document.createElement("button");
   play.className = "btn-primary dplay";
   play.textContent = "Play";
   play.addEventListener("click", () => startGame(lang));
 
-  top.append(flagEl, info, play);
+  top.append(flagEl, info, share, play);
   dcard.appendChild(top);
+
+  // Gifted-deck tag — any card in this deck carrying .gift (imported via
+  // svbox, first one found in list order wins the shown name; textContent
+  // only, gift names arrive off an untrusted file).
+  const giftCard = langCards.find((c) => c.gift);
+  if (giftCard) {
+    const gift = document.createElement("div");
+    gift.className = "dgift";
+    gift.textContent = "from " + giftCard.gift + " 🎁";
+    dcard.appendChild(gift);
+  }
 
   const stripTxt = fmtRecordsStrip(gameRecordsAll[lang]); // records only ever celebrate — nothing renders until there's something to celebrate
   if (stripTxt) {
@@ -221,8 +254,9 @@ const LEVEL_OPTIONS = [["", "All"], ["A2", "A2+"], ["B1", "B1+"], ["C1", "C1+"]]
 const GAME_OPTIONS = [["mixed", "Mixed"], ["words", "Words only"], ["sentences", "Sentences only"]];
 
 function toggleScopeSheet(lang, wrap) {
-  const existing = wrap.querySelector(".dsheet");
+  const existing = wrap.querySelector(".dsheet:not(.sharesheet)");
   if (existing) { existing.remove(); return; }
+  closeCardShareSheet(wrap); // one inline sheet per card — the share sheet (if open here) makes way
   const sheet = buildScopeSheet(lang);
   sheet.className = "dsheet";
   wrap.appendChild(sheet);
@@ -302,6 +336,296 @@ async function setPace(lang, n) {
   gamePaceAll[lang] = n;
   await chrome.storage.local.set({ gamePace: gamePaceAll });
 }
+
+// ── Share sheet — inline, per deck card (shared/share.js: SV_SHARE, pure) ──
+// Only one share sheet open at a time, across every deck card — opening a
+// new one (or toggling the same card's) closes whatever else is open.
+let openShareSheet = null;
+
+function closeShareSheet() {
+  if (openShareSheet) openShareSheet.remove();
+  openShareSheet = null;
+}
+
+// Used by toggleScopeSheet (below) so opening the "Change" sheet on a card
+// that currently has its share sheet open closes that one first — otherwise
+// the two inline sheets stack under the same card.
+function closeCardShareSheet(wrap) {
+  const sheet = wrap.querySelector(".sharesheet");
+  if (sheet) { sheet.remove(); if (openShareSheet === sheet) openShareSheet = null; }
+}
+
+function toggleShareSheet(lang, langCards, wrap) {
+  const existing = wrap.querySelector(".sharesheet");
+  closeShareSheet();
+  if (existing) return; // was already open on this card — just closed it
+  const scopeSheet = wrap.querySelector(".dsheet:not(.sharesheet)");
+  if (scopeSheet) scopeSheet.remove(); // one inline sheet per card
+  const sheet = buildShareSheet(lang, langCards);
+  sheet.className = "dsheet sharesheet";
+  wrap.appendChild(sheet);
+  openShareSheet = sheet;
+}
+
+// exportDeck returns { filename, text } — the exportable cards live inside
+// the JSON `text`, not as a separate array on the return value. Deriving the
+// count FROM that text (rather than re-implementing exportDeck's own
+// requireWord filter here) means it can never drift from what's actually
+// shared.
+function exportedCardCount(exported) {
+  try { return (JSON.parse(exported.text).cards || []).length; } catch { return 0; }
+}
+
+function buildShareSheet(lang, langCards) {
+  const sheet = document.createElement("div");
+
+  const head = document.createElement("div");
+  head.className = "shead";
+  const headLbl = document.createElement("div");
+  headLbl.className = "fieldlbl";
+  headLbl.textContent = "Share this deck";
+  const closeBtn = document.createElement("button");
+  closeBtn.className = "btn-quiet";
+  closeBtn.textContent = "✕";
+  closeBtn.title = "Close";
+  closeBtn.setAttribute("aria-label", "Close share sheet");
+  closeBtn.addEventListener("click", closeShareSheet);
+  head.append(headLbl, closeBtn);
+  sheet.appendChild(head);
+
+  // exportDeck returns null on bad input (non-array cards, malformed lang) —
+  // langCards/lang always come from a real deck card here, but guard anyway
+  // rather than let a null.text throw.
+  let exported = SV_SHARE.exportDeck(langCards, lang, { name: shareName });
+  if (!exported) {
+    const err = document.createElement("div");
+    err.className = "muted";
+    err.style.cssText = "font-size:12.5px; padding:2px 0;";
+    err.textContent = "Couldn't prepare this deck for sharing.";
+    sheet.appendChild(err);
+    return sheet;
+  }
+
+  const [, langDisplayName] = window.svLangMeta(lang);
+
+  const nameLbl = document.createElement("div");
+  nameLbl.className = "fieldlbl";
+  nameLbl.textContent = "Your name (optional)";
+  sheet.appendChild(nameLbl);
+  const nameInput = document.createElement("input");
+  nameInput.type = "text";
+  nameInput.className = "field";
+  nameInput.placeholder = "Blank — no name in the gift";
+  nameInput.maxLength = 24; // matches SV_SHARE's own sanitizeName cap
+  nameInput.value = shareName;
+  sheet.appendChild(nameInput);
+
+  const msgLbl = document.createElement("div");
+  msgLbl.className = "fieldlbl";
+  msgLbl.textContent = "Message";
+  sheet.appendChild(msgLbl);
+  const msg = document.createElement("textarea");
+  msg.className = "field";
+  msg.rows = 5;
+  sheet.appendChild(msg);
+
+  function currentMessage() {
+    return SV_SHARE.buildShareText(langDisplayName, exportedCardCount(exported), { name: nameInput.value });
+  }
+  msg.value = currentMessage();
+
+  const linkRow = document.createElement("div");
+  linkRow.className = "shareRow";
+  const waLink = document.createElement("a");
+  waLink.className = "btn-secondary";
+  waLink.target = "_blank";
+  waLink.rel = "noopener";
+  waLink.textContent = "WhatsApp";
+  const tgLink = document.createElement("a");
+  tgLink.className = "btn-secondary";
+  tgLink.target = "_blank";
+  tgLink.rel = "noopener";
+  tgLink.textContent = "Telegram";
+  function refreshLinks() {
+    const text = encodeURIComponent(msg.value);
+    waLink.href = `https://wa.me/?text=${text}`;
+    tgLink.href = `https://t.me/share/url?url=${encodeURIComponent(SV_SHARE.STORE_URL)}&text=${text}`;
+  }
+  refreshLinks();
+  linkRow.append(waLink, tgLink);
+
+  msg.addEventListener("input", refreshLinks);
+
+  // Name changes regenerate filename + message live (every keystroke, cheap
+  // for a deck-sized card list); storage is only written on commit
+  // (blur/Enter) — same input/change split as the pace slider above.
+  nameInput.addEventListener("input", () => {
+    exported = SV_SHARE.exportDeck(langCards, lang, { name: nameInput.value }) || exported;
+    msg.value = currentMessage();
+    refreshLinks();
+  });
+  nameInput.addEventListener("change", () => setShareName(nameInput.value));
+
+  // Primary OS-share button — only when the platform can actually share a
+  // file (navigator.share/canShare are both feature-detected; some browsers
+  // don't have canShare at all, or throw on an unfamiliar File — treat any
+  // of that as "can't share files here" rather than let it crash the sheet).
+  let canOsShare = false;
+  try {
+    const probe = new File([exported.text], exported.filename, { type: "application/json" });
+    canOsShare = typeof navigator.share === "function" && typeof navigator.canShare === "function" &&
+      navigator.canShare({ files: [probe] }) === true;
+  } catch { canOsShare = false; }
+  if (canOsShare) {
+    const shareBtn = document.createElement("button");
+    shareBtn.className = "btn-primary";
+    shareBtn.textContent = "⇪ Share…";
+    shareBtn.addEventListener("click", async () => {
+      const f = new File([exported.text], exported.filename, { type: "application/json" });
+      try {
+        await navigator.share({ text: msg.value, files: [f] });
+        closeShareSheet();
+      } catch (e) {
+        if (e && e.name === "AbortError") return; // user cancelled — silent
+        toast("Couldn't open the share sheet — try a link below.");
+      }
+    });
+    sheet.appendChild(shareBtn);
+  }
+
+  sheet.appendChild(linkRow);
+
+  const actionRow = document.createElement("div");
+  actionRow.className = "shareRow";
+  const copyBtn = document.createElement("button");
+  copyBtn.className = "btn-secondary";
+  copyBtn.textContent = "📋 Copy text";
+  const copied = document.createElement("span");
+  copied.className = "sharecopied";
+  copied.textContent = "copied ✓";
+  copied.hidden = true;
+  copyBtn.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(msg.value);
+      copied.hidden = false;
+      setTimeout(() => { copied.hidden = true; }, 1800);
+    } catch {
+      toast("Couldn't copy — select and copy the text by hand.");
+    }
+  });
+
+  const dlBtn = document.createElement("button");
+  dlBtn.className = "btn-secondary";
+  dlBtn.textContent = "⬇️ File only";
+  dlBtn.addEventListener("click", () => {
+    const url = URL.createObjectURL(new Blob([exported.text], { type: "application/json" }));
+    const a = document.createElement("a");
+    a.href = url; a.download = exported.filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  actionRow.append(copyBtn, copied, dlBtn);
+  sheet.appendChild(actionRow);
+
+  return sheet;
+}
+
+async function setShareName(name) {
+  // A flat scalar key, not a per-lang dict like gameScope/gamePace — no
+  // cross-tab merge to protect, so (unlike setScopeField/setPace) writing
+  // straight from this tab's just-typed value can't drop anyone else's edit.
+  shareName = name;
+  await chrome.storage.local.set({ shareName: name });
+}
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && openShareSheet) closeShareSheet();
+});
+
+// ── svbox import — file-input button AND drag-drop, both on the arcade
+// section (shared/share.js: SV_SHARE, pure — validate the raw text, then
+// merge against this lang's existing cards before asking background to
+// write anything).
+// parse-error/bad-version/bad-kind all mean the same thing to the user —
+// "this isn't a file we can read as a deck" — so they share one precise,
+// actionable message rather than three subtly different phrasings; too-large
+// is its own distinct, actionable message (a size cap, not a format problem).
+// bad-cards only fires when validateImport's `cards` field isn't an array at
+// all — a structural rejection like parse-error/bad-version/bad-kind, not
+// "no cards" (a structurally-valid file with a genuinely empty cards:[] is
+// handled separately below, before this map is ever consulted).
+const IMPORT_ERR = {
+  "too-large": "That file is too large to import.",
+  "parse-error": "That doesn't look like a SubVibe deck file.",
+  "bad-version": "That doesn't look like a SubVibe deck file.",
+  "bad-kind": "That doesn't look like a SubVibe deck file.",
+  "bad-lang": "That deck file's language isn't recognized.",
+  "bad-cards": "That doesn't look like a SubVibe deck file.",
+  "too-many-cards": "That deck has too many cards to import.",
+};
+const IMPORT_MAX_BYTES = 2 * 1024 * 1024; // mirrors SV_SHARE.validateImport's own MAX_TEXT cap
+
+function setImportStatus(text) {
+  el("importStatus").textContent = text;
+}
+
+async function importSvboxFile(file) {
+  // Cheap, synchronous, no I/O — reject an obviously oversized file before
+  // ever reading it into memory. validateImport's own MAX_TEXT check (on the
+  // decoded string's UTF-16 length) still runs below and stays authoritative
+  // for anything this pre-check lets through.
+  if (file.size > IMPORT_MAX_BYTES) { setImportStatus(IMPORT_ERR["too-large"]); return; }
+  let text;
+  try { text = await file.text(); } catch { setImportStatus("Couldn't read that file."); return; }
+  const v = SV_SHARE.validateImport(text);
+  if (!v.ok) { setImportStatus(IMPORT_ERR[v.error] || "Couldn't import that file."); return; }
+  // A structurally-valid file whose cards array was genuinely empty from the
+  // start (not "every card failed validation" — that's the skipped-count
+  // line below) reads as confusing silence otherwise ("Added 0 · updated 0"
+  // with no explanation).
+  if (v.cards.length === 0 && !v.skipped) { setImportStatus("That deck file is empty."); return; }
+  // Fresh read, not the cached `cards` — a stale in-memory list would
+  // misreport an already-imported card as new (same re-read discipline as
+  // setScopeField/setPace above).
+  const listResp = await send({ type: "VOCAB_LIST" });
+  const existing = (listResp.cards || []).filter((c) => c.lang === v.lang);
+  const { toAdd, toUpdate } = SV_SHARE.mergeImport(existing, v.cards, v.lang);
+  const resp = await send({ type: "VOCAB_IMPORT", lang: v.lang, name: v.name || "", toAdd, toUpdate });
+  if (!resp || !resp.ok) { setImportStatus("Import failed — try again."); return; }
+  await refresh();
+  // skipped: cards validateImport itself couldn't read (bad/missing word,
+  // oversize field, …) — calm, no error styling, since some cards may still
+  // have landed fine; only shown when it's actually nonzero.
+  const skippedBit = v.skipped ? " · skipped " + v.skipped + " unreadable" : "";
+  const giftBit = v.name ? " · from " + v.name + " 🎁" : "";
+  setImportStatus("Added " + resp.added + " new · updated " + resp.updated + skippedBit + giftBit);
+}
+
+el("importBtn").addEventListener("click", () => el("importFile").click());
+el("importFile").addEventListener("change", async () => {
+  const file = el("importFile").files && el("importFile").files[0];
+  el("importFile").value = ""; // clears the picked file — allows re-picking the same one back to back
+  if (file) await importSvboxFile(file);
+});
+
+// dragenter/dragleave fire per child element crossed — a depth counter
+// avoids the highlight flickering off as the pointer passes between deck cards.
+let arcadeDragDepth = 0;
+el("arcade").addEventListener("dragenter", (e) => { e.preventDefault(); arcadeDragDepth++; el("arcade").classList.add("dragover"); });
+el("arcade").addEventListener("dragover", (e) => e.preventDefault()); // required so drop fires at all
+el("arcade").addEventListener("dragleave", (e) => {
+  e.preventDefault();
+  arcadeDragDepth = Math.max(0, arcadeDragDepth - 1);
+  if (!arcadeDragDepth) el("arcade").classList.remove("dragover");
+});
+el("arcade").addEventListener("drop", (e) => {
+  e.preventDefault();
+  arcadeDragDepth = 0;
+  el("arcade").classList.remove("dragover");
+  const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+  if (file) importSvboxFile(file);
+});
 
 // ── Round engine — delegates to the shared runner (shared/gameui.js) ───────
 // Everything session/round-specific (build, render, answer, requeue, round

@@ -112,6 +112,10 @@
 
     /* ── Arcade: deck picker + active game view (Learn tab) ─────────────── */
     #deckCards { display: flex; flex-direction: column; gap: 8px; }
+    /* svbox import drop target — the whole arcade section accepts a drag,
+       so dropping anywhere over the deck list (not just a gap between cards)
+       still hits it; outline (not border) so nothing reflows on hover. */
+    #arcade.dragover { outline: 2px dashed var(--accent); outline-offset: 6px; border-radius: var(--r-md); }
     .deckcard { display: flex; align-items: center; gap: 10px; padding: 10px 12px;
       background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md);
       box-shadow: var(--shadow-rest); }
@@ -122,6 +126,8 @@
     .deckcard .dscope { margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
       color: var(--muted); font-size: 10.5px; }
     .deckcard .dscope b { color: var(--teal-600); font-weight: 600; }
+    .deckcard .dgift { margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      color: var(--muted); font-size: 10.5px; }
     /* True composition bar — segment widths are proportional to new/learning/
        mastered counts (mirrors learn.js's trainer .tbar math), not discrete
        thirds. No numerals here — the popup stays quiet; counts live in learn.html. */
@@ -743,6 +749,11 @@
   <section id="arcade">
     <div class="lbl">Your games <button class="linkbtn" id="lnOpenFull">Full trainer →</button></div>
     <div id="deckCards"></div>
+    <div class="row" style="margin-top:6px;">
+      <div id="importStatus" class="hint" style="flex:1; min-height:13px;">Drop a shared deck (.svbox) here to import</div>
+      <button class="linkbtn" id="importBtn" style="flex:none;">⬇️ Import</button>
+    </div>
+    <input type="file" id="importFile" accept=".svbox,application/json" hidden />
   </section>
   <section id="gameView" hidden>
     <div class="gamecard card">
@@ -934,6 +945,7 @@
   <script src="shared/leitner.js"></script>
   <script src="shared/game.js"></script>
   <script src="shared/gameui.js"></script>
+  <script src="shared/share.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

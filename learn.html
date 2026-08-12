@@ -41,6 +41,11 @@
 
     /* ── Practice: deck cards ─────────────────────────────────────────── */
     #deckCards { display: flex; flex-direction: column; gap: 14px; }
+    /* svbox import drop target — covers the whole arcade section (header +
+       deck list), so a drop anywhere over it counts, not just the gaps
+       between cards. Outline, not border, so nothing reflows on hover. */
+    #arcade.dragover { outline: 2px dashed var(--coral-600); outline-offset: 6px; border-radius: var(--r-md); }
+    .deckcard .dgift { margin-top: 10px; color: var(--muted); font-size: 12.5px; }
     .deckcard { padding: 16px 18px; background: var(--surface); border: 1px solid var(--border);
       border-radius: var(--r-md); box-shadow: var(--shadow-rest); }
     .deckcard.hot { border-color: var(--coral-600); }
@@ -53,10 +58,19 @@
     .dscope b { color: var(--teal-600); font-weight: 600; }
     .dchange { margin-top: 4px; padding: 3px 4px; font-size: 12px; }
     .dplay { flex: none; }
+    .dshare { flex: none; font-size: 15px; }
     .dsheet { margin-top: 14px; padding: 12px 14px; background: var(--surface-2);
       border: 1px solid var(--border); border-radius: var(--r-sm); }
     .dsheet .fieldlbl { font-size: 12px; color: var(--muted); margin: 8px 0 4px; }
     .dsheet .fieldlbl:first-child { margin-top: 0; }
+
+    /* ── share sheet (Task 3): same .dsheet container, share-only children ── */
+    .sharesheet .shead { display: flex; align-items: center; justify-content: space-between; }
+    .sharesheet .shead .fieldlbl { margin: 0; }
+    .sharesheet textarea.field { resize: vertical; min-height: 84px; font: 13px/1.45 var(--ui); }
+    .sharesheet .shareRow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+    .sharesheet a.btn-secondary { text-decoration: none; }
+    .sharecopied { color: var(--teal-600); font-size: 12px; }
     .paceRow { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
     .paceRow span:first-child { flex: none; min-width: 100px; color: var(--muted); font-size: 12px; }
     .paceRow input[type="range"] { flex: 1; }
@@ -225,7 +239,13 @@
 
     <section data-pane="practice">
       <section id="arcade">
+        <div class="lbl" style="display:flex; align-items:center; justify-content:space-between;">
+          <span>Your decks</span>
+          <button class="btn-secondary" id="importBtn" style="padding:5px 10px; font-size:12px;">⬇️ Import</button>
+        </div>
+        <input type="file" id="importFile" accept=".svbox,application/json" hidden />
         <div id="deckCards"></div>
+        <div id="importStatus" class="muted" style="margin-top:8px; font-size:12px; min-height:15px;">Or drop a shared deck (.svbox) here</div>
       </section>
       <section id="gameView" hidden>
         <div class="gamecard card">
@@ -266,6 +286,7 @@
   <script src="shared/leitner.js"></script>
   <script src="shared/game.js"></script>
   <script src="shared/gameui.js"></script>
+  <script src="shared/share.js"></script>
   <script src="learn.js"></script>
 </body>
 </html>

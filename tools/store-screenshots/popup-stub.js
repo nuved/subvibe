@@ -77,6 +77,60 @@
         else if (t === "VOCAB_CLIP_WORDS") r = { ok: true, lang: "de", title: "Learn German with Stories — Café in Berlin", words: WORDS, enriched: true };
         else if (t === "VOCAB_ADD" || t === "VOCAB_ADD_MANY") r = { ok: true, added: 1, due: 12 };
         else if (t === "VOCAB_LIST") r = { cards: GAME_CARDS };
+        else if (t === "VOCAB_IMPORT") {
+          // Mimics background.js's (post review-fix-round-1) VOCAB_IMPORT
+          // write path closely enough to exercise the client-side import flow
+          // live (svbox task 4) — see learn-stub.js's identical handler for
+          // the full comment (tokenize-derived key, idbVocabGet-before-write
+          // merge on toAdd collisions rather than a blind overwrite).
+          const lang = String(msg.lang || "").toLowerCase();
+          const gift = String(msg.name || "").replace(/[^A-Za-z0-9 _-]/g, "").trim().slice(0, 24);
+          const now2 = Date.now();
+          const tokenize = (t) => String(t || "").match(/\p{L}+(?:['’‘‌-]\p{L}+)*/gu) || [];
+          // Mirrors background.js's (post review-fix-round-2) pickImportFields
+          // exactly: empty string never copied, sep only when true, ms only
+          // when a positive number — an empty value must never blank a
+          // receiver's real enrichment on a toAdd-collision merge.
+          const STRING_FIELDS = ["lemma", "cefr", "pos", "art", "meaning", "sentence", "sentenceT", "para",
+            "note", "phrase", "videoTitle", "channel"];
+          const pickFields = (raw) => {
+            const out = {};
+            if (!raw || typeof raw !== "object") return out;
+            for (const f of STRING_FIELDS) { const v = raw[f]; if (typeof v === "string" && v.length > 0) out[f] = v; }
+            if (raw.sep === true) out.sep = true;
+            if (typeof raw.ms === "number" && Number.isFinite(raw.ms) && raw.ms > 0) out.ms = raw.ms;
+            return out;
+          };
+          let added = 0, updated = 0;
+          for (const raw of msg.toAdd || []) {
+            const word = String((raw && raw.word) || "").trim();
+            if (!word) continue;
+            const clean = tokenize(word)[0] || word;
+            const key = lang + ":" + clean.toLowerCase();
+            const cur = GAME_CARDS.find((x) => x.key === key);
+            if (cur) {
+              const f = pickFields(raw);
+              if (Object.keys(f).length) { Object.assign(cur, f); updated++; }
+              continue;
+            }
+            const f = pickFields(raw);
+            const card = { key, word: clean, lang, box: 1, nextDueAt: now2, addedAt: now2, lastGradedAt: 0,
+              sentence: f.sentence || "", sentenceT: f.sentenceT || "", videoTitle: f.videoTitle || "",
+              base: "", ms: f.ms || 0, channel: f.channel || "", n: 1,
+              lemma: f.lemma || null, pos: f.pos || null, art: f.art || null, plural: null,
+              cefr: f.cefr || null, meaning: f.meaning || null, phrase: f.phrase || null, note: f.note || null,
+              para: f.para || null, sep: f.sep === true, conj: null, history: [], contexts: [] };
+            if (gift) card.gift = gift;
+            GAME_CARDS.push(card);
+            added++;
+          }
+          for (const u of msg.toUpdate || []) {
+            const c = GAME_CARDS.find((x) => x.key === (u && u.key));
+            const f = pickFields(u && u.fields);
+            if (c && Object.keys(f).length) { Object.assign(c, f); updated++; }
+          }
+          r = { ok: true, added, updated };
+        }
         // VOCAB_GRADE / VOCAB_KNOWN fall through to the default { ok: true } —
         // the word-game screenshots only need the round to keep advancing,
         // not a stateful mock of the Leitner store.

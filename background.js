@@ -1598,6 +1598,118 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse({ ok: true, card });
           break;
         }
+        case "VOCAB_IMPORT": {
+          // {lang, name, toAdd, toUpdate} — the popup/trainer already ran the
+          // file through SV_SHARE.validateImport + mergeImport before sending
+          // this, but background listens on the whole extension: this handler
+          // re-validates from scratch (arrays, per-field caps, a fixed
+          // whitelist of writable fields) rather than trust an already-clean
+          // payload, same discipline as shared/share.js's whitelistCard.
+          const lang = typeof msg.lang === "string" ? msg.lang.toLowerCase() : "";
+          // isCardKey(lang + ":x") is false exactly when `lang` collides with
+          // a reserved internal key namespace (inbox/dismissed/clipenrich/
+          // clipgram) — two of those are short enough to pass the regex
+          // below, and a colliding lang would let BOTH toAdd's derived key
+          // (`${lang}:word`) and toUpdate's key.startsWith(lang+":") guard
+          // land inside a reserved prefix (review fix round 1).
+          if (!/^[a-z]{2,8}$/.test(lang) || !isCardKey(lang + ":x")) { sendResponse({ error: "bad lang" }); break; }
+          // Same sanitizeName rule as shared/share.js: strip to [A-Za-z0-9 _-], cap 24.
+          const gift = String(msg.name || "").replace(/[^A-Za-z0-9 _-]/g, "").trim().slice(0, 24);
+          const toAddIn = Array.isArray(msg.toAdd) ? msg.toAdd.slice(0, 5000) : [];
+          const toUpdateIn = Array.isArray(msg.toUpdate) ? msg.toUpdate.slice(0, 5000) : [];
+          // Mirrors shared/share.js's STRING_CAPS (word aside) — duplicated
+          // rather than imported since that module exports no whitelist helper,
+          // only its own pure functions.
+          const IMPORT_CAPS = { lemma: 500, cefr: 500, pos: 500, art: 500, meaning: 500, sentence: 1000,
+            sentenceT: 1000, para: 1000, note: 500, phrase: 500, videoTitle: 500, channel: 500 };
+          // Mirrors shared/share.js's whitelistCard: empty is never copied —
+          // this message could be hand-crafted and sent straight to
+          // background.js, bypassing SV_SHARE.validateImport entirely, so
+          // this defense can't assume the sender already dropped sep:false/
+          // ms:0/empty strings the way a real export does (review fix round 2).
+          const pickImportFields = (raw) => {
+            const out = {};
+            if (!raw || typeof raw !== "object") return out;
+            for (const f of Object.keys(IMPORT_CAPS)) {
+              const v = raw[f];
+              if (typeof v === "string" && v.length > 0 && v.length <= IMPORT_CAPS[f]) out[f] = v;
+            }
+            if (raw.sep === true) out.sep = true;
+            if (typeof raw.ms === "number" && Number.isFinite(raw.ms) && raw.ms > 0) out.ms = raw.ms;
+            return out;
+          };
+          // Shared by both loops below: patch ONLY the whitelisted enrichment
+          // fields present in `raw` onto an already-stored `cur` card — never
+          // box/nextDueAt/lastGradedAt/history/n/key/gift. Returns false (no
+          // write happened) when `raw` carries nothing new, so a no-op merge
+          // never gets counted as though something changed.
+          const mergeOntoExisting = async (key, cur, raw) => {
+            const f = pickImportFields(raw);
+            if (!Object.keys(f).length) return false;
+            await idbVocabPut(key, { ...cur, ...f });
+            return true;
+          };
+
+          const now = Date.now();
+          let added = 0, updated = 0;
+          for (const raw of toAddIn) {
+            try {
+              const word = typeof raw.word === "string" ? raw.word.trim() : "";
+              if (!word || word.length > 80) continue;
+              const clean = SV_VOCAB.tokenize(word)[0] || word;
+              const key = `${lang}:${clean.toLowerCase()}`;
+              // vocabAdd is idempotent by always idbVocabGet-ing before it
+              // writes (background.js:275-306) — this loop has to be too.
+              // A "new" card can already have a row here: a second surface's
+              // concurrent import, a duplicate word within this same toAdd
+              // batch (an earlier iteration's write is already visible to
+              // this idbVocabGet), or a reimport whose file-side word didn't
+              // tokenize-match the CLIENT's dedupe key (mergeImport's own
+              // dedupeKey is a bare lowercase compare, not SV_VOCAB.tokenize
+              // — shared/share.js) even though it matches the key the SERVER
+              // derives right here. Any of those must never blindly overwrite
+              // an existing card's review state — merge onto it instead and
+              // count it as an update, not a fresh add (review fix round 1).
+              const cur = await idbVocabGet(key);
+              if (cur) {
+                if (await mergeOntoExisting(key, cur, raw)) updated++;
+                continue;
+              }
+              const f = pickImportFields(raw);
+              // Store defaults for a fresh card (vocabAdd's new-card shape) —
+              // no review-state field ever arrives from the wire, so every one
+              // of box/nextDueAt/addedAt/lastGradedAt/n/history/contexts starts
+              // clean here regardless of what the imported card claims.
+              const card = {
+                word: clean, lang, box: 1, nextDueAt: now, addedAt: now, lastGradedAt: 0,
+                sentence: f.sentence || "", sentenceT: f.sentenceT || "", videoTitle: f.videoTitle || "",
+                base: "", ms: f.ms || 0, channel: f.channel || "",
+                n: 1, lemma: f.lemma || null, pos: f.pos || null, art: f.art || null, plural: null,
+                cefr: f.cefr || null, meaning: f.meaning || null, phrase: f.phrase || null, note: f.note || null,
+                para: f.para || null, sep: f.sep === true,
+                conj: null, history: [], contexts: [],
+              };
+              if (gift) card.gift = gift;
+              await idbVocabPut(key, card);
+              added++;
+            } catch {}
+          }
+          for (const u of toUpdateIn) {
+            try {
+              const key = typeof (u && u.key) === "string" ? u.key : "";
+              // isCardKey guard is belt-and-suspenders on top of the lang-level
+              // check above (review fix round 1) — key.startsWith(lang + ":")
+              // alone only excludes reserved namespaces THROUGH lang being
+              // clean; this keeps the exclusion correct even if that changes.
+              if (!key || !key.startsWith(lang + ":") || !isCardKey(key)) continue;
+              const cur = await idbVocabGet(key);
+              if (!cur) continue;
+              if (await mergeOntoExisting(key, cur, u.fields)) updated++;
+            } catch {}
+          }
+          sendResponse({ ok: true, added, updated });
+          break;
+        }
         case "VOCAB_KNOWN": {
           // "know it ✓" — instantly mastered (box 5), same card shape as
           // vocabAdd for a word that was never saved yet (fold rows may or
