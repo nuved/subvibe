@@ -174,9 +174,21 @@ function buildDeckCard(lang, langCards) {
   const share = document.createElement("button");
   share.className = "btn-quiet dshare";
   share.textContent = "⇪";
-  share.title = "Share this deck";
-  share.setAttribute("aria-label", "Share this deck");
-  share.addEventListener("click", () => toggleShareSheet(lang, langCards, wrap));
+  // 0-exportable-cards guard (parked from task 3's review): exportDeck only
+  // requires a card to carry a usable .word, so this is rare for a real deck,
+  // but a disabled button with a calm hint beats ever opening a sheet that
+  // can only offer an empty file — no click handler attached at all when
+  // disabled, so the sheet can never open from here.
+  const shareable = exportedCardCount(SV_SHARE.exportDeck(langCards, lang, {}) || { text: "{}" }) > 0;
+  if (shareable) {
+    share.title = "Share this deck";
+    share.setAttribute("aria-label", "Share this deck");
+    share.addEventListener("click", () => toggleShareSheet(lang, langCards, wrap));
+  } else {
+    share.disabled = true;
+    share.title = "Nothing to share yet — play a round first";
+    share.setAttribute("aria-label", "Nothing to share yet — play a round first");
+  }
 
   const play = document.createElement("button");
   play.className = "btn-primary dplay";
@@ -535,10 +547,14 @@ document.addEventListener("keydown", (e) => {
 // section (shared/share.js: SV_SHARE, pure — validate the raw text, then
 // merge against this lang's existing cards before asking background to
 // write anything).
+// parse-error/bad-version/bad-kind all mean the same thing to the user —
+// "this isn't a file we can read as a deck" — so they share one precise,
+// actionable message rather than three subtly different phrasings; too-large
+// is its own distinct, actionable message (a size cap, not a format problem).
 const IMPORT_ERR = {
   "too-large": "That file is too large to import.",
-  "parse-error": "That doesn't look like a valid deck file.",
-  "bad-version": "That deck file's format isn't supported here.",
+  "parse-error": "That doesn't look like a SubVibe deck file.",
+  "bad-version": "That doesn't look like a SubVibe deck file.",
   "bad-kind": "That doesn't look like a SubVibe deck file.",
   "bad-lang": "That deck file's language isn't recognized.",
   "bad-cards": "That deck file has no cards.",
@@ -563,8 +579,12 @@ async function importSvboxFile(file) {
   const resp = await send({ type: "VOCAB_IMPORT", lang: v.lang, name: v.name || "", toAdd, toUpdate });
   if (!resp || !resp.ok) { setImportStatus("Import failed — try again."); return; }
   await refresh();
+  // skipped: cards validateImport itself couldn't read (bad/missing word,
+  // oversize field, …) — calm, no error styling, since some cards may still
+  // have landed fine; only shown when it's actually nonzero.
+  const skippedBit = v.skipped ? " · skipped " + v.skipped + " unreadable" : "";
   const giftBit = v.name ? " · from " + v.name + " 🎁" : "";
-  setImportStatus("Added " + resp.added + " new · updated " + resp.updated + giftBit);
+  setImportStatus("Added " + resp.added + " new · updated " + resp.updated + skippedBit + giftBit);
 }
 
 el("importBtn").addEventListener("click", () => el("importFile").click());

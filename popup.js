@@ -1618,10 +1618,14 @@ function buildDeckCard(lang, cards) {
 // ── svbox import — drag-drop only here (the trainer also gets a file-input
 // button; this popup is small enough that a drop target on the whole arcade
 // is the only affordance). shared/share.js: SV_SHARE (pure, validate+merge).
+// parse-error/bad-version/bad-kind all mean the same thing to the user —
+// "this isn't a file we can read as a deck" — so they share one precise,
+// actionable message rather than three subtly different phrasings; too-large
+// is its own distinct, actionable message (a size cap, not a format problem).
 const IMPORT_ERR = {
   "too-large": "That file is too large to import.",
-  "parse-error": "That doesn't look like a valid deck file.",
-  "bad-version": "That deck file's format isn't supported here.",
+  "parse-error": "That doesn't look like a SubVibe deck file.",
+  "bad-version": "That doesn't look like a SubVibe deck file.",
   "bad-kind": "That doesn't look like a SubVibe deck file.",
   "bad-lang": "That deck file's language isn't recognized.",
   "bad-cards": "That deck file has no cards.",
@@ -1646,8 +1650,12 @@ async function importSvboxFile(file) {
   const resp = await send({ type: "VOCAB_IMPORT", lang: v.lang, name: v.name || "", toAdd, toUpdate });
   if (!resp || !resp.ok) { setImportStatus("Import failed — try again."); return; }
   await renderDecks();
+  // skipped: cards validateImport itself couldn't read (bad/missing word,
+  // oversize field, …) — calm, no error styling, since some cards may still
+  // have landed fine; only shown when it's actually nonzero.
+  const skippedBit = v.skipped ? " · skipped " + v.skipped + " unreadable" : "";
   const giftBit = v.name ? " · from " + v.name + " 🎁" : "";
-  setImportStatus("Added " + resp.added + " new · updated " + resp.updated + giftBit);
+  setImportStatus("Added " + resp.added + " new · updated " + resp.updated + skippedBit + giftBit);
 }
 
 // dragenter/dragleave fire per child element crossed — a depth counter
