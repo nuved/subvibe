@@ -749,7 +749,11 @@
   <section id="arcade">
     <div class="lbl">Your games <button class="linkbtn" id="lnOpenFull">Full trainer →</button></div>
     <div id="deckCards"></div>
-    <div id="importStatus" class="hint" style="margin-top:6px; min-height:13px;">Drop a shared deck (.svbox) here to import</div>
+    <div class="row" style="margin-top:6px;">
+      <div id="importStatus" class="hint" style="flex:1; min-height:13px;">Drop a shared deck (.svbox) here to import</div>
+      <button class="linkbtn" id="importBtn" style="flex:none;">⬇️ Import</button>
+    </div>
+    <input type="file" id="importFile" accept=".svbox,application/json" hidden />
   </section>
   <section id="gameView" hidden>
     <div class="gamecard card">

@@ -6,8 +6,7 @@
 // state (box/nextDueAt/lastGradedAt/history/addedAt/key/n/gift) and anything
 // unrecognized can never ride along, no matter what the file contains.
 (function (g) {
-  // TODO(operator): replace with the real Chrome Web Store listing URL once published.
-  const STORE_URL = "https://chromewebstore.google.com/detail/subvibe";
+  const STORE_URL = "https://chromewebstore.google.com/detail/lmlnalcdaojhipggkcgdpibobbolbfne";
 
   // The only enrichment fields a card is allowed to carry across the wire.
   // "word" is required; the rest are optional with their own length cap.
@@ -40,12 +39,21 @@
     } else if (requireWord) {
       return null;
     }
+    // Empty is never emitted, not even as an explicit "" — a bare presence
+    // check downstream (mergeImport's isEmpty, background.js's pickImportFields)
+    // is what stands between an unenriched export and quietly blanking a
+    // receiver's real enrichment on a toAdd-collision merge; not emitting the
+    // field in the first place closes that at the source (review fix round 2).
     for (const f of OPTIONAL_STRING_FIELDS) {
       const v = raw[f];
-      if (typeof v === "string" && v.length <= STRING_CAPS[f]) out[f] = v;
+      if (typeof v === "string" && v.length > 0 && v.length <= STRING_CAPS[f]) out[f] = v;
     }
-    if (typeof raw.sep === "boolean") out.sep = raw.sep;
-    if (typeof raw.ms === "number" && Number.isFinite(raw.ms)) out.ms = raw.ms;
+    // sep:false and ms:0 are exactly as "nothing to say" as an absent field —
+    // an unenriched card's sep defaults false and ms defaults 0, so emitting
+    // them as real values would let a plain export switch OFF a receiver's
+    // separable-verb flag or zero their video timestamp on reimport.
+    if (raw.sep === true) out.sep = true;
+    if (typeof raw.ms === "number" && Number.isFinite(raw.ms) && raw.ms > 0) out.ms = raw.ms;
     return out;
   }
 
@@ -184,7 +192,15 @@
       const fields = {};
       for (const f of UPDATABLE_FIELDS) {
         const impVal = imp[f];
-        if (isEmpty(impVal)) continue;
+        // sep/ms are boolean/numeric — isEmpty's ""/null/undefined check
+        // doesn't cover THEIR "nothing to say" values (false, 0). whitelistCard
+        // no longer emits sep:false or ms:0 at all, so imp[f] can only be
+        // `true`/a positive number/absent here — this stays explicit rather
+        // than relying solely on that upstream invariant (review fix round 2).
+        const impEmpty = f === "sep" ? impVal !== true
+          : f === "ms" ? !(typeof impVal === "number" && impVal > 0)
+          : isEmpty(impVal);
+        if (impEmpty) continue;
         const curVal = existing[f];
         if (isEmpty(curVal) || curVal !== impVal) fields[f] = impVal;
       }
@@ -205,7 +221,7 @@
     const intro = name
       ? `${name} put together a deck of ${words} for you — a gift, free to play.`
       : `Here's a deck of ${words} — a gift, free to play.`;
-    return `${intro}\nInstall SubVibe (free) and open my file to play.\n${STORE_URL}\nFree, no AI key needed.`;
+    return `${intro}\nInstall SubVibe (free) and open the file to play.\n${STORE_URL}\nFree, no AI key needed.`;
   }
 
   g.SV_SHARE = { STORE_URL, exportDeck, validateImport, mergeImport, buildShareText };

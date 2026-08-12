@@ -87,12 +87,18 @@
           const gift = String(msg.name || "").replace(/[^A-Za-z0-9 _-]/g, "").trim().slice(0, 24);
           const now2 = Date.now();
           const tokenize = (t) => String(t || "").match(/\p{L}+(?:['’‘‌-]\p{L}+)*/gu) || [];
-          const CARD_FIELDS = ["lemma", "cefr", "pos", "art", "meaning", "sentence", "sentenceT", "para",
-            "note", "phrase", "videoTitle", "channel", "sep", "ms"];
+          // Mirrors background.js's (post review-fix-round-2) pickImportFields
+          // exactly: empty string never copied, sep only when true, ms only
+          // when a positive number — an empty value must never blank a
+          // receiver's real enrichment on a toAdd-collision merge.
+          const STRING_FIELDS = ["lemma", "cefr", "pos", "art", "meaning", "sentence", "sentenceT", "para",
+            "note", "phrase", "videoTitle", "channel"];
           const pickFields = (raw) => {
             const out = {};
             if (!raw || typeof raw !== "object") return out;
-            for (const f of CARD_FIELDS) if (raw[f] !== undefined && raw[f] !== null) out[f] = raw[f];
+            for (const f of STRING_FIELDS) { const v = raw[f]; if (typeof v === "string" && v.length > 0) out[f] = v; }
+            if (raw.sep === true) out.sep = true;
+            if (typeof raw.ms === "number" && Number.isFinite(raw.ms) && raw.ms > 0) out.ms = raw.ms;
             return out;
           };
           let added = 0, updated = 0;

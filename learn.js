@@ -551,25 +551,40 @@ document.addEventListener("keydown", (e) => {
 // "this isn't a file we can read as a deck" — so they share one precise,
 // actionable message rather than three subtly different phrasings; too-large
 // is its own distinct, actionable message (a size cap, not a format problem).
+// bad-cards only fires when validateImport's `cards` field isn't an array at
+// all — a structural rejection like parse-error/bad-version/bad-kind, not
+// "no cards" (a structurally-valid file with a genuinely empty cards:[] is
+// handled separately below, before this map is ever consulted).
 const IMPORT_ERR = {
   "too-large": "That file is too large to import.",
   "parse-error": "That doesn't look like a SubVibe deck file.",
   "bad-version": "That doesn't look like a SubVibe deck file.",
   "bad-kind": "That doesn't look like a SubVibe deck file.",
   "bad-lang": "That deck file's language isn't recognized.",
-  "bad-cards": "That deck file has no cards.",
+  "bad-cards": "That doesn't look like a SubVibe deck file.",
   "too-many-cards": "That deck has too many cards to import.",
 };
+const IMPORT_MAX_BYTES = 2 * 1024 * 1024; // mirrors SV_SHARE.validateImport's own MAX_TEXT cap
 
 function setImportStatus(text) {
   el("importStatus").textContent = text;
 }
 
 async function importSvboxFile(file) {
+  // Cheap, synchronous, no I/O — reject an obviously oversized file before
+  // ever reading it into memory. validateImport's own MAX_TEXT check (on the
+  // decoded string's UTF-16 length) still runs below and stays authoritative
+  // for anything this pre-check lets through.
+  if (file.size > IMPORT_MAX_BYTES) { setImportStatus(IMPORT_ERR["too-large"]); return; }
   let text;
   try { text = await file.text(); } catch { setImportStatus("Couldn't read that file."); return; }
   const v = SV_SHARE.validateImport(text);
   if (!v.ok) { setImportStatus(IMPORT_ERR[v.error] || "Couldn't import that file."); return; }
+  // A structurally-valid file whose cards array was genuinely empty from the
+  // start (not "every card failed validation" — that's the skipped-count
+  // line below) reads as confusing silence otherwise ("Added 0 · updated 0"
+  // with no explanation).
+  if (v.cards.length === 0 && !v.skipped) { setImportStatus("That deck file is empty."); return; }
   // Fresh read, not the cached `cards` — a stale in-memory list would
   // misreport an already-imported card as new (same re-read discipline as
   // setScopeField/setPace above).

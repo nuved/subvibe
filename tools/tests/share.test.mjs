@@ -90,6 +90,24 @@ test("exportDeck: round-trips cleanly through validateImport, including a bad-la
   assert.equal(S.exportDeck(cards, "", {}), null);
 });
 
+test("exportDeck: an un-enriched card exports no empty-string fields, no sep:false, no ms:0 (review fix round 2)", () => {
+  const bare = {
+    word: "Katze", meaning: "cat", sentence: "Die Katze schläft.",
+    sentenceT: "", videoTitle: "", channel: "", note: "", phrase: "", para: "", lemma: "", art: "", pos: "", cefr: "",
+    sep: false, ms: 0,
+  };
+  const { text } = S.exportDeck([bare], "de", {});
+  const c = JSON.parse(text).cards[0];
+  for (const f of ["sentenceT", "videoTitle", "channel", "note", "phrase", "para", "lemma", "art", "pos", "cefr"]) {
+    assert.equal(f in c, false, f + " must not be emitted as an empty string — reimporting it would blank a receiver's real value");
+  }
+  assert.equal("sep" in c, false, "sep:false must not be emitted — reimporting it would switch off a receiver's separable-verb flag");
+  assert.equal("ms" in c, false, "ms:0 must not be emitted — reimporting it would zero a receiver's video timestamp");
+  assert.equal(c.word, "Katze");
+  assert.equal(c.meaning, "cat");
+  assert.equal(c.sentence, "Die Katze schläft.");
+});
+
 test("exportDeck: lang is normalized to lowercase (uppercase input still succeeds)", () => {
   const { text } = S.exportDeck([enriched({ w: "Haus" })], "DE", {});
   const data = JSON.parse(text);
@@ -276,13 +294,24 @@ test("mergeImport: import wins on differing non-empty enrichment", () => {
 });
 
 test("mergeImport: existing non-empty field is untouched when import field is empty/absent", () => {
-  const existing = [{ word: "Haus", meaning: "house", note: "keep me", key: "de:haus" }];
-  const imported = [{ word: "Haus", meaning: "house", sentence: "Das Haus ist groß." }];
+  const existing = [{ word: "Haus", meaning: "house", note: "keep me", phrase: "keep this too", key: "de:haus" }];
+  const imported = [{ word: "Haus", meaning: "house", sentence: "Das Haus ist groß.", phrase: "" }];
   const r = S.mergeImport(existing, imported, "de");
   assert.equal(r.toUpdate.length, 1);
   assert.equal(r.toUpdate[0].fields.sentence, "Das Haus ist groß.");
   assert.equal(r.toUpdate[0].fields.meaning, undefined, "identical value produces no update field");
   assert.equal(r.toUpdate[0].fields.note, undefined, "import didn't send note — existing note stays untouched");
+  assert.equal(r.toUpdate[0].fields.phrase, undefined, "import sent an explicit empty string, not absent — existing phrase must stay untouched too");
+});
+
+test("mergeImport: incoming sep:false/ms:0 never lands in toUpdate.fields, even alongside a real change (review fix round 2)", () => {
+  const existing = [{ word: "Katze", lang: "de", sep: true, ms: 45210, meaning: "old", key: "de:katze" }];
+  const imported = [{ word: "Katze", sep: false, ms: 0, meaning: "new" }];
+  const r = S.mergeImport(existing, imported, "de");
+  assert.equal(r.toUpdate.length, 1);
+  assert.equal(r.toUpdate[0].fields.meaning, "new", "the real change still comes through");
+  assert.equal(r.toUpdate[0].fields.sep, undefined, "sep:false must never overwrite an existing sep:true");
+  assert.equal(r.toUpdate[0].fields.ms, undefined, "ms:0 must never zero out an existing ms");
 });
 
 test("mergeImport: nothing to update yields no toUpdate entry", () => {

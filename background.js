@@ -1622,15 +1622,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           // only its own pure functions.
           const IMPORT_CAPS = { lemma: 500, cefr: 500, pos: 500, art: 500, meaning: 500, sentence: 1000,
             sentenceT: 1000, para: 1000, note: 500, phrase: 500, videoTitle: 500, channel: 500 };
+          // Mirrors shared/share.js's whitelistCard: empty is never copied —
+          // this message could be hand-crafted and sent straight to
+          // background.js, bypassing SV_SHARE.validateImport entirely, so
+          // this defense can't assume the sender already dropped sep:false/
+          // ms:0/empty strings the way a real export does (review fix round 2).
           const pickImportFields = (raw) => {
             const out = {};
             if (!raw || typeof raw !== "object") return out;
             for (const f of Object.keys(IMPORT_CAPS)) {
               const v = raw[f];
-              if (typeof v === "string" && v.length <= IMPORT_CAPS[f]) out[f] = v;
+              if (typeof v === "string" && v.length > 0 && v.length <= IMPORT_CAPS[f]) out[f] = v;
             }
-            if (typeof raw.sep === "boolean") out.sep = raw.sep;
-            if (typeof raw.ms === "number" && Number.isFinite(raw.ms)) out.ms = raw.ms;
+            if (raw.sep === true) out.sep = true;
+            if (typeof raw.ms === "number" && Number.isFinite(raw.ms) && raw.ms > 0) out.ms = raw.ms;
             return out;
           };
           // Shared by both loops below: patch ONLY the whitelisted enrichment
