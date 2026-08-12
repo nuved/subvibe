@@ -67,12 +67,12 @@
     .tbar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--surface-2); }
     .tbar span { display: block; height: 100%; }
     .seg-new { background: var(--toggle-off); }
-    .seg-learning { background: #F4A261; }
+    .seg-learning { background: var(--learning); }
     .seg-mastered { background: var(--teal-600); }
     .tlegend { display: flex; gap: 14px; margin-top: 6px; color: var(--muted); font-size: 11px; }
     .tlegend .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 4px; vertical-align: 1px; }
     .tlegend .dot.new { background: var(--toggle-off); }
-    .tlegend .dot.learning { background: #F4A261; }
+    .tlegend .dot.learning { background: var(--learning); }
     .tlegend .dot.mastered { background: var(--teal-600); }
 
     /* ── round loop (same mechanics as the popup arcade, trainer scale) ── */
@@ -121,9 +121,41 @@
     .gslide { animation: gslide .35s ease-out; }
     @media (prefers-reduced-motion: reduce) { .gpop, .gshake, .gslide, .recordbanner { animation: none !important; } }
 
+    /* Sentence builder (Task 3): tray/strip chips reuse .gopt's colors (default
+       surface-2, .hit teal, .miss coral) via class="gopt gchip" — these rules
+       only override the block-button layout into small inline pills. */
+    .gchip { display: inline-block; width: auto; margin: 6px 6px 0 0; padding: 8px 14px; border-radius: 999px; font-size: 14px; }
+    .gstrip { display: flex; flex-wrap: wrap; align-content: flex-start; min-height: 42px;
+      padding: 8px; margin: 10px 0 6px; border: 1px dashed var(--border); border-radius: 12px; }
+    .gstrip.hit { border-color: var(--teal-600); background: var(--teal-100); }
+    .gstrip.miss { border-color: var(--coral-600); background: var(--coral-100); }
+    .gtray { display: flex; flex-wrap: wrap; }
+    .glocked { pointer-events: none; opacity: .7; }
+
+    /* Grammar gap: three inline article buttons (class="gopt gart") + a styled
+       blank span standing in for the removed article — no literal "___" text. */
+    .gartrow { display: flex; gap: 10px; margin-top: 10px; }
+    .gart { flex: 1; width: auto; text-align: center; margin-top: 0; }
+    .ggap { display: inline-block; min-width: 52px; height: 1.1em; margin: 0 3px;
+      border-bottom: 3px solid var(--coral-600); vertical-align: -3px; }
+
+    /* Find-it: tappable inline tokens inside the sentence — never pre-marked
+       (that would give the answer away); color only after a tap. */
+    .gtok { display: inline-block; background: transparent; border: 0; padding: 0 1px;
+      font: inherit; font-style: normal; color: inherit; cursor: pointer; border-radius: 4px; }
+    .gtok:hover { background: var(--surface-2); }
+    .gtok.hit { color: var(--teal-600); font-weight: 700; background: var(--teal-100); }
+    .gtok.miss { color: var(--coral-600); background: var(--coral-100); }
+
+    /* Shared feedback lines across the 3 sentence kinds: builderHint/gapRule
+       (wrong), the revealed correct builder order, and find's source citation. */
+    .ghint { margin-top: 10px; font-size: 12.5px; color: var(--muted); }
+    .gcorrect { margin-top: 6px; font-weight: 700; font-size: 15px; color: var(--teal-600); }
+    .greward { margin-top: 10px; font-size: 12.5px; color: var(--muted); }
+
     .wdot { display: inline-block; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--toggle-off); }
     .wdot.new { background: var(--toggle-off); }
-    .wdot.learn { background: #F4A261; }
+    .wdot.learn { background: var(--learning); }
     .wdot.done { background: var(--teal-600); }
 
     /* ── "How the schedule works" fold ───────────────────────────────── */
@@ -233,6 +265,7 @@
   <script src="shared/pricing.js"></script>
   <script src="shared/leitner.js"></script>
   <script src="shared/game.js"></script>
+  <script src="shared/gameui.js"></script>
   <script src="learn.js"></script>
 </body>
 </html>

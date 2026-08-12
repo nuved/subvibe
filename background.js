@@ -80,8 +80,10 @@ const ENRICH_SCHEMA = {
             meaning: { type: "string" },
             phrase: { type: "string" },
             note: { type: "string" },
+            sep: { type: "boolean" },
+            para: { type: "string" },
           },
-          required: ["lemma", "pos", "art", "plural", "cefr", "meaning", "phrase", "note"],
+          required: ["lemma", "pos", "art", "plural", "cefr", "meaning", "phrase", "note", "sep", "para"],
         },
       },
     },
@@ -852,8 +854,10 @@ const WORD_SCHEMA = {
           meaning: { type: "string" },
           phrase: { type: "string" },
           note: { type: "string" },
+          sep: { type: "boolean" },
+          para: { type: "string" },
         },
-        required: ["lemma", "pos", "art", "plural", "cefr", "meaning", "phrase", "note"],
+        required: ["lemma", "pos", "art", "plural", "cefr", "meaning", "phrase", "note", "sep", "para"],
       },
       g: { type: "string" },
     },
@@ -869,7 +873,7 @@ function faClean(target, obj, keys) {
   for (const k of keys) if (typeof obj[k] === "string") obj[k] = SV_VOCAB.normalizeFa(obj[k]);
   return obj;
 }
-const ENTRY_FA_KEYS = ["meaning", "note", "phrase", "lemma"];
+const ENTRY_FA_KEYS = ["meaning", "note", "phrase", "lemma", "para"];
 
 // CACHE-STABLE per (source, target), like enrichPrompt.
 function wordPrompt(source, target) {
@@ -879,7 +883,10 @@ function wordPrompt(source, target) {
     `- e: { lemma (dictionary form. CRITICAL for German SEPARABLE verbs: the user may have clicked the bare stem, but if a separable prefix sits LATER in the sentence — even at the very END — the lemma is the REUNITED verb, never the bare stem: "schauen … an" → "anschauen" (also "schauen wir uns … an" → "anschauen"), "komm … zurück" → "zurückkommen", "steht … auf" → "aufstehen", "sieht … fern" → "fernsehen". Scan the WHOLE sentence for a detached prefix (an, auf, aus, ab, ein, mit, nach, vor, zu, zurück, weg, fern, her, hin); the lemma MUST agree with the separable verb you name in "g", and meaning/phrase must be for that full verb. Same for English phrasal verbs, e.g. "give up"), ` +
     `pos (noun|verb|adj|adv|phrase|other), art ("der"/"die"/"das" for German nouns else "-"), plural (nouns else "-"), ` +
     `cefr (A1–C2), meaning (concise, in ${langName(target)}, matching this sentence's sense — ALWAYS a real translation, NEVER blank or "-"; for a proper noun give a one-word gloss), ` +
-    `phrase (ONE short natural ${langName(source)} example), note (short usage note or "-") }.\n` +
+    `phrase (ONE short natural ${langName(source)} example), note (short usage note or "-"), ` +
+    `sep (true ONLY for German separable verbs (trennbare Verben), false otherwise), ` +
+    `para (ONE short sentence explaining the word's meaning IN ${langName(source)} ITSELF — never a translation into ` +
+    `another language — using simple everyday A2-level vocabulary a beginner already knows, no quotation marks) }.\n` +
     `- g: the SENTENCE's grammar explained in ${langName(target)}, 1–2 short sentences: tense/mood, notable constructions, ` +
     `and any word-order point a learner needs. Use SIMPLE everyday ${langName(target)} a learner reads at a glance — ` +
     `NEVER formal or textbook grammar register. Name grammar concepts by their common ${langName(source)} term ` +
@@ -925,7 +932,10 @@ function enrichPrompt(source, target) {
     `- cefr: the word's CEFR level, A1–C2.\n` +
     `- meaning: a concise meaning in ${langName(target)}, matching the sentence's sense.\n` +
     `- phrase: ONE short, natural ${langName(source)} example phrase using the word.\n` +
-    `- note: a short usage or irregularity note when genuinely useful, else "-".` +
+    `- note: a short usage or irregularity note when genuinely useful, else "-".\n` +
+    `- sep: true ONLY for German separable verbs (trennbare Verben), false otherwise.\n` +
+    `- para: ONE short sentence explaining the word's meaning IN ${langName(source)} ITSELF — never a translation ` +
+    `into another language — using simple everyday A2-level vocabulary a beginner already knows, no quotation marks.` +
     ((target || "").split("-")[0] === "fa"
       ? `\nALL Persian output must be STANDARD IRANIAN FARSI — never Urdu: no Urdu letters (ہ ھ ے ٹ ڈ ڑ ں) and no Urdu words.`
       : "");
@@ -1703,7 +1713,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               const r = await llmJSON(wordPrompt(msg.lang && msg.lang !== "xx" ? msg.lang : "auto", target),
                 { w: word, s: sent }, WORD_SCHEMA);
               const [m] = SV_VOCAB.mergeEnrichment([{ word }], [(r.parsed && r.parsed.e) || null]);
-              entry = faClean(target, { lemma: m.lemma, pos: m.pos, art: m.art, plural: m.plural, cefr: m.cefr, meaning: m.meaning, phrase: m.phrase, note: m.note, tl: target }, ENTRY_FA_KEYS);
+              entry = faClean(target, { lemma: m.lemma, pos: m.pos, art: m.art, plural: m.plural, cefr: m.cefr, meaning: m.meaning, phrase: m.phrase, note: m.note, sep: m.sep, para: m.para, tl: target }, ENTRY_FA_KEYS);
               gram = target.startsWith("fa") ? SV_VOCAB.normalizeFa((r.parsed && r.parsed.g) || "").trim() : ((r.parsed && typeof r.parsed.g === "string") ? r.parsed.g.trim() : "");
               await logCall({ ts: started, site: "learn", title: "Word: " + word + (attempt ? " (retry)" : ""), kind: "enrich", lines: 1, ms: Date.now() - started,
                 inTok: (r.usage && r.usage.prompt_tokens) || 0, outTok: (r.usage && r.usage.completion_tokens) || 0,
@@ -1795,7 +1805,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 merged.forEach((m, j) => {
                   // tl = the meaning's language: De→Fa data is a different pair
                   // than De→En and must never masquerade as it.
-                  cached0.e[batch[j].w.toLowerCase()] = faClean(target, { lemma: m.lemma, pos: m.pos, art: m.art, plural: m.plural, cefr: m.cefr, meaning: m.meaning, phrase: m.phrase, note: m.note, tl: target }, ENTRY_FA_KEYS);
+                  cached0.e[batch[j].w.toLowerCase()] = faClean(target, { lemma: m.lemma, pos: m.pos, art: m.art, plural: m.plural, cefr: m.cefr, meaning: m.meaning, phrase: m.phrase, note: m.note, sep: m.sep, para: m.para, tl: target }, ENTRY_FA_KEYS);
                 });
                 enriched += merged.length;
               } catch (e2) { lastErr = e2; }

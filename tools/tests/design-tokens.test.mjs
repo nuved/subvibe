@@ -12,7 +12,7 @@ const LIGHT = {
   "--coral-500": "#F45D48", "--coral-600": "#C93F2B", "--coral-700": "#A93521",
   "--coral-100": "#FDE8E4", "--teal-600": "#0D9488", "--teal-100": "#E4F2EF",
   "--green-600": "#15803D", "--red-600": "#DC2626", "--amber-600": "#B45309",
-  "--karaoke": "#FFB35C", "--toggle-off": "#D8CFC2",
+  "--karaoke": "#FFB35C", "--toggle-off": "#D8CFC2", "--learning": "#F4A261",
 };
 const DARK = {
   "--bg": "#191512", "--surface": "#241F1A", "--surface-2": "#2E2822",
