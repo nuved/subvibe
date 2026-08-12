@@ -41,6 +41,11 @@
 
     /* ── Practice: deck cards ─────────────────────────────────────────── */
     #deckCards { display: flex; flex-direction: column; gap: 14px; }
+    /* svbox import drop target — covers the whole arcade section (header +
+       deck list), so a drop anywhere over it counts, not just the gaps
+       between cards. Outline, not border, so nothing reflows on hover. */
+    #arcade.dragover { outline: 2px dashed var(--coral-600); outline-offset: 6px; border-radius: var(--r-md); }
+    .deckcard .dgift { margin-top: 10px; color: var(--muted); font-size: 12.5px; }
     .deckcard { padding: 16px 18px; background: var(--surface); border: 1px solid var(--border);
       border-radius: var(--r-md); box-shadow: var(--shadow-rest); }
     .deckcard.hot { border-color: var(--coral-600); }
@@ -234,7 +239,13 @@
 
     <section data-pane="practice">
       <section id="arcade">
+        <div class="lbl" style="display:flex; align-items:center; justify-content:space-between;">
+          <span>Your decks</span>
+          <button class="btn-secondary" id="importBtn" style="padding:5px 10px; font-size:12px;">⬇️ Import</button>
+        </div>
+        <input type="file" id="importFile" accept=".svbox,application/json" hidden />
         <div id="deckCards"></div>
+        <div id="importStatus" class="muted" style="margin-top:8px; font-size:12px; min-height:15px;">Or drop a shared deck (.svbox) here</div>
       </section>
       <section id="gameView" hidden>
         <div class="gamecard card">

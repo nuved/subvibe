@@ -77,6 +77,34 @@
         else if (t === "VOCAB_CLIP_WORDS") r = { ok: true, lang: "de", title: "Learn German with Stories — Café in Berlin", words: WORDS, enriched: true };
         else if (t === "VOCAB_ADD" || t === "VOCAB_ADD_MANY") r = { ok: true, added: 1, due: 12 };
         else if (t === "VOCAB_LIST") r = { cards: GAME_CARDS };
+        else if (t === "VOCAB_IMPORT") {
+          // Mimics background.js's VOCAB_IMPORT write path closely enough to
+          // exercise the client-side import flow live (svbox task 4) — see
+          // learn-stub.js's identical handler for the full comment.
+          const lang = String(msg.lang || "").toLowerCase();
+          const gift = String(msg.name || "").replace(/[^A-Za-z0-9 _-]/g, "").trim().slice(0, 24);
+          const now2 = Date.now();
+          let added = 0, updated = 0;
+          for (const raw of msg.toAdd || []) {
+            const word = String((raw && raw.word) || "").trim();
+            if (!word) continue;
+            const key = lang + ":" + word.toLowerCase();
+            const card = { key, word, lang, box: 1, nextDueAt: now2, addedAt: now2, lastGradedAt: 0,
+              sentence: raw.sentence || "", sentenceT: raw.sentenceT || "", videoTitle: raw.videoTitle || "",
+              base: "", ms: raw.ms || 0, channel: raw.channel || "", n: 1,
+              lemma: raw.lemma || null, pos: raw.pos || null, art: raw.art || null, plural: null,
+              cefr: raw.cefr || null, meaning: raw.meaning || null, phrase: raw.phrase || null, note: raw.note || null,
+              para: raw.para || null, sep: raw.sep === true, conj: null, history: [], contexts: [] };
+            if (gift) card.gift = gift;
+            GAME_CARDS.push(card);
+            added++;
+          }
+          for (const u of msg.toUpdate || []) {
+            const c = GAME_CARDS.find((x) => x.key === (u && u.key));
+            if (c && u.fields && Object.keys(u.fields).length) { Object.assign(c, u.fields); updated++; }
+          }
+          r = { ok: true, added, updated };
+        }
         // VOCAB_GRADE / VOCAB_KNOWN fall through to the default { ok: true } —
         // the word-game screenshots only need the round to keep advancing,
         // not a stateful mock of the Leitner store.

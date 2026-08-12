@@ -186,6 +186,17 @@ function buildDeckCard(lang, langCards) {
   top.append(flagEl, info, share, play);
   dcard.appendChild(top);
 
+  // Gifted-deck tag — any card in this deck carrying .gift (imported via
+  // svbox, first one found in list order wins the shown name; textContent
+  // only, gift names arrive off an untrusted file).
+  const giftCard = langCards.find((c) => c.gift);
+  if (giftCard) {
+    const gift = document.createElement("div");
+    gift.className = "dgift";
+    gift.textContent = "from " + giftCard.gift + " 🎁";
+    dcard.appendChild(gift);
+  }
+
   const stripTxt = fmtRecordsStrip(gameRecordsAll[lang]); // records only ever celebrate — nothing renders until there's something to celebrate
   if (stripTxt) {
     const strip = document.createElement("div");
@@ -518,6 +529,67 @@ async function setShareName(name) {
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && openShareSheet) closeShareSheet();
+});
+
+// ── svbox import — file-input button AND drag-drop, both on the arcade
+// section (shared/share.js: SV_SHARE, pure — validate the raw text, then
+// merge against this lang's existing cards before asking background to
+// write anything).
+const IMPORT_ERR = {
+  "too-large": "That file is too large to import.",
+  "parse-error": "That doesn't look like a valid deck file.",
+  "bad-version": "That deck file's format isn't supported here.",
+  "bad-kind": "That doesn't look like a SubVibe deck file.",
+  "bad-lang": "That deck file's language isn't recognized.",
+  "bad-cards": "That deck file has no cards.",
+  "too-many-cards": "That deck has too many cards to import.",
+};
+
+function setImportStatus(text) {
+  el("importStatus").textContent = text;
+}
+
+async function importSvboxFile(file) {
+  let text;
+  try { text = await file.text(); } catch { setImportStatus("Couldn't read that file."); return; }
+  const v = SV_SHARE.validateImport(text);
+  if (!v.ok) { setImportStatus(IMPORT_ERR[v.error] || "Couldn't import that file."); return; }
+  // Fresh read, not the cached `cards` — a stale in-memory list would
+  // misreport an already-imported card as new (same re-read discipline as
+  // setScopeField/setPace above).
+  const listResp = await send({ type: "VOCAB_LIST" });
+  const existing = (listResp.cards || []).filter((c) => c.lang === v.lang);
+  const { toAdd, toUpdate } = SV_SHARE.mergeImport(existing, v.cards, v.lang);
+  const resp = await send({ type: "VOCAB_IMPORT", lang: v.lang, name: v.name || "", toAdd, toUpdate });
+  if (!resp || !resp.ok) { setImportStatus("Import failed — try again."); return; }
+  await refresh();
+  const giftBit = v.name ? " · from " + v.name + " 🎁" : "";
+  setImportStatus("Added " + resp.added + " new · updated " + resp.updated + giftBit);
+}
+
+el("importBtn").addEventListener("click", () => el("importFile").click());
+el("importFile").addEventListener("change", async () => {
+  const file = el("importFile").files && el("importFile").files[0];
+  el("importFile").value = ""; // clears the picked file — allows re-picking the same one back to back
+  if (file) await importSvboxFile(file);
+});
+
+// dragenter/dragleave fire per child element crossed — a depth counter
+// avoids the highlight flickering off as the pointer passes between deck cards.
+let arcadeDragDepth = 0;
+el("arcade").addEventListener("dragenter", (e) => { e.preventDefault(); arcadeDragDepth++; el("arcade").classList.add("dragover"); });
+el("arcade").addEventListener("dragover", (e) => e.preventDefault()); // required so drop fires at all
+el("arcade").addEventListener("dragleave", (e) => {
+  e.preventDefault();
+  arcadeDragDepth = Math.max(0, arcadeDragDepth - 1);
+  if (!arcadeDragDepth) el("arcade").classList.remove("dragover");
+});
+el("arcade").addEventListener("drop", (e) => {
+  e.preventDefault();
+  arcadeDragDepth = 0;
+  el("arcade").classList.remove("dragover");
+  const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+  if (file) importSvboxFile(file);
 });
 
 // ── Round engine — delegates to the shared runner (shared/gameui.js) ───────

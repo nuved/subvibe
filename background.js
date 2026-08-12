@@ -1598,6 +1598,81 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse({ ok: true, card });
           break;
         }
+        case "VOCAB_IMPORT": {
+          // {lang, name, toAdd, toUpdate} — the popup/trainer already ran the
+          // file through SV_SHARE.validateImport + mergeImport before sending
+          // this, but background listens on the whole extension: this handler
+          // re-validates from scratch (arrays, per-field caps, a fixed
+          // whitelist of writable fields) rather than trust an already-clean
+          // payload, same discipline as shared/share.js's whitelistCard.
+          const lang = typeof msg.lang === "string" ? msg.lang.toLowerCase() : "";
+          if (!/^[a-z]{2,8}$/.test(lang)) { sendResponse({ error: "bad lang" }); break; }
+          // Same sanitizeName rule as shared/share.js: strip to [A-Za-z0-9 _-], cap 24.
+          const gift = String(msg.name || "").replace(/[^A-Za-z0-9 _-]/g, "").trim().slice(0, 24);
+          const toAddIn = Array.isArray(msg.toAdd) ? msg.toAdd.slice(0, 5000) : [];
+          const toUpdateIn = Array.isArray(msg.toUpdate) ? msg.toUpdate.slice(0, 5000) : [];
+          // Mirrors shared/share.js's STRING_CAPS (word aside) — duplicated
+          // rather than imported since that module exports no whitelist helper,
+          // only its own pure functions.
+          const IMPORT_CAPS = { lemma: 500, cefr: 500, pos: 500, art: 500, meaning: 500, sentence: 1000,
+            sentenceT: 1000, para: 1000, note: 500, phrase: 500, videoTitle: 500, channel: 500 };
+          const pickImportFields = (raw) => {
+            const out = {};
+            if (!raw || typeof raw !== "object") return out;
+            for (const f of Object.keys(IMPORT_CAPS)) {
+              const v = raw[f];
+              if (typeof v === "string" && v.length <= IMPORT_CAPS[f]) out[f] = v;
+            }
+            if (typeof raw.sep === "boolean") out.sep = raw.sep;
+            if (typeof raw.ms === "number" && Number.isFinite(raw.ms)) out.ms = raw.ms;
+            return out;
+          };
+
+          const now = Date.now();
+          let added = 0, updated = 0;
+          for (const raw of toAddIn) {
+            try {
+              const word = typeof raw.word === "string" ? raw.word.trim() : "";
+              if (!word || word.length > 80) continue;
+              const clean = SV_VOCAB.tokenize(word)[0] || word;
+              const key = `${lang}:${clean.toLowerCase()}`;
+              const f = pickImportFields(raw);
+              // Store defaults for a fresh card (vocabAdd's new-card shape) —
+              // no review-state field ever arrives from the wire, so every one
+              // of box/nextDueAt/addedAt/lastGradedAt/n/history/contexts starts
+              // clean here regardless of what the imported card claims.
+              const card = {
+                word: clean, lang, box: 1, nextDueAt: now, addedAt: now, lastGradedAt: 0,
+                sentence: f.sentence || "", sentenceT: f.sentenceT || "", videoTitle: f.videoTitle || "",
+                base: "", ms: f.ms || 0, channel: f.channel || "",
+                n: 1, lemma: f.lemma || null, pos: f.pos || null, art: f.art || null, plural: null,
+                cefr: f.cefr || null, meaning: f.meaning || null, phrase: f.phrase || null, note: f.note || null,
+                para: f.para || null, sep: f.sep === true,
+                conj: null, history: [], contexts: [],
+              };
+              if (gift) card.gift = gift;
+              await idbVocabPut(key, card);
+              added++;
+            } catch {}
+          }
+          for (const u of toUpdateIn) {
+            try {
+              const key = typeof (u && u.key) === "string" ? u.key : "";
+              if (!key || !key.startsWith(lang + ":")) continue;
+              const cur = await idbVocabGet(key);
+              if (!cur) continue;
+              const f = pickImportFields(u.fields);
+              if (!Object.keys(f).length) continue;
+              // Only the whitelisted enrichment fields in `f` ever land here —
+              // box/nextDueAt/lastGradedAt/history/key stay whatever `cur`
+              // already had, never overwritten by an import.
+              await idbVocabPut(key, { ...cur, ...f });
+              updated++;
+            } catch {}
+          }
+          sendResponse({ ok: true, added, updated });
+          break;
+        }
         case "VOCAB_KNOWN": {
           // "know it ✓" — instantly mastered (box 5), same card shape as
           // vocabAdd for a word that was never saved yet (fold rows may or

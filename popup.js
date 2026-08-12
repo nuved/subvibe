@@ -1572,6 +1572,17 @@ function buildDeckCard(lang, cards) {
   scopeEl.appendChild(bTag);
   if (rest) scopeEl.append(" · " + rest);
 
+  // Gifted-deck tag — any card in this deck carrying .gift (imported via
+  // svbox, first one found in list order wins the shown name; textContent
+  // only, gift names arrive off an untrusted file).
+  const giftCard = cards.find((c) => c.gift);
+  let giftEl = null;
+  if (giftCard) {
+    giftEl = document.createElement("div");
+    giftEl.className = "dgift";
+    giftEl.textContent = "from " + giftCard.gift + " 🎁";
+  }
+
   // True composition bar — segment widths proportional to new/learning/mastered
   // counts, same flexGrow math as the trainer's .tbar (learn.js buildDeckCard).
   // No numerals here — the popup stays quiet.
@@ -1590,7 +1601,9 @@ function buildDeckCard(lang, cards) {
   change.textContent = "Change";
   change.addEventListener("click", () => toggleScopeSheet(lang, wrap));
 
-  info.append(nameEl, scopeEl, bar, change);
+  info.append(nameEl, scopeEl);
+  if (giftEl) info.append(giftEl);
+  info.append(bar, change);
 
   const play = document.createElement("button");
   play.className = "btn-primary";
@@ -1601,6 +1614,59 @@ function buildDeckCard(lang, cards) {
   wrap.appendChild(dcard);
   return wrap;
 }
+
+// ── svbox import — drag-drop only here (the trainer also gets a file-input
+// button; this popup is small enough that a drop target on the whole arcade
+// is the only affordance). shared/share.js: SV_SHARE (pure, validate+merge).
+const IMPORT_ERR = {
+  "too-large": "That file is too large to import.",
+  "parse-error": "That doesn't look like a valid deck file.",
+  "bad-version": "That deck file's format isn't supported here.",
+  "bad-kind": "That doesn't look like a SubVibe deck file.",
+  "bad-lang": "That deck file's language isn't recognized.",
+  "bad-cards": "That deck file has no cards.",
+  "too-many-cards": "That deck has too many cards to import.",
+};
+
+function setImportStatus(text) {
+  el("importStatus").textContent = text;
+}
+
+async function importSvboxFile(file) {
+  let text;
+  try { text = await file.text(); } catch { setImportStatus("Couldn't read that file."); return; }
+  const v = SV_SHARE.validateImport(text);
+  if (!v.ok) { setImportStatus(IMPORT_ERR[v.error] || "Couldn't import that file."); return; }
+  // Fresh read, not the cached gamePool — a stale in-memory list would
+  // misreport an already-imported card as new (same re-read discipline as
+  // setScopeField/bumpIntro elsewhere in this file).
+  const listResp = await send({ type: "VOCAB_LIST" });
+  const existing = (listResp.cards || []).filter((c) => c.lang === v.lang);
+  const { toAdd, toUpdate } = SV_SHARE.mergeImport(existing, v.cards, v.lang);
+  const resp = await send({ type: "VOCAB_IMPORT", lang: v.lang, name: v.name || "", toAdd, toUpdate });
+  if (!resp || !resp.ok) { setImportStatus("Import failed — try again."); return; }
+  await renderDecks();
+  const giftBit = v.name ? " · from " + v.name + " 🎁" : "";
+  setImportStatus("Added " + resp.added + " new · updated " + resp.updated + giftBit);
+}
+
+// dragenter/dragleave fire per child element crossed — a depth counter
+// avoids the highlight flickering off as the pointer passes between deck cards.
+let arcadeDragDepth = 0;
+el("arcade").addEventListener("dragenter", (e) => { e.preventDefault(); arcadeDragDepth++; el("arcade").classList.add("dragover"); });
+el("arcade").addEventListener("dragover", (e) => e.preventDefault()); // required so drop fires at all
+el("arcade").addEventListener("dragleave", (e) => {
+  e.preventDefault();
+  arcadeDragDepth = Math.max(0, arcadeDragDepth - 1);
+  if (!arcadeDragDepth) el("arcade").classList.remove("dragover");
+});
+el("arcade").addEventListener("drop", (e) => {
+  e.preventDefault();
+  arcadeDragDepth = 0;
+  el("arcade").classList.remove("dragover");
+  const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+  if (file) importSvboxFile(file);
+});
 
 // ── Scope "Change" sheet — inline, per deck card ────────────────────────────
 const POS_OPTIONS = [["", "All"], ["noun", "Nouns"], ["verb", "Verbs"], ["sep", "Separable"], ["phrase", "Phrases"]];

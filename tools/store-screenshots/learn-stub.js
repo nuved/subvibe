@@ -66,6 +66,38 @@
           r = { conj: { Präsens: ["verbessere", "verbesserst", "verbessert", "verbessern", "verbessert", "verbessern"], Perfekt: "habe verbessert" } };
         } else if (t === "VOCAB_ENRICH") {
           r = { enriched: 0, usd: 0 };
+        } else if (t === "VOCAB_IMPORT") {
+          // Mimics background.js's VOCAB_IMPORT write path closely enough to
+          // exercise the client-side import flow live (svbox task 4): toAdd
+          // gets the same fresh-card shape vocabAdd() writes (+ gift when a
+          // name was given), toUpdate patches only the given fields onto the
+          // existing card. Mutates CARDS in place so a second VOCAB_LIST call
+          // (and a reimport) sees the result — real reimport-idempotence
+          // proof for the CLIENT flow; the actual IndexedDB write path this
+          // stands in for is reviewed by hand, not exercised here.
+          const lang = String(msg.lang || "").toLowerCase();
+          const gift = String(msg.name || "").replace(/[^A-Za-z0-9 _-]/g, "").trim().slice(0, 24);
+          const now2 = Date.now();
+          let added = 0, updated = 0;
+          for (const raw of msg.toAdd || []) {
+            const word = String((raw && raw.word) || "").trim();
+            if (!word) continue;
+            const key = lang + ":" + word.toLowerCase();
+            const card = { key, word, lang, box: 1, nextDueAt: now2, addedAt: now2, lastGradedAt: 0,
+              sentence: raw.sentence || "", sentenceT: raw.sentenceT || "", videoTitle: raw.videoTitle || "",
+              base: "", ms: raw.ms || 0, channel: raw.channel || "", n: 1,
+              lemma: raw.lemma || null, pos: raw.pos || null, art: raw.art || null, plural: null,
+              cefr: raw.cefr || null, meaning: raw.meaning || null, phrase: raw.phrase || null, note: raw.note || null,
+              para: raw.para || null, sep: raw.sep === true, conj: null, history: [], contexts: [] };
+            if (gift) card.gift = gift;
+            CARDS.push(card);
+            added++;
+          }
+          for (const u of msg.toUpdate || []) {
+            const c = CARDS.find((x) => x.key === (u && u.key));
+            if (c && u.fields && Object.keys(u.fields).length) { Object.assign(c, u.fields); updated++; }
+          }
+          r = { ok: true, added, updated };
         }
         const pr = new Promise((res) => setTimeout(() => res(r), 15));
         if (cb) { pr.then(cb); return true; }
