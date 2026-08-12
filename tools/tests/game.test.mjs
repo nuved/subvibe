@@ -204,6 +204,43 @@ test("findFor: separable prefix (last occurrence), plain verb token, else null, 
   assert.equal(G.findFor(card({ w: "x", sentence: "" })), null, "missing sentence → null");
 });
 
+test("findFor: reunited-lemma fallback (real enrichment data has no pipe)", () => {
+  // Real enrichment always returns the REUNITED lemma ("aufstehen"), never the
+  // stub-only pipe form ("auf|stehen") — sep:true + a plain lemma must still work.
+  const reunited = card({ w: "aufstehen", p: "verb", lm: "aufstehen", sep: true,
+    sentence: "Ich stehe jeden Tag früh auf." });
+  const f = G.findFor(reunited);
+  assert.equal(f.ask, "prefix");
+  assert.equal(f.tokens[f.answerIndex].replace(/[.,!?]+$/, ""), "auf");
+  assert.equal(f.answerIndex, f.tokens.length - 1, "prefix sits clause-final in this sentence");
+
+  // Longer prefix must win over a shorter one that's also a valid prefix on its
+  // own ("zu" vs "zurück") — matching against the START of the reunited lemma.
+  const longer = card({ w: "zurückkommen", p: "verb", lm: "zurückkommen", sep: true,
+    sentence: "Er wollte unbedingt heute Abend nach Hause." });
+  assert.equal(G.findFor(longer), null, "no standalone \"zurückkommen\"-prefix token in this sentence");
+  const longerHit = card({ w: "zurückkommen", p: "verb", lm: "zurückkommen", sep: true,
+    sentence: "Er kommt am Abend endlich zurück." });
+  const fl = G.findFor(longerHit);
+  assert.equal(fl.tokens[fl.answerIndex].replace(/[.,!?]+$/, ""), "zurück");
+
+  // Prefix only embedded inside another word (no standalone token) → null, even
+  // though the reunited lemma legitimately starts with that prefix.
+  const buried = card({ w: "aufwachen", p: "verb", lm: "aufwachen", sep: true,
+    sentence: "Sie war den ganzen Morgen aufmerksam und müde." });
+  assert.equal(G.findFor(buried), null, "prefix only inside \"aufmerksam\", no standalone token");
+
+  // Prefix genuinely absent from the sentence → null (fail closed).
+  const absent = card({ w: "zurückkommen", p: "verb", lm: "zurückkommen", sep: true,
+    sentence: "Er kommt heute Abend nach Hause." });
+  assert.equal(G.findFor(absent), null, "prefix not in the sentence at all");
+
+  // sep:true but the lemma matches no known prefix at all → null, not a crash.
+  const noPrefix = card({ w: "reden", p: "verb", lm: "reden", sep: true,
+    sentence: "Wir reden morgen darüber." });
+  assert.equal(G.findFor(noPrefix), null, "lemma doesn't start with any known separable prefix");
+});
+
 test("kindsFor / pickKind: kinds mirror *For nullability; mode-driven selection with fallback", () => {
   const full = card({ w: "aufstehen", p: "verb", lm: "auf|stehen", sep: true,
     sentence: "Ich stehe jeden Tag früh auf." });

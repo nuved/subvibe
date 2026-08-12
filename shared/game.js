@@ -150,6 +150,18 @@
     };
   }
 
+  // German separable-verb prefixes, longest-first so a longer prefix ("zurück")
+  // wins over a shorter one that's also valid on its own ("zu") when matching
+  // the START of a reunited lemma like "zurückkommen".
+  const SEP_PREFIXES = Object.freeze([
+    "zusammen",
+    "zurück", "weiter", "wieder",
+    "dabei", "durch", "statt",
+    "fest", "fort", "nach", "teil",
+    "auf", "aus", "bei", "dar", "ein", "her", "hin", "los", "mit", "vor", "weg",
+    "ab", "an", "da", "um", "zu",
+  ]);
+
   // Separable verbs: the prefix rides at the end of the clause, so we hunt
   // for it there first — the German word order the card is teaching.
   function findFor(card) {
@@ -157,13 +169,18 @@
     const tokens = sentenceTokens(card);
     if (!tokens) return null;
     if (isSep(card)) {
-      const lemma = String(card.lemma || "");
-      if (!lemma.includes("|")) return null; // sep flagged but no usable prefix — bail conservatively
-      const prefix = lemma.split("|")[0].trim();
+      const lemma = String(card.lemma || "").toLowerCase();
+      // Stub/demo data names the prefix directly via a pipe ("auf|stehen").
+      // Real enrichment always returns the REUNITED lemma ("aufstehen", no
+      // pipe) — fall back to matching it against the known prefix list and
+      // requiring a standalone sentence token (fail closed: no match → null).
+      let prefix = null;
+      if (lemma.includes("|")) prefix = lemma.split("|")[0].trim();
+      else if (card.sep === true) prefix = SEP_PREFIXES.find((p) => lemma.startsWith(p)) || null;
       if (!prefix) return null;
       let answerIndex = -1;
       for (let i = 0; i < tokens.length; i++) {
-        if (cleanToken(tokens[i]).toLowerCase() === prefix.toLowerCase()) answerIndex = i; // last wins
+        if (cleanToken(tokens[i]).toLowerCase() === prefix) answerIndex = i; // last wins
       }
       return answerIndex === -1 ? null : { tokens, answerIndex, ask: "prefix" };
     }
