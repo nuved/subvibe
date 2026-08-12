@@ -112,16 +112,18 @@ test("gapFor: blanks the article before the noun; options fixed; art/absence →
   const g1 = G.gapFor(midSentence);
   assert.deepEqual(g1.options, ["der", "die", "das"]);
   assert.equal(g1.correct, "der");
-  assert.equal(g1.before, "Ich finde,");
-  assert.equal(g1.after, "Wortschatz ist schön.");
-  assert.equal(`${g1.before} ${g1.correct} ${g1.after}`, midSentence.sentence, "before + correct + after reconstructs the sentence");
+  // before/after are exact slices of the ORIGINAL sentence around the "der" occurrence —
+  // spacing belongs to before/after, not reinserted by the caller.
+  assert.equal(g1.before + "der" + g1.after, midSentence.sentence);
+  assert.equal(g1.before + "___" + g1.after, midSentence.sentence.replace(/\bder\b/, "___"));
 
-  // case-insensitivity: sentence-initial "Die" still matches art "die"
+  // case-insensitivity: sentence-initial "Die" still matches art "die"; it disappears
+  // entirely into the blank (before === "", no reinsertion needed for casing).
   const initial = card({ w: "Geduld", art: "die", sentence: "Die Geduld ist wichtig beim Lernen." });
   const g2 = G.gapFor(initial);
   assert.equal(g2.before, "");
   assert.equal(g2.correct, "die");
-  assert.equal(g2.after, "Geduld ist wichtig beim Lernen.");
+  assert.equal(g2.before + "___" + g2.after, initial.sentence.replace(/^Die\b/, "___"));
 
   assert.equal(G.gapFor(card({ w: "Zufall", sentence: "Der Zufall wollte es so." })), null, "no art field → null");
   assert.equal(
@@ -129,6 +131,39 @@ test("gapFor: blanks the article before the noun; options fixed; art/absence →
     null,
     "article not immediately before the noun (plural phrasing) → null",
   );
+});
+
+test("gapFor: exact noun match wins over a compound that merely contains the stem (two-pass)", () => {
+  // "Freundeskreis" starts with "Freund" and sits behind a "Der" first — a plain
+  // substring/stem match would blank the WRONG noun. The exact match ("der Freund")
+  // must win even though it's the second candidate in the sentence.
+  const compound = card({ w: "Freund", art: "der",
+    sentence: "Der Freundeskreis war groß, aber der Freund blieb treu." });
+  const g = G.gapFor(compound);
+  assert.equal(g.correct, "der");
+  assert.equal(g.before + "der" + g.after, compound.sentence);
+  assert.ok(g.before.includes("Freundeskreis"), "the compound occurrence was passed over, not blanked");
+  assert.ok(g.after.trim().startsWith("Freund "), "the exact-match occurrence was blanked");
+
+  // Same failure mode with a 3-letter word, where the (length > 3 ? drop-last-char)
+  // stem heuristic can't even shorten "Tag" — without the exact-match pass, ANY
+  // compound starting with "Tag" trivially stem-matches.
+  const compound3 = card({ w: "Tag", art: "der",
+    sentence: "Der Tagesbericht war lang, doch der Tag blieb ruhig." });
+  const g3 = G.gapFor(compound3);
+  assert.equal(g3.before + "der" + g3.after, compound3.sentence);
+  assert.ok(g3.before.includes("Tagesbericht"));
+  assert.ok(g3.after.trim().startsWith("Tag "));
+
+  // Pass 2 (stem tolerance) still fires when NO exact match exists anywhere —
+  // declined/plural forms remain gap-able.
+  const inflected = card({ w: "Freiheit", art: "die",
+    sentence: "Die Freiheiten der Bürger sind geschützt." });
+  const gi = G.gapFor(inflected);
+  assert.equal(gi.correct, "die");
+  assert.equal(gi.before, "");
+  assert.ok(gi.after.trim().startsWith("Freiheiten "));
+  assert.equal(gi.before + "___" + gi.after, inflected.sentence.replace(/^Die\b/, "___"));
 });
 
 test("findFor: separable prefix (last occurrence), plain verb token, else null, word-boundary discipline", () => {

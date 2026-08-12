@@ -97,32 +97,57 @@
   function builderFor(card, rng) {
     const tokens = builderTokens(card);
     if (!tokens) return null;
+    // solution.join(" ") happens to rebuild THIS sentence because tokenization is
+    // whitespace-only — that's not a general reconstruction guarantee, so judge
+    // correctness against `solution` itself, not against re-joining working in general.
     return { solution: tokens, chips: shuffle(tokens, rng) };
   }
 
-  // Blanks the ONE occurrence of card.art sitting directly before the noun
-  // it declines — first match wins when a sentence has more than one.
+  // Tokens with their exact start offset in the source string, so a match can be
+  // sliced back out losslessly (original spacing/casing) instead of rejoined.
+  function indexedTokens(sentence) {
+    if (!sentence || typeof sentence !== "string") return null;
+    const out = [];
+    for (const m of sentence.matchAll(/\S+/g)) out.push({ text: m[0], index: m.index });
+    return out.length ? out : null;
+  }
+
+  // Blanks the ONE occurrence of card.art sitting directly before the noun it
+  // declines. Two-pass candidate selection: an exact match on card.word always
+  // wins over a compound that merely CONTAINS the stem (e.g. "der Freundeskreis"
+  // must never be picked over "der Freund" for word "Freund") — stem tolerance is
+  // only a fallback for declined/compound forms when no exact form is present at
+  // all. First candidate wins within either pass when a sentence has more than one.
   function gapFor(card) {
     if (!card || !/^(der|die|das)$/i.test(card.art || "")) return null;
-    const tokens = sentenceTokens(card);
-    if (!tokens) return null;
+    const toks = indexedTokens(card.sentence);
+    if (!toks) return null;
     const art = String(card.art).toLowerCase();
-    const word = String(card.lemma || card.word || "");
-    if (!word) return null;
-    const stem = (word.length > 3 ? word.slice(0, -1) : word).toLowerCase();
-    for (let i = 0; i < tokens.length - 1; i++) {
-      if (cleanToken(tokens[i]).toLowerCase() !== art) continue;
-      const noun = cleanToken(tokens[i + 1]);
+    const lemmaOrWord = String(card.lemma || card.word || "");
+    if (!lemmaOrWord) return null;
+    const wordExact = String(card.word || "").toLowerCase();
+    const stem = (lemmaOrWord.length > 3 ? lemmaOrWord.slice(0, -1) : lemmaOrWord).toLowerCase();
+
+    const candidates = [];
+    for (let i = 0; i < toks.length - 1; i++) {
+      if (cleanToken(toks[i].text).toLowerCase() !== art) continue;
+      const noun = cleanToken(toks[i + 1].text);
       if (!noun || !/^\p{Lu}/u.test(noun)) continue;
-      if (!noun.toLowerCase().includes(stem)) continue;
-      return {
-        before: tokens.slice(0, i).join(" "),
-        after: tokens.slice(i + 1).join(" "),
-        options: ["der", "die", "das"],
-        correct: art,
-      };
+      candidates.push({ tok: toks[i], noun: noun.toLowerCase() });
     }
-    return null;
+    let hit = wordExact && candidates.find((c) => c.noun === wordExact);
+    if (!hit) hit = candidates.find((c) => c.noun.includes(stem));
+    if (!hit) return null;
+
+    const sentence = card.sentence;
+    const start = hit.tok.index;
+    const end = start + hit.tok.text.length;
+    return {
+      before: sentence.slice(0, start),
+      after: sentence.slice(end),
+      options: ["der", "die", "das"],
+      correct: art,
+    };
   }
 
   // Separable verbs: the prefix rides at the end of the clause, so we hunt
