@@ -212,16 +212,18 @@
   // hide behind color-only cues — e.g. find's flashed-then-cleared wrong tap
   // otherwise leaves no visible trace once the eventual right tap lands —
   // and a correct-answer restatement, like builder's solution line below,
-  // must never read as ambiguous praise). Same technique as showReveal's ✓
-  // line: inline style copied from .gopt.hit/.gopt.miss's own declared
-  // colors — no CSS file touched. Short, symbol-led, no stress framing.
-  function verdictLine(ok) {
+  // must never read as ambiguous praise). Same technique as wordCorrectBlock's
+  // ✓ line below: inline style copied from .gopt.hit/.gopt.miss's own
+  // declared colors — no CSS file touched. Short, symbol-led, no stress framing.
+  // `text` overrides the default copy — word cards' retry mechanic uses this
+  // for "✗ Not quite — try again"; every other caller omits it unchanged.
+  function verdictLine(ok, text) {
     const v = document.createElement("div");
     v.className = "gopt";
     v.style.cssText = ok
       ? "background: var(--teal-100); color: var(--teal-600); font-weight: 700; cursor: default;"
       : "background: var(--coral-100); color: var(--coral-600); font-weight: 700; cursor: default;";
-    v.textContent = ok ? "✓" : "✗ Not quite";
+    v.textContent = text || (ok ? "✓" : "✗ Not quite");
     return v;
   }
 
@@ -249,7 +251,16 @@
     startRing();
   }
 
-  // ── Card type 1: word (meaning choice) — unchanged from step 1 ─────────────
+  // ── Card type 1: word (meaning choice, retry-until-found) ───────────────────
+  // The Leitner grade — and the speed-ring bonus — commit on the FIRST tap
+  // only (ok = whether THAT tap was correct; identical semantics to find's
+  // first-tap-decides). A wrong tap strikes that option and shows its own 💡
+  // lesson, replacing any earlier one (only one shown at a time) — it never
+  // reveals the correct answer or offers Next, so the player keeps guessing
+  // among what's left, converging within at most 3 wrong taps. The eventual
+  // correct tap — whichever attempt it is — shows the rich teaching block
+  // (wordCorrectBlock); only a FIRST-try correct auto-advances, otherwise the
+  // player reads the block via Next → (playtest fix: retry + rich block).
   function renderWordCard(card, body) {
     const s = gameSession;
     body.appendChild(gameSentenceEl(card.sentence, card.word));
@@ -272,12 +283,64 @@
     const picks = SV_GAME.distractors(card, s.pool, Math.random, 3);
     const options = SV_GAME.shuffle([card.meaning, ...picks], Math.random);
     const optWrap = document.createElement("div");
+    const optionButtons = [];
+
+    let graded = false;       // has the grade-deciding first tap happened yet?
+    let firstTryOk = false;   // was THAT tap correct? — the only thing auto-advance depends on
+    let firstTryFast = false; // was it within the ring? — the +1 badge only ever reflects the first tap
+    let feedback = null;      // current verdict+lesson block — swapped wholesale, never stacked
+
+    function swapFeedback(node) {
+      if (feedback) feedback.remove();
+      feedback = node;
+      optWrap.appendChild(feedback);
+    }
+
+    async function onTap(picked, btn) {
+      if (btn.disabled) return; // an already-struck option, or a resolved round, is inert
+      const isCorrect = picked === card.meaning;
+
+      if (!graded) {
+        graded = true;
+        firstTryOk = isCorrect;
+        firstTryFast = Date.now() < ringDeadline;
+        stopRing();
+        await gradeCard(card, isCorrect);
+        // Round exited mid-grade (← Done during this await) — same race the
+        // pre-retry code guarded per-function; one check here covers it all,
+        // since every later tap in this closure is fully synchronous (no
+        // further await), so this is the ONLY staleness window that exists.
+        if (gameSession !== s) return;
+        settleAnswer(s, { ok: isCorrect, fast: firstTryFast });
+        if (!isCorrect) { recordMiss(s, card); requeueCard(s, card); }
+      }
+
+      btn.disabled = true;
+      if (isCorrect) {
+        btn.classList.add("hit");
+        if (!reducedMotion()) btn.classList.add("gpop");
+        if (firstTryOk) showPlusOne(btn, firstTryFast); // scoring was already decided on the first tap
+        swapFeedback(wordCorrectBlock(card));
+        for (const b of optionButtons) b.disabled = true; // resolved — no more taps
+        if (firstTryOk) {
+          advanceTimer = setTimeout(() => { advanceTimer = 0; if (gameSession !== s) return; s.i++; renderCard(); }, 800);
+        } else {
+          showNextButton(); // found it, but not on the first try — let them read
+        }
+      } else {
+        btn.classList.add("miss");
+        if (!reducedMotion()) btn.classList.add("gshake");
+        swapFeedback(wordWrongLesson(s, card, picked));
+      }
+    }
+
     for (const meaning of options) {
       const opt = document.createElement("button");
       opt.className = "gopt";
       opt.dir = "auto";
       opt.textContent = meaning;
-      opt.addEventListener("click", () => handleAnswer(card, meaning, optWrap));
+      opt.addEventListener("click", () => onTap(meaning, opt));
+      optionButtons.push(opt);
       optWrap.appendChild(opt);
     }
     body.appendChild(optWrap);
@@ -572,12 +635,14 @@
     }
   }
 
-  // recordMiss/requeueCard/showReveal all take the CAPTURED session `s` (not
-  // the global `gameSession`) and bail out if it's gone stale — the global is
+  // recordMiss/requeueCard take the CAPTURED session `s` (not the global
+  // `gameSession`) and bail out if it's gone stale — the global is
   // reassigned (to null by backToArcade, or to a new round's session) by the
-  // time these run whenever the user hits "← Done" during the gradeCard()
-  // await in a wrong-answer branch. Reading the global directly here used to
-  // throw in exactly that sequence (review fix round 1).
+  // time these run whenever the user hits "← Done" during a gradeCard()
+  // await. Reading the global directly here used to throw in exactly that
+  // sequence (review fix round 1). renderWordCard's onTap() checks the same
+  // staleness once, right after its own gradeCard() await, before calling
+  // either of these — every other tap in that closure is fully synchronous.
   function recordMiss(s, card) {
     if (!s || gameSession !== s) return;
     if (s.missedKeys.has(card.key)) return; // unique per round, however many times it's missed
@@ -600,33 +665,49 @@
     btn.appendChild(badge);
   }
 
-  // Wrong-answer feedback, in order: (1) "✓ <word> = <meaning>" for the card
-  // that was actually asked — teal, same visual family as the .hit state
-  // (background/color values copied from .gopt.hit — no CSS file touched
-  // here, same technique as gameSentenceEl's inline amber mark below); (2) its
-  // simple-source-language paraphrase when enrichment provided one ("≈ " —
-  // a generic symbol prefix, never a hardcoded language name/label); (3) the
-  // tapped distractor's own word ("💡 <meaning> = <its word> — <its
-  // sentence>"), found by tracing its meaning back to the pool card it came
-  // from. Same stale-session guard as recordMiss/requeueCard — it sits
-  // between those two calls in handleAnswer's wrong branch and reads the
-  // session's pool, so it needed the identical fix to actually close the race.
-  function showReveal(s, card, picked, optWrap) {
-    if (!s || gameSession !== s) return;
-
-    const correct = document.createElement("div");
-    correct.className = "gopt";
-    correct.style.cssText = "background: var(--teal-100); color: var(--teal-600); font-weight: 700; cursor: default;";
-    correct.textContent = "✓ " + card.word + " = " + card.meaning;
-    optWrap.appendChild(correct);
-
-    if (card.para) {
-      const para = document.createElement("div");
-      para.className = "ghint";
-      para.textContent = "≈ " + card.para;
-      optWrap.appendChild(para);
+  // The resolution block for renderWordCard — replaces the old bare
+  // "✓ word=meaning" pairing line with a richer one. Line 1 is always
+  // "✓ <word> = <meaning>" (teal, same visual family as .hit — inline style
+  // copied from .gopt.hit, no CSS file touched); line 2 is the sentence's
+  // own translation when the card carries one (card.sentenceT); line 3 is
+  // the simple-language paraphrase ("≈ ") when present. Never bare when
+  // either exists; cleanly minimal (just line 1) when neither does. One
+  // wrapper div so onTap's swapFeedback can remove the whole thing as a unit
+  // (playtest fix: rich correct-answer teaching block).
+  function wordCorrectBlock(card) {
+    const wrap = document.createElement("div");
+    const head = document.createElement("div");
+    head.className = "gopt";
+    head.style.cssText = "background: var(--teal-100); color: var(--teal-600); font-weight: 700; cursor: default;";
+    head.textContent = "✓ " + card.word + " = " + card.meaning;
+    wrap.appendChild(head);
+    if (card.sentenceT) {
+      const tr = document.createElement("div");
+      tr.className = "gsent";
+      tr.dir = "auto";
+      tr.textContent = card.sentenceT;
+      wrap.appendChild(tr);
     }
+    if (card.para) {
+      const pa = document.createElement("div");
+      pa.className = "ghint";
+      pa.textContent = "≈ " + card.para;
+      wrap.appendChild(pa);
+    }
+    return wrap;
+  }
 
+  // One wrong tap's lesson for renderWordCard: the tapped distractor's own
+  // word, found by tracing its meaning back to the pool card it came from
+  // ("💡 <meaning> = <its word> — <its sentence>"), preceded by the calm
+  // retry verdict. The correct answer is deliberately never named here —
+  // revealing it would defeat the retry mechanic, since the player is meant
+  // to keep guessing among what's left; that only ever appears once they
+  // find it, via wordCorrectBlock. One wrapper div, same swap-as-a-unit
+  // reason as wordCorrectBlock above (playtest fix: retry mechanic).
+  function wordWrongLesson(s, card, picked) {
+    const wrap = document.createElement("div");
+    wrap.appendChild(verdictLine(false, "✗ Not quite — try again"));
     const owner = s.pool.find((c) => c !== card && (c.meaning || "").trim() === picked);
     const reveal = document.createElement("div");
     reveal.className = "gopt reveal";
@@ -636,7 +717,8 @@
       if (owner.sentence) parts.push(" — " + owner.sentence);
     }
     reveal.textContent = parts.join(""); // textContent composition — never innerHTML for word-derived text
-    optWrap.appendChild(reveal);
+    wrap.appendChild(reveal);
+    return wrap;
   }
 
   function showNextButton() {
@@ -647,37 +729,6 @@
     next.textContent = "Next →";
     next.addEventListener("click", () => { gameSession.i++; renderCard(); });
     body.appendChild(next);
-  }
-
-  async function handleAnswer(card, picked, optWrap) {
-    const s = gameSession;
-    const withinRing = Date.now() < ringDeadline;
-    stopRing();
-    [...optWrap.children].forEach((btn) => { btn.disabled = true; });
-    const pickedBtn = [...optWrap.children].find((btn) => btn.textContent === picked);
-    const correctBtn = [...optWrap.children].find((btn) => btn.textContent === card.meaning);
-    const ok = picked === card.meaning;
-
-    await gradeCard(card, ok);
-
-    if (ok) {
-      pickedBtn.classList.add("hit");
-      if (!reducedMotion()) pickedBtn.classList.add("gpop");
-      settleAnswer(s, { ok: true, fast: withinRing });
-      showPlusOne(pickedBtn, withinRing);
-      optWrap.appendChild(verdictLine(true));
-      advanceTimer = setTimeout(() => { advanceTimer = 0; if (gameSession !== s) return; s.i++; renderCard(); }, 800);
-    } else {
-      pickedBtn.classList.add("miss");
-      if (!reducedMotion()) pickedBtn.classList.add("gshake");
-      if (correctBtn) correctBtn.classList.add("hit");
-      settleAnswer(s, { ok: false });
-      recordMiss(s, card);
-      optWrap.appendChild(verdictLine(false));
-      showReveal(s, card, picked, optWrap);
-      requeueCard(s, card);
-      showNextButton(); // Next → only — no auto-advance on a miss
-    }
   }
 
   async function endRound() {
