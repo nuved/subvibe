@@ -1,0 +1,16 @@
+.sv-card {
+  width: 380px; max-width: calc(100vw - 24px); max-height: 60vh; overflow-y: auto;
+  background: rgba(8, 10, 14, 0.78); color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 12px;
+  padding: 12px 14px; font: 14px/1.5 -apple-system, system-ui, sans-serif;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+}
+.sv-head { font-size: 11px; letter-spacing: 0.4px; text-transform: uppercase; opacity: 0.65; margin-bottom: 8px; }
+.sv-points { margin: 0 0 10px; padding-left: 18px; }
+.sv-points li { margin: 3px 0; }
+.sv-body { white-space: pre-wrap; }
+.sv-note { margin-top: 8px; font-size: 12px; opacity: 0.6; }
+.sv-err { color: #ff9a9a; margin-bottom: 8px; }
+.sv-btn { background: #4f8cff; color: #fff; border: 0; border-radius: 8px; padding: 6px 14px; cursor: pointer; font: inherit; }
+.sv-spin { width: 18px; height: 18px; border: 2px solid rgba(255,255,255,0.25); border-top-color: #fff; border-radius: 50%; animation: svspin 0.8s linear infinite; }
+@keyframes svspin { to { transform: rotate(360deg); } }

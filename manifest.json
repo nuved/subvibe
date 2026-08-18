@@ -15,7 +15,10 @@
     "storage",
     "unlimitedStorage",
     "offscreen",
-    "tabCapture"
+    "tabCapture",
+    "scripting",
+    "contextMenus",
+    "activeTab"
   ],
   "host_permissions": [
     "https://api.openai.com/*",
@@ -158,6 +161,11 @@
     {
       "resources": ["marker.png"],
       "matches": ["https://nimanou.com/*"]
+    },
+    {
+      "resources": ["styles/reader.css"],
+      "matches": ["<all_urls>"],
+      "use_dynamic_url": true
     }
   ]
 }
