@@ -11,7 +11,7 @@
 // exists); the Firefox build runs it as an EVENT PAGE (importScripts is a
 // worker-only API) where build.sh lists these files in background.scripts
 // instead — same globalThis globals either way, so guard rather than crash.
-if (typeof importScripts === "function") importScripts("shared/pricing.js", "shared/leitner.js", "shared/stopwords.js", "shared/vocab.js");
+if (typeof importScripts === "function") importScripts("shared/pricing.js", "shared/leitner.js", "shared/stopwords.js", "shared/vocab.js", "shared/simplify.js");
 
 const OPENAI_CHAT = "https://api.openai.com/v1/chat/completions";
 const TRANSLATE_MODEL = "gpt-4o-mini";
@@ -1232,7 +1232,86 @@ async function logCall(rec) {
 // First run only — never on update: the welcome page sets up language + key.
 chrome.runtime.onInstalled.addListener(({ reason }) => {
   if (reason === "install") chrome.tabs.create({ url: chrome.runtime.getURL("welcome.html") });
+  // Re-create on every install/update/reload — contextMenus.create throws
+  // "duplicate id" if the menu already exists, so clear first.
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({
+      id: "svSimplify",
+      title: "Simplify with SubVibe",
+      contexts: ["selection"],
+    });
+  });
 });
+
+// ---- Simplify Reader: right-click "Simplify with SubVibe" on any selection.
+// Nothing is injected anywhere until the user clicks the menu item (activeTab).
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  if (info.menuItemId !== "svSimplify" || !tab || tab.id == null) return;
+  try {
+    await chrome.scripting.insertCSS({ target: { tabId: tab.id }, files: ["styles/reader.css"] });
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content/reader.js"] });
+    await chrome.tabs.sendMessage(tab.id, {
+      type: "SV_SIMPLIFY_OPEN",
+      fallbackText: info.selectionText || "",
+    });
+  } catch (e) {
+    // chrome://, Web Store, PDFs: injection is refused. Flag it on the badge.
+    chrome.action.setBadgeText({ tabId: tab.id, text: "!" });
+    chrome.action.setTitle({ tabId: tab.id, title: "SubVibe: can't run on this page" });
+  }
+});
+
+// SIMPLIFY_TEXT handler — mirrors the TRANSLATE path's provider/model resolution.
+async function simplifyText(rawText) {
+  const { apiKey, anthropicKey, translationProvider, claudeModel, readerLevel } =
+    await chrome.storage.local.get(["apiKey", "anthropicKey", "translationProvider", "claudeModel", "readerLevel"]);
+  const provider = translationProvider === "claude" ? "claude" : "openai";
+  const key = provider === "claude" ? anthropicKey : apiKey;
+  if (!key) return { ok: false, error: "no-key" };
+
+  const { text, truncated } = SV_SIMPLIFY.prep(rawText);
+  if (!text) return { ok: false, error: "bad-response" };
+  const messages = SV_SIMPLIFY.buildMessages(text, readerLevel || "B1");
+
+  let raw;
+  try {
+    if (provider === "claude") {
+      const model = resolveClaudeModel(claudeModel);
+      const res = await fetch(ANTHROPIC_MESSAGES, {
+        method: "POST",
+        headers: { "x-api-key": key, "anthropic-version": ANTHROPIC_VERSION, "content-type": "application/json", "anthropic-dangerous-direct-browser-access": "true" },
+        body: JSON.stringify({
+          model,
+          max_tokens: 2048,
+          system: messages[0].content,
+          messages: [{ role: "user", content: messages[1].content }],
+        }),
+      });
+      if (!res.ok) return { ok: false, error: "http-" + res.status };
+      const data = await res.json();
+      const blk = (data.content || []).find((b) => b && b.type === "text");
+      raw = blk && blk.text;
+    } else {
+      const res = await fetch(OPENAI_CHAT, {
+        method: "POST",
+        headers: { authorization: "Bearer " + key, "content-type": "application/json" },
+        body: JSON.stringify({ model: TRANSLATE_MODEL, messages, response_format: { type: "json_object" } }),
+      });
+      if (!res.ok) return { ok: false, error: "http-" + res.status };
+      const data = await res.json();
+      raw = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+    }
+  } catch {
+    return { ok: false, error: "network" };
+  }
+
+  try {
+    const { simple, points } = SV_SIMPLIFY.parse(raw);
+    return { ok: true, simple, points, truncated };
+  } catch {
+    return { ok: false, error: "bad-response" };
+  }
+}
 
 // ─── Message router ──────────────────────────────────────────────────────────
 
@@ -2007,6 +2086,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           }
           break;
         }
+        case "SIMPLIFY_TEXT":
+          sendResponse(await simplifyText(msg.text));
+          break;
         default:
           sendResponse({ error: "unknown message: " + (msg && msg.type) });
       }

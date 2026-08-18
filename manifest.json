@@ -15,7 +15,10 @@
     "storage",
     "unlimitedStorage",
     "offscreen",
-    "tabCapture"
+    "tabCapture",
+    "scripting",
+    "contextMenus",
+    "activeTab"
   ],
   "host_permissions": [
     "https://api.openai.com/*",
