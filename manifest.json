@@ -161,6 +161,10 @@
     {
       "resources": ["marker.png"],
       "matches": ["https://nimanou.com/*"]
+    },
+    {
+      "resources": ["styles/reader.css"],
+      "matches": ["<all_urls>"]
     }
   ]
 }
