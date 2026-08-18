@@ -13,7 +13,7 @@ Nothing is injected into any page until the user right-clicks. No new host permi
 1. Select any text on any page (one sentence up to a whole article).
 2. Right-click → context menu shows "Simplify with SubVibe" (only when a selection exists).
 3. A SubVibe card appears near the selection with a spinner, then:
-   - **Simple**: the rewrite, same language, one CEFR notch below the text's detected difficulty, floored at the user's configured SubVibe level.
+   - **Simple**: the rewrite, same language, targeted at a fixed CEFR level from the user's SubVibe settings. Automatic difficulty detection (one notch below the text's own level) is deferred to a later version.
    - **Key points**: 2–4 short bullets, only when the selection is longer than ~2 paragraphs (~600 chars); otherwise omitted.
 4. Esc or click outside dismisses the card. New simplification replaces the old card.
 
@@ -30,7 +30,7 @@ Nothing is injected into any page until the user right-clicks. No new host permi
 ## Prompt shape (background)
 
 System: "Rewrite the text in the SAME language, simpler: shorter sentences, common words, keep names and facts. Target CEFR {target}. If input exceeds ~600 chars, also give 2–4 key-point bullets. Return JSON {simple, points}."
-`{target}` = one notch below detected difficulty, floored at the user's stored level (same key the vocab system reads); if no level stored, default B1.
+`{target}` = the fixed CEFR level stored under `chrome.storage.local` key `readerLevel`, default `"B1"` when unset. v1 does not detect the selection's own difficulty; that's deferred.
 
 ## Errors
 
