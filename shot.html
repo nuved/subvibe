@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SubVibe Shot</title>
+  <link rel="stylesheet" href="styles/tokens.css" />
+  <link rel="stylesheet" href="styles/components.css" />
+  <link rel="stylesheet" href="styles/shot.css" />
+  <style>
+    /* Baloo 2 (bundled) — wordmark only, same pattern as library.html. */
+    @font-face { font-family: "Baloo 2"; font-weight: 800; font-display: swap;
+      src: url("fonts/Baloo2-ExtraBold-latin.woff2") format("woff2");
+      unicode-range: U+0000-00FF, U+2000-206F, U+2212; }
+    @font-face { font-family: "Baloo 2"; font-weight: 800; font-display: swap;
+      src: url("fonts/Baloo2-ExtraBold-latin-ext.woff2") format("woff2");
+      unicode-range: U+0100-024F, U+1E00-1EFF; }
+  </style>
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <img class="brand__logo" src="icons/icon-48.png" alt="" />
+      <div class="brand__name">SubVibe</div>
+      <div class="brand__sub">Shot</div>
+    </div>
+    <a class="pagelink" id="pageLink" href="#" target="_blank" rel="noopener"></a>
+    <span class="chip learn" id="langChip" hidden></span>
+    <span class="meta" id="metaLine"></span>
+    <div class="recent" id="recent"><span class="overline">Recent</span></div>
+  </header>
+  <div class="notebar" id="noteBar" hidden></div>
+
+  <main class="body" id="editor">
+    <section class="stage" id="stageWrap">
+      <div class="skeleton stage-skel" id="stageSkel"></div>
+      <canvas id="stage" hidden></canvas>
+      <div class="empty-state" id="emptyState" hidden>No shots yet — right-click any page → Screenshot with SubVibe.</div>
+    </section>
+
+    <aside class="panel">
+      <div class="group">
+        <h3 class="overline">View</h3>
+        <div class="seg" id="viewSeg" role="group" aria-label="View">
+          <button data-view="translated">Translated</button>
+          <button data-view="bilingual">Bilingual</button>
+          <button data-view="original">Original</button>
+        </div>
+        <div class="note" id="viewNote"></div>
+      </div>
+
+      <div class="group">
+        <h3 class="overline">Frame</h3>
+        <div class="seg" id="frameSeg" role="group" aria-label="Frame">
+          <button data-frame="plain">Plain</button>
+          <button data-frame="card" class="on">Card</button>
+        </div>
+        <div class="row">
+          <label class="switch"><input type="checkbox" id="badgeSw" checked /><span class="slider"></span></label>
+          <label for="badgeSw">SubVibe badge on the frame</label>
+        </div>
+      </div>
+
+      <div class="group">
+        <h3 class="overline">Text <span class="n" id="blockCount"></span></h3>
+        <div class="blocks" id="blocks"></div>
+        <button class="btn-primary" id="reshootBtn" disabled>
+          <svg class="ico" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>Apply &amp; re-shoot
+        </button>
+        <div class="note" id="reshootNote">Edit any translation, then re-shoot to render it on the original tab.</div>
+      </div>
+
+      <div class="group">
+        <h3 class="overline">Export</h3>
+        <div class="opts">
+          <label>Size <select id="sizeSel"><option value="native">Native</option><option value="2x">2×</option><option value="1x">1×</option><option value="half">½</option></select></label>
+          <label>Format <select id="fmtSel"><option value="png">PNG</option><option value="jpeg">JPEG 90%</option></select></label>
+        </div>
+        <div class="exports">
+          <button class="btn-primary" id="dlBtn"><svg class="ico" viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 21h16"/></svg>Download</button>
+          <button class="btn-secondary" id="copyBtn"><svg class="ico" viewBox="0 0 24 24"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>Copy</button>
+          <button class="btn-secondary" id="shareBtn" hidden><svg class="ico" viewBox="0 0 24 24"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="m16 6-4-4-4 4"/><path d="M12 2v14"/></svg>Share</button>
+        </div>
+        <div class="note" id="fileNote"></div>
+      </div>
+
+      <div class="group last">
+        <button class="btn-danger" id="delBtn">Delete this shot</button>
+      </div>
+    </aside>
+  </main>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <script src="shared/theme.js"></script>
+  <script src="shared/langs.js"></script>
+  <script src="shared/shot.js"></script>
+  <script src="shot.js"></script>
+</body>
+</html>

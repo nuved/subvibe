@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 const read = (p) => fs.readFileSync(new URL("../../" + p, import.meta.url), "utf8");
-const PAGES = ["library.html", "learn.html"];
+const PAGES = ["library.html", "learn.html", "shot.html"];
 
 // The old indigo palette (both pages carried local copies). Any of these left
 // behind means a surface escaped the Daylight reskin.
