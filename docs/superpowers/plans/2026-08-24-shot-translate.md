@@ -54,8 +54,8 @@ Record shape (store `shots`, key `id`):
 
 ### Task 0: Verify platform assumptions (no code)
 
-- [ ] Confirm from current Chrome extension docs: `tabs.captureVisibleTab` works under `activeTab` alone; its per-second quota (`MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND`, believed to be 2) and the error text when exceeded; `activeTab` is granted by `commands` shortcuts and context-menu clicks; `contextMenus.create` supports `parentId`; `OffscreenCanvas`, `createImageBitmap` and `Blob` storage in IndexedDB work in an MV3 service worker.
-- [ ] Write findings (with the doc URLs) at the top of the progress log. If any assumption fails, stop and report before Task 3.
+- [x] Confirm from current Chrome extension docs: `tabs.captureVisibleTab` works under `activeTab` alone; its per-second quota (`MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND`, believed to be 2) and the error text when exceeded; `activeTab` is granted by `commands` shortcuts and context-menu clicks; `contextMenus.create` supports `parentId`; `OffscreenCanvas`, `createImageBitmap` and `Blob` storage in IndexedDB work in an MV3 service worker.
+- [x] Write findings (with the doc URLs) at the top of the progress log. If any assumption fails, stop and report before Task 3.
 
 ### Task 1: `shared/shot.js` — pure helpers (TDD)
 
@@ -76,10 +76,10 @@ Record shape (store `shots`, key `id`):
 - `validateRecord(rec)` → the record or throws `Error("bad-record")`: required strings `id url title host target mode layout`, numbers `ts dpr w h` (> 0 for `dpr w h`), `original` and `variant` instances of `Blob`, `blocks` an array whose items have string `id`, `text`, `tr` and a numeric `rect`.
 - `newId()` → `Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8)`.
 
-- [ ] Write `tools/tests/shot.test.mjs` first, mirroring `simplify.test.mjs` style (`import "../../shared/shot.js"`, `globalThis.SV_SHOT`). Cases: `planTiles` short range (1 tile, no scroll beyond clamp), exact multiple, remainder → bottom-aligned last offset, clamp to `maxScroll`, cap at 25 with `truncated`; `stitchLayout` single tile crop at dpr 1 and 2, two tiles with overlap (second op starts at `drawnUntil`), rect wider than viewport clips `sw`; `prepBlocks` whitespace normalisation, letter rule (`"42"` dropped, `"4a"` kept), dedupe, both caps; `mapTranslations` missing lines; `isBilingualBlock` (3 words false, 4 true); `isRtl`; `frameLayout` plain vs card sizes and badge presence; `filename` (`www.spiegel.de` → `spiegel-de`, time formatting with a fixed `ts`, no suffix for native, `-2x` + `.jpg` for 2× JPEG); `exportScale` for dpr 1 and 2; `validateRecord` accepts a good record built with `new Blob()` and rejects a missing blob / non-array blocks.
-- [ ] Run `node --test tools/tests/shot.test.mjs` — it must fail (module missing).
-- [ ] Implement `shared/shot.js`; run until green; run the full suite.
-- [ ] Commit: `Shot: shared pure helpers (tiles, stitch, blocks, frame, filename) with tests`.
+- [x] Write `tools/tests/shot.test.mjs` first, mirroring `simplify.test.mjs` style (`import "../../shared/shot.js"`, `globalThis.SV_SHOT`). Cases: `planTiles` short range (1 tile, no scroll beyond clamp), exact multiple, remainder → bottom-aligned last offset, clamp to `maxScroll`, cap at 25 with `truncated`; `stitchLayout` single tile crop at dpr 1 and 2, two tiles with overlap (second op starts at `drawnUntil`), rect wider than viewport clips `sw`; `prepBlocks` whitespace normalisation, letter rule (`"42"` dropped, `"4a"` kept), dedupe, both caps; `mapTranslations` missing lines; `isBilingualBlock` (3 words false, 4 true); `isRtl`; `frameLayout` plain vs card sizes and badge presence; `filename` (`www.spiegel.de` → `spiegel-de`, time formatting with a fixed `ts`, no suffix for native, `-2x` + `.jpg` for 2× JPEG); `exportScale` for dpr 1 and 2; `validateRecord` accepts a good record built with `new Blob()` and rejects a missing blob / non-array blocks.
+- [x] Run `node --test tools/tests/shot.test.mjs` — it must fail (module missing).
+- [x] Implement `shared/shot.js`; run until green; run the full suite.
+- [x] Commit: `Shot: shared pure helpers (tiles, stitch, blocks, frame, filename) with tests`.
 
 ### Task 2: Manifest and build wiring
 
