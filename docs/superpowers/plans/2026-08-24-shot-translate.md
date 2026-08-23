@@ -157,10 +157,10 @@ Record shape (store `shots`, key `id`):
 
 **Files:** modify `popup.html`, `popup.js`, `README.md`, `PRIVACY.md`.
 
-- [ ] `popup.html`: a `<section id="shotRow">` immediately before `<section class="bottombar">` (outside the panes): title "Screenshot this page, translated", shortcut hint, four chip buttons `shotVisible`, `shotFull`, `shotArea`, `shotElement` (inline SVG icons as in the mock). Styles in the popup's existing stylesheet block using Daylight tokens.
-- [ ] `popup.js`: click → `chrome.runtime.sendMessage({ type: "SHOT_START", mode })` then `window.close()`; on `{ ok:false, error:"inject" }` show the status line "Can't run on this page" instead of closing.
-- [ ] `README.md` Features: one bullet "Translated screenshots — visible area, full page, a dragged region or one element of any page, with the page's text in your language; edit, frame, download, copy, share." `PRIVACY.md` "What is sent to the AI provider": one paragraph per spec §Privacy.
-- [ ] Validate (popup-ids test now covers the new ids); commit: `Shot: popup row, README and privacy notes`.
+- [x] `popup.html`: a `<section id="shotRow">` immediately before `<section class="bottombar">` (outside the panes): title "Screenshot this page, translated", shortcut hint, four chip buttons `shotVisible`, `shotFull`, `shotArea`, `shotElement` (inline SVG icons as in the mock). Styles in the popup's existing stylesheet block using Daylight tokens.
+- [x] `popup.js`: click → `chrome.runtime.sendMessage({ type: "SHOT_START", mode })` then `window.close()`; on `{ ok:false, error:"inject" }` show the status line "Can't run on this page" instead of closing.
+- [x] `README.md` Features: one bullet "Translated screenshots — visible area, full page, a dragged region or one element of any page, with the page's text in your language; edit, frame, download, copy, share." `PRIVACY.md` "What is sent to the AI provider": one paragraph per spec §Privacy.
+- [x] Validate (popup-ids test now covers the new ids); commit: `Shot: popup row, README and privacy notes`.
 
 ### Task 7: Acceptance and review
 

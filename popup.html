@@ -464,6 +464,15 @@
     .dot.partial { color: var(--amber); }
 
     /* bottom bar: today's spend at left, compact library entry at right */
+    /* Shot row — visible on every tab, above the Library bar (spec 2026-08-24-shot-translate) */
+    .shotrow { border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); padding: 10px 12px; display: grid; gap: 8px; }
+    .shotrow__ttl { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px; }
+    .shotrow__ttl svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; color: var(--coral-600); }
+    .shotrow__key { margin-left: auto; font: 600 10px/1 var(--mono); color: var(--faint); letter-spacing: .04em; }
+    .shotrow__chips { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+    .shotbtn { border: 1px solid var(--border); background: var(--bg); color: var(--ink); border-radius: var(--r-sm); padding: 7px 4px; display: grid; justify-items: center; gap: 5px; font: 600 11px/1 var(--ui); cursor: pointer; }
+    .shotbtn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+    .shotbtn:hover { background: var(--coral-100); border-color: var(--coral-600); color: var(--coral-700); }
     .bottombar { display: flex; align-items: center; gap: 10px; }
     .usage { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
       color: var(--muted); font-size: 11px; cursor: pointer; }
@@ -854,6 +863,23 @@
   </div>
 
   <!-- Usage + Library — one compact bottom bar -->
+  <!-- Shot: translated screenshots of the current page. The popup closes itself
+       on click so it never covers the picker; the click that opened the popup
+       already granted activeTab for this tab. -->
+  <section class="shotrow" id="shotRow">
+    <div class="shotrow__ttl">
+      <svg viewBox="0 0 24 24"><path d="M4 8V6a2 2 0 0 1 2-2h2"/><path d="M16 4h2a2 2 0 0 1 2 2v2"/><path d="M20 16v2a2 2 0 0 1-2 2h-2"/><path d="M8 20H6a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="3"/></svg>
+      Screenshot this page, translated
+      <span class="shotrow__key" title="Keyboard shortcut for Select area (change it in chrome://extensions/shortcuts)">⌥⇧S = AREA</span>
+    </div>
+    <div class="shotrow__chips">
+      <button class="shotbtn" id="shotVisible" title="Capture what's on screen right now"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/></svg>Visible</button>
+      <button class="shotbtn" id="shotFull" title="Scroll through and capture the whole page"><svg viewBox="0 0 24 24"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M9 7h6M9 11h6M9 15h4"/></svg>Full page</button>
+      <button class="shotbtn" id="shotArea" title="Drag a rectangle over the part you want"><svg viewBox="0 0 24 24"><path d="M4 8V6a2 2 0 0 1 2-2h2"/><path d="M16 4h2a2 2 0 0 1 2 2v2"/><path d="M20 16v2a2 2 0 0 1-2 2h-2"/><path d="M8 20H6a2 2 0 0 1-2-2v-2"/></svg>Area</button>
+      <button class="shotbtn" id="shotElement" title="Click one element (a post, an article, a card)"><svg viewBox="0 0 24 24"><path d="M4 4h6v6H4z"/><path d="m13 13 8 3-3 1-1 3z"/></svg>Element</button>
+    </div>
+  </section>
+
   <section class="bottombar">
     <div id="dubSpend" class="usage" title="Open the Library → Activity for the full breakdown">📊 <span id="spendToday">…</span> <span>(est.)</span></div>
     <button class="libbtn" id="openLibrary" title="Your cached videos — replays are free">

@@ -28,6 +28,10 @@ locally** so re-watching costs nothing. Or **hear it translated aloud, live**, i
 - **Style presets & custom looks** — Classic, YouTube, TikTok, Pill, Snapchat, Cinema and
   Minimal presets, plus custom font, text color, background color/opacity, outline/shadow —
   and a free size slider.
+- **Translated screenshots** — right-click any page → *Screenshot with SubVibe*: the visible area, the
+  full page, a dragged region or one element, with the page's own text in your language (the site's
+  fonts and layout, right-to-left handled). Edit a translation and re-shoot, add a clean frame, then
+  download, copy or share; shots stay on your device.
 - **Bring your own key (BYOK)** — uses *your* OpenAI, Anthropic, or Google key, stored only on
   your device. **No SubVibe servers, no accounts, no ads, no tracking.**
 
