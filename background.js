@@ -11,7 +11,7 @@
 // exists); the Firefox build runs it as an EVENT PAGE (importScripts is a
 // worker-only API) where build.sh lists these files in background.scripts
 // instead — same globalThis globals either way, so guard rather than crash.
-if (typeof importScripts === "function") importScripts("shared/pricing.js", "shared/leitner.js", "shared/stopwords.js", "shared/vocab.js", "shared/simplify.js");
+if (typeof importScripts === "function") importScripts("shared/pricing.js", "shared/leitner.js", "shared/stopwords.js", "shared/vocab.js", "shared/simplify.js", "shared/shot.js");
 
 const OPENAI_CHAT = "https://api.openai.com/v1/chat/completions";
 const TRANSLATE_MODEL = "gpt-4o-mini";

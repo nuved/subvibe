@@ -85,14 +85,14 @@ Record shape (store `shots`, key `id`):
 
 **Files:** modify `manifest.json`, `build.sh`.
 
-- [ ] `manifest.json`: add
+- [x] `manifest.json`: add
   ```json
   "commands": { "sv-shot-area": { "suggested_key": { "default": "Alt+Shift+S" }, "description": "SubVibe: screenshot an area of this page, translated" } }
   ```
   and a `web_accessible_resources` entry `{ "resources": ["styles/shot-capture.css"], "matches": ["<all_urls>"], "use_dynamic_url": true }` (same shape as the `reader.css` entry; merge into that entry rather than duplicating it).
-- [ ] `build.sh`: add `"shared/shot.js"` to the Firefox event-page `scripts` list (before `background.js`).
-- [ ] `background.js` top: extend the guarded `importScripts` list with `shared/shot.js` (find the existing call that loads `shared/simplify.js`).
-- [ ] Validate: suite + both builds. Commit: `Shot: manifest command, CSS resource, Firefox script list`.
+- [x] `build.sh`: add `"shared/shot.js"` to the Firefox event-page `scripts` list (before `background.js`).
+- [x] `background.js` top: extend the guarded `importScripts` list with `shared/shot.js` (find the existing call that loads `shared/simplify.js`).
+- [x] Validate: suite + both builds. Commit: `Shot: manifest command, CSS resource, Firefox script list`.
 
 ### Task 3: Background — storage, entry points, session, compose
 
