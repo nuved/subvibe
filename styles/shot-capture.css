@@ -1,0 +1,22 @@
+/* Shot capture overlay — lives in a closed shadow root injected on demand by
+   content/shot-capture.js (fetched + inlined, like reader.css). Colours are
+   Daylight values copied in (content-script world can't link tokens.css). */
+.sv-shot-ov { position: fixed; inset: 0; cursor: crosshair; background: rgba(20, 14, 10, .35); user-select: none; -webkit-user-select: none; }
+.sv-shot-ov.drag { background: transparent; }
+.sv-shot-cross-h, .sv-shot-cross-v { position: fixed; background: rgba(255, 255, 255, .6); pointer-events: none; }
+.sv-shot-cross-h { left: 0; right: 0; height: 1px; top: -9px; }
+.sv-shot-cross-v { top: 0; bottom: 0; width: 1px; left: -9px; }
+.sv-shot-sel { position: fixed; border: 1.5px solid #fff; box-shadow: 0 0 0 9999px rgba(20, 14, 10, .35); pointer-events: none; box-sizing: border-box; }
+.sv-shot-size { position: absolute; right: -1px; top: -26px; font: 600 11px/1 ui-monospace, Menlo, monospace; color: #fff; background: rgba(0, 0, 0, .65); padding: 5px 7px; border-radius: 5px; white-space: nowrap; }
+.sv-shot-elbox { position: fixed; border: 2px solid #F45D48; background: rgba(244, 93, 72, .14); pointer-events: none; box-sizing: border-box; }
+.sv-shot-eltag { position: absolute; left: -2px; top: -24px; font: 600 11px/1 ui-monospace, Menlo, monospace; color: #fff; background: #C93F2B; padding: 5px 7px; border-radius: 5px 5px 0 0; white-space: nowrap; }
+.sv-shot-hint { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); font: 600 13px/1 system-ui, -apple-system, sans-serif; color: #fff; background: rgba(20, 14, 10, .82); padding: 9px 13px; border-radius: 999px; white-space: nowrap; pointer-events: none; }
+.sv-shot-hint kbd { font: 600 11px/1 ui-monospace, Menlo, monospace; background: rgba(255, 255, 255, .18); padding: 2px 5px; border-radius: 4px; margin: 0 2px; }
+.sv-shot-pill { position: fixed; left: 50%; top: 18px; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; background: #fff; color: #241F1A; border: 1px solid #EDE5DA; box-shadow: 0 6px 18px -4px rgba(93, 64, 35, .28); padding: 10px 14px; border-radius: 999px; font: 600 13px/1 system-ui, -apple-system, sans-serif; white-space: nowrap; }
+.sv-shot-pill i { display: block; width: 110px; height: 6px; border-radius: 3px; background: #F3EDE4; overflow: hidden; }
+.sv-shot-pill i b { display: block; height: 100%; width: 0; background: #C93F2B; transition: width .15s; }
+.sv-shot-toast { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); background: #241F1A; color: #FAF6F0; padding: 10px 14px; border-radius: 10px; font: 600 13px/1.35 system-ui, -apple-system, sans-serif; max-width: min(92vw, 520px); box-shadow: 0 6px 18px -4px rgba(0, 0, 0, .35); }
+.sv-shot-toast.err { background: #fff; color: #241F1A; border: 1px solid #EDE5DA; display: grid; gap: 10px; }
+.sv-shot-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.sv-shot-toast button { border: 0; border-radius: 8px; padding: 8px 12px; font: 600 13px/1 system-ui, -apple-system, sans-serif; cursor: pointer; background: #F3EDE4; color: #241F1A; }
+.sv-shot-toast button.p { background: #C93F2B; color: #fff; }

@@ -1424,7 +1424,7 @@ async function startShot(tab, mode) {
   if (!tab || tab.id == null) return { ok: false, error: "no-tab" };
   chrome.action.setBadgeText({ tabId: tab.id, text: "" });
   try {
-    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content/shot-capture.js"] });
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["shared/shot.js", "content/shot-capture.js"] });
   } catch (e) {
     chrome.action.setBadgeText({ tabId: tab.id, text: "!" });
     chrome.action.setTitle({ tabId: tab.id, title: "SubVibe: can't run on this page" });
@@ -1565,7 +1565,7 @@ async function shotCompose(msg, sender) {
     source: sess.source || "xx", target: sess.target, mode: sess.mode, layout, dpr: sess.dpr,
     rect: { ...sess.rect }, w: sess.rect.w, h: sess.rect.h, original, variant, blocks: shotBlocks(msg.blocks),
     partial: !!msg.partial, truncated: msg.truncated === "text" || msg.truncated === "height" ? msg.truncated : "",
-    tabId: sess.tabId, windowId: sess.windowId,
+    sameLang: !!msg.sameLang, tabId: sess.tabId, windowId: sess.windowId,
   };
   try { SV_SHOT.validateRecord(rec); await shotPut(rec); }
   catch (e) { console.warn("[SubVibe shot] store failed:", (e && e.message) || e); return { ok: false, error: "store" }; }
@@ -1590,7 +1590,7 @@ async function shotReshoot(msg, sender) {
   const layout = msg.layout === "bilingual" ? "bilingual" : "translated";
   try { await chrome.tabs.update(rec.tabId, { active: true }); } catch { return { ok: false, error: "tab-gone" }; }
   try {
-    await chrome.scripting.executeScript({ target: { tabId: rec.tabId }, files: ["content/shot-capture.js"] });
+    await chrome.scripting.executeScript({ target: { tabId: rec.tabId }, files: ["shared/shot.js", "content/shot-capture.js"] });
   } catch (e) { await back(); return { ok: false, error: "inject" }; }
   const rect = rec.rect || { x: 0, y: 0, w: rec.w, h: rec.h };
   const sess = {

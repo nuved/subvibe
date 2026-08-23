@@ -47,7 +47,7 @@ Record shape (store `shots`, key `id`):
 ```
 { id, ts, url, title, host, source, target, mode, layout, dpr, rect:{x,y,w,h}, w, h,
   original: Blob, variant: Blob, blocks:[{ id, text, tr, rect:{x,y,w,h} }],
-  partial: false, truncated: "" | "text" | "height", tabId, windowId }
+  partial: false, truncated: "" | "text" | "height", sameLang: false, tabId, windowId }
 ```
 
 ---
@@ -121,23 +121,23 @@ Record shape (store `shots`, key `id`):
 **Files:** create both. Guard `window.__svShot`; one `onMessage` listener; everything inside a closed shadow root host `div.sv-shot-host` (`position:fixed; inset:0; z-index:2147483647`); CSS fetched and inlined exactly like `reader.js` does for `reader.css`.
 
 **4a · Overlay and pickers**
-- [ ] `SV_SHOT_START`: reply `{ ok:true }` synchronously, then run `pick(mode)`:
+- [x] `SV_SHOT_START`: reply `{ ok:true }` synchronously, then run `pick(mode)`:
   - `visible` → rect = current viewport in doc coords.
   - `full` → rect = `{ x: 0, y: 0, w: docW (clamped to viewport width), h: docH }`.
   - `area` → dim overlay + crosshair lines following the pointer + drag rectangle with a size label; `mouseup` with `w,h ≥ 8` resolves; Esc rejects. Pointer events are captured on the host so page handlers never fire.
   - `element` → the overlay is `pointer-events:none` except for a transparent full-size catcher; on `mousemove` use `elementFromPoint` (with the host temporarily `pointer-events:none`) and draw a coral outline box + `tag · w × h` label; click resolves that element's doc rect; Esc rejects.
   - All modes then remove the picker chrome (keep the host for the progress pill and toasts).
-- [ ] Toast helper (bottom-centre pill, auto-hides after 2.5 s) and error toast with buttons (`Retry`, `Shoot without translation`).
+- [x] Toast helper (bottom-centre pill, auto-hides after 2.5 s) and error toast with buttons (`Retry`, `Shoot without translation`).
 
 **4b · Blocks, swap, restore**
-- [ ] `collectBlocks(rect)` per spec: `TreeWalker` over text nodes, skip list, hidden-ancestor check (cache per element), block ancestor = nearest ancestor whose computed `display` isn't `inline`/`inline-*`/`contents`; group nodes per ancestor; `rect` = union of `Range.getClientRects()` shifted by `scrollX/scrollY`; keep intersecting blocks. Assign `id = "b" + index` in document order. Keep a side map `id → { el, nodes }`.
-- [ ] `swap(layout, blocks, target)`: translated → longest node gets `tr`, siblings emptied, `el.setAttribute("dir", "auto")` (remember prior); bilingual → `isBilingualBlock(text)` ? append `<span class="sv-shot-tr" dir="auto">` styled inline (`display:block;font-size:.92em;opacity:.85;margin-top:.15em`) : replace as translated. `verifySwap()` returns the fraction of blocks whose translated text is still connected; < 0.9 → swap again once; still < 0.9 → `partial = true`.
-- [ ] `restore()` in `finally`: original `data` back into every remembered node, spans removed, `dir` restored/removed, fixed/sticky visibility restored, `window.scrollTo(savedX, savedY)`.
+- [x] `collectBlocks(rect)` per spec: `TreeWalker` over text nodes, skip list, hidden-ancestor check (cache per element), block ancestor = nearest ancestor whose computed `display` isn't `inline`/`inline-*`/`contents`; group nodes per ancestor; `rect` = union of `Range.getClientRects()` shifted by `scrollX/scrollY`; keep intersecting blocks. Assign `id = "b" + index` in document order. Keep a side map `id → { el, nodes }`.
+- [x] `swap(layout, blocks, target)`: translated → longest node gets `tr`, siblings emptied, `el.setAttribute("dir", "auto")` (remember prior); bilingual → `isBilingualBlock(text)` ? append `<span class="sv-shot-tr" dir="auto">` styled inline (`display:block;font-size:.92em;opacity:.85;margin-top:.15em`) : replace as translated. `verifySwap()` returns the fraction of blocks whose translated text is still connected; < 0.9 → swap again once; still < 0.9 → `partial = true`.
+- [x] `restore()` in `finally`: original `data` back into every remembered node, spans removed, `dir` restored/removed, fixed/sticky visibility restored, `window.scrollTo(savedX, savedY)`.
 
 **4c · Tile loop**
-- [ ] `shootPass(pass, rect)`: if the rect fits inside the current viewport, one tile at the current `scrollY` (no scrolling). Otherwise `SV_SHOT.planTiles(rect.y, rect.y + rect.h, innerHeight, docH - innerHeight)`; before tile ≥ 1, hide `position: fixed|sticky` elements (single `querySelectorAll("*")` scan, `setProperty("visibility","hidden","important")`, remembered for restore); per tile: `scrollTo(scrollX, offset)`, two `requestAnimationFrame`s + 150 ms, `SHOT_TILE { pass, index, scrollY: window.scrollY }` (use the *actual* `scrollY` after scrolling; pass it on to background so `stitchLayout` uses real offsets), progress pill "Shooting i / n…" for n > 1. Any `{ ok:false }` → one retry of that tile, then abort with the capture error toast + `SHOT_ABORT`.
-- [ ] Main flow: `SHOT_BEGIN` → `collectBlocks` + `SV_SHOT.prepBlocks` → `SHOT_TRANSLATE(lines)` → (`sameLang` or "shoot without translation" → passes `["original"]`) → `shootPass("original")` → `swap` → `shootPass("variant")` → `restore` → `SHOT_COMPOSE` → toast "Shot saved — opening editor…". Errors from translate show the error toast; `Retry` re-sends `SHOT_TRANSLATE`; Esc during any stage aborts and restores.
-- [ ] `SV_SHOT_RESHOOT`: `collectBlocks(rect)` again, match incoming blocks by `id` **and** equal `text` (unmatched → `missing`), swap with the provided `tr`, `shootPass("variant")`, restore, reply `{ ok, partial, missing }`.
+- [x] `shootPass(pass, rect)`: if the rect fits inside the current viewport, one tile at the current `scrollY` (no scrolling). Otherwise `SV_SHOT.planTiles(rect.y, rect.y + rect.h, innerHeight, docH - innerHeight)`; before tile ≥ 1, hide `position: fixed|sticky` elements (single `querySelectorAll("*")` scan, `setProperty("visibility","hidden","important")`, remembered for restore); per tile: `scrollTo(scrollX, offset)`, two `requestAnimationFrame`s + 150 ms, `SHOT_TILE { pass, index, scrollY: window.scrollY }` (use the *actual* `scrollY` after scrolling; pass it on to background so `stitchLayout` uses real offsets), progress pill "Shooting i / n…" for n > 1. Any `{ ok:false }` → one retry of that tile, then abort with the capture error toast + `SHOT_ABORT`.
+- [x] Main flow: `SHOT_BEGIN` → `collectBlocks` + `SV_SHOT.prepBlocks` → `SHOT_TRANSLATE(lines)` → (`sameLang` or "shoot without translation" → passes `["original"]`) → `shootPass("original")` → `swap` → `shootPass("variant")` → `restore` → `SHOT_COMPOSE` → toast "Shot saved — opening editor…". Errors from translate show the error toast; `Retry` re-sends `SHOT_TRANSLATE`; Esc during any stage aborts and restores.
+- [x] `SV_SHOT_RESHOOT`: `collectBlocks(rect)` again, match incoming blocks by `id` **and** equal `text` (unmatched → `missing`), swap with the provided `tr`, `shootPass("variant")`, restore, reply `{ ok, partial, missing }`.
 - [ ] Manual check on a long article (area over two paragraphs, full page ~10 screens, element on a tweet): page text flips and returns, nothing left in the DOM afterwards (`document.querySelector(".sv-shot-host")` is null, no `sv-shot-tr` spans, scroll restored). Commit: `Shot: on-demand capture script — pickers, DOM text swap, tile loop, re-shoot`.
 
 ### Task 5: Editor page `shot.html` / `shot.js` / `styles/shot.css`
