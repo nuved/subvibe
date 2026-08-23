@@ -147,6 +147,8 @@
     if (!isNum(rec.ts)) bad();
     for (const f of ["dpr", "w", "h"]) if (!isNum(rec[f]) || rec[f] <= 0) bad();
     if (!isBlob(rec.original) || !isBlob(rec.variant)) bad();
+    if (!rec.rect) bad();
+    for (const k of ["x", "y", "w", "h"]) if (!isNum(rec.rect[k])) bad();
     if (!Array.isArray(rec.blocks)) bad();
     for (const b of rec.blocks) {
       if (!b || !isStr(b.id) || !isStr(b.text) || !isStr(b.tr) || !b.rect) bad();

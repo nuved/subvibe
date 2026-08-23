@@ -31,7 +31,7 @@ Background ↔ content script (`chrome.tabs.sendMessage` / `chrome.runtime.sendM
 | `SHOT_TILE` | cs → bg | `{ pass: "original"\|"variant", index, scrollY }` → `{ ok }` · `{ ok:false, error:"capture" }` (bg captures and keeps the data URL; the tile never travels to the page) |
 | `SHOT_COMPOSE` | cs → bg | `{ blocks:[{id,text,tr,rect}], partial, truncated, passes:["original","variant"] }` → `{ ok, id }` after the record is stored and the editor tab opened |
 | `SHOT_ABORT` | cs → bg | `{}` → `{ ok }` (drops the session) |
-| `SV_SHOT_RESHOOT` | bg → cs | `{ rect, layout, blocks:[{id,text,tr}], scrollX }` → `{ ok, partial, missing }` (async) |
+| `SV_SHOT_RESHOOT` | bg → cs | `{ rect, layout, blocks:[{id,text,tr}], target }` → `{ ok, partial, missing, dpr, scrollX, viewport }` (async; the geometry lets background stitch the re-shot tiles) |
 
 Editor / popup ↔ background:
 
@@ -45,7 +45,7 @@ The editor reads and writes the `shots` store itself (blobs can't cross runtime 
 Record shape (store `shots`, key `id`):
 
 ```
-{ id, ts, url, title, host, source, target, mode, layout, dpr, w, h,
+{ id, ts, url, title, host, source, target, mode, layout, dpr, rect:{x,y,w,h}, w, h,
   original: Blob, variant: Blob, blocks:[{ id, text, tr, rect:{x,y,w,h} }],
   partial: false, truncated: "" | "text" | "height", tabId, windowId }
 ```
@@ -99,21 +99,21 @@ Record shape (store `shots`, key `id`):
 **Files:** modify `background.js`.
 
 **3a · IndexedDB v4**
-- [ ] Bump `indexedDB.open("copilot-subs", 4)` and add `if (!d.objectStoreNames.contains("shots")) d.createObjectStore("shots");` in `onupgradeneeded` (existing stores untouched). Add `shotPut(rec)`, `shotGet(id)`, `shotDelete(id)` helpers next to `idbGet`.
+- [x] Bump `indexedDB.open("copilot-subs", 4)` and add `if (!d.objectStoreNames.contains("shots")) d.createObjectStore("shots");` in `onupgradeneeded` (existing stores untouched). Add `shotPut(rec)`, `shotGet(id)`, `shotDelete(id)` helpers next to `idbGet`.
 
 **3b · Entry points**
-- [ ] In the `onInstalled` menu block, after `svSimplify`, create parent `svShot` (`title: "Screenshot with SubVibe"`, `contexts: ["all"]`) and children `svShotVisible` "Visible area", `svShotFull` "Full page", `svShotArea` "Select area", `svShotElement` "Pick element" (`parentId: "svShot"`, `contexts: ["all"]`).
-- [ ] Extend `chrome.contextMenus.onClicked` to route the four ids to `startShot(tab, mode)`; add `chrome.commands.onCommand` (`"sv-shot-area"` → active tab of `currentWindow` → `startShot(tab, "area")`); add message case `SHOT_START` (popup) resolving the active tab the same way.
-- [ ] `startShot(tab, mode)`: clear the badge, `executeScript({ files: ["content/shot-capture.js"] })` (badge `!` + title "SubVibe: can't run on this page" on failure, exactly like Simplify), read `shotLayout` (default `"translated"`) and `targets[0]` from storage, `tabs.sendMessage(tab.id, { type: "SV_SHOT_START", mode, layout, target, targetName })` where `targetName` comes from the `SV_LANGS`-equivalent name table already used in background (or the code itself when no table is reachable from the worker — check what `translateAll`'s prompt uses and match it).
+- [x] In the `onInstalled` menu block, after `svSimplify`, create parent `svShot` (`title: "Screenshot with SubVibe"`, `contexts: ["all"]`) and children `svShotVisible` "Visible area", `svShotFull` "Full page", `svShotArea` "Select area", `svShotElement` "Pick element" (`parentId: "svShot"`, `contexts: ["all"]`).
+- [x] Extend `chrome.contextMenus.onClicked` to route the four ids to `startShot(tab, mode)`; add `chrome.commands.onCommand` (`"sv-shot-area"` → active tab of `currentWindow` → `startShot(tab, "area")`); add message case `SHOT_START` (popup) resolving the active tab the same way.
+- [x] `startShot(tab, mode)`: clear the badge, `executeScript({ files: ["content/shot-capture.js"] })` (badge `!` + title "SubVibe: can't run on this page" on failure, exactly like Simplify), read `shotLayout` (default `"translated"`) and `targets[0]` from storage, `tabs.sendMessage(tab.id, { type: "SV_SHOT_START", mode, layout, target, targetName })` where `targetName` comes from the `SV_LANGS`-equivalent name table already used in background (or the code itself when no table is reachable from the worker — check what `translateAll`'s prompt uses and match it).
 
 **3c · Session and handlers**
-- [ ] `const shotSessions = new Map()` keyed by tab id: `{ id, windowId, url, title, mode, layout, target, source, rect, dpr, scrollX, viewport, docH, tiles: { original: [], variant: [] }, startedAt }`. Sessions older than 3 minutes are dropped on the next `SHOT_BEGIN`.
-- [ ] `SHOT_BEGIN`: create the session (`id = SV_SHOT.newId()`), reply `{ ok, id }`.
-- [ ] `SHOT_TRANSLATE`: key check like `simplifyText` (`no-key`); `targets[0]` missing → `no-target`; `detectClipLang`-style detection over `lines.join("\n")`; if detected equals target → `{ ok:true, sameLang:true, source }`; else `translateAll(lines, source, target, null)` → reply `{ ok:true, source, target, tr: out }`; `logCall({ ts, site: "shot", kind: "shot", title: session.title, lines: lines.length, provider, model, inTok, outTok, cacheR, cacheW, ok })`; errors map to `network` / `http-NNN` as in `simplifyText`.
-- [ ] `SHOT_TILE`: throttle with a module-level `lastCaptureAt` so consecutive calls are ≥ `SV_SHOT.CAPTURE_GAP_MS` apart; `chrome.tabs.captureVisibleTab(session.windowId, { format: "png" })`; on a quota error wait 700 ms and retry once; store `{ dataUrl, scrollY }` at `tiles[pass][index]`; reply `{ ok }`.
-- [ ] `SHOT_COMPOSE`: for each pass, `stitchLayout` → `OffscreenCanvas(width, height)` → `drawImage(await createImageBitmap(await (await fetch(dataUrl)).blob()), sx, sy, sw, sh, dx, dy, sw, sh)` → `convertToBlob({ type: "image/png" })`; build the record (validate with `SV_SHOT.validateRecord`), `shotPut`, delete the session, `chrome.tabs.create({ url: chrome.runtime.getURL("shot.html?id=" + id) })`, reply `{ ok, id }`. When `passes` is `["original"]` only (same-language or "shoot without translation"), `variant` is the same blob and `layout` is `"original"`.
-- [ ] `SHOT_ABORT`: drop the session.
-- [ ] `SHOT_RESHOOT` (editor): `shotGet(id)`; `tabs.get(rec.tabId)` must exist with `url === rec.url` else `tab-gone`; recreate a session from the record with `tiles.variant = []`; `executeScript` the capture script (already-injected guard makes this a no-op) else `inject`; `tabs.sendMessage(SV_SHOT_RESHOOT { rect, layout, blocks: merged tr, scrollX })`; on `{ ok }` compose the variant pass only, update `rec.variant`, `rec.layout`, `rec.blocks[].tr`, `rec.partial`, `shotPut`, reply `{ ok }`.
+- [x] `const shotSessions = new Map()` keyed by tab id: `{ id, windowId, url, title, mode, layout, target, source, rect, dpr, scrollX, viewport, docH, tiles: { original: [], variant: [] }, startedAt }`. Sessions older than 3 minutes are dropped on the next `SHOT_BEGIN`.
+- [x] `SHOT_BEGIN`: create the session (`id = SV_SHOT.newId()`), reply `{ ok, id }`.
+- [x] `SHOT_TRANSLATE`: key check like `simplifyText` (`no-key`); `targets[0]` missing → `no-target`; `detectClipLang`-style detection over `lines.join("\n")`; if detected equals target → `{ ok:true, sameLang:true, source }`; else `translateAll(lines, source, target, null)` → reply `{ ok:true, source, target, tr: out }`; `logCall({ ts, site: "shot", kind: "shot", title: session.title, lines: lines.length, provider, model, inTok, outTok, cacheR, cacheW, ok })`; errors map to `network` / `http-NNN` as in `simplifyText`.
+- [x] `SHOT_TILE`: throttle with a module-level `lastCaptureAt` so consecutive calls are ≥ `SV_SHOT.CAPTURE_GAP_MS` apart; `chrome.tabs.captureVisibleTab(session.windowId, { format: "png" })`; on a quota error wait 700 ms and retry once; store `{ dataUrl, scrollY }` at `tiles[pass][index]`; reply `{ ok }`.
+- [x] `SHOT_COMPOSE`: for each pass, `stitchLayout` → `OffscreenCanvas(width, height)` → `drawImage(await createImageBitmap(await (await fetch(dataUrl)).blob()), sx, sy, sw, sh, dx, dy, sw, sh)` → `convertToBlob({ type: "image/png" })`; build the record (validate with `SV_SHOT.validateRecord`), `shotPut`, delete the session, `chrome.tabs.create({ url: chrome.runtime.getURL("shot.html?id=" + id) })`, reply `{ ok, id }`. When `passes` is `["original"]` only (same-language or "shoot without translation"), `variant` is the same blob and `layout` is `"original"`.
+- [x] `SHOT_ABORT`: drop the session.
+- [x] `SHOT_RESHOOT` (editor): `shotGet(id)`; `tabs.get(rec.tabId)` must exist with `url === rec.url` else `tab-gone`; recreate a session from the record with `tiles.variant = []`; `executeScript` the capture script (already-injected guard makes this a no-op) else `inject`; `tabs.sendMessage(SV_SHOT_RESHOOT { rect, layout, blocks: merged tr, scrollX })`; on `{ ok }` compose the variant pass only, update `rec.variant`, `rec.layout`, `rec.blocks[].tr`, `rec.partial`, `shotPut`, reply `{ ok }`.
 - [ ] Validate: suite + builds; load unpacked and confirm the context-menu tree appears and the command shows in `chrome://extensions/shortcuts`. Commit: `Shot: background entry points, session handlers, IndexedDB shots store, compose`.
 
 ### Task 4: `content/shot-capture.js` + `styles/shot-capture.css`

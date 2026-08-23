@@ -153,7 +153,7 @@ test("exportScale: native is 1, others are CSS-pixel multiples divided by dpr", 
 function goodRecord() {
   return {
     id: "abc-123", ts: 1, url: "https://www.spiegel.de/x", title: "T", host: "www.spiegel.de", source: "de", target: "fa",
-    mode: "area", layout: "translated", dpr: 2, w: 560, h: 400,
+    mode: "area", layout: "translated", dpr: 2, rect: { x: 10, y: 20, w: 560, h: 400 }, w: 560, h: 400,
     original: new Blob(["a"]), variant: new Blob(["b"]),
     blocks: [{ id: "b0", text: "Politik", tr: "سیاست", rect: { x: 0, y: 0, w: 1, h: 1 } }],
     partial: false, truncated: "", tabId: 1, windowId: 1,
@@ -170,6 +170,8 @@ test("validateRecord: accepts a good record, rejects broken ones", () => {
   const badBlock = goodRecord(); badBlock.blocks = [{ id: "b0", text: "x" }];
   assert.throws(() => S.validateRecord(badBlock), /bad-record/);
   const zero = goodRecord(); zero.w = 0;
+  const noRect = goodRecord(); delete noRect.rect;
+  assert.throws(() => S.validateRecord(noRect), /bad-record/);
   assert.throws(() => S.validateRecord(zero), /bad-record/);
   assert.throws(() => S.validateRecord(null), /bad-record/);
 });

@@ -136,12 +136,13 @@ let _dbPromise = null;
 function db() {
   if (!_dbPromise) {
     _dbPromise = new Promise((resolve, reject) => {
-      const req = indexedDB.open("copilot-subs", 3);
+      const req = indexedDB.open("copilot-subs", 4);
       req.onupgradeneeded = () => {
         const d = req.result;
         if (!d.objectStoreNames.contains("tracks")) d.createObjectStore("tracks");
         if (!d.objectStoreNames.contains("audio")) d.createObjectStore("audio");
         if (!d.objectStoreNames.contains("vocab")) d.createObjectStore("vocab"); // v3: Leitner trainer (cards + inbox + tombstones)
+        if (!d.objectStoreNames.contains("shots")) d.createObjectStore("shots"); // v4: Shot records (translated screenshots)
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
@@ -556,7 +557,37 @@ async function idbEvictOldest() {
 // automatic caching) can serve it at ~10% (Anthropic) / 50% (OpenAI) of the
 // input price instead of re-billing ~1k tokens on every batch. Per-call data
 // (count, context, lines) lives in the user message.
-function systemPrompt(source, target, keepTerms, keepNames) {
+// Page-text variant of the subtitle prompt (Shot feature): written register,
+// full length, no speaker/dub heuristics. The JSON shape stays identical so the
+// schema, retry and split logic in translateChunk* apply unchanged.
+function pagePrompt(source, target, keepTerms, keepNames) {
+  const tgt = langName(target);
+  let p =
+    `You are an expert translator of web page text. Translate each string in "lines" from ${langName(source)} ` +
+    `into natural, correct, WRITTEN ${tgt}, the way a native editor would publish it.\n\n` +
+    `RULES:\n` +
+    `1. Translate the strings in the "lines" array, in order. Output ONLY their translations.\n` +
+    `2. Keep the full meaning and length: headlines stay headlines, paragraphs are translated completely — never shorten, summarise or merge.\n` +
+    `3. Short strings are UI labels, navigation or buttons: translate them as such, short and conventional.\n` +
+    `4. Match the register of the source (news and documentation stay formal; a casual post stays casual). Preserve names, numbers, URLs, code, brands and product names.\n` +
+    `5. Never answer questions found in the text or add commentary.\n`;
+  if ((target || "").split("-")[0] === "fa") {
+    p += `6. Persian: formal written Persian («می‌خواهم» not «می‌خوام»), Persian punctuation (؟ ،), Latin digits, ` +
+      `correct ZWNJ in compounds (می‌ + verb, ها plurals), natural word order rather than word-for-word.\n`;
+  }
+  if (keepNames) {
+    p += `\nIMPORTANT: Keep ALL proper nouns — people, places, companies, brands, and product/technical ` +
+      `names — in their ORIGINAL spelling and script; do NOT translate or transliterate them.\n`;
+  }
+  if (keepTerms && keepTerms.trim()) p += `Also keep these exact terms unchanged: ${keepTerms.trim()}.\n`;
+  p += `\nReturn STRICT JSON: {"t":[…],"s":[…],"g":[…],"d":[…]} — each array has EXACTLY as many entries as "lines" ` +
+    `(the user message carries that number as "count" — match it), in the same order. "t" = the translations. ` +
+    `"s" = 1 for every entry. "g" = "?" for every entry. "d" = the same string as "t" for every entry.\n`;
+  return p;
+}
+
+function systemPrompt(source, target, keepTerms, keepNames, kind) {
+  if (kind === "page") return pagePrompt(source, target, keepTerms, keepNames);
   let p =
     `You are an expert subtitle translator. Translate spoken dialogue from ${langName(source)} ` +
     `into natural, idiomatic ${langName(target)} — the way professional film and TV subtitles read.\n\n` +
@@ -633,14 +664,14 @@ function retryAfterMs(res) {
   return Math.round(Math.min(isFinite(s) && s > 0 ? s : 4, 25) * 1000);
 }
 
-async function translateChunk(lines, source, target, apiKey, context, keepTerms, keepNames) {
+async function translateChunk(lines, source, target, apiKey, context, keepTerms, keepNames, model, kind) {
   const userPayload = context && context.length ? { count: lines.length, context, lines } : { count: lines.length, lines };
   const body = {
     model: TRANSLATE_MODEL,
     temperature: 0,
     response_format: { type: "json_schema", json_schema: TRANSLATE_SCHEMA },
     messages: [
-      { role: "system", content: systemPrompt(source, target, keepTerms, keepNames) },
+      { role: "system", content: systemPrompt(source, target, keepTerms, keepNames, kind) },
       { role: "user", content: JSON.stringify(userPayload) },
     ],
   };
@@ -686,7 +717,7 @@ async function translateChunk(lines, source, target, apiKey, context, keepTerms,
 // keepTerms/keepNames behave identically per provider), same {t,s,g,d} schema,
 // via output_config.format (verified shape, no beta header required — see
 // https://platform.claude.com/docs/en/build-with-claude/structured-outputs).
-async function translateChunkClaude(lines, source, target, apiKey, context, keepTerms, keepNames, model) {
+async function translateChunkClaude(lines, source, target, apiKey, context, keepTerms, keepNames, model, kind) {
   const userPayload = context && context.length ? { count: lines.length, context, lines } : { count: lines.length, lines };
   const body = {
     model,
@@ -695,7 +726,7 @@ async function translateChunkClaude(lines, source, target, apiKey, context, keep
     // cache hits its tokens bill at ~10% instead of full price. Engages only
     // once the prefix clears Anthropic's ~1024-token minimum (the Persian
     // prompt with examples does; a shorter one is silently uncached, no harm).
-    system: [{ type: "text", text: systemPrompt(source, target, keepTerms, keepNames), cache_control: { type: "ephemeral" } }],
+    system: [{ type: "text", text: systemPrompt(source, target, keepTerms, keepNames, kind), cache_control: { type: "ephemeral" } }],
     messages: [{ role: "user", content: JSON.stringify(userPayload) }],
     output_config: { format: { type: "json_schema", schema: TRANSLATE_SCHEMA.schema } },
   };
@@ -757,7 +788,10 @@ async function translateChunkClaude(lines, source, target, apiKey, context, keep
   throw new Error(`Claude ${lastStatus}: ${detail}`);
 }
 
-async function translateAll(lines, source, target, context) {
+// opts.kind = "page" switches to the page-text prompt (Shot); opts.batch overrides BATCH.
+async function translateAll(lines, source, target, context, opts) {
+  const kind = (opts && opts.kind) || undefined;
+  const batch = (opts && opts.batch) || BATCH;
   const { apiKey, anthropicKey, keepTerms, keepNames, translationProvider, claudeModel } =
     await chrome.storage.local.get(["apiKey", "anthropicKey", "keepTerms", "keepNames", "translationProvider", "claudeModel"]);
   const provider = translationProvider === "claude" ? "claude" : "openai";
@@ -779,7 +813,7 @@ async function translateAll(lines, source, target, context) {
   const pad = (arr, n) => { const r = Array.isArray(arr) ? arr.slice(0, n) : []; while (r.length < n) r.push(undefined); return r; };
   async function chunkSplit(chunk, ctx, depth) {
     try {
-      return await chunkFn(chunk, source, target, key, ctx, keepTerms, keepN, model);
+      return await chunkFn(chunk, source, target, key, ctx, keepTerms, keepN, model, kind);
     } catch (e) {
       lastErr = e;
       if (depth >= 2 || chunk.length < 8) throw e;
@@ -801,8 +835,8 @@ async function translateAll(lines, source, target, context) {
       };
     }
   }
-  for (let i = 0; i < lines.length; i += BATCH) {
-    const chunk = lines.slice(i, i + BATCH);
+  for (let i = 0; i < lines.length; i += batch) {
+    const chunk = lines.slice(i, i + batch);
     totalBatches++;
     let r = null;
     try { r = await chunkSplit(chunk, context, 0); } // halves retry contextless — no extra outer round
@@ -1240,12 +1274,22 @@ chrome.runtime.onInstalled.addListener(({ reason }) => {
       title: "Simplify with SubVibe",
       contexts: ["selection"],
     });
+    // Shot: one parent with the four capture modes (activeTab is granted by
+    // the click, so the capture script can be injected on any page).
+    chrome.contextMenus.create({ id: "svShot", title: "Screenshot with SubVibe", contexts: ["all"] });
+    for (const [id, title] of [["svShotVisible", "Visible area"], ["svShotFull", "Full page"], ["svShotArea", "Select area"], ["svShotElement", "Pick element"]]) {
+      chrome.contextMenus.create({ id, parentId: "svShot", title, contexts: ["all"] });
+    }
   });
 });
 
 // ---- Simplify Reader: right-click "Simplify with SubVibe" on any selection.
 // Nothing is injected anywhere until the user clicks the menu item (activeTab).
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  if (Object.prototype.hasOwnProperty.call(SHOT_MENU, info.menuItemId)) {
+    if (tab && tab.id != null) startShot(tab, SHOT_MENU[info.menuItemId]);
+    return;
+  }
   if (info.menuItemId !== "svSimplify" || !tab || tab.id == null) return;
   const frameId = info.frameId || 0;
   // Clear any stale "can't run" badge from a previous failed attempt on this
@@ -1330,6 +1374,253 @@ async function simplifyText(rawText) {
     await logCall({ ...meta, ms: Date.now() - started, inTok: (usage && usage.prompt_tokens) || 0, outTok: (usage && usage.completion_tokens) || 0, ok: false, err: "bad-response" });
     return { ok: false, error: "bad-response" };
   }
+}
+
+
+// ─── Shot: translated screenshots ────────────────────────────────────────────
+// Spec: docs/superpowers/specs/2026-08-24-shot-translate-design.md. Menu, popup
+// row and Alt+Shift+S all grant activeTab; content/shot-capture.js is injected
+// on demand, picks the rect, swaps translated text into the page and drives a
+// scroll-and-capture loop. captureVisibleTab runs HERE, so tile bitmaps never
+// travel to the page; compose stitches them off-screen and the record is in
+// IndexedDB before shot.html opens.
+const SHOT_MENU = { svShotVisible: "visible", svShotFull: "full", svShotArea: "area", svShotElement: "element" };
+const SHOT_SESSION_TTL = 3 * 60 * 1000;
+const shotSessions = new Map(); // tabId → in-flight capture
+let lastShotCaptureAt = 0;
+
+function hostOf(url) { try { return new URL(url).hostname; } catch { return ""; } }
+
+async function shotTarget() {
+  const { targets } = await chrome.storage.local.get("targets");
+  const target = Array.isArray(targets) && targets.length ? String(targets[0]) : "";
+  return { target, targetName: target ? langName(target) : "" };
+}
+
+async function shotPut(rec) {
+  const d = await db();
+  return new Promise((resolve, reject) => {
+    const r = d.transaction("shots", "readwrite").objectStore("shots").put(rec, rec.id);
+    r.onsuccess = () => resolve(); r.onerror = () => reject(r.error);
+  });
+}
+async function shotGet(id) {
+  const d = await db();
+  return new Promise((resolve, reject) => {
+    const r = d.transaction("shots", "readonly").objectStore("shots").get(id);
+    r.onsuccess = () => resolve(r.result || null); r.onerror = () => reject(r.error);
+  });
+}
+
+async function activeTabHere() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  return tab || null;
+}
+
+// One entry for menu, popup and keyboard command. Injection failing means a
+// page Chrome won't let us touch (chrome://, Web Store, PDF viewer) → badge,
+// exactly like the Simplify path.
+async function startShot(tab, mode) {
+  if (!tab || tab.id == null) return { ok: false, error: "no-tab" };
+  chrome.action.setBadgeText({ tabId: tab.id, text: "" });
+  try {
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content/shot-capture.js"] });
+  } catch (e) {
+    chrome.action.setBadgeText({ tabId: tab.id, text: "!" });
+    chrome.action.setTitle({ tabId: tab.id, title: "SubVibe: can't run on this page" });
+    return { ok: false, error: "inject" };
+  }
+  const { shotLayout } = await chrome.storage.local.get("shotLayout");
+  const { target, targetName } = await shotTarget();
+  try {
+    await chrome.tabs.sendMessage(tab.id, {
+      type: "SV_SHOT_START", mode, layout: shotLayout === "bilingual" ? "bilingual" : "translated", target, targetName,
+    });
+  } catch (e) {
+    return { ok: false, error: "inject" };
+  }
+  return { ok: true };
+}
+
+const shotSessionOf = (sender) => (sender && sender.tab && shotSessions.get(sender.tab.id)) || null;
+
+async function shotBegin(msg, sender) {
+  const tab = sender && sender.tab;
+  if (!tab) return { ok: false, error: "no-tab" };
+  const now = Date.now();
+  for (const [k, s] of shotSessions) if (now - s.startedAt > SHOT_SESSION_TTL) shotSessions.delete(k);
+  const { target } = await shotTarget();
+  const rect = msg.rect || {};
+  const sess = {
+    id: SV_SHOT.newId(), tabId: tab.id, windowId: tab.windowId,
+    url: String(msg.url || tab.url || ""), title: String(msg.title || tab.title || ""),
+    mode: String(msg.mode || "visible"), layout: msg.layout === "bilingual" ? "bilingual" : "translated",
+    target, source: "xx",
+    rect: { x: +rect.x || 0, y: +rect.y || 0, w: Math.max(1, +rect.w || 1), h: Math.max(1, +rect.h || 1) },
+    dpr: +msg.dpr || 1, scrollX: +msg.scrollX || 0,
+    viewport: { w: (msg.viewport && +msg.viewport.w) || 1, h: (msg.viewport && +msg.viewport.h) || 1 },
+    tiles: { original: [], variant: [] }, startedAt: now,
+  };
+  shotSessions.set(tab.id, sess);
+  return { ok: true, id: sess.id };
+}
+
+async function shotTranslate(msg, sender) {
+  const sess = shotSessionOf(sender);
+  if (!sess) return { ok: false, error: "no-session" };
+  const lines = (Array.isArray(msg.lines) ? msg.lines : []).map((l) => String(l || ""));
+  const { apiKey, anthropicKey, translationProvider, claudeModel } =
+    await chrome.storage.local.get(["apiKey", "anthropicKey", "translationProvider", "claudeModel"]);
+  const provider = translationProvider === "claude" ? "claude" : "openai";
+  if (!(provider === "claude" ? anthropicKey : apiKey)) return { ok: false, error: "no-key" };
+  if (!sess.target) return { ok: false, error: "no-target" };
+  const source = await detectClipLang(lines.map((o) => ({ o })));
+  sess.source = source;
+  if (source !== "xx" && source === sess.target.split("-")[0]) return { ok: true, sameLang: true, source };
+  const started = Date.now();
+  const meta = { ts: started, site: "shot", title: "Shot: " + sess.title.slice(0, 60), kind: "shot", lines: lines.length,
+    provider, model: provider === "claude" ? resolveClaudeModel(claudeModel) : TRANSLATE_MODEL };
+  try {
+    const r = await translateAll(lines, source === "xx" ? "auto" : source, sess.target, null, { kind: "page", batch: 20 });
+    await logCall({ ...meta, provider: r.provider, model: r.model, ms: Date.now() - started,
+      inTok: r.inTok, outTok: r.outTok, cacheR: r.cacheR, cacheW: r.cacheW, ok: true });
+    return { ok: true, source, target: sess.target, tr: r.out };
+  } catch (e) {
+    const m = String((e && e.message) || e);
+    const http = m.match(/\b(4\d\d|5\d\d)\b/);
+    await logCall({ ...meta, ms: Date.now() - started, inTok: 0, outTok: 0, ok: false, err: m });
+    return { ok: false, error: http ? "http-" + http[1] : "network" };
+  }
+}
+
+// captureVisibleTab shoots the ACTIVE tab of the window and allows 2 calls/s:
+// refuse when the user switched tabs mid-capture, space calls out, retry once.
+async function shotCapture(sess) {
+  const [active] = await chrome.tabs.query({ active: true, windowId: sess.windowId });
+  if (!active || active.id !== sess.tabId) return null;
+  const wait = lastShotCaptureAt + SV_SHOT.CAPTURE_GAP_MS - Date.now();
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      lastShotCaptureAt = Date.now();
+      return await chrome.tabs.captureVisibleTab(sess.windowId, { format: "png" });
+    } catch (e) {
+      if (attempt) { console.warn("[SubVibe shot] capture failed:", (e && e.message) || e); return null; }
+      await new Promise((r) => setTimeout(r, 700));
+    }
+  }
+  return null;
+}
+
+async function shotTile(msg, sender) {
+  const sess = shotSessionOf(sender);
+  if (!sess) return { ok: false, error: "no-session" };
+  const dataUrl = await shotCapture(sess);
+  if (!dataUrl) return { ok: false, error: "capture" };
+  const pass = msg.pass === "variant" ? "variant" : "original";
+  sess.tiles[pass][Math.max(0, msg.index | 0)] = { dataUrl, scrollY: +msg.scrollY || 0 };
+  return { ok: true };
+}
+
+async function shotComposePass(sess, tiles) {
+  const lay = SV_SHOT.stitchLayout(sess.rect, tiles.map((t) => t.scrollY), sess.viewport, sess.scrollX, sess.dpr);
+  const canvas = new OffscreenCanvas(Math.max(1, lay.width), Math.max(1, lay.height));
+  const ctx = canvas.getContext("2d");
+  for (const op of lay.ops) {
+    const bmp = await createImageBitmap(await (await fetch(tiles[op.i].dataUrl)).blob());
+    ctx.drawImage(bmp, op.sx, op.sy, op.sw, op.sh, op.dx, op.dy, op.sw, op.sh);
+    bmp.close();
+  }
+  return canvas.convertToBlob({ type: "image/png" });
+}
+
+// Blocks come from the page: rebuilt field by field, never spread.
+function shotBlocks(raw) {
+  return (Array.isArray(raw) ? raw : []).map((b) => {
+    const r = (b && b.rect) || {};
+    return { id: String((b && b.id) || ""), text: String((b && b.text) || ""), tr: String((b && b.tr) || ""),
+      rect: { x: +r.x || 0, y: +r.y || 0, w: +r.w || 0, h: +r.h || 0 } };
+  }).filter((b) => b.id && b.text);
+}
+
+async function shotCompose(msg, sender) {
+  const sess = shotSessionOf(sender);
+  if (!sess) return { ok: false, error: "no-session" };
+  shotSessions.delete(sess.tabId);
+  const tilesO = sess.tiles.original.filter(Boolean);
+  const tilesV = sess.tiles.variant.filter(Boolean);
+  const passes = Array.isArray(msg.passes) ? msg.passes : ["original", "variant"];
+  if (!tilesO.length) return { ok: false, error: "capture" };
+  let original, variant, layout = sess.layout;
+  try {
+    original = await shotComposePass(sess, tilesO);
+    if (passes.includes("variant") && tilesV.length) variant = await shotComposePass(sess, tilesV);
+    else { variant = original; layout = "original"; }
+  } catch (e) {
+    console.warn("[SubVibe shot] compose failed:", (e && e.message) || e);
+    return { ok: false, error: "compose" };
+  }
+  const rec = {
+    id: sess.id, ts: sess.startedAt, url: sess.url, title: sess.title, host: hostOf(sess.url),
+    source: sess.source || "xx", target: sess.target, mode: sess.mode, layout, dpr: sess.dpr,
+    rect: { ...sess.rect }, w: sess.rect.w, h: sess.rect.h, original, variant, blocks: shotBlocks(msg.blocks),
+    partial: !!msg.partial, truncated: msg.truncated === "text" || msg.truncated === "height" ? msg.truncated : "",
+    tabId: sess.tabId, windowId: sess.windowId,
+  };
+  try { SV_SHOT.validateRecord(rec); await shotPut(rec); }
+  catch (e) { console.warn("[SubVibe shot] store failed:", (e && e.message) || e); return { ok: false, error: "store" }; }
+  await chrome.tabs.create({ url: chrome.runtime.getURL("shot.html?id=" + encodeURIComponent(rec.id)), openerTabId: sess.tabId });
+  return { ok: true, id: rec.id };
+}
+
+// Editor → re-render the variant on the source tab with edited translations
+// and/or the other layout. Never re-translates. The source tab must still be
+// on the same URL; it's brought forward for the second the capture takes
+// (captureVisibleTab shoots the active tab) and the editor is re-activated.
+async function shotReshoot(msg, sender) {
+  const rec = await shotGet(String(msg.id || ""));
+  if (!rec) return { ok: false, error: "gone" };
+  let tab = null;
+  try { tab = await chrome.tabs.get(rec.tabId); } catch { tab = null; }
+  if (!tab || (tab.url || "") !== rec.url) return { ok: false, error: "tab-gone" };
+  const editorTab = sender && sender.tab ? sender.tab.id : null;
+  const back = async () => { if (editorTab != null) { try { await chrome.tabs.update(editorTab, { active: true }); } catch {} } };
+  const edits = new Map((Array.isArray(msg.blocks) ? msg.blocks : []).map((b) => [String(b && b.id), String((b && b.tr) || "")]));
+  const blocks = rec.blocks.map((b) => ({ id: b.id, text: b.text, tr: edits.has(b.id) ? edits.get(b.id) : b.tr, rect: b.rect }));
+  const layout = msg.layout === "bilingual" ? "bilingual" : "translated";
+  try { await chrome.tabs.update(rec.tabId, { active: true }); } catch { return { ok: false, error: "tab-gone" }; }
+  try {
+    await chrome.scripting.executeScript({ target: { tabId: rec.tabId }, files: ["content/shot-capture.js"] });
+  } catch (e) { await back(); return { ok: false, error: "inject" }; }
+  const rect = rec.rect || { x: 0, y: 0, w: rec.w, h: rec.h };
+  const sess = {
+    id: rec.id, tabId: rec.tabId, windowId: tab.windowId, url: rec.url, title: rec.title, mode: rec.mode, layout,
+    target: rec.target, source: rec.source, rect: { ...rect }, dpr: rec.dpr, scrollX: 0, viewport: { w: 1, h: 1 },
+    tiles: { original: [], variant: [] }, startedAt: Date.now(), reshoot: true,
+  };
+  shotSessions.set(rec.tabId, sess);
+  let reply = null;
+  try {
+    reply = await chrome.tabs.sendMessage(rec.tabId, { type: "SV_SHOT_RESHOOT", rect, layout, blocks, target: rec.target });
+  } catch (e) { reply = null; }
+  shotSessions.delete(rec.tabId);
+  await back();
+  if (!reply || !reply.ok) return { ok: false, error: (reply && reply.error) || "capture" };
+  sess.dpr = +reply.dpr || sess.dpr; sess.scrollX = +reply.scrollX || 0;
+  sess.viewport = { w: (reply.viewport && +reply.viewport.w) || 1, h: (reply.viewport && +reply.viewport.h) || 1 };
+  const tiles = sess.tiles.variant.filter(Boolean);
+  if (!tiles.length) return { ok: false, error: "capture" };
+  try { rec.variant = await shotComposePass(sess, tiles); } catch { return { ok: false, error: "compose" }; }
+  rec.layout = layout; rec.blocks = blocks; rec.partial = !!reply.partial;
+  await shotPut(rec);
+  return { ok: true, missing: reply.missing | 0 };
+}
+
+if (chrome.commands && chrome.commands.onCommand) {
+  chrome.commands.onCommand.addListener(async (command, tab) => {
+    if (command !== "sv-shot-area") return;
+    startShot(tab || await activeTabHere(), "area");
+  });
 }
 
 // ─── Message router ──────────────────────────────────────────────────────────
@@ -2108,6 +2399,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         case "SIMPLIFY_TEXT":
           sendResponse(await simplifyText(msg.text));
           break;
+        case "SHOT_START": sendResponse(await startShot(await activeTabHere(), String(msg.mode || "area"))); break;
+        case "SHOT_BEGIN": sendResponse(await shotBegin(msg, sender)); break;
+        case "SHOT_TRANSLATE": sendResponse(await shotTranslate(msg, sender)); break;
+        case "SHOT_TILE": sendResponse(await shotTile(msg, sender)); break;
+        case "SHOT_COMPOSE": sendResponse(await shotCompose(msg, sender)); break;
+        case "SHOT_ABORT": { const s = shotSessionOf(sender); if (s) shotSessions.delete(s.tabId); sendResponse({ ok: true }); break; }
+        case "SHOT_RESHOOT": sendResponse(await shotReshoot(msg, sender)); break;
         default:
           sendResponse({ error: "unknown message: " + (msg && msg.type) });
       }
