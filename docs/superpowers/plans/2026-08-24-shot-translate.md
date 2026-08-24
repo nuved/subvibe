@@ -116,7 +116,7 @@ Record shape (store `shots`, key `id`):
 - [x] `SHOT_COMPOSE`: for each pass, `stitchLayout` → `OffscreenCanvas(width, height)` → `drawImage(await createImageBitmap(await (await fetch(dataUrl)).blob()), sx, sy, sw, sh, dx, dy, sw, sh)` → `convertToBlob({ type: "image/png" })`; build the record (validate with `SV_SHOT.validateRecord`), `shotPut`, delete the session, `chrome.tabs.create({ url: chrome.runtime.getURL("shot.html?id=" + id) })`, reply `{ ok, id }`. When `passes` is `["original"]` only (same-language or "shoot without translation"), `variant` is the same blob and `layout` is `"original"`.
 - [x] `SHOT_ABORT`: drop the session.
 - [x] `SHOT_RESHOOT` (editor): `shotGet(id)`; `tabs.get(rec.tabId)` must exist with `url === rec.url` else `tab-gone`; recreate a session from the record with `tiles.variant = []`; `executeScript` the capture script (already-injected guard makes this a no-op) else `inject`; `tabs.sendMessage(SV_SHOT_RESHOOT { rect, layout, blocks: merged tr, scrollX })`; on `{ ok }` compose the variant pass only, update `rec.variant`, `rec.layout`, `rec.blocks[].tr`, `rec.partial`, `shotPut`, reply `{ ok }`.
-- [ ] Validate: suite + builds; load unpacked and confirm the context-menu tree appears and the command shows in `chrome://extensions/shortcuts`. Commit: `Shot: background entry points, session handlers, IndexedDB shots store, compose`.
+- [x] Validate: suite + builds; load unpacked and confirm the context-menu tree appears and the command shows in `chrome://extensions/shortcuts`. Commit: `Shot: background entry points, session handlers, IndexedDB shots store, compose`.
 
 ### Task 4: `content/shot-capture.js` + `styles/shot-capture.css`
 
@@ -140,7 +140,7 @@ Record shape (store `shots`, key `id`):
 - [x] `shootPass(pass, rect)`: if the rect fits inside the current viewport, one tile at the current `scrollY` (no scrolling). Otherwise `SV_SHOT.planTiles(rect.y, rect.y + rect.h, innerHeight, docH - innerHeight)`; before tile ≥ 1, hide `position: fixed|sticky` elements (single `querySelectorAll("*")` scan, `setProperty("visibility","hidden","important")`, remembered for restore); per tile: `scrollTo(scrollX, offset)`, two `requestAnimationFrame`s + 150 ms, `SHOT_TILE { pass, index, scrollY: window.scrollY }` (use the *actual* `scrollY` after scrolling; pass it on to background so `stitchLayout` uses real offsets), progress pill "Shooting i / n…" for n > 1. Any `{ ok:false }` → one retry of that tile, then abort with the capture error toast + `SHOT_ABORT`.
 - [x] Main flow: `SHOT_BEGIN` → `collectBlocks` + `SV_SHOT.prepBlocks` → `SHOT_TRANSLATE(lines)` → (`sameLang` or "shoot without translation" → passes `["original"]`) → `shootPass("original")` → `swap` → `shootPass("variant")` → `restore` → `SHOT_COMPOSE` → toast "Shot saved — opening editor…". Errors from translate show the error toast; `Retry` re-sends `SHOT_TRANSLATE`; Esc during any stage aborts and restores.
 - [x] `SV_SHOT_RESHOOT`: `collectBlocks(rect)` again, match incoming blocks by `id` **and** equal `text` (unmatched → `missing`), swap with the provided `tr`, `shootPass("variant")`, restore, reply `{ ok, partial, missing }`.
-- [ ] Manual check on a long article (area over two paragraphs, full page ~10 screens, element on a tweet): page text flips and returns, nothing left in the DOM afterwards (`document.querySelector(".sv-shot-host")` is null, no `sv-shot-tr` spans, scroll restored). Commit: `Shot: on-demand capture script — pickers, DOM text swap, tile loop, re-shoot`.
+- [x] Manual check on a long article (area over two paragraphs, full page ~10 screens, element on a tweet): page text flips and returns, nothing left in the DOM afterwards (`document.querySelector(".sv-shot-host")` is null, no `sv-shot-tr` spans, scroll restored). Commit: `Shot: on-demand capture script — pickers, DOM text swap, tile loop, re-shoot`.
 
 ### Task 5: Editor page `shot.html` / `shot.js` / `styles/shot.css`
 
@@ -153,7 +153,7 @@ Record shape (store `shots`, key `id`):
 - [x] Export: `dlBtn` → export canvas `toBlob(type, 0.9 for JPEG)` → object URL → `<a download="{SV_SHOT.filename(...)}">`; `copyBtn` → `navigator.clipboard.write([new ClipboardItem({ "image/png": blob })])` with a "Copied" toast; `shareBtn` hidden unless `navigator.canShare && navigator.canShare({ files: [file] })`, then `navigator.share({ files: [file], title })`; `delBtn` → confirm → delete from the store → go to the newest remaining shot or show the empty state ("No shots yet — right-click any page → Screenshot with SubVibe").
 - [x] Notes bar shows `partial`, `truncated: "text"`, `truncated: "height"`, and the same-language note.
 - [x] Empty/loading/error states: skeleton while the bitmap decodes; "This shot no longer exists" for a bad id.
-- [ ] Validate: suite (design-pages now covers `shot.html`), builds; open a real shot, toggle views, edit + re-shoot, download, copy, share on macOS, delete. Commit: `Shot: editor page — views, frame, text panel with re-shoot, export`.
+- [x] Validate: suite (design-pages now covers `shot.html`), builds; open a real shot, toggle views, edit + re-shoot, download, copy, share on macOS, delete. Commit: `Shot: editor page — views, frame, text panel with re-shoot, export`.
 
 ### Task 6: Popup row, docs
 
