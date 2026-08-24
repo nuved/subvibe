@@ -124,7 +124,7 @@
     chip.hidden = false;
     chip.textContent = (rec.source && rec.source !== "xx" ? code(rec.source) : "Auto") + " →";
     chip.title = (rec.source && rec.source !== "xx" ? langName(rec.source) : "Detected language") + " → " + langName(rec.target);
-    populateLangSel();
+    setupLangPick();
     const d = new Date(rec.ts);
     const modeName = { visible: "Visible area", full: "Full page", area: "Select area", element: "Pick element" }[rec.mode] || rec.mode;
     $("metaLine").textContent = d.toLocaleDateString() + " " + d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) + " · " + modeName + " · " + Math.round(rec.w) + " × " + Math.round(rec.h);
@@ -140,29 +140,55 @@
     const el = b.rect && b.rect.h > 0 && b.text.length < 60 && b.rect.h > 28 ? "Heading" : b.text.split(" ").length < 4 ? "Label" : "Paragraph";
     return el;
   }
-  // Fills the header language dropdown from SubVibe's language list and selects
-  // the shot's current target. Changing it re-translates the whole shot.
-  let langSelBuilt = false;
-  function populateLangSel() {
-    const sel = $("langSel"); if (!sel) return;
-    if (!langSelBuilt) {
-      const langs = (window.SV_LANGS || []).slice();
-      // ensure the current target is present even if not in the base list
-      if (rec.target && !langs.some((l) => l[0] === rec.target)) langs.unshift([rec.target, langName(rec.target), ""]);
-      sel.textContent = "";
-      for (const [c] of langs) {
-        const meta = window.svLangMeta ? window.svLangMeta(c) : [c, c.toUpperCase(), ""];
-        const flag = meta[2] && meta[2].length <= 4 ? meta[2] + " " : "";
-        const o = document.createElement("option"); o.value = c; o.textContent = flag + meta[1];
-        sel.appendChild(o);
-      }
-      langSelBuilt = true;
+  // Type-to-search language picker in the header. Changing it re-translates
+  // the whole shot to the chosen language.
+  const langMeta = (c) => (window.svLangMeta ? window.svLangMeta(c) : [c, (c || "").toUpperCase(), "\ud83c\udff3\ufe0f"]);
+  const flagOf = (m) => (m[2] && m[2].length <= 4 ? m[2] : "\ud83c\udf10");
+  function langOptions() {
+    const langs = (window.SV_LANGS || []).slice();
+    if (rec.target && !langs.some((l) => l[0] === rec.target)) langs.unshift([rec.target, langName(rec.target), ""]);
+    return langs.map((l) => l[0]);
+  }
+  function setupLangPick() {
+    const wrap = $("langPick"); if (!wrap) return;
+    wrap.hidden = false;
+    const btn = $("langBtn"), pop = $("langPop"), search = $("langSearch"), list = $("langList");
+    const m = langMeta(rec.target);
+    $("langBtnLabel").textContent = m[1];
+    let active = -1, rows = [];
+    function render(q) {
+      const codes = langOptions().filter((c) => { const mm = langMeta(c); return !q || mm[1].toLowerCase().includes(q) || c.toLowerCase().includes(q); });
+      list.textContent = ""; rows = [];
+      if (!codes.length) { const e = document.createElement("div"); e.className = "langpick__empty"; e.textContent = "No match"; list.appendChild(e); return; }
+      codes.forEach((c, i) => {
+        const mm = langMeta(c);
+        const o = document.createElement("button"); o.type = "button"; o.className = "langpick__opt" + (c === rec.target ? " on" : "");
+        o.setAttribute("role", "option"); o.dataset.code = c;
+        o.innerHTML = '<span class="flag"></span><span></span>';
+        o.firstChild.textContent = flagOf(mm); o.lastChild.textContent = mm[1];
+        o.addEventListener("click", () => choose(c));
+        o.addEventListener("mousemove", () => setActive(i));
+        list.appendChild(o); rows.push(o);
+      });
+      setActive(0);
     }
-    sel.value = rec.target || "";
-    $("langWrap").hidden = false;
+    function setActive(i) { rows.forEach((r, k) => r.classList.toggle("active", k === i)); active = i; if (rows[i]) rows[i].scrollIntoView({ block: "nearest" }); }
+    function open() { pop.hidden = false; btn.setAttribute("aria-expanded", "true"); search.value = ""; render(""); search.focus(); document.addEventListener("mousedown", onDoc, true); }
+    function close() { pop.hidden = true; btn.setAttribute("aria-expanded", "false"); document.removeEventListener("mousedown", onDoc, true); }
+    function onDoc(e) { if (!wrap.contains(e.target)) close(); }
+    function choose(c) { close(); if (c !== rec.target) retranslate(c); }
+    btn.onclick = () => (pop.hidden ? open() : close());
+    search.oninput = () => render(search.value.trim().toLowerCase());
+    search.onkeydown = (e) => {
+      if (e.key === "Escape") { e.preventDefault(); close(); btn.focus(); }
+      else if (e.key === "ArrowDown") { e.preventDefault(); setActive(Math.min(active + 1, rows.length - 1)); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); setActive(Math.max(active - 1, 0)); }
+      else if (e.key === "Enter") { e.preventDefault(); const r = rows[active]; if (r) choose(r.dataset.code); }
+    };
   }
   async function retranslate(newTarget) {
     if (reshooting || !rec || !newTarget || newTarget === rec.target) return;
+    try { chrome.storage.local.set({ shotTarget: newTarget }); } catch (e) {} // remember the choice
     reshooting = true; setNote("Re-translating to " + langName(newTarget) + "…", "");
     const res = await new Promise((r) => chrome.runtime.sendMessage({ type: "SHOT_RETRANSLATE", id: rec.id, target: newTarget }, (x) => r(chrome.runtime.lastError ? null : x)));
     reshooting = false;
@@ -172,7 +198,6 @@
         : err === "no-key" ? "Add an API key in the SubVibe popup to translate."
         : "Couldn't re-translate (" + err + "). Try again.";
       setNote(msg, "warn");
-      $("langSel").value = rec.target || ""; // revert the dropdown
       return;
     }
     const fresh = await getShot(rec.id);
@@ -354,7 +379,6 @@
   $("badgeSw").addEventListener("change", () => { frame.badge = $("badgeSw").checked; chrome.storage.local.set({ shotFrame: frame }); render(); });
   $("sizeSel").addEventListener("change", () => { exp.size = $("sizeSel").value; chrome.storage.local.set({ shotExport: exp }); render(); });
   $("fmtSel").addEventListener("change", () => { exp.format = $("fmtSel").value; chrome.storage.local.set({ shotExport: exp }); render(); });
-  $("langSel").addEventListener("change", (e) => retranslate(e.target.value));
   $("reshootBtn").addEventListener("click", reshoot);
   $("dlBtn").addEventListener("click", download);
   $("copyBtn").addEventListener("click", copy);

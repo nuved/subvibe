@@ -26,7 +26,13 @@
     </div>
     <a class="pagelink" id="pageLink" href="#" target="_blank" rel="noopener"></a>
     <span class="chip learn" id="srcChip" hidden></span>
-    <label class="langsel" id="langWrap" hidden><span class="langsel__ico" aria-hidden="true">🌐</span><select id="langSel" title="Translate this shot to another language"></select></label>
+    <div class="langpick" id="langPick" hidden>
+      <button class="langpick__btn" id="langBtn" type="button" aria-haspopup="listbox" aria-expanded="false" title="Translate this shot to another language"><span class="langpick__ico" aria-hidden="true">🌐</span><span id="langBtnLabel">—</span><span class="langpick__caret" aria-hidden="true">▾</span></button>
+      <div class="langpick__pop" id="langPop" hidden>
+        <input class="langpick__search" id="langSearch" type="text" placeholder="Search language…" autocomplete="off" spellcheck="false" />
+        <div class="langpick__list" id="langList" role="listbox"></div>
+      </div>
+    </div>
     <span class="meta" id="metaLine"></span>
     <div class="recent" id="recent"><span class="overline">Recent</span></div>
   </header>

@@ -14,11 +14,20 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 var(-
 .pagelink { color: var(--ink); text-decoration: none; font-weight: 600; max-width: 34ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pagelink:hover { text-decoration: underline; }
 .meta { color: var(--muted); font-size: 12px; white-space: nowrap; }
-.langsel { display: inline-flex; align-items: center; gap: 5px; background: var(--teal-100); color: var(--teal-600); border-radius: 999px; padding: 3px 8px 3px 10px; font: 600 12px/1.4 var(--ui); cursor: pointer; }
-.langsel__ico { font-size: 12px; }
-.langsel select { border: 0; background: transparent; color: var(--teal-600); font: 600 12px/1.4 var(--ui); cursor: pointer; padding: 0 2px; max-width: 150px; }
-.langsel select:focus { outline: none; }
-.langsel:focus-within { outline: 2px solid var(--teal-600); outline-offset: 1px; }
+.langpick { position: relative; }
+.langpick__btn { display: inline-flex; align-items: center; gap: 5px; background: var(--teal-100); color: var(--teal-600); border: 1px solid transparent; border-radius: 999px; padding: 4px 9px 4px 11px; font: 600 12px/1.4 var(--ui); cursor: pointer; }
+.langpick__btn:hover { border-color: var(--teal-600); }
+.langpick__ico { font-size: 12px; }
+.langpick__caret { color: var(--teal-600); font-size: 10px; }
+.langpick__pop { position: absolute; top: calc(100% + 6px); left: 0; z-index: 20; width: 240px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--shadow-raised); padding: 8px; display: grid; gap: 6px; }
+.langpick__search { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--bg); color: var(--ink); font: 14px/1.4 var(--ui); }
+.langpick__search:focus { outline: none; border-color: var(--teal-600); }
+.langpick__list { max-height: 260px; overflow: auto; display: grid; gap: 1px; }
+.langpick__opt { display: flex; align-items: center; gap: 8px; padding: 7px 9px; border-radius: var(--r-sm); cursor: pointer; font: 500 13.5px/1.3 var(--ui); color: var(--ink); background: transparent; border: 0; text-align: start; width: 100%; }
+.langpick__opt:hover, .langpick__opt.active { background: var(--teal-100); color: var(--teal-600); }
+.langpick__opt.on { font-weight: 700; }
+.langpick__opt .flag { width: 1.3em; text-align: center; flex: none; }
+.langpick__empty { padding: 10px; color: var(--muted); font-size: 13px; text-align: center; }
 .recent { margin-left: auto; display: flex; align-items: center; gap: 6px; }
 .recent .overline { margin-right: 4px; }
 .thumb { width: 40px; height: 28px; border-radius: 5px; border: 1px solid var(--border); background: var(--surface-2); object-fit: cover; cursor: pointer; padding: 0; display: block; }

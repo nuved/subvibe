@@ -1392,8 +1392,10 @@ let lastShotCaptureAt = 0;
 function hostOf(url) { try { return new URL(url).hostname; } catch { return ""; } }
 
 async function shotTarget() {
-  const { targets } = await chrome.storage.local.get("targets");
-  const target = Array.isArray(targets) && targets.length ? String(targets[0]) : "";
+  // Shot has its OWN remembered language (shotTarget), defaulting to the popup's
+  // subtitle language — so changing it for screenshots doesn't touch subtitles.
+  const { shotTarget: st, targets } = await chrome.storage.local.get(["shotTarget", "targets"]);
+  const target = st ? String(st) : (Array.isArray(targets) && targets.length ? String(targets[0]) : "");
   return { target, targetName: target ? langName(target) : "" };
 }
 
@@ -1424,7 +1426,7 @@ async function startShot(tab, mode) {
   if (!tab || tab.id == null) return { ok: false, error: "no-tab" };
   chrome.action.setBadgeText({ tabId: tab.id, text: "" });
   try {
-    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["shared/shot.js", "content/shot-capture.js"] });
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["shared/shot.js", "shared/langs.js", "content/shot-capture.js"] });
   } catch (e) {
     const detail = String((e && e.message) || e);
     console.warn("[SubVibe shot] inject failed on tab " + tab.id + " (" + (tab.url || "") + "): " + detail);
@@ -1451,7 +1453,8 @@ async function shotBegin(msg, sender) {
   if (!tab) return { ok: false, error: "no-tab" };
   const now = Date.now();
   for (const [k, s] of shotSessions) if (now - s.startedAt > SHOT_SESSION_TTL) shotSessions.delete(k);
-  const { target } = await shotTarget();
+  const st = await shotTarget();
+  const target = msg.target ? String(msg.target) : st.target; // pill's live choice wins
   const rect = msg.rect || {};
   const sess = {
     id: SV_SHOT.newId(), tabId: tab.id, windowId: tab.windowId,
@@ -1630,7 +1633,7 @@ async function shotReshoot(msg, sender) {
   shotSessions.set(rec.tabId, sess);
   try { await chrome.tabs.update(rec.tabId, { active: true }); } catch { shotSessions.delete(rec.tabId); return { ok: false, error: "tab-gone" }; }
   try {
-    await chrome.scripting.executeScript({ target: { tabId: rec.tabId }, files: ["shared/shot.js", "content/shot-capture.js"] });
+    await chrome.scripting.executeScript({ target: { tabId: rec.tabId }, files: ["shared/shot.js", "shared/langs.js", "content/shot-capture.js"] });
   } catch (e) { shotSessions.delete(rec.tabId); await back(); return { ok: false, error: "inject" }; }
   let reply = null;
   try {
