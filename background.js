@@ -862,7 +862,7 @@ async function translateAll(lines, source, target, context, opts) {
   // If EVERY batch failed, surface the real reason instead of silently handing
   // back untranslated text (which used to look like "nothing happened").
   if (failedBatches === totalBatches && lastErr) throw new Error(lastErr.message);
-  return { out, spk, gen, dub, inTok, outTok, cacheR, cacheW, provider, model };
+  return { out, spk, gen, dub, inTok, outTok, cacheR, cacheW, provider, model, failedBatches, totalBatches };
 }
 
 // ─── Vocabulary enrichment + conjugation calls ───────────────────────────────
@@ -1484,7 +1484,9 @@ async function shotTranslate(msg, sender) {
     const r = await translateAll(lines, source === "xx" ? "auto" : source, sess.target, null, { kind: "page", batch: 20 });
     await logCall({ ...meta, provider: r.provider, model: r.model, ms: Date.now() - started,
       inTok: r.inTok, outTok: r.outTok, cacheR: r.cacheR, cacheW: r.cacheW, ok: true });
-    return { ok: true, source, target: sess.target, tr: r.out };
+    // A partially-failed translation returns source text for the failed batches;
+    // flag it so the shot isn't silently stored as fully translated.
+    return { ok: true, source, target: sess.target, tr: r.out, partial: (r.failedBatches || 0) > 0 };
   } catch (e) {
     const m = String((e && e.message) || e);
     const http = m.match(/\b(4\d\d|5\d\d)\b/);
@@ -1535,8 +1537,8 @@ async function shotTile(msg, sender) {
   return { ok: true };
 }
 
-async function shotComposePass(sess, tiles) {
-  const lay = SV_SHOT.stitchLayout(sess.rect, tiles.map((t) => t.scrollY), sess.viewport, sess.scrollX, sess.dpr);
+async function shotComposePass(sess, tiles, rect) {
+  const lay = SV_SHOT.stitchLayout(rect || sess.rect, tiles.map((t) => t.scrollY), sess.viewport, sess.scrollX, sess.dpr);
   const canvas = new OffscreenCanvas(Math.max(1, lay.width), Math.max(1, lay.height));
   const ctx = canvas.getContext("2d");
   for (const op of lay.ops) {
@@ -1565,10 +1567,14 @@ async function shotCompose(msg, sender) {
   const passes = Array.isArray(msg.passes) ? msg.passes : ["original", "variant"];
   // original is optional: multi-tile translated shots capture only the variant
   // and render Original via re-shoot. variant is always required.
+  // The content script sends the rect it actually captured (planned per pass,
+  // after any translation reflow); fall back to the session's provisional rect.
+  const r = msg.rect && +msg.rect.w > 0 && +msg.rect.h > 0
+    ? { x: +msg.rect.x || 0, y: +msg.rect.y || 0, w: +msg.rect.w, h: +msg.rect.h } : sess.rect;
   let original = null, variant = null, layout = sess.layout;
   try {
-    if (passes.includes("original") && tilesO.length) original = await shotComposePass(sess, tilesO);
-    if (passes.includes("variant") && tilesV.length) variant = await shotComposePass(sess, tilesV);
+    if (passes.includes("original") && tilesO.length) original = await shotComposePass(sess, tilesO, r);
+    if (passes.includes("variant") && tilesV.length) variant = await shotComposePass(sess, tilesV, r);
     if (!variant) { variant = original; layout = "original"; } // no-translation shot
   } catch (e) {
     console.warn("[SubVibe shot] compose failed:", (e && e.message) || e);
@@ -1578,7 +1584,7 @@ async function shotCompose(msg, sender) {
   const rec = {
     id: sess.id, ts: sess.startedAt, url: sess.url, title: sess.title, host: hostOf(sess.url),
     source: sess.source || "xx", target: sess.target, mode: sess.mode, layout, dpr: sess.dpr,
-    rect: { ...sess.rect }, w: sess.rect.w, h: sess.rect.h, original, variant, blocks: shotBlocks(msg.blocks),
+    rect: { ...r }, w: r.w, h: r.h, original, variant, blocks: shotBlocks(msg.blocks),
     partial: !!msg.partial, truncated: msg.truncated === "text" || msg.truncated === "height" ? msg.truncated : "",
     sameLang: !!msg.sameLang, tabId: sess.tabId, windowId: sess.windowId,
   };
@@ -1598,6 +1604,7 @@ async function shotReshoot(msg, sender) {
   let tab = null;
   try { tab = await chrome.tabs.get(rec.tabId); } catch { tab = null; }
   if (!tab || (tab.url || "") !== rec.url) return { ok: false, error: "tab-gone" };
+  if (shotSessions.has(rec.tabId)) return { ok: false, error: "busy" }; // a capture is already running on this tab
   const editorTab = sender && sender.tab ? sender.tab.id : null;
   const back = async () => { if (editorTab != null) { try { await chrome.tabs.update(editorTab, { active: true }); } catch {} } };
   const edits = new Map((Array.isArray(msg.blocks) ? msg.blocks : []).map((b) => [String(b && b.id), String((b && b.tr) || "")]));
@@ -1616,7 +1623,7 @@ async function shotReshoot(msg, sender) {
   shotSessions.set(rec.tabId, sess);
   let reply = null;
   try {
-    reply = await chrome.tabs.sendMessage(rec.tabId, { type: "SV_SHOT_RESHOOT", rect, layout, blocks, target: rec.target });
+    reply = await chrome.tabs.sendMessage(rec.tabId, { type: "SV_SHOT_RESHOOT", rect, layout, blocks, target: rec.target, mode: rec.mode });
   } catch (e) { reply = null; }
   shotSessions.delete(rec.tabId);
   await back();
@@ -1625,15 +1632,30 @@ async function shotReshoot(msg, sender) {
   sess.viewport = { w: (reply.viewport && +reply.viewport.w) || 1, h: (reply.viewport && +reply.viewport.h) || 1 };
   const tiles = sess.tiles.variant.filter(Boolean);
   if (!tiles.length) return { ok: false, error: "capture" };
+  const effRect = reply.rect && +reply.rect.w > 0 && +reply.rect.h > 0
+    ? { x: +reply.rect.x || 0, y: +reply.rect.y || 0, w: +reply.rect.w, h: +reply.rect.h } : sess.rect;
   let blob;
-  try { blob = await shotComposePass(sess, tiles); } catch { return { ok: false, error: "compose" }; }
+  try { blob = await shotComposePass(sess, tiles, effRect); } catch { return { ok: false, error: "compose" }; }
+  const trunc = reply.truncated === "height" ? "height" : "";
+  rec.dpr = sess.dpr; rec.rect = { ...effRect }; rec.w = effRect.w; rec.h = effRect.h;
   if (layout === "original") {
     rec.original = blob; // fills in the Original view a multi-tile shot didn't capture up front
+    if (trunc && rec.truncated !== "text") rec.truncated = trunc;
   } else {
     rec.variant = blob; rec.layout = layout; rec.blocks = blocks; rec.partial = !!reply.partial;
+    rec.truncated = rec.truncated === "text" ? "text" : trunc;
   }
   await shotPut(rec);
   return { ok: true, missing: reply.missing | 0 };
+}
+
+// Editor asks whether a shot's source tab is still open on the same URL, so it
+// can disable re-shoot up front (background has the activeTab grant to read url).
+async function shotTabAlive(id) {
+  const rec = await shotGet(String(id || ""));
+  if (!rec) return { ok: true, alive: false };
+  try { const t = await chrome.tabs.get(rec.tabId); return { ok: true, alive: !!t && (t.url || "") === rec.url }; }
+  catch { return { ok: true, alive: false }; }
 }
 
 if (chrome.commands && chrome.commands.onCommand) {
@@ -2426,6 +2448,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         case "SHOT_COMPOSE": sendResponse(await shotCompose(msg, sender)); break;
         case "SHOT_ABORT": { const s = shotSessionOf(sender); if (s) shotSessions.delete(s.tabId); sendResponse({ ok: true }); break; }
         case "SHOT_RESHOOT": sendResponse(await shotReshoot(msg, sender)); break;
+        case "SHOT_TAB_ALIVE": sendResponse(await shotTabAlive(msg.id)); break;
         default:
           sendResponse({ error: "unknown message: " + (msg && msg.type) });
       }

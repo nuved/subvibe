@@ -39,6 +39,7 @@
   const bitmaps = {};          // "original" | "variant" → ImageBitmap
   const edits = new Map();     // block id → edited translation
   let reshooting = false;
+  let tabAlive = true; // re-set on load via SHOT_TAB_ALIVE
 
   const langName = (c) => (window.svLangMeta ? window.svLangMeta((c || "").split("-")[0])[1] : (c || "").toUpperCase());
   const code = (c) => (c || "").split("-")[0].toUpperCase();
@@ -111,6 +112,8 @@
     if (key) { vn.className = "note"; vn.textContent = "Captured with this shot."; }
     else { vn.className = "note warn"; vn.textContent = "Not captured yet — Apply & re-shoot renders the " + view + " view from the original tab."; }
     updateReshoot();
+    const uncaptured = !blobKeyFor(view);
+    for (const id of ["dlBtn", "copyBtn", "shareBtn"]) { const el = $(id); if (el) el.disabled = uncaptured; }
     $("fileNote").textContent = S.filename({ host: rec.host, ts: rec.ts, view, size: exp.size, format: exp.format });
   }
 
@@ -158,12 +161,15 @@
   }
   function updateReshoot() {
     const btn = $("reshootBtn"), note = $("reshootNote");
-    if (reshooting) { btn.disabled = true; note.className = "note"; note.textContent = "Re-shooting on the original tab…"; return; }
-    const needsView = !blobKeyFor(view);
-    const n = edits.size;
-    btn.disabled = !(n || needsView);
     note.className = "note";
-    if (n && needsView) note.textContent = n + (n === 1 ? " translation changed" : " translations changed") + " · renders the " + view + " view.";
+    if (reshooting) { btn.disabled = true; note.textContent = "Re-shooting on the original tab…"; return; }
+    if (!tabAlive) { btn.disabled = true; note.className = "note warn"; note.textContent = "Original tab was closed — take a new shot to re-render."; return; }
+    const needsView = !blobKeyFor(view);
+    // Edits are translations — they don't apply to the Original view.
+    const n = view === "original" ? 0 : edits.size;
+    btn.disabled = !(n || needsView);
+    if (view === "original") note.textContent = needsView ? "Renders the Original (untranslated) image on the original tab (~1 s)." : "The Original image is captured.";
+    else if (n && needsView) note.textContent = n + (n === 1 ? " translation changed" : " translations changed") + " · renders the " + view + " view.";
     else if (n) note.textContent = n + (n === 1 ? " translation changed." : " translations changed.") + " Re-shoot renders it on the original tab.";
     else if (needsView) note.textContent = "Renders the " + view + " view on the original tab (~1 s).";
     else note.textContent = "Edit any translation, then re-shoot to render it on the original tab.";
@@ -182,12 +188,12 @@
       note.textContent = err === "tab-gone" ? "Original tab was closed — take a new shot to re-render."
         : err === "busy" ? "The original tab is still busy — try again in a moment."
         : "Re-shoot failed (" + err + "). Try again.";
-      if (err === "tab-gone") $("reshootBtn").disabled = true;
+      if (err === "tab-gone") { tabAlive = false; updateReshoot(); }
       return;
     }
     const fresh = await getShot(rec.id);
     if (fresh) { rec = fresh; try { S.validateRecord(rec); } catch (e) { /* keep showing what we have */ } }
-    edits.clear();
+    if (layout !== "original") edits.clear(); // Original re-shoot doesn't consume translation edits
     for (const k of ["original", "variant"]) if (bitmaps[k]) { bitmaps[k].close(); delete bitmaps[k]; }
     if (view !== "original" && view !== rec.layout) view = rec.layout;
     renderHeader(); renderBlocks(); await render();
@@ -196,7 +202,8 @@
 
   // ── export ────────────────────────────────────────────────────────────────
   async function exportBlob(format) {
-    const key = blobKeyFor(view) || "original";
+    const key = blobKeyFor(view);
+    if (!key) return null; // view not captured yet — export is disabled, but guard anyway
     const bmp = await bitmapFor(key);
     const c = document.createElement("canvas");
     drawFramed(c, bmp, S.exportScale(exp.size, rec.dpr || 1));
@@ -206,7 +213,7 @@
   const fileName = (format) => S.filename({ host: rec.host, ts: rec.ts, view, size: exp.size, format });
   async function download() {
     const blob = await exportBlob(exp.format);
-    if (!blob) return toast("Export failed");
+    if (!blob) return toast("Re-shoot this view before exporting.");
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = fileName(exp.format);
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 4000);
@@ -215,6 +222,7 @@
   async function copy() {
     try {
       const blob = await exportBlob("png");
+      if (!blob) return toast("Re-shoot this view before copying.");
       await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
       toast("Copied");
     } catch (e) { toast("Copy failed — " + ((e && e.message) || "clipboard blocked")); }
@@ -222,6 +230,7 @@
   async function share() {
     try {
       const blob = await exportBlob(exp.format);
+      if (!blob) return toast("Re-shoot this view before sharing.");
       const file = new File([blob], fileName(exp.format), { type: blob.type });
       await navigator.share({ files: [file], title: rec.title || "SubVibe shot" });
     } catch (e) { if (!e || e.name !== "AbortError") toast("Share failed"); }
@@ -273,6 +282,7 @@
     }
     try { S.validateRecord(r); } catch (e) { showEmpty("This shot is damaged and can't be opened."); return; }
     rec = r;
+    try { const a = await new Promise((res) => chrome.runtime.sendMessage({ type: "SHOT_TAB_ALIVE", id: rec.id }, (x) => res(chrome.runtime.lastError ? null : x))); tabAlive = !a || a.alive !== false; } catch (e) { tabAlive = true; }
     view = rec.layout === "original" ? "original" : rec.layout;
     document.title = "SubVibe Shot · " + (rec.title || rec.host);
     renderHeader(); renderBlocks();

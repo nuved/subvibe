@@ -10,7 +10,7 @@
   window.__svShot = true;
 
   const S = () => window.SV_SHOT;
-  const SKIP_SEL = "script,style,noscript,template,textarea,input,select,option,svg,canvas,video,audio,iframe,pre,code,kbd,samp,[contenteditable=''],[contenteditable='true']";
+  const SKIP_SEL = "script,style,noscript,template,textarea,input,select,option,svg,canvas,video,audio,iframe,pre,code,kbd,samp,[contenteditable]:not([contenteditable='false'])";
 
   let host = null, root = null, cssText = null, cssPromise = null;
   let busy = false, aborted = false;
@@ -81,7 +81,15 @@
   }
   const send = (msg) => new Promise((res) => { try { chrome.runtime.sendMessage(msg, (r) => res(chrome.runtime.lastError ? null : r)); } catch { res(null); } });
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const raf2 = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  // Two animation frames, but never hang: a backgrounded/occluded tab throttles
+  // requestAnimationFrame to zero, so fall back to a timer after 500ms. In a
+  // foreground tab (the real case — the user just clicked) rAF fires in ~32ms.
+  const raf2 = () => new Promise((r) => {
+    let done = false;
+    const go = () => { if (!done) { done = true; r(); } };
+    requestAnimationFrame(() => requestAnimationFrame(go));
+    setTimeout(go, 500);
+  });
   async function settle() { await raf2(); await sleep(150); }
   const docHeight = () => Math.max(document.documentElement.scrollHeight, (document.body && document.body.scrollHeight) || 0, innerHeight);
   const scrollTo = (x, y) => window.scrollTo({ left: x, top: y, behavior: "instant" });
@@ -155,8 +163,9 @@
     });
   }
 
-  const visibleRect = () => ({ x: scrollX, y: scrollY, w: innerWidth, h: innerHeight });
-  const fullRect = () => ({ x: scrollX, y: 0, w: innerWidth, h: docHeight() });
+  const contentW = () => (document.documentElement && document.documentElement.clientWidth) || innerWidth;
+  const visibleRect = () => ({ x: scrollX, y: scrollY, w: contentW(), h: innerHeight });
+  const fullRect = () => ({ x: scrollX, y: 0, w: contentW(), h: docHeight() });
 
   // ── text blocks ────────────────────────────────────────────────────────────
   const normText = (t) => String(t || "").replace(/\s+/g, " ").trim();
@@ -226,6 +235,7 @@
   // ── swap / restore ─────────────────────────────────────────────────────────
   const saved = [], inserted = [], attrSaved = [], fixedHidden = [];
   let scroll0 = null;
+  let maxReachedY = 0; // furthest window.scrollY a pass actually reached (inner-scroll guard)
 
   function swap(layout, blocks, target) {
     const rtl = S().isRtl(target);
@@ -254,9 +264,9 @@
     }
   }
   function verifySwap(blocks) {
-    const live = blocks.filter((b) => b.tr && b.check);
-    if (!live.length) return 1;
-    return live.filter((b) => b.check()).length / live.length;
+    const want = blocks.filter((b) => b.tr); // a disconnected block (check never set) counts as failed
+    if (!want.length) return 1;
+    return want.filter((b) => typeof b.check === "function" && b.check()).length / want.length;
   }
   function unswap() {
     for (const s of saved) { try { s.node.data = s.data; } catch (e) { /* detached */ } }
@@ -289,8 +299,12 @@
   }
 
   // ── tile loop ──────────────────────────────────────────────────────────────
-  function planFor(rect) {
+  // Plan tiles from the CURRENT layout. For "full" the height is re-read live,
+  // so a pass planned AFTER the translation swap covers any reflow growth
+  // (bilingual adds a line under each block; longer languages grow paragraphs).
+  function planPass(baseRect, mode) {
     const vh = innerHeight, docH = docHeight(), maxScroll = Math.max(0, docH - vh);
+    const rect = mode === "full" ? { x: baseRect.x, y: 0, w: baseRect.w, h: docH } : baseRect;
     const fits = rect.y >= scrollY && rect.y + rect.h <= scrollY + vh;
     if (fits) return { offsets: [scrollY], truncated: false, rect };
     const plan = S().planTiles(rect.y, rect.y + rect.h, vh, maxScroll);
@@ -298,19 +312,28 @@
     if (plan.truncated) r = { x: rect.x, y: rect.y, w: rect.w, h: plan.offsets[plan.offsets.length - 1] + vh - rect.y };
     return { offsets: plan.offsets, truncated: plan.truncated, rect: r };
   }
+  // Returns the number of tiles actually captured (< offsets.length if the page
+  // stopped scrolling — an inner-scroll container the window can't move).
   async function shootPass(pass, offsets, done, total) {
     const multi = offsets.length > 1;
-    for (let i = 0; i < offsets.length; i++) {
+    let prev = null, i = 0;
+    for (; i < offsets.length; i++) {
       if (aborted) throw new Error("cancel");
-      if (multi) { if (i === 0) showFixed(); else hideFixed(); scrollTo(scroll0.x, offsets[i]); }
+      if (multi) { if (i === 0) showFixed(); else hideFixed(); }
+      scrollTo(scroll0.x, offsets[i]); // ALWAYS — a single tile below the fold must scroll too
       if (total > 1) setPill("Shooting " + (done + i + 1) + " / " + total + "…", (done + i) / total);
       await settle();
+      const actualY = window.scrollY;
+      if (multi && i > 0 && prev !== null && actualY === prev) break; // page won't scroll further
+      prev = actualY;
+      if (actualY > maxReachedY) maxReachedY = actualY;
       host.style.visibility = "hidden"; await raf2();
-      let res = await send({ type: "SHOT_TILE", pass, index: i, scrollY: window.scrollY });
+      let res = await send({ type: "SHOT_TILE", pass, index: i, scrollY: actualY });
       if (!res || !res.ok) { await sleep(400); res = await send({ type: "SHOT_TILE", pass, index: i, scrollY: window.scrollY }); }
       host.style.visibility = "";
       if (!res || !res.ok) throw new Error("capture");
     }
+    return i;
   }
 
   async function translateLines(lines) {
@@ -332,51 +355,62 @@
 
   const armEsc = () => { escHandler = (e) => { if (e.key === "Escape") { aborted = true; } }; window.addEventListener("keydown", escHandler, true); };
 
+  // Height a pass actually covered, so an inner-scroll page that wouldn't move
+  // stores a rect matching the pixels captured instead of a tall blank canvas.
+  function coveredRect(effRect, shotN, planned) {
+    if (shotN >= planned) return { rect: effRect, cut: false };
+    const h = Math.min(effRect.h, (maxReachedY - effRect.y) + innerHeight);
+    return { rect: { x: effRect.x, y: effRect.y, w: effRect.w, h: Math.max(1, h) }, cut: true };
+  }
+
   async function capture(rect0, mode, layout, target) {
     scroll0 = { x: scrollX, y: scrollY };
-    const { offsets, truncated: cut, rect } = planFor(rect0);
-    let truncated = cut ? "height" : "";
-    const begin = await send({ type: "SHOT_BEGIN", url: location.href, title: document.title, mode, layout, rect, dpr: devicePixelRatio, scrollX: scroll0.x, viewport: { w: innerWidth, h: innerHeight }, docH: docHeight() });
+    maxReachedY = scroll0.y;
+    // Provisional rect for BEGIN + block collection (full = whole doc, pre-swap).
+    const baseRect = mode === "full" ? { x: rect0.x, y: 0, w: rect0.w, h: docHeight() } : rect0;
+    const begin = await send({ type: "SHOT_BEGIN", url: location.href, title: document.title, mode, layout, rect: baseRect, dpr: devicePixelRatio, scrollX: scroll0.x, viewport: { w: innerWidth, h: innerHeight }, docH: docHeight() });
     if (!begin || !begin.ok) { toast("Capture failed — try again.", 3000); return; }
-    const raw = collectBlocks(rect);
+    const raw = collectBlocks(baseRect);
     const prep = S().prepBlocks(raw.map((b) => ({ id: b.id, text: b.text, rect: b.rect })));
-    if (prep.truncated && !truncated) truncated = prep.truncated;
     const byId = new Map(raw.map((b) => [b.id, b]));
-    let tr = null, passes, note = "";
+    armEsc(); // catch Esc during the translate wait too, not only during tiles
+    let tr = null, note = "", partial = false;
     if (prep.lines.length) {
       setPill("Translating " + prep.lines.length + " blocks…", 0);
       const t = await translateLines(prep.lines);
       setPill("");
-      if (t === "cancel") { await send({ type: "SHOT_ABORT" }); return; }
+      if (t === "cancel" || aborted) { await send({ type: "SHOT_ABORT" }); return; }
       if (t && t.sameLang) note = "same";
-      else if (t && t.ok) { tr = t.tr; passes = ["original", "variant"]; }
+      else if (t && t.ok) { tr = t.tr; partial = !!t.partial; }
     }
     const mapped = S().mapTranslations(prep.keep, prep.lineOf, tr || []);
     const blocks = mapped.blocks.map((b) => { const live = byId.get(b.id); return { id: b.id, text: b.text, tr: tr ? b.tr : "", rect: b.rect, el: live.el, nodes: live.nodes }; });
-    let partial = false;
-    // Two passes (original + translated) only when the shot fits one viewport —
-    // then toggling Original↔Translated in the editor is instant for ~1 extra
-    // capture. For multi-tile shots capture ONLY the chosen layout: it halves
-    // captureVisibleTab calls (which are rate-limited and flaky in bulk), and
-    // the Original view is rendered on demand via re-shoot.
-    const twoPass = tr && offsets.length === 1;
-    passes = tr ? (twoPass ? ["original", "variant"] : ["variant"]) : ["original"];
-    const total = offsets.length * passes.length;
-    armEsc();
+    // Two passes (original + translated) only when the shot fits one viewport;
+    // multi-tile shots capture ONLY the chosen layout (Original via re-shoot) to
+    // halve the rate-limited captures. The variant pass is planned AFTER the swap
+    // so bilingual/longer-text reflow can't push content past the last tile.
+    const twoPass = tr && planPass(baseRect, mode).offsets.length === 1;
+    const passes = tr ? (twoPass ? ["original", "variant"] : ["variant"]) : ["original"];
+    let effRect = baseRect, effCut = false;
     try {
       if (!tr) {
-        await shootPass("original", offsets, 0, total);
+        const pl = planPass(baseRect, mode); effRect = pl.rect;
+        const n = await shootPass("original", pl.offsets, 0, pl.offsets.length);
+        const c = coveredRect(pl.rect, n, pl.offsets.length); effRect = c.rect; effCut = pl.truncated || c.cut;
       } else if (twoPass) {
-        await shootPass("original", offsets, 0, total);
+        const pl = planPass(baseRect, mode); effRect = pl.rect;
+        await shootPass("original", pl.offsets, 0, pl.offsets.length * 2);
         swap(layout, blocks, target);
         if (verifySwap(blocks) < 0.9) { unswap(); swap(layout, blocks, target); }
         if (verifySwap(blocks) < 0.9) partial = true;
-        await shootPass("variant", offsets, offsets.length, total);
+        await shootPass("variant", pl.offsets, pl.offsets.length, pl.offsets.length * 2);
       } else {
         swap(layout, blocks, target);
         if (verifySwap(blocks) < 0.9) { unswap(); swap(layout, blocks, target); }
         if (verifySwap(blocks) < 0.9) partial = true;
-        await shootPass("variant", offsets, 0, total);
+        const pl = planPass(baseRect, mode); // post-swap layout
+        const n = await shootPass("variant", pl.offsets, 0, pl.offsets.length);
+        const c = coveredRect(pl.rect, n, pl.offsets.length); effRect = c.rect; effCut = pl.truncated || c.cut;
       }
     } catch (e) {
       restore(); setPill("");
@@ -384,8 +418,9 @@
       if (e && e.message !== "cancel") toast("Capture failed — try a smaller area.", 3500);
       return;
     } finally { restore(); }
+    const truncated = prep.truncated || (effCut ? "height" : "");
     setPill("Saving…", 1);
-    const res = await send({ type: "SHOT_COMPOSE", blocks: blocks.map((b) => ({ id: b.id, text: b.text, tr: b.tr, rect: b.rect })), partial, truncated, passes, sameLang: note === "same" });
+    const res = await send({ type: "SHOT_COMPOSE", rect: effRect, blocks: blocks.map((b) => ({ id: b.id, text: b.text, tr: b.tr, rect: b.rect })), partial, truncated, passes, sameLang: note === "same" });
     setPill("");
     if (!res || !res.ok) { toast("Couldn't save the shot. Try again.", 3500); return; }
     toast("Shot saved — opening editor…", 1800);
@@ -414,9 +449,10 @@
     try {
       await cssReady(); ensureHost();
       scroll0 = { x: scrollX, y: scrollY };
+      maxReachedY = scroll0.y;
       const sx0 = scroll0.x;
-      const { offsets, rect } = planFor(msg.rect);
-      const raw = collectBlocks(rect);
+      const mode = msg.mode === "full" ? "full" : "area";
+      const raw = collectBlocks(mode === "full" ? { x: msg.rect.x, y: 0, w: msg.rect.w, h: docHeight() } : msg.rect);
       const byText = new Map();
       for (const b of raw) if (!byText.has(b.text)) byText.set(b.text, []);
       for (const b of raw) byText.get(b.text).push(b);
@@ -433,18 +469,21 @@
       let partial = false;
       const original = msg.layout === "original"; // capture the page as-is, no swap
       armEsc();
+      let effRect = msg.rect, effCut = false;
       try {
         if (!original) {
           swap(msg.layout, blocks, msg.target);
           if (verifySwap(blocks) < 0.9) { unswap(); swap(msg.layout, blocks, msg.target); }
           if (verifySwap(blocks) < 0.9) partial = true;
         }
-        await shootPass("variant", offsets, 0, offsets.length);
+        const pl = planPass(msg.rect, mode); effRect = pl.rect;
+        const n = await shootPass("variant", pl.offsets, 0, pl.offsets.length);
+        const c = coveredRect(pl.rect, n, pl.offsets.length); effRect = c.rect; effCut = pl.truncated || c.cut;
       } catch (e) {
         restore();
         return { ok: false, error: "capture" };
       } finally { restore(); }
-      return { ok: true, partial, missing, dpr: devicePixelRatio, scrollX: sx0, viewport: { w: innerWidth, h: innerHeight } };
+      return { ok: true, partial, missing, rect: effRect, truncated: effCut ? "height" : "", dpr: devicePixelRatio, scrollX: sx0, viewport: { w: innerWidth, h: innerHeight } };
     } finally { cleanupAll(); busy = false; }
   }
 
