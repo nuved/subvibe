@@ -166,6 +166,6 @@ Record shape (store `shots`, key `id`):
 
 ### Task 7: Acceptance and review
 
-- [ ] Run the manual acceptance list from the spec §Testing in Chrome (unpacked) and record each result in the progress log. Firefox: `bash build.sh --firefox`, load temporary add-on, Select area on a DW article.
-- [ ] Run the adversarial-verify skill over `git diff main...shot-translate` against the spec; fix findings; re-run suite and builds.
-- [ ] Final commit if fixes were needed: `Shot: review fixes — <what>`. Push the branch and open a PR to `main` titled `Shot: translated screenshots (step 1)` with a body listing the spec, the mock URL, what was tested by hand and what was not.
+- [x] Run the manual acceptance list from the spec §Testing in Chrome (unpacked) and record each result in the progress log. Firefox: `bash build.sh --firefox`, load temporary add-on, Select area on a DW article.
+- [x] Run the adversarial-verify skill over `git diff main...shot-translate` against the spec; fix findings; re-run suite and builds.
+- [x] Final commit if fixes were needed: `Shot: review fixes — <what>`. Push the branch and open a PR to `main` titled `Shot: translated screenshots (step 1)` with a body listing the spec, the mock URL, what was tested by hand and what was not.
