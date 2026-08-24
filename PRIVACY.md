@@ -43,6 +43,10 @@ to the provider you selected, authenticated with **your** API key:
 - **Subtitle / caption text** from the video you are watching — to OpenAI or Anthropic for
   translation (your choice of engine), and to OpenAI or Google to generate dub speech if you
   use Dub Mode.
+- **Page text you choose to translate or simplify** — only when you invoke *Simplify with SubVibe*
+  or *Screenshot with SubVibe* (right-click menu, popup or keyboard shortcut): the text you selected,
+  or the text inside the page area you captured, goes to OpenAI or Anthropic. Nothing is sent, and
+  no page is touched, until you invoke it.
 - **Captured audio**, only if you explicitly enable the optional “audio fallback”
   transcription feature for videos that have no captions (sent to OpenAI). This feature is
   **off by default**, requires a one‑time setup, and only runs while you have started it.
@@ -60,14 +64,18 @@ routes this data through no other party.
 - No personal identifiers, browsing history, account information, or telemetry.
 - No advertising, profiling, data sharing, or data selling.
 - SubVibe reads page content only on the streaming sites it supports (YouTube, Netflix, ZDF,
-  DW, Amazon Prime Video, Udemy), and only to locate the caption track and draw the subtitle
-  overlay.
+  DW, Amazon Prime Video, Udemy), to locate the caption track and draw the subtitle overlay — and,
+  only when you invoke *Simplify* or *Screenshot* on a tab, on that one tab, to read the text you
+  selected or captured. Screenshots are stored only on your device and leave it only through your
+  own Download, Copy or Share action.
 
 ## Permissions, briefly
 - **Host access to the supported video sites** — to read the video’s caption track and draw
   the overlay.
 - **api.openai.com / api.anthropic.com / generativelanguage.googleapis.com** — to send text
   (or, opt‑in, audio) for translation, speech generation, or transcription with your key.
+- **activeTab / scripting / contextMenus** — run *Simplify* and *Screenshot* on the tab where you
+  invoked them, and only then; no access to other tabs or to any site in the background.
 - **storage / unlimitedStorage** — your local settings and the local subtitle/audio cache.
 - **offscreen** — plays dub audio, and hosts the optional opt‑in audio‑fallback and Live
   Translate capture.

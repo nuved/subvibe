@@ -1,0 +1,346 @@
+<title>SubVibe Shot Editor</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@800&family=Vazirmatn:wght@400;600&display=swap">
+<style>
+  :root {
+    --bg:#FAF6F0; --surface:#FFFFFF; --surface-2:#F3EDE4; --border:#EDE5DA;
+    --ink:#241F1A; --ink-2:#5B5348; --muted:#786D60; --faint:#A39684;
+    --coral-500:#F45D48; --coral-600:#C93F2B; --coral-700:#A93521; --coral-100:#FDE8E4;
+    --teal-600:#0D9488; --teal-100:#E4F2EF; --amber-600:#B45309;
+    --shadow-rest:0 1px 2px rgba(93,64,35,.08); --shadow-raised:0 6px 18px -4px rgba(93,64,35,.18);
+    --frame-a:#F7E6D6; --frame-b:#E9D5F0; --frame-c:#D4E9E4;
+    --on-coral:#fff;
+    --ui:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --display:"Baloo 2",var(--ui); --fa:"Vazirmatn",var(--ui);
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    color-scheme:light;
+  }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+    --bg:#191512; --surface:#241F1A; --surface-2:#2E2822; --border:#3A332B;
+    --ink:#F3EDE4; --ink-2:#C9BFB2; --muted:#918679; --faint:#6E6458;
+    --coral-500:#FF7A66; --coral-600:#FF7A66; --coral-700:#F45D48; --coral-100:#3A241F;
+    --teal-600:#2DD4BF; --teal-100:#16302C; --amber-600:#FBBF24;
+    --shadow-rest:0 1px 2px rgba(0,0,0,.4); --shadow-raised:0 6px 18px -4px rgba(0,0,0,.5);
+    --frame-a:#3A2A22; --frame-b:#2C2436; --frame-c:#1F3330; --on-coral:#191512; color-scheme:dark; } }
+  :root[data-theme="dark"] {
+    --bg:#191512; --surface:#241F1A; --surface-2:#2E2822; --border:#3A332B;
+    --ink:#F3EDE4; --ink-2:#C9BFB2; --muted:#918679; --faint:#6E6458;
+    --coral-500:#FF7A66; --coral-600:#FF7A66; --coral-700:#F45D48; --coral-100:#3A241F;
+    --teal-600:#2DD4BF; --teal-100:#16302C; --amber-600:#FBBF24;
+    --shadow-rest:0 1px 2px rgba(0,0,0,.4); --shadow-raised:0 6px 18px -4px rgba(0,0,0,.5);
+    --frame-a:#3A2A22; --frame-b:#2C2436; --frame-c:#1F3330; --on-coral:#191512; color-scheme:dark; }
+
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.5 var(--ui); }
+  .board { max-width:1180px; margin:0 auto; padding:32px 20px 80px; display:grid; gap:40px; }
+  .intro h1 { font:800 30px/1.1 var(--display); margin:0 0 8px; letter-spacing:-.01em; text-wrap:balance; }
+  .intro p { margin:0; color:var(--ink-2); max-width:62ch; }
+  .cap { display:flex; align-items:baseline; gap:10px; margin:0 0 12px; }
+  .cap b { font:800 18px/1.2 var(--display); }
+  .cap span { color:var(--muted); font-size:13px; }
+  .eyebrow { font:600 11px/1 var(--mono); letter-spacing:.08em; text-transform:uppercase; color:var(--muted); }
+
+  /* ── editor page ── */
+  .app { background:var(--bg); border:1px solid var(--border); border-radius:14px; overflow:hidden; box-shadow:var(--shadow-raised); }
+  .top { display:flex; align-items:center; gap:14px; padding:10px 16px; background:var(--surface); border-bottom:1px solid var(--border); }
+  .wordmark { font:800 22px/1 var(--display); color:var(--coral-600); letter-spacing:-.01em; }
+  .wordmark small { font:600 11px/1 var(--mono); color:var(--muted); margin-left:6px; letter-spacing:.06em; text-transform:uppercase; }
+  .pagelink { color:var(--ink); text-decoration:none; font-weight:600; max-width:34ch; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .pagelink:hover { text-decoration:underline; }
+  .chip { display:inline-flex; align-items:center; gap:6px; padding:3px 9px; border-radius:999px; font:600 12px/1.4 var(--ui); background:var(--teal-100); color:var(--teal-600); white-space:nowrap; }
+  .meta { color:var(--muted); font-size:12px; white-space:nowrap; }
+  .recent { margin-left:auto; display:flex; align-items:center; gap:6px; }
+  .recent .eyebrow { margin-right:4px; }
+  .thumb { width:38px; height:26px; border-radius:5px; border:1px solid var(--border); background:linear-gradient(135deg,var(--surface-2),var(--surface)); position:relative; }
+  .thumb::after { content:""; position:absolute; inset:5px 6px; border-top:2px solid var(--faint); border-bottom:2px solid var(--faint); opacity:.6; }
+  .thumb.on { outline:2px solid var(--coral-600); outline-offset:1px; }
+
+  .body { display:grid; grid-template-columns:minmax(0,1fr) 372px; min-height:640px; }
+  .stage { padding:28px; display:flex; align-items:flex-start; justify-content:center; overflow:auto; background:
+    radial-gradient(circle at 1px 1px, var(--border) 1px, transparent 0) 0 0/18px 18px; }
+  .frame { border-radius:18px; padding:44px; background:linear-gradient(135deg,var(--frame-a),var(--frame-b) 55%,var(--frame-c)); box-shadow:var(--shadow-raised); position:relative; transition:padding .18s ease-out; }
+  .frame.plain { padding:0; background:none; box-shadow:none; border-radius:0; }
+  .shot { width:560px; background:#fff; color:#1a1a1a; border-radius:12px; overflow:hidden; box-shadow:0 10px 30px -8px rgba(40,20,10,.35); font-family:Georgia,"Times New Roman",serif; }
+  .frame.plain .shot { border-radius:0; box-shadow:none; border:1px solid var(--border); }
+  .badge { position:absolute; right:56px; bottom:16px; font:600 11px/1 var(--mono); letter-spacing:.06em; color:var(--coral-700); background:rgba(255,255,255,.72); padding:5px 9px; border-radius:999px; }
+  :root[data-theme="dark"] .badge { background:rgba(0,0,0,.35); color:var(--coral-500); }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .badge { background:rgba(0,0,0,.35); color:var(--coral-500); } }
+  .frame.plain .badge, .frame.nobadge .badge { display:none; }
+
+  /* the fake captured page — deliberately NOT on Daylight tokens: it's a news site */
+  .site-nav { display:flex; gap:18px; padding:12px 22px; border-bottom:2px solid #c00; font:700 12px/1 Helvetica,Arial,sans-serif; letter-spacing:.04em; text-transform:uppercase; color:#222; }
+  .site-nav .logo { color:#c00; margin-right:auto; font-size:14px; }
+  .site-body { padding:20px 22px 24px; }
+  .kicker { font:700 12px/1 Helvetica,Arial,sans-serif; color:#c00; letter-spacing:.06em; text-transform:uppercase; margin:0 0 8px; }
+  .hl { font:700 26px/1.15 Georgia,serif; margin:0 0 10px; letter-spacing:-.01em; }
+  .dek { font:400 15px/1.45 Georgia,serif; color:#444; margin:0 0 12px; }
+  .byline { font:12px/1 Helvetica,Arial,sans-serif; color:#777; margin:0 0 16px; }
+  .p { font:15px/1.55 Georgia,serif; margin:0 0 12px; }
+  .site-body [dir="rtl"], .site-nav [dir="rtl"] { font-family:var(--fa); }
+  .hl[dir="rtl"] { font-size:24px; font-weight:600; }
+  .tr { display:block; font-size:.92em; opacity:.85; margin-top:.2em; font-family:var(--fa); }
+  .site-nav .tr { display:inline; margin:0; }
+
+  /* side panel */
+  .panel { border-left:1px solid var(--border); background:var(--surface); display:flex; flex-direction:column; min-height:0; }
+  .group { padding:14px 16px; border-bottom:1px solid var(--border); display:grid; gap:10px; }
+  .group h3 { margin:0; font:600 11px/1 var(--mono); letter-spacing:.08em; text-transform:uppercase; color:var(--muted); display:flex; align-items:center; gap:8px; }
+  .group h3 .n { margin-left:auto; color:var(--faint); letter-spacing:0; }
+  .seg { display:grid; grid-auto-flow:column; grid-auto-columns:1fr; background:var(--surface-2); border-radius:8px; padding:3px; gap:3px; }
+  .seg button { border:0; background:transparent; color:var(--ink-2); font:600 13px/1 var(--ui); padding:8px 6px; border-radius:6px; cursor:pointer; }
+  .seg button.on { background:var(--surface); color:var(--ink); box-shadow:var(--shadow-rest); }
+  .seg button:focus-visible, .btn:focus-visible, .chipbtn:focus-visible { outline:2px solid var(--coral-600); outline-offset:2px; }
+  .row { display:flex; align-items:center; gap:10px; }
+  .row label { color:var(--ink-2); }
+  .switch { width:34px; height:20px; border-radius:999px; background:var(--coral-600); position:relative; flex:none; }
+  .switch::after { content:""; position:absolute; top:2px; right:2px; width:16px; height:16px; border-radius:50%; background:#fff; }
+  .switch.off { background:#D8CFC2; } .switch.off::after { right:auto; left:2px; }
+  .note { font-size:12px; color:var(--muted); }
+  .note.warn { color:var(--amber-600); }
+  .blocks { display:grid; gap:8px; max-height:300px; overflow:auto; padding-right:2px; }
+  .blk { border:1px solid var(--border); border-radius:10px; padding:8px 10px; display:grid; gap:6px; background:var(--bg); }
+  .blk .o { color:var(--ink-2); font-size:12.5px; line-height:1.4; }
+  .blk .t { font:14px/1.5 var(--fa); direction:rtl; text-align:right; background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:6px 8px; color:var(--ink); min-height:34px; }
+  .blk.edited .t { border-color:var(--coral-600); }
+  .blk .k { font:600 10px/1 var(--mono); letter-spacing:.06em; text-transform:uppercase; color:var(--faint); }
+  .btn { border:0; border-radius:8px; padding:9px 12px; font:600 13px/1 var(--ui); cursor:pointer; display:inline-flex; align-items:center; gap:8px; justify-content:center; }
+  .btn.primary { background:var(--coral-600); color:var(--on-coral); }
+  .btn.primary:hover { background:var(--coral-700); }
+  .btn.ghost { background:var(--surface-2); color:var(--ink); }
+  .btn.danger { background:transparent; color:var(--muted); }
+  .btn.danger:hover { color:#DC2626; }
+  .btn[disabled] { opacity:.5; cursor:not-allowed; }
+  .opts { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .opts label { display:grid; gap:4px; font:600 11px/1 var(--mono); letter-spacing:.06em; text-transform:uppercase; color:var(--faint); }
+  .opts select { font:13px var(--ui); color:var(--ink); background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:6px 8px; }
+  .exports { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .exports .btn.primary { grid-column:1 / -1; }
+  .ico { width:14px; height:14px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+
+  /* ── picker frames ── */
+  .grid2 { display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); gap:20px; }
+  .win { border:1px solid var(--border); border-radius:12px; overflow:hidden; background:#fff; box-shadow:var(--shadow-rest); position:relative; height:300px; font-family:Georgia,serif; color:#222; }
+  .win .bar { height:26px; background:#ece8e1; display:flex; align-items:center; gap:5px; padding:0 10px; }
+  .win .bar i { width:9px; height:9px; border-radius:50%; background:#d3cbbf; display:block; }
+  .win .bar span { margin-left:8px; font:11px var(--ui); color:#8a8078; background:#fff; border-radius:5px; padding:2px 8px; flex:1; }
+  .fake { padding:16px 22px; }
+  .fake .l { height:9px; border-radius:4px; background:#e6e1d8; margin:8px 0; }
+  .fake .l.h { height:16px; width:70%; background:#cfc8bd; margin-bottom:12px; }
+  .fake .l.s { width:40%; }
+  .dim { position:absolute; inset:26px 0 0 0; background:rgba(20,14,10,.45); }
+  .sel { position:absolute; left:62px; top:96px; width:262px; height:126px; border:1.5px solid #fff; box-shadow:0 0 0 9999px rgba(20,14,10,.45); background:transparent; }
+  .sel .sz { position:absolute; right:-1px; top:-24px; font:600 11px/1 var(--mono); color:#fff; background:rgba(0,0,0,.6); padding:4px 7px; border-radius:5px; }
+  .cross-h, .cross-v { position:absolute; background:rgba(255,255,255,.55); pointer-events:none; }
+  .cross-h { left:0; right:0; height:1px; top:222px; } .cross-v { top:26px; bottom:0; width:1px; left:324px; }
+  .hint { position:absolute; left:50%; bottom:14px; transform:translateX(-50%); font:600 12px/1 var(--ui); color:#fff; background:rgba(20,14,10,.78); padding:8px 12px; border-radius:999px; white-space:nowrap; }
+  .hint kbd { font:600 11px/1 var(--mono); background:rgba(255,255,255,.18); padding:2px 5px; border-radius:4px; margin:0 2px; }
+  .elpick { position:absolute; left:22px; top:80px; right:22px; height:150px; border:2px solid var(--coral-500); background:rgba(244,93,72,.14); border-radius:2px; }
+  .elpick .tag { position:absolute; left:-2px; top:-22px; font:600 11px/1 var(--mono); color:#fff; background:var(--coral-600); padding:4px 7px; border-radius:5px 5px 0 0; }
+  .pill { position:absolute; left:50%; top:130px; transform:translateX(-50%); display:flex; align-items:center; gap:10px; background:var(--surface); color:var(--ink); border:1px solid var(--border); box-shadow:var(--shadow-raised); padding:10px 14px; border-radius:999px; font:600 13px/1 var(--ui); }
+  .pill .bar2 { width:110px; height:6px; border-radius:3px; background:var(--surface-2); overflow:hidden; }
+  .pill .bar2 i { display:block; width:33%; height:100%; background:var(--coral-600); }
+  .toast { position:absolute; left:50%; bottom:16px; transform:translateX(-50%); background:var(--ink); color:var(--bg); padding:9px 14px; border-radius:10px; font:600 13px/1 var(--ui); white-space:nowrap; }
+  :root[data-theme="dark"] .toast { background:var(--surface-2); color:var(--ink); }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .toast { background:var(--surface-2); color:var(--ink); } }
+
+  /* ── popup row ── */
+  .popup { width:360px; background:var(--bg); border:1px solid var(--border); border-radius:14px; box-shadow:var(--shadow-raised); overflow:hidden; }
+  .popup .tabs { display:flex; gap:4px; padding:10px 12px 0; }
+  .popup .tabs span { padding:7px 12px; border-radius:8px 8px 0 0; font-weight:600; color:var(--muted); }
+  .popup .tabs span.on { background:var(--surface); color:var(--ink); border:1px solid var(--border); border-bottom-color:var(--surface); }
+  .popup .pane { background:var(--surface); border-top:1px solid var(--border); padding:12px; display:grid; gap:10px; }
+  .popup .ph { height:34px; border-radius:8px; background:var(--surface-2); }
+  .shotrow { margin:0 12px 12px; padding:10px 12px; border:1px solid var(--border); border-radius:12px; background:var(--surface); display:grid; gap:8px; }
+  .shotrow .ttl { display:flex; align-items:center; gap:8px; font-weight:600; }
+  .shotrow .ttl .hintk { margin-left:auto; font:600 10px/1 var(--mono); color:var(--faint); letter-spacing:.04em; }
+  .chips { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; }
+  .chipbtn { border:1px solid var(--border); background:var(--bg); color:var(--ink); border-radius:8px; padding:8px 4px; display:grid; justify-items:center; gap:5px; font:600 11px/1 var(--ui); cursor:pointer; }
+  .chipbtn:hover { background:var(--coral-100); border-color:var(--coral-600); color:var(--coral-700); }
+  .chipbtn .ico { width:18px; height:18px; stroke-width:1.8; }
+
+  .decisions { display:grid; gap:10px; max-width:70ch; color:var(--ink-2); }
+  .decisions li { margin:0; }
+  @media (max-width:900px) { .body { grid-template-columns:1fr; } .panel { border-left:0; border-top:1px solid var(--border); } .shot { width:100%; } }
+  @media (prefers-reduced-motion: reduce) { .frame { transition:none; } }
+</style>
+
+<div class="board">
+  <header class="intro">
+    <div class="eyebrow">SubVibe · step 1 mock · 24 Aug 2026</div>
+    <h1>Shot: the page, in your language, as a picture</h1>
+    <p>Three surfaces below: the editor tab that opens after a capture, the in-page pickers, and the popup row. The example shot is a Spiegel article captured with <em>Select area</em>, German → Persian. The View and Frame controls on the editor are live, click them.</p>
+  </header>
+
+  <!-- ══ 1 · editor ══ -->
+  <section>
+    <div class="cap"><b>1 · Editor tab</b><span>shot.html · opens active after the capture finishes</span></div>
+    <div class="app">
+      <div class="top">
+        <div class="wordmark">SubVibe<small>Shot</small></div>
+        <a class="pagelink" href="#" onclick="return false">Regierung einigt sich auf Haushalt für 2027 — DER SPIEGEL</a>
+        <span class="chip">DE → FA</span>
+        <span class="meta">Today 14:07 · Select area · 560 × 402</span>
+        <div class="recent"><span class="eyebrow">Recent</span><span class="thumb on"></span><span class="thumb"></span><span class="thumb"></span><span class="thumb"></span><span class="thumb"></span></div>
+      </div>
+      <div class="body">
+        <div class="stage">
+          <div class="frame" id="frame">
+            <div class="shot" id="shot">
+              <div class="site-nav"><span class="logo">SPIEGEL</span>
+                <span data-o="Politik" data-t="سیاست">Politik</span>
+                <span data-o="Wirtschaft" data-t="اقتصاد">Wirtschaft</span>
+                <span data-o="Kultur" data-t="فرهنگ">Kultur</span>
+              </div>
+              <div class="site-body">
+                <p class="kicker" data-o="Bundeshaushalt" data-t="بودجهٔ فدرال">Bundeshaushalt</p>
+                <h2 class="hl" data-o="Regierung einigt sich auf Haushalt für 2027" data-t="دولت بر سر بودجهٔ ۲۰۲۷ به توافق رسید">Regierung einigt sich auf Haushalt für 2027</h2>
+                <p class="dek" data-o="Nach wochenlangem Streit steht der Entwurf: mehr Geld für Bildung und Bahn, weniger für Subventionen." data-t="پس از هفته‌ها اختلاف، پیش‌نویس آماده است: پول بیشتر برای آموزش و راه‌آهن، کمتر برای یارانه‌ها.">Nach wochenlangem Streit steht der Entwurf: mehr Geld für Bildung und Bahn, weniger für Subventionen.</p>
+                <p class="byline" data-o="Von Anna Berger · 24.08.2026, 14:02 Uhr" data-t="نوشتهٔ آنا برگر · ۲۴٫۰۸٫۲۰۲۶، ساعت ۱۴:۰۲">Von Anna Berger · 24.08.2026, 14:02 Uhr</p>
+                <p class="p" data-o="Die Bundesregierung hat sich am Montag auf den Haushaltsentwurf für das kommende Jahr geeinigt. Das Finanzministerium plant Ausgaben von 498 Milliarden Euro." data-t="دولت فدرال روز دوشنبه بر سر پیش‌نویس بودجهٔ سال آینده به توافق رسید. وزارت دارایی هزینه‌هایی به مبلغ ۴۹۸ میلیارد یورو را برنامه‌ریزی کرده است.">Die Bundesregierung hat sich am Montag auf den Haushaltsentwurf für das kommende Jahr geeinigt. Das Finanzministerium plant Ausgaben von 498 Milliarden Euro.</p>
+                <p class="p" data-o="Umstritten blieb bis zuletzt die Kürzung bei den Agrarsubventionen. Der Bauernverband kündigte Proteste an." data-t="کاهش یارانه‌های کشاورزی تا آخرین لحظه مورد اختلاف باقی ماند. اتحادیهٔ کشاورزان اعتراض‌هایی را اعلام کرد.">Umstritten blieb bis zuletzt die Kürzung bei den Agrarsubventionen. Der Bauernverband kündigte Proteste an.</p>
+              </div>
+            </div>
+            <div class="badge">SUBVIBE · DE → FA</div>
+          </div>
+        </div>
+
+        <aside class="panel">
+          <div class="group">
+            <h3>View</h3>
+            <div class="seg" id="viewSeg">
+              <button class="on" data-view="translated">Translated</button>
+              <button data-view="bilingual">Bilingual</button>
+              <button data-view="original">Original</button>
+            </div>
+            <div class="note" id="viewNote">Captured with this shot. Switching is instant.</div>
+          </div>
+          <div class="group">
+            <h3>Frame</h3>
+            <div class="seg" id="frameSeg"><button data-frame="plain">Plain</button><button class="on" data-frame="card">Card</button></div>
+            <div class="row"><span class="switch" id="badgeSw" role="switch" aria-checked="true" tabindex="0"></span><label>SubVibe badge on the frame</label></div>
+          </div>
+          <div class="group">
+            <h3>Text <span class="n">7 blocks</span></h3>
+            <div class="blocks">
+              <div class="blk"><span class="k">Heading</span><div class="o">Regierung einigt sich auf Haushalt für 2027</div><div class="t" contenteditable="true">دولت بر سر بودجهٔ ۲۰۲۷ به توافق رسید</div></div>
+              <div class="blk edited"><span class="k">Paragraph · edited</span><div class="o">Nach wochenlangem Streit steht der Entwurf: mehr Geld für Bildung und Bahn, weniger für Subventionen.</div><div class="t" contenteditable="true">پس از هفته‌ها اختلاف، پیش‌نویس آماده است: پول بیشتر برای آموزش و راه‌آهن، کمتر برای یارانه‌ها.</div></div>
+              <div class="blk"><span class="k">Paragraph</span><div class="o">Die Bundesregierung hat sich am Montag auf den Haushaltsentwurf für das kommende Jahr geeinigt. Das Finanzministerium plant Ausgaben von 498 Milliarden Euro.</div><div class="t" contenteditable="true">دولت فدرال روز دوشنبه بر سر پیش‌نویس بودجهٔ سال آینده به توافق رسید. وزارت دارایی هزینه‌هایی به مبلغ ۴۹۸ میلیارد یورو را برنامه‌ریزی کرده است.</div></div>
+              <div class="blk"><span class="k">Label</span><div class="o">Wirtschaft</div><div class="t" contenteditable="true">اقتصاد</div></div>
+            </div>
+            <button class="btn primary"><svg class="ico" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>Apply &amp; re-shoot</button>
+            <div class="note">1 translation changed. Re-shoot renders it on the original tab (still open).</div>
+          </div>
+          <div class="group">
+            <h3>Export</h3>
+            <div class="opts">
+              <label>Size <select><option>Native (2×)</option><option>2×</option><option>1×</option><option>½</option></select></label>
+              <label>Format <select><option>PNG</option><option>JPEG 90%</option></select></label>
+            </div>
+            <div class="exports">
+              <button class="btn primary"><svg class="ico" viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 21h16"/></svg>Download PNG</button>
+              <button class="btn ghost"><svg class="ico" viewBox="0 0 24 24"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>Copy</button>
+              <button class="btn ghost"><svg class="ico" viewBox="0 0 24 24"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="m16 6-4-4-4 4"/><path d="M12 2v14"/></svg>Share</button>
+            </div>
+            <div class="note">subvibe-spiegel-de-20260824-1407-translated.png</div>
+          </div>
+          <div class="group" style="border-bottom:0;margin-top:auto">
+            <button class="btn danger">Delete this shot</button>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ 2 · pickers ══ -->
+  <section>
+    <div class="cap"><b>2 · On the page</b><span>injected only after the user picks a mode · closed shadow root · Esc cancels</span></div>
+    <div class="grid2">
+      <div class="win">
+        <div class="bar"><i></i><i></i><i></i><span>spiegel.de/politik/…</span></div>
+        <div class="fake"><div class="l h"></div><div class="l"></div><div class="l"></div><div class="l s"></div><div class="l"></div><div class="l"></div><div class="l"></div><div class="l s"></div><div class="l"></div><div class="l"></div></div>
+        <div class="dim"></div><div class="cross-h"></div><div class="cross-v"></div>
+        <div class="sel"><span class="sz">524 × 252</span></div>
+        <div class="hint">Select area · drag · <kbd>Esc</kbd> cancels</div>
+      </div>
+      <div class="win">
+        <div class="bar"><i></i><i></i><i></i><span>x.com/…/status/…</span></div>
+        <div class="fake"><div class="l h"></div><div class="l"></div><div class="l"></div><div class="l s"></div><div class="l"></div><div class="l"></div><div class="l"></div><div class="l s"></div><div class="l"></div><div class="l"></div></div>
+        <div class="elpick"><span class="tag">article · 596 × 300</span></div>
+        <div class="hint">Pick element · click to capture · <kbd>Esc</kbd> cancels</div>
+      </div>
+      <div class="win">
+        <div class="bar"><i></i><i></i><i></i><span>de.wikipedia.org/wiki/…</span></div>
+        <div class="fake"><div class="l h"></div><div class="l"></div><div class="l"></div><div class="l s"></div><div class="l"></div><div class="l"></div><div class="l"></div><div class="l s"></div><div class="l"></div><div class="l"></div></div>
+        <div class="pill"><span class="bar2"><i></i></span>Shooting 3 / 9…</div>
+        <div class="hint">Full page · sticky header hidden after tile 1</div>
+      </div>
+      <div class="win">
+        <div class="bar"><i></i><i></i><i></i><span>spiegel.de/politik/…</span></div>
+        <div class="fake"><div class="l h"></div><div class="l"></div><div class="l"></div><div class="l s"></div><div class="l"></div><div class="l"></div><div class="l"></div><div class="l s"></div><div class="l"></div><div class="l"></div></div>
+        <div class="toast">Shot saved — opening editor…</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ 3 · popup ══ -->
+  <section>
+    <div class="cap"><b>3 · Popup row</b><span>visible on every tab, above the Library bar · popup closes itself on click</span></div>
+    <div class="popup">
+      <div class="tabs"><span class="on">Subtitles</span><span>Style</span><span>Learn</span></div>
+      <div class="pane"><div class="ph"></div><div class="ph" style="width:60%"></div></div>
+      <div class="shotrow" style="margin-top:12px">
+        <div class="ttl"><svg class="ico" viewBox="0 0 24 24"><path d="M4 8V6a2 2 0 0 1 2-2h2"/><path d="M16 4h2a2 2 0 0 1 2 2v2"/><path d="M20 16v2a2 2 0 0 1-2 2h-2"/><path d="M8 20H6a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="3"/></svg>Screenshot this page, translated<span class="hintk">⌥⇧S = AREA</span></div>
+        <div class="chips">
+          <button class="chipbtn"><svg class="ico" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/></svg>Visible</button>
+          <button class="chipbtn"><svg class="ico" viewBox="0 0 24 24"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M9 7h6M9 11h6M9 15h4"/></svg>Full page</button>
+          <button class="chipbtn"><svg class="ico" viewBox="0 0 24 24"><path d="M4 8V6a2 2 0 0 1 2-2h2"/><path d="M16 4h2a2 2 0 0 1 2 2v2"/><path d="M20 16v2a2 2 0 0 1-2 2h-2"/><path d="M8 20H6a2 2 0 0 1-2-2v-2"/></svg>Area</button>
+          <button class="chipbtn"><svg class="ico" viewBox="0 0 24 24"><path d="M4 4h6v6H4z"/><path d="m13 13 8 3-3 1-1 3z"/></svg>Element</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="cap"><b>Decisions baked into this mock</b></div>
+    <ul class="decisions">
+      <li>The screenshot keeps the site's own look (fonts, red rule, layout); only the words change. That's the point of "translate the page, then shoot".</li>
+      <li>Translated and Original are captured together; Bilingual is one click plus a ~1 s re-shoot from the source tab. Editing any translation uses the same re-shoot.</li>
+      <li>Card frame: warm Daylight gradient, 44–48 px padding, rounded shot, raised shadow, small badge. Plain = the bare capture for people who want a clean file.</li>
+      <li>The text panel is the seed for step 2: every row is a real block with its original, so word cards and Paraphrase attach here later.</li>
+      <li>Export size (native / 2× / 1× / ½) and format (PNG / JPEG) live in step 1. Books (collect shots into named books, one shot in several books, export a book as PDF) is step 4 in the spec's roadmap.</li>
+    </ul>
+  </section>
+</div>
+
+<script>
+  (function () {
+    var els = document.querySelectorAll('#shot [data-o]');
+    var note = document.getElementById('viewNote');
+    function setView(v) {
+      els.forEach(function (el) {
+        var o = el.getAttribute('data-o'), t = el.getAttribute('data-t');
+        var short = o.split(/\s+/).length < 4;
+        el.removeAttribute('dir'); el.innerHTML = '';
+        if (v === 'original') { el.textContent = o; }
+        else if (v === 'translated' || short) { el.textContent = t; el.setAttribute('dir', 'rtl'); }
+        else { el.textContent = o; var s = document.createElement('span'); s.className = 'tr'; s.dir = 'rtl'; s.textContent = t; el.appendChild(s); }
+      });
+      note.textContent = v === 'bilingual' ? 'Not captured yet — Re-shoot renders this view from the original tab (~1 s).' : 'Captured with this shot. Switching is instant.';
+    }
+    document.getElementById('viewSeg').addEventListener('click', function (e) {
+      var b = e.target.closest('button'); if (!b) return;
+      this.querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === b); });
+      setView(b.dataset.view);
+    });
+    var frame = document.getElementById('frame');
+    document.getElementById('frameSeg').addEventListener('click', function (e) {
+      var b = e.target.closest('button'); if (!b) return;
+      this.querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === b); });
+      frame.classList.toggle('plain', b.dataset.frame === 'plain');
+    });
+    var sw = document.getElementById('badgeSw');
+    function flip() { var on = sw.classList.toggle('off'); sw.setAttribute('aria-checked', String(!on)); frame.classList.toggle('nobadge', on); }
+    sw.addEventListener('click', flip);
+    sw.addEventListener('keydown', function (e) { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); flip(); } });
+    setView('translated');
+  })();
+</script>

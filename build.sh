@@ -60,7 +60,7 @@ m["background"] = {
     # Event pages can't importScripts (worker-only API) — list the shared pure
     # modules explicitly; they attach to globalThis, so background.js sees the
     # same SV_* globals the Chrome worker gets via its (guarded) importScripts.
-    "scripts": ["shared/pricing.js", "shared/leitner.js", "shared/stopwords.js", "shared/vocab.js", "shared/simplify.js", "background.js"],
+    "scripts": ["shared/pricing.js", "shared/leitner.js", "shared/stopwords.js", "shared/vocab.js", "shared/simplify.js", "shared/shot.js", "background.js"],
     "service_worker": "background.js",
 }
 m["browser_specific_settings"] = {

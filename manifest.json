@@ -35,6 +35,12 @@
   ],
   "background": { "service_worker": "background.js" },
   "options_ui": { "page": "library.html", "open_in_tab": true },
+  "commands": {
+    "sv-shot-area": {
+      "suggested_key": { "default": "Alt+Shift+S" },
+      "description": "SubVibe: screenshot an area of this page, translated"
+    }
+  },
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'; base-uri 'none'"
   },
@@ -156,14 +162,14 @@
   "web_accessible_resources": [
     {
       "resources": ["fonts/*"],
-      "matches": ["https://*.youtube.com/*", "https://*.netflix.com/*", "https://*.zdf.de/*", "https://*.dw.com/*", "https://www.amazon.de/*", "https://www.primevideo.com/*", "https://*.udemy.com/*"]
+      "matches": ["<all_urls>"]
     },
     {
       "resources": ["marker.png"],
       "matches": ["https://nimanou.com/*"]
     },
     {
-      "resources": ["styles/reader.css"],
+      "resources": ["styles/reader.css", "styles/shot-capture.css"],
       "matches": ["<all_urls>"],
       "use_dynamic_url": true
     }

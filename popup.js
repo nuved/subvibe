@@ -964,6 +964,24 @@ el("syncReset").addEventListener("click", () => setSyncFromShown(0));
 function flashStatus(t) { el("status").textContent = t; setTimeout(() => { if (el("status").textContent === t) el("status").textContent = ""; }, 2500); }
 function openLibrary() { chrome.tabs.create({ url: chrome.runtime.getURL("library.html") }); }
 el("openLibrary").addEventListener("click", openLibrary);
+
+// Shot (translated screenshots): hand the mode to background, which injects
+// the capture script into the active tab, then get out of the way.
+for (const [id, mode] of [["shotVisible", "visible"], ["shotFull", "full"], ["shotArea", "area"], ["shotElement", "element"]]) {
+  el(id).addEventListener("click", async () => {
+    // Resolve the tab HERE (popup context is unambiguous) and hand its id to the
+    // background so injection targets exactly the tab the user is viewing.
+    let tabId;
+    try { const [t] = await chrome.tabs.query({ active: true, currentWindow: true }); tabId = t && t.id; } catch (e) {}
+    chrome.runtime.sendMessage({ type: "SHOT_START", mode, tabId }, (res) => {
+      if (chrome.runtime.lastError || !res || !res.ok) {
+        el("status").textContent = (res && res.detail) ? ("Screenshot: " + res.detail) : "Can't run on this page";
+        return;
+      }
+      window.close();
+    });
+  });
+}
 el("clearClip").addEventListener("click", async () => {
   // clipBase is resolved in loadThisVideo() from the active tab's content script.
   if (!clipBase) return;
