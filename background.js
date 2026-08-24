@@ -1426,9 +1426,11 @@ async function startShot(tab, mode) {
   try {
     await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["shared/shot.js", "content/shot-capture.js"] });
   } catch (e) {
+    const detail = String((e && e.message) || e);
+    console.warn("[SubVibe shot] inject failed on tab " + tab.id + " (" + (tab.url || "") + "): " + detail);
     chrome.action.setBadgeText({ tabId: tab.id, text: "!" });
     chrome.action.setTitle({ tabId: tab.id, title: "SubVibe: can't run on this page" });
-    return { ok: false, error: "inject" };
+    return { ok: false, error: "inject", detail };
   }
   const { shotLayout } = await chrome.storage.local.get("shotLayout");
   const { target, targetName } = await shotTarget();
@@ -1437,7 +1439,7 @@ async function startShot(tab, mode) {
       type: "SV_SHOT_START", mode, layout: shotLayout === "bilingual" ? "bilingual" : "translated", target, targetName,
     });
   } catch (e) {
-    return { ok: false, error: "inject" };
+    return { ok: false, error: "inject", detail: String((e && e.message) || e) };
   }
   return { ok: true };
 }
@@ -2446,7 +2448,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         case "SIMPLIFY_TEXT":
           sendResponse(await simplifyText(msg.text));
           break;
-        case "SHOT_START": sendResponse(await startShot(await activeTabHere(), String(msg.mode || "area"))); break;
+        case "SHOT_START": {
+          let shotTab = null;
+          if (msg.tabId != null) { try { shotTab = await chrome.tabs.get(msg.tabId); } catch (e) { shotTab = null; } }
+          if (!shotTab) shotTab = await activeTabHere();
+          sendResponse(await startShot(shotTab, String(msg.mode || "area")));
+          break;
+        }
         case "SHOT_BEGIN": sendResponse(await shotBegin(msg, sender)); break;
         case "SHOT_TRANSLATE": sendResponse(await shotTranslate(msg, sender)); break;
         case "SHOT_TILE": sendResponse(await shotTile(msg, sender)); break;
