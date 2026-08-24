@@ -389,8 +389,12 @@
     // multi-tile shots capture ONLY the chosen layout (Original via re-shoot) to
     // halve the rate-limited captures. The variant pass is planned AFTER the swap
     // so bilingual/longer-text reflow can't push content past the last tile.
-    const twoPass = tr && planPass(baseRect, mode).offsets.length === 1;
-    const passes = tr ? (twoPass ? ["original", "variant"] : ["variant"]) : ["original"];
+    // Two passes (instant Original↔Translated toggle) only for a single-viewport
+    // TRANSLATED shot: bilingual reliably reflows taller, so it's always
+    // single-pass (planned after the swap). `passes` may still drop to
+    // variant-only below if a translated swap grows the page past its plan.
+    const twoPass = tr && layout === "translated" && planPass(baseRect, mode).offsets.length === 1;
+    let passes = tr ? (twoPass ? ["original", "variant"] : ["variant"]) : ["original"];
     let effRect = baseRect, effCut = false;
     try {
       if (!tr) {
@@ -398,12 +402,22 @@
         const n = await shootPass("original", pl.offsets, 0, pl.offsets.length);
         const c = coveredRect(pl.rect, n, pl.offsets.length); effRect = c.rect; effCut = pl.truncated || c.cut;
       } else if (twoPass) {
-        const pl = planPass(baseRect, mode); effRect = pl.rect;
-        await shootPass("original", pl.offsets, 0, pl.offsets.length * 2);
+        const plPre = planPass(baseRect, mode); effRect = plPre.rect;
+        await shootPass("original", plPre.offsets, 0, plPre.offsets.length * 2);
         swap(layout, blocks, target);
         if (verifySwap(blocks) < 0.9) { unswap(); swap(layout, blocks, target); }
         if (verifySwap(blocks) < 0.9) partial = true;
-        await shootPass("variant", pl.offsets, pl.offsets.length, pl.offsets.length * 2);
+        const plVar = planPass(baseRect, mode); // re-plan from the swapped layout
+        if (plVar.offsets.length > plPre.offsets.length) {
+          // The translation reflowed the page past its one-tile plan: the two
+          // views now differ in height. Keep only the (correct) translated
+          // layout; the Original view renders on demand via re-shoot.
+          passes = ["variant"];
+          const n = await shootPass("variant", plVar.offsets, 0, plVar.offsets.length);
+          const c = coveredRect(plVar.rect, n, plVar.offsets.length); effRect = c.rect; effCut = plVar.truncated || c.cut;
+        } else {
+          await shootPass("variant", plPre.offsets, plPre.offsets.length, plPre.offsets.length * 2);
+        }
       } else {
         swap(layout, blocks, target);
         if (verifySwap(blocks) < 0.9) { unswap(); swap(layout, blocks, target); }

@@ -1610,17 +1610,21 @@ async function shotReshoot(msg, sender) {
   const edits = new Map((Array.isArray(msg.blocks) ? msg.blocks : []).map((b) => [String(b && b.id), String((b && b.tr) || "")]));
   const blocks = rec.blocks.map((b) => ({ id: b.id, text: b.text, tr: edits.has(b.id) ? edits.get(b.id) : b.tr, rect: b.rect }));
   const layout = msg.layout === "bilingual" ? "bilingual" : msg.layout === "original" ? "original" : "translated";
-  try { await chrome.tabs.update(rec.tabId, { active: true }); } catch { return { ok: false, error: "tab-gone" }; }
-  try {
-    await chrome.scripting.executeScript({ target: { tabId: rec.tabId }, files: ["shared/shot.js", "content/shot-capture.js"] });
-  } catch (e) { await back(); return { ok: false, error: "inject" }; }
   const rect = rec.rect || { x: 0, y: 0, w: rec.w, h: rec.h };
+  // Build the real session and reserve the tab's slot NOW, before the awaits
+  // below, so a capture starting on this tab in that window can't slip in and
+  // get clobbered. It's a valid session (with tiles), so a stray SHOT_TILE
+  // would be stored, not crash.
   const sess = {
     id: rec.id, tabId: rec.tabId, windowId: tab.windowId, url: rec.url, title: rec.title, mode: rec.mode, layout,
     target: rec.target, source: rec.source, rect: { ...rect }, dpr: rec.dpr, scrollX: 0, viewport: { w: 1, h: 1 },
     tiles: { original: [], variant: [] }, startedAt: Date.now(), reshoot: true,
   };
   shotSessions.set(rec.tabId, sess);
+  try { await chrome.tabs.update(rec.tabId, { active: true }); } catch { shotSessions.delete(rec.tabId); return { ok: false, error: "tab-gone" }; }
+  try {
+    await chrome.scripting.executeScript({ target: { tabId: rec.tabId }, files: ["shared/shot.js", "content/shot-capture.js"] });
+  } catch (e) { shotSessions.delete(rec.tabId); await back(); return { ok: false, error: "inject" }; }
   let reply = null;
   try {
     reply = await chrome.tabs.sendMessage(rec.tabId, { type: "SV_SHOT_RESHOOT", rect, layout, blocks, target: rec.target, mode: rec.mode });
@@ -1637,12 +1641,13 @@ async function shotReshoot(msg, sender) {
   let blob;
   try { blob = await shotComposePass(sess, tiles, effRect); } catch { return { ok: false, error: "compose" }; }
   const trunc = reply.truncated === "height" ? "height" : "";
-  rec.dpr = sess.dpr; rec.rect = { ...effRect }; rec.w = effRect.w; rec.h = effRect.h;
   if (layout === "original") {
     rec.original = blob; // fills in the Original view a multi-tile shot didn't capture up front
+    // rect/w/h/dpr describe the variant (the primary view) — leave them untouched.
     if (trunc && rec.truncated !== "text") rec.truncated = trunc;
   } else {
     rec.variant = blob; rec.layout = layout; rec.blocks = blocks; rec.partial = !!reply.partial;
+    rec.dpr = sess.dpr; rec.rect = { ...effRect }; rec.w = effRect.w; rec.h = effRect.h;
     rec.truncated = rec.truncated === "text" ? "text" : trunc;
   }
   await shotPut(rec);
