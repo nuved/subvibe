@@ -87,7 +87,7 @@
 
     const r = anchorRect();
     const estCardH = 200;
-    host.style.cssText = "position:fixed;z-index:2147483647;";
+    host.style.cssText = "display:block !important;position:fixed !important;z-index:2147483647 !important;"; // !important defeats Brave cosmetic display:none (see shot-capture.js)
     host.style.left = Math.max(8, Math.min(innerWidth - 396, r.left)) + "px";
     if (r.bottom + 8 + estCardH > innerHeight) {
       // Not enough room below the selection — place the card above it instead.

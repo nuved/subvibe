@@ -43,7 +43,12 @@
     if (host) return;
     host = document.createElement("div");
     host.className = "sv-shot-host";
-    host.style.cssText = "position:fixed;inset:0;z-index:2147483647;pointer-events:none;";
+    // !important defeats Brave Shields' cosmetic filtering, which hides a
+    // full-viewport max-z-index overlay (our host looks like an ad/anti-adblock
+    // wall) by applying display:none via a stylesheet — an inline !important
+    // wins the cascade. NOT on visibility/pointer-events: the capture loop and
+    // pickers toggle those at runtime.
+    host.style.cssText = "display:block !important;position:fixed !important;inset:0 !important;z-index:2147483647 !important;pointer-events:none;";
     root = host.attachShadow({ mode: "closed" });
     applyShadowStyle(cssText || "");
     document.documentElement.appendChild(host);
