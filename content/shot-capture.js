@@ -109,6 +109,25 @@
     setTimeout(go, 500);
   });
   async function settle() { await raf2(); await sleep(150); }
+  // Bundled fonts the user can apply to the translated text. Loaded via the
+  // FontFace API from the woff2 BYTES (not a url()/<style>) so a strict page CSP
+  // (x.com) can't block them, then set on the swapped text before capture.
+  const SHOT_FONTS = {
+    vazirmatn: { family: "SubVibe Vazirmatn", files: [["fonts/Vazirmatn-Regular.woff2", "400"], ["fonts/Vazirmatn-Bold.woff2", "700"]] },
+  };
+  const fontLoaded = {};
+  async function ensureShotFont(key) {
+    const def = SHOT_FONTS[key]; if (!def) return null;
+    if (fontLoaded[key]) return def.family;
+    try {
+      for (const [file, weight] of def.files) {
+        const buf = await (await fetch(chrome.runtime.getURL(file))).arrayBuffer();
+        const ff = new FontFace(def.family, buf, { weight });
+        await ff.load(); document.fonts.add(ff);
+      }
+      fontLoaded[key] = true; return def.family;
+    } catch (e) { return null; }
+  }
   const docHeight = () => Math.max(document.documentElement.scrollHeight, (document.body && document.body.scrollHeight) || 0, innerHeight);
   const scrollTo = (x, y) => window.scrollTo({ left: x, top: y, behavior: "instant" });
 
@@ -255,7 +274,7 @@
   let scroll0 = null;
   let maxReachedY = 0; // furthest window.scrollY a pass actually reached (inner-scroll guard)
 
-  function swap(layout, blocks, target) {
+  function swap(layout, blocks, target, fontFamily) {
     const rtl = S().isRtl(target);
     for (const b of blocks) {
       b.check = null;
@@ -266,6 +285,7 @@
         const span = document.createElement("span");
         span.className = "sv-shot-tr"; span.dir = "auto"; span.textContent = b.tr;
         span.style.cssText = "display:block;font-size:.92em;opacity:.85;margin-top:.15em;unicode-bidi:plaintext;" + (rtl ? "text-align:right;" : "");
+        if (fontFamily) span.style.setProperty("font-family", fontFamily, "important");
         const last = nodes[nodes.length - 1];
         last.parentNode.insertBefore(span, last.nextSibling);
         inserted.push(span);
@@ -274,9 +294,10 @@
         const main = nodes.reduce((a, x) => (x.data.length > a.data.length ? x : a));
         for (const x of nodes) { saved.push({ node: x, data: x.data }); x.data = x === main ? b.tr : ""; }
         const e = b.el;
-        attrSaved.push({ el: e, dir: e.getAttribute("dir"), align: e.style.getPropertyValue("text-align"), alignPrio: e.style.getPropertyPriority("text-align") });
+        attrSaved.push({ el: e, dir: e.getAttribute("dir"), align: e.style.getPropertyValue("text-align"), alignPrio: e.style.getPropertyPriority("text-align"), font: e.style.getPropertyValue("font-family"), fontPrio: e.style.getPropertyPriority("font-family") });
         e.setAttribute("dir", "auto");
         if (rtl) { const ta = getComputedStyle(e).textAlign; if (ta === "left" || ta === "start" || ta === "-webkit-left") e.style.setProperty("text-align", "start", "important"); }
+        if (fontFamily) e.style.setProperty("font-family", fontFamily, "important");
         b.check = () => main.isConnected && main.data === b.tr;
       }
     }
@@ -292,6 +313,7 @@
     for (const a of attrSaved) {
       if (a.dir == null) a.el.removeAttribute("dir"); else a.el.setAttribute("dir", a.dir);
       if (a.align) a.el.style.setProperty("text-align", a.align, a.alignPrio); else a.el.style.removeProperty("text-align");
+      if (a.font) a.el.style.setProperty("font-family", a.font, a.fontPrio); else a.el.style.removeProperty("font-family");
     }
     saved.length = 0; inserted.length = 0; attrSaved.length = 0;
   }
@@ -380,7 +402,7 @@
     return { rect: { x: effRect.x, y: effRect.y, w: effRect.w, h: Math.max(1, h) }, cut: true };
   }
 
-  async function capture(rect0, mode, layout, target) {
+  async function capture(rect0, mode, layout, target, font) {
     scroll0 = { x: scrollX, y: scrollY };
     maxReachedY = scroll0.y;
     // Provisional rect for BEGIN + block collection (full = whole doc, pre-swap).
@@ -403,6 +425,7 @@
     }
     const mapped = S().mapTranslations(prep.keep, prep.lineOf, tr || []);
     const blocks = mapped.blocks.map((b) => { const live = byId.get(b.id); return { id: b.id, text: b.text, tr: tr ? b.tr : "", rect: b.rect, el: live.el, nodes: live.nodes }; });
+    const fontFamily = tr && font ? await ensureShotFont(font) : null;
     // Two passes (original + translated) only when the shot fits one viewport;
     // multi-tile shots capture ONLY the chosen layout (Original via re-shoot) to
     // halve the rate-limited captures. The variant pass is planned AFTER the swap
@@ -422,8 +445,8 @@
       } else if (twoPass) {
         const plPre = planPass(baseRect, mode); effRect = plPre.rect;
         await shootPass("original", plPre.offsets, 0, plPre.offsets.length * 2);
-        swap(layout, blocks, target);
-        if (verifySwap(blocks) < 0.9) { unswap(); swap(layout, blocks, target); }
+        swap(layout, blocks, target, fontFamily);
+        if (verifySwap(blocks) < 0.9) { unswap(); swap(layout, blocks, target, fontFamily); }
         if (verifySwap(blocks) < 0.9) partial = true;
         const plVar = planPass(baseRect, mode); // re-plan from the swapped layout
         if (plVar.offsets.length > plPre.offsets.length) {
@@ -437,8 +460,8 @@
           await shootPass("variant", plPre.offsets, plPre.offsets.length, plPre.offsets.length * 2);
         }
       } else {
-        swap(layout, blocks, target);
-        if (verifySwap(blocks) < 0.9) { unswap(); swap(layout, blocks, target); }
+        swap(layout, blocks, target, fontFamily);
+        if (verifySwap(blocks) < 0.9) { unswap(); swap(layout, blocks, target, fontFamily); }
         if (verifySwap(blocks) < 0.9) partial = true;
         const pl = planPass(baseRect, mode); // post-swap layout
         const n = await shootPass("variant", pl.offsets, 0, pl.offsets.length);
@@ -452,13 +475,13 @@
     } finally { restore(); }
     const truncated = prep.truncated || (effCut ? "height" : "");
     setPill("Saving…", 1);
-    const res = await send({ type: "SHOT_COMPOSE", rect: effRect, blocks: blocks.map((b) => ({ id: b.id, text: b.text, tr: b.tr, rect: b.rect })), partial, truncated, passes, sameLang: note === "same", noKey: note === "no-key" });
+    const res = await send({ type: "SHOT_COMPOSE", rect: effRect, blocks: blocks.map((b) => ({ id: b.id, text: b.text, tr: b.tr, rect: b.rect })), partial, truncated, passes, sameLang: note === "same", noKey: note === "no-key", font: font || "" });
     setPill("");
     if (!res || !res.ok) { toast("Couldn't save the shot. Try again.", 3500); return; }
     toast("Shot saved — opening editor…", 1800);
   }
 
-  async function run(mode, layout, target) {
+  async function run(mode, layout, target, font) {
     if (busy) return;
     busy = true; aborted = false;
     try {
@@ -468,7 +491,7 @@
       try {
         rect = mode === "area" ? await pickArea() : mode === "element" ? await pickElement() : mode === "full" ? fullRect() : visibleRect();
       } catch (e) { cleanupAll(); return; }
-      await capture(rect, mode, layout, target);
+      await capture(rect, mode, layout, target, font);
       // Release busy NOW so a quick re-shoot / language change from the editor
       // isn't rejected; keep the "Shot saved" toast up briefly, then remove the
       // host — unless a new run/reshoot already reused it (busy true again).
@@ -506,12 +529,13 @@
       }
       let partial = false;
       const original = msg.layout === "original"; // capture the page as-is, no swap
+      const fontFamily = original ? null : await ensureShotFont(msg.font);
       armEsc();
       let effRect = msg.rect, effCut = false;
       try {
         if (!original) {
-          swap(msg.layout, blocks, msg.target);
-          if (verifySwap(blocks) < 0.9) { unswap(); swap(msg.layout, blocks, msg.target); }
+          swap(msg.layout, blocks, msg.target, fontFamily);
+          if (verifySwap(blocks) < 0.9) { unswap(); swap(msg.layout, blocks, msg.target, fontFamily); }
           if (verifySwap(blocks) < 0.9) partial = true;
         }
         const pl = planPass(msg.rect, mode); effRect = pl.rect;
@@ -529,7 +553,7 @@
     if (!msg) return;
     if (msg.type === "SV_SHOT_START") {
       sendResponse({ ok: true });
-      run(String(msg.mode || "visible"), msg.layout === "bilingual" ? "bilingual" : "translated", String(msg.target || ""));
+      run(String(msg.mode || "visible"), msg.layout === "bilingual" ? "bilingual" : "translated", String(msg.target || ""), String(msg.font || ""));
       return;
     }
     if (msg.type === "SV_SHOT_RESHOOT") {

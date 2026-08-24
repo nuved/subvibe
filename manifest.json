@@ -162,7 +162,7 @@
   "web_accessible_resources": [
     {
       "resources": ["fonts/*"],
-      "matches": ["https://*.youtube.com/*", "https://*.netflix.com/*", "https://*.zdf.de/*", "https://*.dw.com/*", "https://www.amazon.de/*", "https://www.primevideo.com/*", "https://*.udemy.com/*"]
+      "matches": ["<all_urls>"]
     },
     {
       "resources": ["marker.png"],

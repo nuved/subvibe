@@ -40,6 +40,7 @@
   const edits = new Map();     // block id → edited translation
   let reshooting = false;
   let tabAlive = true; // re-set on load via SHOT_TAB_ALIVE
+  let pendingFont = null; // set by the Font control to re-render with a new font
 
   const langName = (c) => (window.svLangMeta ? window.svLangMeta((c || "").split("-")[0])[1] : (c || "").toUpperCase());
   const code = (c) => (c || "").split("-")[0].toUpperCase();
@@ -251,9 +252,10 @@
   async function reshoot() {
     if (reshooting || !rec) return;
     const layout = view; // translated | bilingual | original — the view the user is on
+    const font = pendingFont != null ? pendingFont : (rec.font || "");
     reshooting = true; updateReshoot();
-    const res = await new Promise((r) => chrome.runtime.sendMessage({ type: "SHOT_RESHOOT", id: rec.id, layout, blocks: [...edits].map(([id, tr]) => ({ id, tr })) }, (x) => r(chrome.runtime.lastError ? null : x)));
-    reshooting = false;
+    const res = await new Promise((r) => chrome.runtime.sendMessage({ type: "SHOT_RESHOOT", id: rec.id, layout, blocks: [...edits].map(([id, tr]) => ({ id, tr })), font }, (x) => r(chrome.runtime.lastError ? null : x)));
+    reshooting = false; pendingFont = null;
     const note = $("reshootNote");
     if (!res || !res.ok) {
       updateReshoot();
@@ -358,6 +360,7 @@
     rec = r;
     try { const a = await new Promise((res) => chrome.runtime.sendMessage({ type: "SHOT_TAB_ALIVE", id: rec.id }, (x) => res(chrome.runtime.lastError ? null : x))); tabAlive = !a || a.alive !== false; } catch (e) { tabAlive = true; }
     view = rec.layout === "original" ? "original" : rec.layout;
+    for (const bn of $("fontSeg").querySelectorAll("button")) bn.classList.toggle("on", (bn.dataset.font || "") === (rec.font || ""));
     document.title = "SubVibe Shot · " + (rec.title || rec.host);
     renderHeader(); renderBlocks();
     await render();
@@ -379,6 +382,16 @@
   $("badgeSw").addEventListener("change", () => { frame.badge = $("badgeSw").checked; chrome.storage.local.set({ shotFrame: frame }); render(); });
   $("sizeSel").addEventListener("change", () => { exp.size = $("sizeSel").value; chrome.storage.local.set({ shotExport: exp }); render(); });
   $("fmtSel").addEventListener("change", () => { exp.format = $("fmtSel").value; chrome.storage.local.set({ shotExport: exp }); render(); });
+  $("fontSeg").addEventListener("click", (e) => {
+    const bn = e.target.closest("button"); if (!bn || !rec) return;
+    const f = bn.dataset.font || "";
+    if (f === (rec.font || "")) return;
+    for (const x of $("fontSeg").querySelectorAll("button")) x.classList.toggle("on", x === bn);
+    try { chrome.storage.local.set({ shotFont: f }); } catch (er) {} // remember for next shots
+    if (!tabAlive) { setNote("Open the original tab to change the font.", "warn"); return; }
+    if (view === "original") view = rec.layout === "original" ? "translated" : rec.layout;
+    pendingFont = f; setNote("Applying " + (f ? "Vazirmatn" : "the site font") + "\u2026", ""); reshoot();
+  });
   $("reshootBtn").addEventListener("click", reshoot);
   $("dlBtn").addEventListener("click", download);
   $("copyBtn").addEventListener("click", copy);

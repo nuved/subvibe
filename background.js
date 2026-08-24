@@ -1434,11 +1434,11 @@ async function startShot(tab, mode) {
     chrome.action.setTitle({ tabId: tab.id, title: "SubVibe: can't run on this page" });
     return { ok: false, error: "inject", detail };
   }
-  const { shotLayout } = await chrome.storage.local.get("shotLayout");
+  const { shotLayout, shotFont } = await chrome.storage.local.get(["shotLayout", "shotFont"]);
   const { target, targetName } = await shotTarget();
   try {
     await chrome.tabs.sendMessage(tab.id, {
-      type: "SV_SHOT_START", mode, layout: shotLayout === "bilingual" ? "bilingual" : "translated", target, targetName,
+      type: "SV_SHOT_START", mode, layout: shotLayout === "bilingual" ? "bilingual" : "translated", target, targetName, font: shotFont || "",
     });
   } catch (e) {
     return { ok: false, error: "inject", detail: String((e && e.message) || e) };
@@ -1591,7 +1591,7 @@ async function shotCompose(msg, sender) {
     source: sess.source || "xx", target: sess.target, mode: sess.mode, layout, dpr: sess.dpr,
     rect: { ...r }, w: r.w, h: r.h, original, variant, blocks: shotBlocks(msg.blocks),
     partial: !!msg.partial, truncated: msg.truncated === "text" || msg.truncated === "height" ? msg.truncated : "",
-    sameLang: !!msg.sameLang, noKey: !!msg.noKey, tabId: sess.tabId, windowId: sess.windowId,
+    sameLang: !!msg.sameLang, noKey: !!msg.noKey, font: typeof msg.font === "string" ? msg.font : "", tabId: sess.tabId, windowId: sess.windowId,
   };
   try { SV_SHOT.validateRecord(rec); await shotPut(rec); }
   catch (e) { console.warn("[SubVibe shot] store failed:", (e && e.message) || e); return { ok: false, error: "store" }; }
@@ -1620,6 +1620,7 @@ async function shotReshoot(msg, sender) {
   const edits = new Map((Array.isArray(msg.blocks) ? msg.blocks : []).map((b) => [String(b && b.id), String((b && b.tr) || "")]));
   const blocks = rec.blocks.map((b) => ({ id: b.id, text: b.text, tr: edits.has(b.id) ? edits.get(b.id) : b.tr, rect: b.rect }));
   const layout = msg.layout === "bilingual" ? "bilingual" : msg.layout === "original" ? "original" : "translated";
+  const font = typeof msg.font === "string" ? msg.font : (rec.font || "");
   const rect = rec.rect || { x: 0, y: 0, w: rec.w, h: rec.h };
   // Build the real session and reserve the tab's slot NOW, before the awaits
   // below, so a capture starting on this tab in that window can't slip in and
@@ -1637,7 +1638,7 @@ async function shotReshoot(msg, sender) {
   } catch (e) { shotSessions.delete(rec.tabId); await back(); return { ok: false, error: "inject" }; }
   let reply = null;
   try {
-    reply = await chrome.tabs.sendMessage(rec.tabId, { type: "SV_SHOT_RESHOOT", rect, layout, blocks, target: rec.target, mode: rec.mode });
+    reply = await chrome.tabs.sendMessage(rec.tabId, { type: "SV_SHOT_RESHOOT", rect, layout, blocks, target: rec.target, mode: rec.mode, font });
   } catch (e) { reply = null; }
   shotSessions.delete(rec.tabId);
   await back();
@@ -1656,7 +1657,7 @@ async function shotReshoot(msg, sender) {
     // rect/w/h/dpr describe the variant (the primary view) — leave them untouched.
     if (trunc && rec.truncated !== "text") rec.truncated = trunc;
   } else {
-    rec.variant = blob; rec.layout = layout; rec.blocks = blocks; rec.partial = !!reply.partial;
+    rec.variant = blob; rec.layout = layout; rec.blocks = blocks; rec.partial = !!reply.partial; rec.font = font;
     rec.dpr = sess.dpr; rec.rect = { ...effRect }; rec.w = effRect.w; rec.h = effRect.h;
     rec.truncated = rec.truncated === "text" ? "text" : trunc;
   }
@@ -1712,7 +1713,7 @@ async function shotRetranslate(msg, sender) {
   // block it.
   shotSessions.delete(rec.tabId);
   const layout = rec.layout === "bilingual" ? "bilingual" : "translated";
-  return await shotReshoot({ id: rec.id, layout, blocks: edits }, sender);
+  return await shotReshoot({ id: rec.id, layout, blocks: edits, font: rec.font || "" }, sender);
 }
 
 if (chrome.commands && chrome.commands.onCommand) {
