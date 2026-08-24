@@ -1594,6 +1594,12 @@ async function shotCompose(msg, sender) {
     partial: !!msg.partial, truncated: msg.truncated === "text" || msg.truncated === "height" ? msg.truncated : "",
     sameLang: !!msg.sameLang, noKey: !!msg.noKey, font: typeof msg.font === "string" ? msg.font : "", tabId: sess.tabId, windowId: sess.windowId,
   };
+  // Per-view blob cache: a view renders at most once, then it's instant in the
+  // editor and never re-touches the page. Other views fill in lazily via
+  // re-shoot and are cached the same way. Keyed by view name.
+  rec.views = {};
+  if (original instanceof Blob) rec.views.original = original;
+  if (variant instanceof Blob) rec.views[layout] = variant;
   try { SV_SHOT.validateRecord(rec); await shotPut(rec); }
   catch (e) { console.warn("[SubVibe shot] store failed:", (e && e.message) || e); return { ok: false, error: "store" }; }
   await chrome.tabs.create({ url: chrome.runtime.getURL("shot.html?id=" + encodeURIComponent(rec.id)), openerTabId: sess.tabId });
@@ -1653,14 +1659,28 @@ async function shotReshoot(msg, sender) {
   let blob;
   try { blob = await shotComposePass(sess, tiles, effRect); } catch { return { ok: false, error: "compose" }; }
   const trunc = reply.truncated === "height" ? "height" : "";
+  // Ensure the per-view cache exists (records stored before this feature won't
+  // have it; seed it from the legacy original/variant fields).
+  if (!rec.views || typeof rec.views !== "object") {
+    rec.views = {};
+    if (rec.original instanceof Blob) rec.views.original = rec.original;
+    if (rec.variant instanceof Blob && rec.layout) rec.views[rec.layout] = rec.variant;
+  }
+  // A font change re-bakes the translated text, so any cached translated /
+  // bilingual view is now stale — drop them; each re-renders on next visit.
+  // Original is untranslated, so the font never touches it.
+  const fontChanged = typeof msg.font === "string" && msg.font !== (rec.font || "");
   if (layout === "original") {
     rec.original = blob; // fills in the Original view a multi-tile shot didn't capture up front
+    rec.views.original = blob;
     // rect/w/h/dpr describe the variant (the primary view) — leave them untouched.
     if (trunc && rec.truncated !== "text") rec.truncated = trunc;
   } else {
+    if (fontChanged) { delete rec.views.translated; delete rec.views.bilingual; }
     rec.variant = blob; rec.layout = layout; rec.blocks = blocks; rec.partial = !!reply.partial; rec.font = font;
     rec.dpr = sess.dpr; rec.rect = { ...effRect }; rec.w = effRect.w; rec.h = effRect.h;
     rec.truncated = rec.truncated === "text" ? "text" : trunc;
+    rec.views[layout] = blob;
   }
   await shotPut(rec);
   return { ok: true, missing: reply.missing | 0 };
@@ -1705,6 +1725,9 @@ async function shotRetranslate(msg, sender) {
   }
   const map = new Map(uniq.map((t, i) => [t, String(out[i] || "")]));
   const edits = rec.blocks.map((x) => ({ id: x.id, tr: map.get(x.text) || "" }));
+  // New language ⇒ the cached translated / bilingual views are stale; drop them
+  // so each re-renders in the new language on next visit (Original is untouched).
+  if (rec.views && typeof rec.views === "object") { delete rec.views.translated; delete rec.views.bilingual; }
   rec.target = newTarget; rec.noKey = false; rec.sameLang = false;
   rec.blocks = rec.blocks.map((x) => ({ ...x, tr: map.get(x.text) || x.tr }));
   await shotPut(rec);

@@ -98,31 +98,45 @@
     }
     return lay;
   }
-  async function bitmapFor(which) {
-    if (!bitmaps[which]) bitmaps[which] = await createImageBitmap(which === "original" ? rec.original : rec.variant);
-    return bitmaps[which];
+  // The stored blob that renders a view, or null when it hasn't been rendered
+  // yet (fills in on first visit via re-shoot, then it's cached here forever).
+  // `rec.views` is the per-view cache; the original/variant fields are the
+  // fallback for shots stored before the cache existed.
+  function viewBlob(v) {
+    if (rec.views && rec.views[v] instanceof Blob) return rec.views[v];
+    if (v === "original") return rec.original instanceof Blob ? rec.original : null;
+    if (v === rec.layout) return rec.variant instanceof Blob ? rec.variant : null;
+    return null;
   }
-  // Which stored blob renders the current view, or null when it needs a re-shoot.
-  // Which stored blob renders the view, or null when it must be re-shot.
-  // original is absent on multi-tile shots (only the chosen layout was captured).
-  const blobKeyFor = (v) => (v === "original" ? (rec.original ? "original" : null) : v === rec.layout ? "variant" : null);
+  async function bitmapFor(v) {
+    if (!bitmaps[v]) { const b = viewBlob(v); if (!(b instanceof Blob)) return null; bitmaps[v] = await createImageBitmap(b); }
+    return bitmaps[v];
+  }
+  function clearBitmaps() { for (const k of Object.keys(bitmaps)) { try { bitmaps[k].close(); } catch (e) {} delete bitmaps[k]; } }
 
+  const viewLabel = (v) => ({ translated: "Translated", bilingual: "Bilingual", original: "Original" }[v] || v);
   async function render() {
-    const key = blobKeyFor(view);
-    const bmp = await bitmapFor(key || "variant");
+    const captured = !!viewBlob(view);
+    // Show the view's own image if we have it, else a dimmed placeholder while
+    // it renders (fall back to the primary layout, then Original).
+    let bmp = await bitmapFor(view);
+    if (!bmp) bmp = (await bitmapFor(rec.layout)) || (await bitmapFor("original"));
     const canvas = $("stage");
-    const lay = drawFramed(canvas, bmp, 1); curLay = lay;
-    canvas.style.width = Math.round(lay.width / (rec.dpr || 1)) + "px";
-    canvas.style.opacity = key ? "1" : ".35";
+    if (bmp) {
+      const lay = drawFramed(canvas, bmp, 1); curLay = lay;
+      canvas.style.width = Math.round(lay.width / (rec.dpr || 1)) + "px";
+    }
+    canvas.style.opacity = captured ? "1" : ".3";
     $("stageSkel").hidden = true; $("canvasWrap").hidden = false;
-    setupAnnot(); $("annotBar").hidden = !key; syncAnnot();
+    setupAnnot(); $("annotBar").hidden = !captured; syncAnnot();
     for (const b of $("viewSeg").querySelectorAll("button")) b.classList.toggle("on", b.dataset.view === view);
     const vn = $("viewNote");
-    if (key) { vn.className = "note"; vn.textContent = "Captured with this shot."; }
-    else { vn.className = "note warn"; vn.textContent = "Not captured yet — Apply & re-shoot renders the " + view + " view from the original tab."; }
+    if (captured) { vn.className = "note"; vn.textContent = ""; }
+    else if (reshooting) { vn.className = "note"; vn.textContent = "Rendering the " + viewLabel(view) + " view on the page…"; }
+    else if (!tabAlive) { vn.className = "note warn"; vn.textContent = "Open the original tab to add the " + viewLabel(view) + " view."; }
+    else { vn.className = "note"; vn.textContent = "Rendering the " + viewLabel(view) + " view…"; }
     updateReshoot();
-    const uncaptured = !blobKeyFor(view);
-    for (const id of ["dlBtn", "copyBtn", "shareBtn"]) { const el = $(id); if (el) el.disabled = uncaptured; }
+    for (const id of ["dlBtn", "copyBtn", "shareBtn"]) { const el = $(id); if (el) el.disabled = !captured; }
     $("fileNote").textContent = S.filename({ host: rec.host, ts: rec.ts, view, size: exp.size, format: exp.format });
   }
 
@@ -216,7 +230,7 @@
     const fresh = await getShot(rec.id);
     if (fresh) { rec = fresh; try { S.validateRecord(rec); } catch (e) {} }
     edits.clear();
-    for (const k of ["original", "variant"]) if (bitmaps[k]) { bitmaps[k].close(); delete bitmaps[k]; }
+    clearBitmaps();
     if (view === "original") view = rec.layout === "original" ? "translated" : rec.layout;
     else view = rec.layout;
     renderHeader(); renderBlocks(); await render();
@@ -246,53 +260,65 @@
       row.append(k, o, t); wrap.appendChild(row);
     }
   }
+  // The Apply button now serves translation edits only — switching views renders
+  // automatically. It bakes edited translations back onto the current view.
   function updateReshoot() {
     const btn = $("reshootBtn"), note = $("reshootNote");
     note.className = "note";
-    if (reshooting) { btn.disabled = true; note.textContent = "Re-shooting on the original tab…"; return; }
-    if (!tabAlive) { btn.disabled = true; note.className = "note warn"; note.textContent = "Original tab was closed — take a new shot to re-render."; return; }
-    const needsView = !blobKeyFor(view);
-    // Edits are translations — they don't apply to the Original view.
-    const n = view === "original" ? 0 : edits.size;
-    btn.disabled = !(n || needsView);
-    if (view === "original") note.textContent = needsView ? "Renders the Original (untranslated) image on the original tab (~1 s)." : "The Original image is captured.";
-    else if (n && needsView) note.textContent = n + (n === 1 ? " translation changed" : " translations changed") + " · renders the " + view + " view.";
-    else if (n) note.textContent = n + (n === 1 ? " translation changed." : " translations changed.") + " Re-shoot renders it on the original tab.";
-    else if (needsView) note.textContent = "Renders the " + view + " view on the original tab (~1 s).";
-    else note.textContent = "Edit any translation, then re-shoot to render it on the original tab.";
+    if (reshooting) { btn.disabled = true; note.textContent = "Rendering on the original tab…"; return; }
+    const n = view === "original" ? 0 : edits.size; // edits are translations; they don't touch Original
+    if (!tabAlive) {
+      btn.disabled = true; note.className = n ? "note warn" : "note";
+      note.textContent = n ? "Open the original tab to apply your text changes." : "The original tab is closed — views already rendered still export.";
+      return;
+    }
+    btn.disabled = !n;
+    if (n) note.textContent = n + (n === 1 ? " translation edited" : " translations edited") + " · apply to re-render this view.";
+    else note.textContent = "Edit any translation above, then apply to re-render it.";
   }
   async function reshoot() {
     if (reshooting || !rec) return;
     const layout = view; // translated | bilingual | original — the view the user is on
     const font = pendingFont != null ? pendingFont : (rec.font || "");
     reshooting = true; updateReshoot();
+    { const vn = $("viewNote"); vn.className = "note"; vn.textContent = "Rendering the " + viewLabel(layout) + " view on the page…"; }
+    $("stage").style.opacity = ".3";
     const res = await new Promise((r) => chrome.runtime.sendMessage({ type: "SHOT_RESHOOT", id: rec.id, layout, blocks: [...edits].map(([id, tr]) => ({ id, tr })), font }, (x) => r(chrome.runtime.lastError ? null : x)));
     reshooting = false; pendingFont = null;
     const note = $("reshootNote");
     if (!res || !res.ok) {
-      updateReshoot();
       const err = (res && res.error) || "network";
+      if (err === "tab-gone") tabAlive = false;
+      updateReshoot();
       note.className = "note err";
       note.textContent = err === "tab-gone" ? "Original tab was closed — take a new shot to re-render."
         : err === "busy" ? "The original tab is still busy — try again in a moment."
         : "Re-shoot failed (" + err + "). Try again.";
-      if (err === "tab-gone") { tabAlive = false; updateReshoot(); }
+      // Restore the view: show whatever is cached (undimmed) and a clear note
+      // under the View toggle instead of a stuck "Rendering…".
+      $("stage").style.opacity = viewBlob(view) ? "1" : ".3";
+      const vn = $("viewNote"); vn.className = "note warn";
+      vn.textContent = viewBlob(view) ? ""
+        : err === "tab-gone" ? "Reopen the original tab to add the " + viewLabel(view) + " view."
+        : err === "busy" ? "The original tab is busy — click " + viewLabel(view) + " again in a moment."
+        : "Couldn't render the " + viewLabel(view) + " view — click it to retry.";
       return;
     }
     const fresh = await getShot(rec.id);
     if (fresh) { rec = fresh; try { S.validateRecord(rec); } catch (e) { /* keep showing what we have */ } }
+    const hadEdits = edits.size > 0;
     if (layout !== "original") edits.clear(); // Original re-shoot doesn't consume translation edits
-    for (const k of ["original", "variant"]) if (bitmaps[k]) { bitmaps[k].close(); delete bitmaps[k]; }
-    if (view !== "original" && view !== rec.layout) view = rec.layout;
+    clearBitmaps();
+    $("stage").style.opacity = "1";
     renderHeader(); renderBlocks(); await render();
-    toast(res.missing ? "Re-shot · " + res.missing + " block" + (res.missing === 1 ? "" : "s") + " no longer on the page" : "Re-shot");
+    toast(res.missing ? "Rendered · " + res.missing + " block" + (res.missing === 1 ? "" : "s") + " no longer on the page"
+      : hadEdits ? "Applied" : "Rendered");
   }
 
   // ── export ────────────────────────────────────────────────────────────────
   async function exportBlob(format) {
-    const key = blobKeyFor(view);
-    if (!key) return null; // view not captured yet — export is disabled, but guard anyway
-    const bmp = await bitmapFor(key);
+    const bmp = await bitmapFor(view);
+    if (!bmp) return null; // view not rendered yet — export is disabled, but guard anyway
     const c = document.createElement("canvas");
     const lay = drawFramed(c, bmp, S.exportScale(exp.size, rec.dpr || 1));
     renderAnnots(c.getContext("2d"), lay.img);
@@ -494,11 +520,14 @@
     renderRecent();
   }
 
-  $("viewSeg").addEventListener("click", (e) => {
-    const b = e.target.closest("button"); if (!b || !rec) return;
+  $("viewSeg").addEventListener("click", async (e) => {
+    const b = e.target.closest("button"); if (!b || !rec || reshooting) return;
     view = b.dataset.view;
     if (view !== "original") chrome.storage.local.set({ shotLayout: view });
-    render();
+    await render();
+    // First visit to a view that wasn't captured up front: render it once on the
+    // page, then it's cached and every later switch is instant.
+    if (!viewBlob(view) && tabAlive) reshoot();
   });
   $("frameSeg").addEventListener("click", (e) => {
     const b = e.target.closest("button"); if (!b || !rec) return;
