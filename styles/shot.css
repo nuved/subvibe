@@ -14,6 +14,11 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 var(-
 .pagelink { color: var(--ink); text-decoration: none; font-weight: 600; max-width: 34ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pagelink:hover { text-decoration: underline; }
 .meta { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.langsel { display: inline-flex; align-items: center; gap: 5px; background: var(--teal-100); color: var(--teal-600); border-radius: 999px; padding: 3px 8px 3px 10px; font: 600 12px/1.4 var(--ui); cursor: pointer; }
+.langsel__ico { font-size: 12px; }
+.langsel select { border: 0; background: transparent; color: var(--teal-600); font: 600 12px/1.4 var(--ui); cursor: pointer; padding: 0 2px; max-width: 150px; }
+.langsel select:focus { outline: none; }
+.langsel:focus-within { outline: 2px solid var(--teal-600); outline-offset: 1px; }
 .recent { margin-left: auto; display: flex; align-items: center; gap: 6px; }
 .recent .overline { margin-right: 4px; }
 .thumb { width: 40px; height: 28px; border-radius: 5px; border: 1px solid var(--border); background: var(--surface-2); object-fit: cover; cursor: pointer; padding: 0; display: block; }

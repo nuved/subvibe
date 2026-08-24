@@ -1606,7 +1606,12 @@ async function shotReshoot(msg, sender) {
   let tab = null;
   try { tab = await chrome.tabs.get(rec.tabId); } catch { tab = null; }
   if (!tab || (tab.url || "") !== rec.url) return { ok: false, error: "tab-gone" };
-  if (shotSessions.has(rec.tabId)) return { ok: false, error: "busy" }; // a capture is already running on this tab
+  // Block only a genuinely in-flight capture (recent, non-reshoot); a stale or
+  // abandoned session (a cancelled/errored capture) is cleared so it can't wedge
+  // re-shoot / re-translate forever.
+  const inflight = shotSessions.get(rec.tabId);
+  if (inflight && !inflight.reshoot && Date.now() - (inflight.startedAt || 0) < 20000) return { ok: false, error: "busy" };
+  if (inflight) shotSessions.delete(rec.tabId);
   const editorTab = sender && sender.tab ? sender.tab.id : null;
   const back = async () => { if (editorTab != null) { try { await chrome.tabs.update(editorTab, { active: true }); } catch {} } };
   const edits = new Map((Array.isArray(msg.blocks) ? msg.blocks : []).map((b) => [String(b && b.id), String((b && b.tr) || "")]));
@@ -1663,6 +1668,48 @@ async function shotTabAlive(id) {
   if (!rec) return { ok: true, alive: false };
   try { const t = await chrome.tabs.get(rec.tabId); return { ok: true, alive: !!t && (t.url || "") === rec.url }; }
   catch { return { ok: true, alive: false }; }
+}
+
+// Editor language picker: re-translate a shot's original text to a NEW target
+// language, then re-render it on the source tab (needs the tab open). Reuses
+// shotReshoot for the render — this only adds the fresh translation step.
+async function shotRetranslate(msg, sender) {
+  const rec = await shotGet(String(msg.id || ""));
+  if (!rec) return { ok: false, error: "gone" };
+  const newTarget = String(msg.target || "");
+  if (!newTarget) return { ok: false, error: "no-target" };
+  let tab = null;
+  try { tab = await chrome.tabs.get(rec.tabId); } catch { tab = null; }
+  if (!tab || (tab.url || "") !== rec.url) return { ok: false, error: "tab-gone" };
+  const texts = (rec.blocks || []).map((x) => x.text);
+  if (!texts.length) { rec.target = newTarget; await shotPut(rec); return { ok: true, empty: true }; }
+  const uniq = [...new Set(texts)];
+  const started = Date.now();
+  const meta = { ts: started, site: "shot", title: "Retranslate: " + (rec.title || "").slice(0, 50), kind: "shot", lines: uniq.length };
+  let out;
+  try {
+    const r = await translateAll(uniq, rec.source === "xx" ? "auto" : rec.source, newTarget, null, { kind: "page", batch: 20 });
+    out = r.out;
+    await logCall({ ...meta, provider: r.provider, model: r.model, ms: Date.now() - started, inTok: r.inTok, outTok: r.outTok, cacheR: r.cacheR, cacheW: r.cacheW, ok: true });
+  } catch (e) {
+    const m = String((e && e.message) || e);
+    await logCall({ ...meta, ms: Date.now() - started, inTok: 0, outTok: 0, ok: false, err: m });
+    if (/key/i.test(m)) return { ok: false, error: "no-key" };
+    const http = m.match(/\b(4\d\d|5\d\d)\b/);
+    return { ok: false, error: http ? "http-" + http[1] : "network", detail: m };
+  }
+  const map = new Map(uniq.map((t, i) => [t, String(out[i] || "")]));
+  const edits = rec.blocks.map((x) => ({ id: x.id, tr: map.get(x.text) || "" }));
+  rec.target = newTarget; rec.noKey = false; rec.sameLang = false;
+  rec.blocks = rec.blocks.map((x) => ({ ...x, tr: map.get(x.text) || x.tr }));
+  await shotPut(rec);
+  // Re-render the translated (or bilingual) layout with the new translations.
+  // This is a deliberate editor action (source tab is backgrounded, no capture
+  // in flight) — clear any stale session so the re-shoot's busy-guard can't
+  // block it.
+  shotSessions.delete(rec.tabId);
+  const layout = rec.layout === "bilingual" ? "bilingual" : "translated";
+  return await shotReshoot({ id: rec.id, layout, blocks: edits }, sender);
 }
 
 if (chrome.commands && chrome.commands.onCommand) {
@@ -2462,6 +2509,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         case "SHOT_ABORT": { const s = shotSessionOf(sender); if (s) shotSessions.delete(s.tabId); sendResponse({ ok: true }); break; }
         case "SHOT_RESHOOT": sendResponse(await shotReshoot(msg, sender)); break;
         case "SHOT_TAB_ALIVE": sendResponse(await shotTabAlive(msg.id)); break;
+        case "SHOT_RETRANSLATE": sendResponse(await shotRetranslate(msg, sender)); break;
         default:
           sendResponse({ error: "unknown message: " + (msg && msg.type) });
       }

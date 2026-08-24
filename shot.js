@@ -120,10 +120,11 @@
   // ── panel ─────────────────────────────────────────────────────────────────
   function renderHeader() {
     const link = $("pageLink"); link.textContent = rec.title || rec.url; link.href = rec.url; link.title = rec.url;
-    const chip = $("langChip");
+    const chip = $("srcChip");
     chip.hidden = false;
-    chip.textContent = (rec.source && rec.source !== "xx" ? code(rec.source) + " → " : "→ ") + code(rec.target);
-    chip.title = (rec.source && rec.source !== "xx" ? langName(rec.source) + " → " : "") + langName(rec.target);
+    chip.textContent = (rec.source && rec.source !== "xx" ? code(rec.source) : "Auto") + " →";
+    chip.title = (rec.source && rec.source !== "xx" ? langName(rec.source) : "Detected language") + " → " + langName(rec.target);
+    populateLangSel();
     const d = new Date(rec.ts);
     const modeName = { visible: "Visible area", full: "Full page", area: "Select area", element: "Pick element" }[rec.mode] || rec.mode;
     $("metaLine").textContent = d.toLocaleDateString() + " " + d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) + " · " + modeName + " · " + Math.round(rec.w) + " × " + Math.round(rec.h);
@@ -138,6 +139,53 @@
   function kindOf(b) {
     const el = b.rect && b.rect.h > 0 && b.text.length < 60 && b.rect.h > 28 ? "Heading" : b.text.split(" ").length < 4 ? "Label" : "Paragraph";
     return el;
+  }
+  // Fills the header language dropdown from SubVibe's language list and selects
+  // the shot's current target. Changing it re-translates the whole shot.
+  let langSelBuilt = false;
+  function populateLangSel() {
+    const sel = $("langSel"); if (!sel) return;
+    if (!langSelBuilt) {
+      const langs = (window.SV_LANGS || []).slice();
+      // ensure the current target is present even if not in the base list
+      if (rec.target && !langs.some((l) => l[0] === rec.target)) langs.unshift([rec.target, langName(rec.target), ""]);
+      sel.textContent = "";
+      for (const [c] of langs) {
+        const meta = window.svLangMeta ? window.svLangMeta(c) : [c, c.toUpperCase(), ""];
+        const flag = meta[2] && meta[2].length <= 4 ? meta[2] + " " : "";
+        const o = document.createElement("option"); o.value = c; o.textContent = flag + meta[1];
+        sel.appendChild(o);
+      }
+      langSelBuilt = true;
+    }
+    sel.value = rec.target || "";
+    $("langWrap").hidden = false;
+  }
+  async function retranslate(newTarget) {
+    if (reshooting || !rec || !newTarget || newTarget === rec.target) return;
+    reshooting = true; setNote("Re-translating to " + langName(newTarget) + "…", "");
+    const res = await new Promise((r) => chrome.runtime.sendMessage({ type: "SHOT_RETRANSLATE", id: rec.id, target: newTarget }, (x) => r(chrome.runtime.lastError ? null : x)));
+    reshooting = false;
+    if (!res || !res.ok) {
+      const err = (res && res.error) || "network";
+      const msg = err === "tab-gone" ? "Open the original tab to change the language, then try again."
+        : err === "no-key" ? "Add an API key in the SubVibe popup to translate."
+        : "Couldn't re-translate (" + err + "). Try again.";
+      setNote(msg, "warn");
+      $("langSel").value = rec.target || ""; // revert the dropdown
+      return;
+    }
+    const fresh = await getShot(rec.id);
+    if (fresh) { rec = fresh; try { S.validateRecord(rec); } catch (e) {} }
+    edits.clear();
+    for (const k of ["original", "variant"]) if (bitmaps[k]) { bitmaps[k].close(); delete bitmaps[k]; }
+    if (view === "original") view = rec.layout === "original" ? "translated" : rec.layout;
+    else view = rec.layout;
+    renderHeader(); renderBlocks(); await render();
+    toast("Now in " + langName(rec.target));
+  }
+  function setNote(text, cls) {
+    const bar = $("noteBar"); bar.hidden = !text; bar.textContent = text || ""; bar.className = "notebar" + (cls ? " " + cls : "");
   }
   function renderBlocks() {
     const wrap = $("blocks"); wrap.textContent = "";
@@ -306,6 +354,7 @@
   $("badgeSw").addEventListener("change", () => { frame.badge = $("badgeSw").checked; chrome.storage.local.set({ shotFrame: frame }); render(); });
   $("sizeSel").addEventListener("change", () => { exp.size = $("sizeSel").value; chrome.storage.local.set({ shotExport: exp }); render(); });
   $("fmtSel").addEventListener("change", () => { exp.format = $("fmtSel").value; chrome.storage.local.set({ shotExport: exp }); render(); });
+  $("langSel").addEventListener("change", (e) => retranslate(e.target.value));
   $("reshootBtn").addEventListener("click", reshoot);
   $("dlBtn").addEventListener("click", download);
   $("copyBtn").addEventListener("click", copy);

@@ -467,10 +467,16 @@
       let rect;
       try {
         rect = mode === "area" ? await pickArea() : mode === "element" ? await pickElement() : mode === "full" ? fullRect() : visibleRect();
-      } catch (e) { return; }
+      } catch (e) { cleanupAll(); return; }
       await capture(rect, mode, layout, target);
-      await sleep(1800);
-    } finally { cleanupAll(); busy = false; }
+      // Release busy NOW so a quick re-shoot / language change from the editor
+      // isn't rejected; keep the "Shot saved" toast up briefly, then remove the
+      // host — unless a new run/reshoot already reused it (busy true again).
+      busy = false;
+      const mine = host;
+      setTimeout(() => { if (host === mine && !busy) cleanupAll(); }, 1800);
+      return;
+    } finally { if (busy) { cleanupAll(); busy = false; } }
   }
 
   // Re-render the variant with edited translations and/or the other layout.
