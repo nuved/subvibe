@@ -40,24 +40,23 @@
     host = document.createElement("div");
     host.className = "sv-reader-host";
     const root = host.attachShadow({ mode: "closed" });
-    // The shadow root is closed, so page CSS can't reach it and a <link> can't
-    // be styled from outside either — but a <link> loads async (a flash of
-    // unstyled card) and can be blocked by a strict page CSP. Fetch the CSS
-    // text ourselves (extension-origin request, not subject to page CSP) and
-    // inline it as a <style>; cache it so repeat renders are synchronous.
+    // The shadow root is closed, so page CSS can't reach it. Apply our CSS via a
+    // constructable stylesheet: a strict page CSP (x.com) blocks <style> elements
+    // even inside a shadow root, but a constructable sheet is a CSSOM API not
+    // subject to style-src, so it applies where an inline <style> is refused.
+    // Fetch the text ourselves (cached) and fall back to <style> on old engines.
+    function applyCss(css) {
+      try { const sheet = new CSSStyleSheet(); sheet.replaceSync(css); root.adoptedStyleSheets = [sheet]; return; }
+      catch (e) { /* older engine */ }
+      const st = document.createElement("style"); st.textContent = css; root.prepend(st);
+    }
     if (cssText != null) {
-      const st = document.createElement("style");
-      st.textContent = cssText;
-      root.prepend(st);
+      applyCss(cssText);
     } else {
       if (!cssPromise) {
         cssPromise = fetch(chrome.runtime.getURL("styles/reader.css")).then((r) => r.text()).then((css) => { cssText = css; return css; });
       }
-      cssPromise.then((css) => {
-        const st = document.createElement("style");
-        st.textContent = css;
-        root.prepend(st);
-      });
+      cssPromise.then(applyCss);
     }
 
     const card = document.createElement("div");

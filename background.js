@@ -1586,7 +1586,7 @@ async function shotCompose(msg, sender) {
     source: sess.source || "xx", target: sess.target, mode: sess.mode, layout, dpr: sess.dpr,
     rect: { ...r }, w: r.w, h: r.h, original, variant, blocks: shotBlocks(msg.blocks),
     partial: !!msg.partial, truncated: msg.truncated === "text" || msg.truncated === "height" ? msg.truncated : "",
-    sameLang: !!msg.sameLang, tabId: sess.tabId, windowId: sess.windowId,
+    sameLang: !!msg.sameLang, noKey: !!msg.noKey, tabId: sess.tabId, windowId: sess.windowId,
   };
   try { SV_SHOT.validateRecord(rec); await shotPut(rec); }
   catch (e) { console.warn("[SubVibe shot] store failed:", (e && e.message) || e); return { ok: false, error: "store" }; }

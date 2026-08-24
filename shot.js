@@ -128,6 +128,7 @@
     const modeName = { visible: "Visible area", full: "Full page", area: "Select area", element: "Pick element" }[rec.mode] || rec.mode;
     $("metaLine").textContent = d.toLocaleDateString() + " " + d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) + " · " + modeName + " · " + Math.round(rec.w) + " × " + Math.round(rec.h);
     const notes = [];
+    if (rec.noKey) notes.push("Captured without translation — add an API key in the SubVibe popup to translate.");
     if (rec.sameLang) notes.push("This page is already in " + langName(rec.target) + ".");
     if (rec.partial) notes.push("Some text couldn't be swapped on this page.");
     if (rec.truncated === "text") notes.push("Long page — only the first " + S.MAX_BLOCKS + " text blocks were translated.");

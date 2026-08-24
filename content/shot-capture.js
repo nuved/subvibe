@@ -26,13 +26,26 @@
     }
     return cssPromise;
   }
+  // A strict page CSP (e.g. x.com) blocks <style> elements even inside a shadow
+  // root — the overlay would render unstyled (invisible). A constructable
+  // stylesheet is a CSSOM API, not subject to style-src, so it applies where an
+  // inline <style> is refused; fall back to <style> on engines without it.
+  function applyShadowStyle(css) {
+    try {
+      const sheet = new CSSStyleSheet();
+      sheet.replaceSync(css);
+      root.adoptedStyleSheets = [sheet];
+      return;
+    } catch (e) { /* older engine */ }
+    const st = document.createElement("style"); st.textContent = css; root.appendChild(st);
+  }
   function ensureHost() {
     if (host) return;
     host = document.createElement("div");
     host.className = "sv-shot-host";
     host.style.cssText = "position:fixed;inset:0;z-index:2147483647;pointer-events:none;";
     root = host.attachShadow({ mode: "closed" });
-    const st = document.createElement("style"); st.textContent = cssText || ""; root.appendChild(st);
+    applyShadowStyle(cssText || "");
     document.documentElement.appendChild(host);
   }
   function cleanupAll() {
@@ -341,13 +354,12 @@
       const res = await send({ type: "SHOT_TRANSLATE", lines });
       if (res && res.ok) return res;
       const err = (res && res.error) || "network";
-      const text = err === "no-key" ? "No API key set — open the SubVibe popup to add one."
-        : err === "no-target" ? "Pick your language in the SubVibe popup first."
-        : "Translation failed" + (String(err).startsWith("http-") ? " (" + err.slice(5) + ")" : "") + ".";
-      const buttons = err === "no-key" || err === "no-target"
-        ? [["Shoot without translation", "plain", true]]
-        : [["Retry", "retry", true], ["Shoot without translation", "plain", false]];
-      const a = await ask(text, buttons);
+      // No key / no language is NOT an error for a screenshot tool — just shoot
+      // the page as-is (original), and tell the user in the editor how to enable
+      // translation. Only a real API failure is worth interrupting for.
+      if (err === "no-key" || err === "no-target") return { noKey: true, reason: err };
+      const a = await ask("Translation failed" + (String(err).startsWith("http-") ? " (" + err.slice(5) + ")" : "") + ".",
+        [["Retry", "retry", true], ["Shoot without translation", "plain", false]]);
       if (a === "retry") continue;
       return a === "plain" ? null : "cancel";
     }
@@ -381,6 +393,7 @@
       setPill("");
       if (t === "cancel" || aborted) { await send({ type: "SHOT_ABORT" }); return; }
       if (t && t.sameLang) note = "same";
+      else if (t && t.noKey) note = "no-key"; // shoot the original; translation needs a key/language
       else if (t && t.ok) { tr = t.tr; partial = !!t.partial; }
     }
     const mapped = S().mapTranslations(prep.keep, prep.lineOf, tr || []);
@@ -434,7 +447,7 @@
     } finally { restore(); }
     const truncated = prep.truncated || (effCut ? "height" : "");
     setPill("Saving…", 1);
-    const res = await send({ type: "SHOT_COMPOSE", rect: effRect, blocks: blocks.map((b) => ({ id: b.id, text: b.text, tr: b.tr, rect: b.rect })), partial, truncated, passes, sameLang: note === "same" });
+    const res = await send({ type: "SHOT_COMPOSE", rect: effRect, blocks: blocks.map((b) => ({ id: b.id, text: b.text, tr: b.tr, rect: b.rect })), partial, truncated, passes, sameLang: note === "same", noKey: note === "no-key" });
     setPill("");
     if (!res || !res.ok) { toast("Couldn't save the shot. Try again.", 3500); return; }
     toast("Shot saved — opening editor…", 1800);
