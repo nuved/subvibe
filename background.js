@@ -1493,20 +1493,33 @@ async function shotTranslate(msg, sender) {
   }
 }
 
+// captureVisibleTab occasionally never settles (a known headless/headful quirk
+// on busy pages) — race it against a timeout so one wedged tile can't freeze the
+// whole capture; the caller retries once, then aborts cleanly.
+function captureWithTimeout(windowId, ms) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => { if (!settled) { settled = true; reject(new Error("capture-timeout")); } }, ms);
+    chrome.tabs.captureVisibleTab(windowId, { format: "png" }).then(
+      (d) => { if (!settled) { settled = true; clearTimeout(timer); resolve(d); } },
+      (e) => { if (!settled) { settled = true; clearTimeout(timer); reject(e); } });
+  });
+}
+
 // captureVisibleTab shoots the ACTIVE tab of the window and allows 2 calls/s:
 // refuse when the user switched tabs mid-capture, space calls out, retry once.
 async function shotCapture(sess) {
   const [active] = await chrome.tabs.query({ active: true, windowId: sess.windowId });
   if (!active || active.id !== sess.tabId) return null;
-  const wait = lastShotCaptureAt + SV_SHOT.CAPTURE_GAP_MS - Date.now();
-  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
   for (let attempt = 0; attempt < 2; attempt++) {
+    const wait = lastShotCaptureAt + SV_SHOT.CAPTURE_GAP_MS - Date.now();
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     try {
       lastShotCaptureAt = Date.now();
-      return await chrome.tabs.captureVisibleTab(sess.windowId, { format: "png" });
+      return await captureWithTimeout(sess.windowId, 5000);
     } catch (e) {
       if (attempt) { console.warn("[SubVibe shot] capture failed:", (e && e.message) || e); return null; }
-      await new Promise((r) => setTimeout(r, 700));
+      await new Promise((r) => setTimeout(r, 900));
     }
   }
   return null;
@@ -1550,16 +1563,18 @@ async function shotCompose(msg, sender) {
   const tilesO = sess.tiles.original.filter(Boolean);
   const tilesV = sess.tiles.variant.filter(Boolean);
   const passes = Array.isArray(msg.passes) ? msg.passes : ["original", "variant"];
-  if (!tilesO.length) return { ok: false, error: "capture" };
-  let original, variant, layout = sess.layout;
+  // original is optional: multi-tile translated shots capture only the variant
+  // and render Original via re-shoot. variant is always required.
+  let original = null, variant = null, layout = sess.layout;
   try {
-    original = await shotComposePass(sess, tilesO);
+    if (passes.includes("original") && tilesO.length) original = await shotComposePass(sess, tilesO);
     if (passes.includes("variant") && tilesV.length) variant = await shotComposePass(sess, tilesV);
-    else { variant = original; layout = "original"; }
+    if (!variant) { variant = original; layout = "original"; } // no-translation shot
   } catch (e) {
     console.warn("[SubVibe shot] compose failed:", (e && e.message) || e);
     return { ok: false, error: "compose" };
   }
+  if (!variant) return { ok: false, error: "capture" };
   const rec = {
     id: sess.id, ts: sess.startedAt, url: sess.url, title: sess.title, host: hostOf(sess.url),
     source: sess.source || "xx", target: sess.target, mode: sess.mode, layout, dpr: sess.dpr,
@@ -1587,7 +1602,7 @@ async function shotReshoot(msg, sender) {
   const back = async () => { if (editorTab != null) { try { await chrome.tabs.update(editorTab, { active: true }); } catch {} } };
   const edits = new Map((Array.isArray(msg.blocks) ? msg.blocks : []).map((b) => [String(b && b.id), String((b && b.tr) || "")]));
   const blocks = rec.blocks.map((b) => ({ id: b.id, text: b.text, tr: edits.has(b.id) ? edits.get(b.id) : b.tr, rect: b.rect }));
-  const layout = msg.layout === "bilingual" ? "bilingual" : "translated";
+  const layout = msg.layout === "bilingual" ? "bilingual" : msg.layout === "original" ? "original" : "translated";
   try { await chrome.tabs.update(rec.tabId, { active: true }); } catch { return { ok: false, error: "tab-gone" }; }
   try {
     await chrome.scripting.executeScript({ target: { tabId: rec.tabId }, files: ["shared/shot.js", "content/shot-capture.js"] });
@@ -1610,8 +1625,13 @@ async function shotReshoot(msg, sender) {
   sess.viewport = { w: (reply.viewport && +reply.viewport.w) || 1, h: (reply.viewport && +reply.viewport.h) || 1 };
   const tiles = sess.tiles.variant.filter(Boolean);
   if (!tiles.length) return { ok: false, error: "capture" };
-  try { rec.variant = await shotComposePass(sess, tiles); } catch { return { ok: false, error: "compose" }; }
-  rec.layout = layout; rec.blocks = blocks; rec.partial = !!reply.partial;
+  let blob;
+  try { blob = await shotComposePass(sess, tiles); } catch { return { ok: false, error: "compose" }; }
+  if (layout === "original") {
+    rec.original = blob; // fills in the Original view a multi-tile shot didn't capture up front
+  } else {
+    rec.variant = blob; rec.layout = layout; rec.blocks = blocks; rec.partial = !!reply.partial;
+  }
   await shotPut(rec);
   return { ok: true, missing: reply.missing | 0 };
 }

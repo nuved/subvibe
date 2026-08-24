@@ -146,7 +146,8 @@
     for (const f of ["id", "url", "title", "host", "target", "mode", "layout"]) if (!isStr(rec[f])) bad();
     if (!isNum(rec.ts)) bad();
     for (const f of ["dpr", "w", "h"]) if (!isNum(rec[f]) || rec[f] <= 0) bad();
-    if (!isBlob(rec.original) || !isBlob(rec.variant)) bad();
+    if (!isBlob(rec.variant)) bad();
+    if (rec.original != null && !isBlob(rec.original)) bad(); // original is optional (multi-tile shots render it via re-shoot)
     if (!rec.rect) bad();
     for (const k of ["x", "y", "w", "h"]) if (!isNum(rec.rect[k])) bad();
     if (!Array.isArray(rec.blocks)) bad();

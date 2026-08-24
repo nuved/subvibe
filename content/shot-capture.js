@@ -342,7 +342,7 @@
     const prep = S().prepBlocks(raw.map((b) => ({ id: b.id, text: b.text, rect: b.rect })));
     if (prep.truncated && !truncated) truncated = prep.truncated;
     const byId = new Map(raw.map((b) => [b.id, b]));
-    let tr = null, passes = ["original"], note = "";
+    let tr = null, passes, note = "";
     if (prep.lines.length) {
       setPill("Translating " + prep.lines.length + " blocks…", 0);
       const t = await translateLines(prep.lines);
@@ -354,15 +354,29 @@
     const mapped = S().mapTranslations(prep.keep, prep.lineOf, tr || []);
     const blocks = mapped.blocks.map((b) => { const live = byId.get(b.id); return { id: b.id, text: b.text, tr: tr ? b.tr : "", rect: b.rect, el: live.el, nodes: live.nodes }; });
     let partial = false;
+    // Two passes (original + translated) only when the shot fits one viewport —
+    // then toggling Original↔Translated in the editor is instant for ~1 extra
+    // capture. For multi-tile shots capture ONLY the chosen layout: it halves
+    // captureVisibleTab calls (which are rate-limited and flaky in bulk), and
+    // the Original view is rendered on demand via re-shoot.
+    const twoPass = tr && offsets.length === 1;
+    passes = tr ? (twoPass ? ["original", "variant"] : ["variant"]) : ["original"];
     const total = offsets.length * passes.length;
     armEsc();
     try {
-      await shootPass("original", offsets, 0, total);
-      if (tr) {
+      if (!tr) {
+        await shootPass("original", offsets, 0, total);
+      } else if (twoPass) {
+        await shootPass("original", offsets, 0, total);
         swap(layout, blocks, target);
         if (verifySwap(blocks) < 0.9) { unswap(); swap(layout, blocks, target); }
         if (verifySwap(blocks) < 0.9) partial = true;
         await shootPass("variant", offsets, offsets.length, total);
+      } else {
+        swap(layout, blocks, target);
+        if (verifySwap(blocks) < 0.9) { unswap(); swap(layout, blocks, target); }
+        if (verifySwap(blocks) < 0.9) partial = true;
+        await shootPass("variant", offsets, 0, total);
       }
     } catch (e) {
       restore(); setPill("");
@@ -417,11 +431,14 @@
         blocks.push({ id: String(b.id), text: live.text, tr: String(b.tr || ""), rect: live.rect, el: live.el, nodes: live.nodes });
       }
       let partial = false;
+      const original = msg.layout === "original"; // capture the page as-is, no swap
       armEsc();
       try {
-        swap(msg.layout, blocks, msg.target);
-        if (verifySwap(blocks) < 0.9) { unswap(); swap(msg.layout, blocks, msg.target); }
-        if (verifySwap(blocks) < 0.9) partial = true;
+        if (!original) {
+          swap(msg.layout, blocks, msg.target);
+          if (verifySwap(blocks) < 0.9) { unswap(); swap(msg.layout, blocks, msg.target); }
+          if (verifySwap(blocks) < 0.9) partial = true;
+        }
         await shootPass("variant", offsets, 0, offsets.length);
       } catch (e) {
         restore();

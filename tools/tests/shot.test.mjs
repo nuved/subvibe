@@ -165,6 +165,12 @@ test("validateRecord: accepts a good record, rejects broken ones", () => {
   assert.equal(S.validateRecord(ok), ok);
   const noBlob = goodRecord(); noBlob.variant = "nope";
   assert.throws(() => S.validateRecord(noBlob), /bad-record/);
+  const noVariant = goodRecord(); delete noVariant.variant;
+  assert.throws(() => S.validateRecord(noVariant), /bad-record/);
+  const nullOriginal = goodRecord(); nullOriginal.original = null; // multi-tile shot: original rendered via re-shoot
+  assert.equal(S.validateRecord(nullOriginal), nullOriginal);
+  const badOriginal = goodRecord(); badOriginal.original = "nope";
+  assert.throws(() => S.validateRecord(badOriginal), /bad-record/);
   const badBlocks = goodRecord(); badBlocks.blocks = "x";
   assert.throws(() => S.validateRecord(badBlocks), /bad-record/);
   const badBlock = goodRecord(); badBlock.blocks = [{ id: "b0", text: "x" }];

@@ -94,11 +94,13 @@
     return bitmaps[which];
   }
   // Which stored blob renders the current view, or null when it needs a re-shoot.
-  const blobKeyFor = (v) => (v === "original" ? "original" : v === rec.layout ? "variant" : null);
+  // Which stored blob renders the view, or null when it must be re-shot.
+  // original is absent on multi-tile shots (only the chosen layout was captured).
+  const blobKeyFor = (v) => (v === "original" ? (rec.original ? "original" : null) : v === rec.layout ? "variant" : null);
 
   async function render() {
     const key = blobKeyFor(view);
-    const bmp = await bitmapFor(key || "original");
+    const bmp = await bitmapFor(key || "variant");
     const canvas = $("stage");
     const lay = drawFramed(canvas, bmp, 1);
     canvas.style.width = Math.round(lay.width / (rec.dpr || 1)) + "px";
@@ -168,7 +170,7 @@
   }
   async function reshoot() {
     if (reshooting || !rec) return;
-    const layout = view === "original" ? (rec.layout === "original" ? "translated" : rec.layout) : view;
+    const layout = view; // translated | bilingual | original — the view the user is on
     reshooting = true; updateReshoot();
     const res = await new Promise((r) => chrome.runtime.sendMessage({ type: "SHOT_RESHOOT", id: rec.id, layout, blocks: [...edits].map(([id, tr]) => ({ id, tr })) }, (x) => r(chrome.runtime.lastError ? null : x)));
     reshooting = false;
@@ -185,8 +187,9 @@
     }
     const fresh = await getShot(rec.id);
     if (fresh) { rec = fresh; try { S.validateRecord(rec); } catch (e) { /* keep showing what we have */ } }
-    edits.clear(); if (bitmaps.variant) { bitmaps.variant.close(); delete bitmaps.variant; }
-    if (view !== "original") view = rec.layout;
+    edits.clear();
+    for (const k of ["original", "variant"]) if (bitmaps[k]) { bitmaps[k].close(); delete bitmaps[k]; }
+    if (view !== "original" && view !== rec.layout) view = rec.layout;
     renderHeader(); renderBlocks(); await render();
     toast(res.missing ? "Re-shot · " + res.missing + " block" + (res.missing === 1 ? "" : "s") + " no longer on the page" : "Re-shot");
   }

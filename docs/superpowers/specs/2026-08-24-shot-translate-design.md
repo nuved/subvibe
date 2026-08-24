@@ -118,9 +118,15 @@ background: SHOT_COMPOSE {rect, dpr, tilesA, tilesB, blocks, meta}
   `requestAnimationFrame`s + 150 ms.
 - Element mode with an element taller than the viewport uses the same tile
   loop limited to the element's rect.
-- Two passes per shot: the original view and the layout chosen at entry
-  (`shotLayout` in `chrome.storage.local`, `"translated"` default,
-  `"bilingual"` the other). The third view is produced on demand by re-shoot.
+- Passes are kept minimal because `captureVisibleTab` is rate-limited (2/s)
+  and flaky in bulk. A shot that fits ONE viewport captures two passes (the
+  original and the chosen layout) so Original↔Translated toggles instantly for
+  one extra capture. A MULTI-TILE shot (full page, tall element) captures only
+  the chosen layout (`shotLayout` in `chrome.storage.local`, `"translated"`
+  default, `"bilingual"` the other); its Original and other views are rendered
+  on demand by re-shoot, halving captures on the fragile path. Each
+  `captureVisibleTab` is raced against a 5 s timeout so one wedged tile aborts
+  the shot cleanly instead of freezing the overlay.
 
 ### Text blocks (content script)
 
@@ -170,7 +176,9 @@ IndexedDB `copilot-subs`, version 4, new store `shots` keyed by `id`
 ```
 { id, ts, url, title, host, source, target, mode, layout, dpr,
   w, h,                       // CSS px of the shot
-  original: Blob (image/png), variant: Blob (image/png),   // variant = layout
+  original: Blob | null,   // null on multi-tile shots (rendered via re-shoot)
+  variant: Blob (image/png),   // the chosen layout — always present
+  rect: {x,y,w,h},   // document-space rect the shot covers (re-shoot needs it)
   blocks: [{ id, text, tr, rect }],
   partial: bool, truncated: "" | "text" | "height", tabId, windowId }
 ```

@@ -42,6 +42,8 @@ Editor / popup ↔ background:
 
 The editor reads and writes the `shots` store itself (blobs can't cross runtime messages).
 
+**Pass strategy (added during verification):** a one-viewport shot captures both the original and the chosen layout; a multi-tile shot captures only the chosen layout and leaves `original: null` (the editor renders Original / the other layout via re-shoot). `captureVisibleTab` is raced against a 5 s timeout. These changes are reflected in the spec; `SV_SHOT.validateRecord` accepts `original: null`.
+
 Record shape (store `shots`, key `id`):
 
 ```
