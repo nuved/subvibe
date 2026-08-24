@@ -37,6 +37,13 @@
   let frame = { frame: "card", badge: true };
   let exp = { size: "native", format: "png" };
   const bitmaps = {};          // "original" | "variant" → ImageBitmap
+  // ── annotation layer (pen / highlighter / text / arrow / rect) ──
+  let annots = [];             // {tool,color,size(frac of img.w),pts?,a?,b?,text?,at?,fontSize?}
+  let annTool = "";            // "" = no drawing (select), else a tool
+  let annColor = "#F45D48";
+  let annSizeFrac = 0.006;
+  let curLay = null;           // last drawFramed() layout (device px) for coord mapping
+  const ANN_COLORS = ["#F45D48", "#FFC53D", "#22C55E", "#3B82F6", "#111827", "#FFFFFF"];
   const edits = new Map();     // block id → edited translation
   let reshooting = false;
   let tabAlive = true; // re-set on load via SHOT_TAB_ALIVE
@@ -104,10 +111,11 @@
     const key = blobKeyFor(view);
     const bmp = await bitmapFor(key || "variant");
     const canvas = $("stage");
-    const lay = drawFramed(canvas, bmp, 1);
+    const lay = drawFramed(canvas, bmp, 1); curLay = lay;
     canvas.style.width = Math.round(lay.width / (rec.dpr || 1)) + "px";
     canvas.style.opacity = key ? "1" : ".35";
-    $("stageSkel").hidden = true; canvas.hidden = false;
+    $("stageSkel").hidden = true; $("canvasWrap").hidden = false;
+    setupAnnot(); $("annotBar").hidden = !key; syncAnnot();
     for (const b of $("viewSeg").querySelectorAll("button")) b.classList.toggle("on", b.dataset.view === view);
     const vn = $("viewNote");
     if (key) { vn.className = "note"; vn.textContent = "Captured with this shot."; }
@@ -287,7 +295,8 @@
     if (!key) return null; // view not captured yet — export is disabled, but guard anyway
     const bmp = await bitmapFor(key);
     const c = document.createElement("canvas");
-    drawFramed(c, bmp, S.exportScale(exp.size, rec.dpr || 1));
+    const lay = drawFramed(c, bmp, S.exportScale(exp.size, rec.dpr || 1));
+    renderAnnots(c.getContext("2d"), lay.img);
     const type = format === "jpeg" ? "image/jpeg" : "image/png";
     return new Promise((res) => c.toBlob((b) => res(b), type, 0.9));
   }
@@ -323,7 +332,121 @@
     } catch (e) { return false; }
   }
 
-  // ── recent strip ──────────────────────────────────────────────────────────
+  function annPt(n, img) { return [img.x + n.x * img.w, img.y + n.y * img.h]; }
+  function renderAnnots(ctx, img) {
+    for (const a of annots) {
+      ctx.save();
+      const col = a.color || "#F45D48";
+      const lw = Math.max(1, (a.size || 0.006) * img.w);
+      if (a.tool === "pen" || a.tool === "highlight") {
+        ctx.strokeStyle = col; ctx.lineCap = "round"; ctx.lineJoin = "round";
+        ctx.lineWidth = a.tool === "highlight" ? lw * 3.2 : lw;
+        if (a.tool === "highlight") ctx.globalAlpha = 0.35;
+        ctx.beginPath();
+        (a.pts || []).forEach((p, i) => { const [x, y] = annPt(p, img); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+        if ((a.pts || []).length === 1) { const [x, y] = annPt(a.pts[0], img); ctx.lineTo(x + 0.1, y); }
+        ctx.stroke();
+      } else if (a.tool === "rect") {
+        ctx.strokeStyle = col; ctx.lineWidth = lw;
+        const [x1, y1] = annPt(a.a, img), [x2, y2] = annPt(a.b, img);
+        ctx.strokeRect(Math.min(x1, x2), Math.min(y1, y2), Math.abs(x2 - x1), Math.abs(y2 - y1));
+      } else if (a.tool === "arrow") {
+        ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = lw; ctx.lineCap = "round";
+        const [x1, y1] = annPt(a.a, img), [x2, y2] = annPt(a.b, img);
+        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+        const ang = Math.atan2(y2 - y1, x2 - x1), head = Math.max(10, lw * 3.2);
+        ctx.beginPath(); ctx.moveTo(x2, y2);
+        ctx.lineTo(x2 - head * Math.cos(ang - 0.42), y2 - head * Math.sin(ang - 0.42));
+        ctx.lineTo(x2 - head * Math.cos(ang + 0.42), y2 - head * Math.sin(ang + 0.42));
+        ctx.closePath(); ctx.fill();
+      } else if (a.tool === "text" && a.text) {
+        const fs = Math.max(11, (a.fontSize || 0.03) * img.w);
+        ctx.font = "600 " + fs + "px system-ui, -apple-system, sans-serif";
+        ctx.textBaseline = "top";
+        ctx.direction = /[֐-ࣿ]/.test(a.text) ? "rtl" : "ltr";
+        const [x, y] = annPt(a.at, img);
+        const w = ctx.measureText(a.text).width;
+        const bx = ctx.direction === "rtl" ? x - w : x;
+        ctx.globalAlpha = 0.82; ctx.fillStyle = "#fff"; ctx.fillRect(bx - 4, y - 2, w + 8, fs + 6);
+        ctx.globalAlpha = 1; ctx.fillStyle = col; ctx.fillText(a.text, x, y);
+      }
+      ctx.restore();
+    }
+  }
+  function syncAnnot() {
+    const stage = $("stage"), an = $("annot"); if (!an || !curLay) return;
+    an.width = stage.width; an.height = stage.height;
+    an.style.pointerEvents = annTool ? "auto" : "none";
+    an.style.cursor = annTool === "text" ? "text" : annTool ? "crosshair" : "default";
+    const ctx = an.getContext("2d"); ctx.clearRect(0, 0, an.width, an.height);
+    renderAnnots(ctx, curLay.img);
+  }
+  async function saveAnnots() {
+    if (!rec) return; rec.annots = annots;
+    try { await putShot(rec); } catch (e) {}
+  }
+  function evToNorm(e) {
+    const an = $("annot"), r = an.getBoundingClientRect();
+    const px = (e.clientX - r.left) * (an.width / r.width), py = (e.clientY - r.top) * (an.height / r.height);
+    const img = curLay.img;
+    const nx = (px - img.x) / img.w, ny = (py - img.y) / img.h;
+    return { x: Math.max(0, Math.min(1, nx)), y: Math.max(0, Math.min(1, ny)) };
+  }
+  let annBuilt = false, drawing = null;
+  function setupAnnot() {
+    if (annBuilt) return; annBuilt = true;
+    const colors = $("annColors");
+    ANN_COLORS.forEach((c) => {
+      const b = document.createElement("button"); b.className = "annswatch" + (c === annColor ? " on" : "");
+      b.style.background = c; b.title = c; b.dataset.color = c;
+      b.addEventListener("click", () => { annColor = c; for (const x of colors.querySelectorAll(".annswatch")) x.classList.toggle("on", x.dataset.color === c); });
+      colors.appendChild(b);
+    });
+    $("annTools").addEventListener("click", (e) => {
+      const b = e.target.closest("button"); if (!b) return;
+      annTool = b.dataset.tool || "";
+      for (const x of $("annTools").querySelectorAll("button")) x.classList.toggle("on", x === b);
+      syncAnnot();
+    });
+    $("annSize").addEventListener("input", (e) => { annSizeFrac = (+e.target.value || 5) / 850; });
+    $("annUndo").addEventListener("click", () => { annots.pop(); syncAnnot(); saveAnnots(); });
+    $("annClear").addEventListener("click", () => { if (annots.length && confirm("Remove all annotations?")) { annots = []; syncAnnot(); saveAnnots(); } });
+    const an = $("annot");
+    an.addEventListener("pointerdown", (e) => {
+      if (!annTool || !curLay) return; e.preventDefault(); an.setPointerCapture(e.pointerId);
+      const p = evToNorm(e);
+      if (annTool === "text") { placeText(p); return; }
+      if (annTool === "pen" || annTool === "highlight") drawing = { tool: annTool, color: annColor, size: annSizeFrac, pts: [p] };
+      else drawing = { tool: annTool, color: annColor, size: annSizeFrac, a: p, b: p };
+    });
+    an.addEventListener("pointermove", (e) => {
+      if (!drawing) return;
+      const p = evToNorm(e);
+      if (drawing.pts) drawing.pts.push(p); else drawing.b = p;
+      const ctx = an.getContext("2d"); ctx.clearRect(0, 0, an.width, an.height); renderAnnots(ctx, curLay.img);
+      annots.push(drawing); renderAnnots(ctx, curLay.img); annots.pop(); // preview the in-progress shape
+    });
+    function finish() { if (!drawing) return; const d = drawing; drawing = null; const ok = d.pts ? d.pts.length > 1 : (Math.abs(d.a.x - d.b.x) + Math.abs(d.a.y - d.b.y)) > 0.005; if (ok) { annots.push(d); saveAnnots(); } syncAnnot(); }
+    an.addEventListener("pointerup", finish);
+    an.addEventListener("pointercancel", finish);
+  }
+  function placeText(p) {
+    const inp = $("annotText"), an = $("annot"), r = an.getBoundingClientRect(), wrap = $("canvasWrap").getBoundingClientRect();
+    const px = p.x * curLay.img.w + curLay.img.x, py = p.y * curLay.img.h + curLay.img.y;
+    inp.style.left = (r.left - wrap.left + px * (r.width / an.width)) + "px";
+    inp.style.top = (r.top - wrap.top + py * (r.height / an.height)) + "px";
+    inp.style.color = annColor; inp.value = ""; inp.hidden = false; inp.focus();
+    const commit = () => {
+      inp.hidden = true; inp.onblur = null; inp.onkeydown = null;
+      const t = inp.value.trim();
+      if (t) { annots.push({ tool: "text", color: annColor, at: p, fontSize: Math.max(0.02, annSizeFrac * 4), text: t }); saveAnnots(); }
+      syncAnnot();
+    };
+    inp.onblur = commit;
+    inp.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); commit(); } else if (e.key === "Escape") { inp.hidden = true; inp.onblur = null; } };
+  }
+
+  // ── recent strip ──
   async function renderRecent() {
     const wrap = $("recent");
     for (const old of wrap.querySelectorAll(".thumb")) { URL.revokeObjectURL(old.src); old.remove(); }
@@ -362,7 +485,7 @@
       return;
     }
     try { S.validateRecord(r); } catch (e) { showEmpty("This shot is damaged and can't be opened."); return; }
-    rec = r;
+    rec = r; annots = Array.isArray(rec.annots) ? rec.annots : [];
     try { const a = await new Promise((res) => chrome.runtime.sendMessage({ type: "SHOT_TAB_ALIVE", id: rec.id }, (x) => res(chrome.runtime.lastError ? null : x))); tabAlive = !a || a.alive !== false; } catch (e) { tabAlive = true; }
     view = rec.layout === "original" ? "original" : rec.layout;
     for (const bn of $("fontSeg").querySelectorAll("button")) bn.classList.toggle("on", (bn.dataset.font || "") === (rec.font || ""));

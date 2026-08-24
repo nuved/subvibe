@@ -40,8 +40,28 @@
 
   <main class="body" id="editor">
     <section class="stage" id="stageWrap">
+      <div class="annotbar" id="annotBar" hidden>
+        <div class="annotbar__tools" id="annTools">
+          <button class="anntool on" data-tool="" title="Move / select (no drawing)">&#x2715;</button>
+          <button class="anntool" data-tool="pen" title="Pen">&#x270E;</button>
+          <button class="anntool" data-tool="highlight" title="Highlighter">&#x25AC;</button>
+          <button class="anntool" data-tool="text" title="Text">T</button>
+          <button class="anntool" data-tool="arrow" title="Arrow">&#x2197;</button>
+          <button class="anntool" data-tool="rect" title="Rectangle">&#x25AD;</button>
+        </div>
+        <div class="annotbar__colors" id="annColors"></div>
+        <label class="annotbar__size" title="Thickness"><input type="range" id="annSize" min="2" max="20" value="5" /></label>
+        <div class="annotbar__acts">
+          <button class="anntool" id="annUndo" title="Undo">&#x21B6;</button>
+          <button class="anntool" id="annClear" title="Clear all">&#x1F5D1;</button>
+        </div>
+      </div>
+      <div class="stage-canvaswrap" id="canvasWrap" hidden>
+        <canvas id="stage"></canvas>
+        <canvas id="annot"></canvas>
+        <input class="annot-textin" id="annotText" type="text" hidden autocomplete="off" spellcheck="false" />
+      </div>
       <div class="skeleton stage-skel" id="stageSkel"></div>
-      <canvas id="stage" hidden></canvas>
       <div class="empty-state" id="emptyState" hidden>No shots yet — right-click any page → Screenshot with SubVibe.</div>
     </section>
 
