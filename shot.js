@@ -158,7 +158,12 @@
     $("langBtnLabel").textContent = m[1];
     let active = -1, rows = [];
     function render(q) {
-      const codes = langOptions().filter((c) => { const mm = langMeta(c); return !q || mm[1].toLowerCase().includes(q) || c.toLowerCase().includes(q); });
+      const codes = langOptions().filter((c) => {
+        if (!q) return true;
+        const name = langMeta(c)[1].toLowerCase();
+        // match "germa" (prefix), "german" (contains), AND "germany" (query starts with the name — country vs language)
+        return name.includes(q) || q.startsWith(name) || c.toLowerCase().includes(q);
+      });
       list.textContent = ""; rows = [];
       if (!codes.length) { const e = document.createElement("div"); e.className = "langpick__empty"; e.textContent = "No match"; list.appendChild(e); return; }
       codes.forEach((c, i) => {
