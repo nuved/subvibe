@@ -202,7 +202,6 @@
   }
   async function retranslate(newTarget) {
     if (reshooting || !rec || !newTarget || newTarget === rec.target) return;
-    try { chrome.storage.local.set({ shotTarget: newTarget }); } catch (e) {} // remember the choice
     reshooting = true; setNote("Re-translating to " + langName(newTarget) + "…", "");
     const res = await new Promise((r) => chrome.runtime.sendMessage({ type: "SHOT_RETRANSLATE", id: rec.id, target: newTarget }, (x) => r(chrome.runtime.lastError ? null : x)));
     reshooting = false;

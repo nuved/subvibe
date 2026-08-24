@@ -1392,10 +1392,11 @@ let lastShotCaptureAt = 0;
 function hostOf(url) { try { return new URL(url).hostname; } catch { return ""; } }
 
 async function shotTarget() {
-  // Shot has its OWN remembered language (shotTarget), defaulting to the popup's
-  // subtitle language — so changing it for screenshots doesn't touch subtitles.
-  const { shotTarget: st, targets } = await chrome.storage.local.get(["shotTarget", "targets"]);
-  const target = st ? String(st) : (Array.isArray(targets) && targets.length ? String(targets[0]) : "");
+  // A new shot defaults to the popup's language (targets[0]). Picking another
+  // language in the editor re-translates THAT shot only — it does not change
+  // this default, so shots never get stuck on a one-off choice.
+  const { targets } = await chrome.storage.local.get("targets");
+  const target = Array.isArray(targets) && targets.length ? String(targets[0]) : "";
   return { target, targetName: target ? langName(target) : "" };
 }
 
