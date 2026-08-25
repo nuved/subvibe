@@ -40,8 +40,19 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 var(-
   background: radial-gradient(circle at 1px 1px, var(--border) 1px, transparent 0) 0 0 / 18px 18px; }
 .stage { position: relative; flex-direction: column; gap: 14px; }
 .stage-canvaswrap { position: relative; line-height: 0; max-width: 100%; }
-.stage-canvaswrap #stage { max-width: 100%; height: auto; display: block; }
+.stage-canvaswrap #stage { max-width: 100%; height: auto; display: block; transition: opacity .22s ease; }
 .stage-canvaswrap #annot { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
+/* Transition overlay: the current view stays fully visible underneath while the
+   next one renders — no blank flash, toolbar stays put. Fades in and out. */
+.stage-busy { position: absolute; inset: 0; z-index: 4; display: flex; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--surface) 42%, transparent); backdrop-filter: blur(1.5px);
+  opacity: 0; transition: opacity .2s ease; pointer-events: none; }
+.stage-busy.on { opacity: 1; }
+.stage-busy__box { display: inline-flex; align-items: center; gap: 9px; line-height: 1; font: 600 12.5px/1 var(--ui); color: var(--ink);
+  background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 8px 14px; box-shadow: var(--shadow-rest); }
+.stage-busy__spin { width: 15px; height: 15px; border: 2px solid var(--border); border-top-color: var(--coral-600); border-radius: 50%; animation: sv-shotspin .7s linear infinite; }
+@keyframes sv-shotspin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .stage-busy__spin { animation: none; } .stage-canvaswrap #stage { transition: none; } }
 .annot-textin { position: absolute; z-index: 3; border: 1px dashed var(--coral-600); background: rgba(255,255,255,.9); color: #111; padding: 2px 4px; font: 500 16px/1.2 var(--ui); border-radius: 3px; min-width: 40px; }
 .annotbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center; background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 6px 10px; box-shadow: var(--shadow-rest); }
 .annotbar__tools, .annotbar__acts { display: flex; gap: 3px; }
