@@ -46,6 +46,7 @@
   const ANN_COLORS = ["#F45D48", "#FFC53D", "#22C55E", "#3B82F6", "#111827", "#FFFFFF"];
   const edits = new Map();     // block id → edited translation
   let reshooting = false;
+  let lastRenderedView = null; // the view whose pixels are actually on the canvas
   let tabAlive = true; // re-set on load via SHOT_TAB_ALIVE
   let pendingFont = null; // set by the Font control to re-render with a new font
 
@@ -58,6 +59,11 @@
     const t = $("toast"); t.textContent = text; t.hidden = false;
     clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, 1800);
   }
+  // Transition overlay — the current view stays on screen (image + toolbar)
+  // while the next one renders, so there's no blank flash.
+  function showBusy(text) { const b = $("stageBusy"); if (b) { $("stageBusyLabel").textContent = text || "Rendering…"; b.classList.add("on"); } }
+  function hideBusy() { const b = $("stageBusy"); if (b) b.classList.remove("on"); }
+  const markViewButton = (v) => { for (const b of $("viewSeg").querySelectorAll("button")) b.classList.toggle("on", b.dataset.view === v); };
 
   // ── drawing ───────────────────────────────────────────────────────────────
   function roundRect(ctx, x, y, w, h, r) {
@@ -126,16 +132,15 @@
       const lay = drawFramed(canvas, bmp, 1); curLay = lay;
       canvas.style.width = Math.round(lay.width / (rec.dpr || 1)) + "px";
     }
-    canvas.style.opacity = captured ? "1" : ".3";
+    canvas.style.opacity = captured ? "1" : ".55";
+    if (captured) lastRenderedView = view;
     $("stageSkel").hidden = true; $("canvasWrap").hidden = false;
     setupAnnot(); $("annotBar").hidden = !captured; syncAnnot();
     for (const b of $("viewSeg").querySelectorAll("button")) b.classList.toggle("on", b.dataset.view === view);
     const vn = $("viewNote");
     if (captured && view === "original" && !isTranslated()) { vn.className = "note"; vn.textContent = "Original page — pick Translated or Bilingual to translate (uses your API key)."; }
-    else if (captured) { vn.className = "note"; vn.textContent = ""; }
-    else if (reshooting) { vn.className = "note"; vn.textContent = "Rendering the " + viewLabel(view) + " view on the page…"; }
-    else if (!tabAlive) { vn.className = "note warn"; vn.textContent = "Open the original tab to add the " + viewLabel(view) + " view."; }
-    else { vn.className = "note"; vn.textContent = "Rendering the " + viewLabel(view) + " view…"; }
+    else if (!captured && !tabAlive) { vn.className = "note warn"; vn.textContent = "Open the original tab to add the " + viewLabel(view) + " view."; }
+    else { vn.className = "note"; vn.textContent = ""; } // the busy overlay signals in-progress renders
     updateReshoot();
     for (const id of ["dlBtn", "copyBtn", "shareBtn"]) { const el = $(id); if (el) el.disabled = !captured; }
     $("fileNote").textContent = S.filename({ host: rec.host, ts: rec.ts, view, size: exp.size, format: exp.format });
@@ -224,10 +229,8 @@
     if (reshooting || !rec || !newTarget) return;
     if (newTarget === rec.target && isTranslated() && (!layout || viewBlob(layout))) return; // already there
     const want = layout === "bilingual" ? "bilingual" : "translated";
-    reshooting = true;
-    setNote("Translating to " + langName(newTarget) + "…", "");
-    { const vn = $("viewNote"); vn.className = "note"; vn.textContent = "Translating to " + langName(newTarget) + "…"; }
-    $("stage").style.opacity = ".3";
+    reshooting = true; markViewButton(want);
+    showBusy("Translating to " + langName(newTarget) + "…");
     const res = await new Promise((r) => chrome.runtime.sendMessage({ type: "SHOT_RETRANSLATE", id: rec.id, target: newTarget, layout: want }, (x) => r(chrome.runtime.lastError ? null : x)));
     reshooting = false;
     if (!res || !res.ok) {
@@ -235,27 +238,27 @@
       const msg = err === "tab-gone" ? "Open the original tab to translate, then try again."
         : err === "no-key" ? "Add an API key in the SubVibe popup to translate."
         : "Couldn't translate (" + err + "). Try again.";
-      setNote(msg, "warn");
-      $("stage").style.opacity = viewBlob(view) ? "1" : ".3";
-      await render();
+      if (lastRenderedView) view = lastRenderedView; // stay on the view that's showing
+      hideBusy(); setNote(msg, "warn"); markViewButton(view);
       return;
     }
     const fresh = await getShot(rec.id);
     if (fresh) { rec = fresh; try { S.validateRecord(rec); } catch (e) {} }
     edits.clear();
     clearBitmaps();
-    $("stage").style.opacity = "1";
     view = want;
     renderHeader(); renderBlocks(); await render();
+    hideBusy();
     toast("Now in " + langName(rec.target));
   }
   // Show a view, translating first if the shot has no translation yet.
   async function ensureView(v) {
     if (reshooting || !rec) return;
-    view = v;
     if (v !== "original") chrome.storage.local.set({ shotLayout: v });
-    await render();
-    if (viewBlob(v) || !tabAlive) return;           // cached, or render() already showed the note
+    if (viewBlob(v) || !tabAlive) { view = v; await render(); return; } // instant, or note (no tab)
+    // Renders on the page: keep the current image + toolbar visible; the busy
+    // overlay covers the wait and the new view fades in when it's ready.
+    view = v; markViewButton(v);
     if (v !== "original" && !isTranslated()) retranslate(rec.target, v); // first translation on demand
     else reshoot();                                  // render from text we already have
   }
@@ -303,37 +306,29 @@
     if (reshooting || !rec) return;
     const layout = view; // translated | bilingual | original — the view the user is on
     const font = pendingFont != null ? pendingFont : (rec.font || "");
+    const hadEdits = edits.size > 0;
     reshooting = true; updateReshoot();
-    { const vn = $("viewNote"); vn.className = "note"; vn.textContent = "Rendering the " + viewLabel(layout) + " view on the page…"; }
-    $("stage").style.opacity = ".3";
+    showBusy(hadEdits ? "Applying changes…" : "Rendering the " + viewLabel(layout) + " view…");
     const res = await new Promise((r) => chrome.runtime.sendMessage({ type: "SHOT_RESHOOT", id: rec.id, layout, blocks: [...edits].map(([id, tr]) => ({ id, tr })), font }, (x) => r(chrome.runtime.lastError ? null : x)));
     reshooting = false; pendingFont = null;
     const note = $("reshootNote");
     if (!res || !res.ok) {
       const err = (res && res.error) || "network";
       if (err === "tab-gone") tabAlive = false;
-      updateReshoot();
+      if (lastRenderedView) view = lastRenderedView; // stay on the view still on screen
+      hideBusy(); updateReshoot(); markViewButton(view);
       note.className = "note err";
       note.textContent = err === "tab-gone" ? "Original tab was closed — take a new shot to re-render."
         : err === "busy" ? "The original tab is still busy — try again in a moment."
         : "Re-shoot failed (" + err + "). Try again.";
-      // Restore the view: show whatever is cached (undimmed) and a clear note
-      // under the View toggle instead of a stuck "Rendering…".
-      $("stage").style.opacity = viewBlob(view) ? "1" : ".3";
-      const vn = $("viewNote"); vn.className = "note warn";
-      vn.textContent = viewBlob(view) ? ""
-        : err === "tab-gone" ? "Reopen the original tab to add the " + viewLabel(view) + " view."
-        : err === "busy" ? "The original tab is busy — click " + viewLabel(view) + " again in a moment."
-        : "Couldn't render the " + viewLabel(view) + " view — click it to retry.";
-      return;
+      return; // the view that was showing stays put — no blank
     }
     const fresh = await getShot(rec.id);
     if (fresh) { rec = fresh; try { S.validateRecord(rec); } catch (e) { /* keep showing what we have */ } }
-    const hadEdits = edits.size > 0;
     if (layout !== "original") edits.clear(); // Original re-shoot doesn't consume translation edits
     clearBitmaps();
-    $("stage").style.opacity = "1";
     renderHeader(); renderBlocks(); await render();
+    hideBusy();
     toast(res.missing ? "Rendered · " + res.missing + " block" + (res.missing === 1 ? "" : "s") + " no longer on the page"
       : hadEdits ? "Applied" : "Rendered");
   }
@@ -550,14 +545,14 @@
     ensureView(b.dataset.view);
   });
   $("frameSeg").addEventListener("click", (e) => {
-    const b = e.target.closest("button"); if (!b || !rec) return;
+    const b = e.target.closest("button"); if (!b || !rec || reshooting) return;
     frame.frame = b.dataset.frame === "plain" ? "plain" : "card";
     for (const x of $("frameSeg").querySelectorAll("button")) x.classList.toggle("on", x === b);
     chrome.storage.local.set({ shotFrame: frame }); render();
   });
-  $("badgeSw").addEventListener("change", () => { frame.badge = $("badgeSw").checked; chrome.storage.local.set({ shotFrame: frame }); render(); });
-  $("sizeSel").addEventListener("change", () => { exp.size = $("sizeSel").value; chrome.storage.local.set({ shotExport: exp }); render(); });
-  $("fmtSel").addEventListener("change", () => { exp.format = $("fmtSel").value; chrome.storage.local.set({ shotExport: exp }); render(); });
+  $("badgeSw").addEventListener("change", () => { if (reshooting) return; frame.badge = $("badgeSw").checked; chrome.storage.local.set({ shotFrame: frame }); render(); });
+  $("sizeSel").addEventListener("change", () => { if (reshooting) return; exp.size = $("sizeSel").value; chrome.storage.local.set({ shotExport: exp }); render(); });
+  $("fmtSel").addEventListener("change", () => { if (reshooting) return; exp.format = $("fmtSel").value; chrome.storage.local.set({ shotExport: exp }); render(); });
   $("fontSeg").addEventListener("click", async (e) => {
     const bn = e.target.closest("button"); if (!bn || !rec) return;
     const f = bn.dataset.font || "";

@@ -60,6 +60,9 @@
         <canvas id="stage"></canvas>
         <canvas id="annot"></canvas>
         <input class="annot-textin" id="annotText" type="text" hidden autocomplete="off" spellcheck="false" />
+        <div class="stage-busy" id="stageBusy" aria-live="polite">
+          <div class="stage-busy__box"><span class="stage-busy__spin"></span><span id="stageBusyLabel">Rendering…</span></div>
+        </div>
       </div>
       <div class="skeleton stage-skel" id="stageSkel"></div>
       <div class="empty-state" id="emptyState" hidden>No shots yet — right-click any page → Screenshot with SubVibe.</div>
