@@ -50,6 +50,7 @@
   let tabAlive = true; // re-set on load via SHOT_TAB_ALIVE
   let pendingFont = null; // set by the Font control to re-render with a new font
   let biLayout = "B";     // bilingual pairing: A block-under-block · B stacked pairs · C side-by-side columns
+  let biLineBoxes = [];   // per-line boxes (normalized to the paper) for the text-highlight tool
   const BI_RTL = /[֐-ࣿיִ-﷿ﹰ-﻿]/; // Hebrew/Arabic/Persian ranges
   let biFontP = null;     // bundled Vazirmatn for pretty RTL text on the pairs canvas
   function ensureBiFont() {
@@ -151,12 +152,12 @@
     const pairs = biPairs();
     const baseCss = Math.min(860, Math.max(560, Math.round((rec.rect && rec.rect.w) || 640)));
     const paperW = Math.round(baseCss * dpr);
-    const PAD = Math.round(26 * dpr);
+    const PAD = Math.round(28 * dpr);
     const innerW = paperW - PAD * 2;
-    const FS_O = Math.round(16.5 * dpr), FS_T = Math.round(14.5 * dpr);
-    const LH_O = Math.round(FS_O * 1.55), LH_T = Math.round(FS_T * 1.5);
-    const GAP_OT = Math.round(4 * dpr), GAP_PAIR = Math.round(16 * dpr), COL_GUT = Math.round(22 * dpr);
-    const INK = "#1f1c18", DE = "#2c6a64", LINE = "#e8e1d6"; // on the always-white paper
+    const FS_O = Math.round(17 * dpr), FS_T = Math.round(15.5 * dpr);
+    const LH_O = Math.round(FS_O * 1.58), LH_T = Math.round(FS_T * 1.5);
+    const GAP_OT = Math.round(5 * dpr), GAP_PAIR = Math.round(18 * dpr), COL_GUT = Math.round(24 * dpr);
+    const INK = "#1f1c18", DE = "#2c6a64", LINE = "#ebe4d9"; // on the always-white paper
     const useVazir = rec.font === "vazirmatn";
     const stack = (rtl) => (rtl || useVazir) ? '"SubVibe Vazirmatn", system-ui, -apple-system, sans-serif' : 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
     const oFont = (rtl) => "400 " + FS_O + "px " + stack(rtl);
@@ -234,6 +235,14 @@
       g.fillText(it.text, ox + it.x, oy + it.y);
     }
     g.restore();
+    // Per-line boxes (normalized to the paper) so the text-highlight tool can
+    // snap to whole lines instead of freehand smearing.
+    biLineBoxes = items.filter((it) => it.text).map((it) => {
+      mc.font = it.font; const w = mc.measureText(it.text).width;
+      const lh = it.font.indexOf(" " + FS_O + "px") >= 0 ? LH_O : LH_T;
+      const bx = it.align === "right" ? it.x - w : it.x;
+      return { x: (PAD + bx) / lay.img.w, y: (PAD + it.y) / lay.img.h, w: w / lay.img.w, h: lh / lay.img.h };
+    });
     return lay;
   }
   // The stored blob that renders a view, or null when it hasn't been rendered
@@ -268,7 +277,9 @@
     canvas.style.opacity = captured ? "1" : ".55";
     if (captured) lastRenderedView = view;
     $("stageSkel").hidden = true; $("canvasWrap").hidden = false;
-    setupAnnot(); $("annotBar").hidden = !captured; syncAnnot();
+    setupAnnot(); $("annotBar").hidden = !captured;
+    { const tm = $("annTextmark"); if (tm) tm.hidden = true; if (annTool === "textmark") { annTool = ""; for (const x of $("annTools").querySelectorAll("button")) x.classList.toggle("on", (x.dataset.tool||"") === ""); } }
+    syncAnnot();
     for (const b of $("viewSeg").querySelectorAll("button")) b.classList.toggle("on", b.dataset.view === view);
     const vn = $("viewNote");
     if (captured && view === "original" && !isTranslated()) { vn.className = "note"; vn.textContent = "Original page — pick Translated or Bilingual to translate (uses your API key)."; }
@@ -289,7 +300,9 @@
     canvas.style.opacity = "1";
     lastRenderedView = "bilingual";
     $("stageSkel").hidden = true; $("canvasWrap").hidden = false;
-    setupAnnot(); $("annotBar").hidden = false; syncAnnot();
+    setupAnnot(); $("annotBar").hidden = false;
+    { const tm = $("annTextmark"); if (tm) tm.hidden = false; }
+    syncAnnot();
     markViewButton("bilingual");
     for (const b of $("biBar").querySelectorAll("button")) b.classList.toggle("on", b.dataset.bi === biLayout);
     $("biPick").hidden = false;
@@ -595,6 +608,9 @@
         const bx = ctx.direction === "rtl" ? x - w : x;
         ctx.globalAlpha = 0.82; ctx.fillStyle = "#fff"; ctx.fillRect(bx - 4, y - 2, w + 8, fs + 6);
         ctx.globalAlpha = 1; ctx.fillStyle = col; ctx.fillText(a.text, x, y);
+      } else if (a.tool === "textmark") {
+        ctx.globalAlpha = 0.3; ctx.fillStyle = col;
+        for (const bx of a.boxes || []) { const [x, y] = annPt(bx, img); ctx.fillRect(x - 2, y - 1, bx.w * img.w + 4, bx.h * img.h + 1); }
       }
       ctx.restore();
     }
@@ -617,6 +633,12 @@
     const img = curLay.img;
     const nx = (px - img.x) / img.w, ny = (py - img.y) / img.h;
     return { x: Math.max(0, Math.min(1, nx)), y: Math.max(0, Math.min(1, ny)) };
+  }
+  // Line boxes the drag from a→b crosses vertically — the text-highlight snaps
+  // to whole lines (only meaningful on the bilingual card, where biLineBoxes is set).
+  function coveredBoxes(a, b) {
+    const minY = Math.min(a.y, b.y), maxY = Math.max(a.y, b.y);
+    return biLineBoxes.filter((bx) => bx.y < maxY + 0.002 && bx.y + bx.h > minY - 0.002);
   }
   let annBuilt = false, drawing = null;
   function setupAnnot() {
@@ -642,17 +664,19 @@
       if (!annTool || !curLay) return; e.preventDefault(); an.setPointerCapture(e.pointerId);
       const p = evToNorm(e);
       if (annTool === "text") { placeText(p); return; }
-      if (annTool === "pen" || annTool === "highlight") drawing = { tool: annTool, color: annColor, size: annSizeFrac, pts: [p] };
+      if (annTool === "textmark") { drawing = { tool: "textmark", color: annColor, a: p, boxes: coveredBoxes(p, p) }; }
+      else if (annTool === "pen" || annTool === "highlight") drawing = { tool: annTool, color: annColor, size: annSizeFrac, pts: [p] };
       else drawing = { tool: annTool, color: annColor, size: annSizeFrac, a: p, b: p };
     });
     an.addEventListener("pointermove", (e) => {
       if (!drawing) return;
       const p = evToNorm(e);
-      if (drawing.pts) drawing.pts.push(p); else drawing.b = p;
+      if (drawing.tool === "textmark") drawing.boxes = coveredBoxes(drawing.a, p);
+      else if (drawing.pts) drawing.pts.push(p); else drawing.b = p;
       const ctx = an.getContext("2d"); ctx.clearRect(0, 0, an.width, an.height); renderAnnots(ctx, curLay.img);
       annots.push(drawing); renderAnnots(ctx, curLay.img); annots.pop(); // preview the in-progress shape
     });
-    function finish() { if (!drawing) return; const d = drawing; drawing = null; const ok = d.pts ? d.pts.length > 1 : (Math.abs(d.a.x - d.b.x) + Math.abs(d.a.y - d.b.y)) > 0.005; if (ok) { annots.push(d); saveAnnots(); } syncAnnot(); }
+    function finish() { if (!drawing) return; const d = drawing; drawing = null; const ok = d.tool === "textmark" ? (d.boxes && d.boxes.length > 0) : d.pts ? d.pts.length > 1 : (Math.abs(d.a.x - d.b.x) + Math.abs(d.a.y - d.b.y)) > 0.005; if (ok) { annots.push(d); saveAnnots(); } syncAnnot(); }
     an.addEventListener("pointerup", finish);
     an.addEventListener("pointercancel", finish);
   }
