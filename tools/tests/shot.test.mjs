@@ -187,3 +187,16 @@ test("newId: unique-looking, url-safe", () => {
   assert.notEqual(a, b);
   assert.match(a, /^[a-z0-9]+-[a-z0-9]{6}$/);
 });
+
+test("splitSentences: sentence-aligned pairing input", () => {
+  assert.deepEqual(S.splitSentences("Hello world. How are you? I am fine!"),
+    ["Hello world.", "How are you?", "I am fine!"]);
+  // Persian: two sentences ending in Latin '.'
+  const fa = "من قبلاً مقایسه کردم، چون شباهت دیده می‌شود. احتمال وقوع را تصور می‌کنم.";
+  assert.equal(S.splitSentences(fa).length, 2);
+  // no terminator → one sentence; empty → none
+  assert.deepEqual(S.splitSentences("just one line"), ["just one line"]);
+  assert.deepEqual(S.splitSentences("   "), []);
+  // whitespace is normalized, terminators kept
+  assert.deepEqual(S.splitSentences("A.\n\nB."), ["A.", "B."]);
+});

@@ -77,6 +77,15 @@
           <button data-view="original">Original</button>
         </div>
         <div class="note" id="viewNote"></div>
+        <div class="bi-pick" id="biPick" hidden>
+          <span class="bi-pick__lbl">Pairing</span>
+          <div class="seg seg-sm" id="biBar" role="group" aria-label="Bilingual pairing">
+            <button data-bi="A" title="Whole original, then the whole translation">Blocks</button>
+            <button data-bi="B" title="Each sentence, then its translation">Pairs</button>
+            <button data-bi="C" title="Original and translation side by side">Columns</button>
+          </div>
+          <div class="note" id="biHint"></div>
+        </div>
       </div>
 
       <div class="group">

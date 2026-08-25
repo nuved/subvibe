@@ -63,6 +63,9 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 var(-
 .annswatch { width: 20px; height: 20px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; padding: 0; }
 .annswatch.on { border-color: var(--ink); }
 .annotbar__size input { width: 84px; accent-color: var(--coral-600); }
+.bi-pick { margin-top: 10px; display: grid; gap: 7px; }
+.bi-pick__lbl { font: 600 10px/1 var(--mono, ui-monospace); letter-spacing: .08em; text-transform: uppercase; color: var(--faint); }
+.seg-sm button { padding: 6px 4px; font-size: 12px; }
 .stage canvas { max-width: 100%; height: auto; display: block; }
 .stage-skel { width: min(560px, 100%); height: 400px; }
 .stage .empty-state { margin: auto; font-size: 15px; }

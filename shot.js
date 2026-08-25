@@ -49,6 +49,21 @@
   let lastRenderedView = null; // the view whose pixels are actually on the canvas
   let tabAlive = true; // re-set on load via SHOT_TAB_ALIVE
   let pendingFont = null; // set by the Font control to re-render with a new font
+  let biLayout = "B";     // bilingual pairing: A block-under-block · B stacked pairs · C side-by-side columns
+  const BI_RTL = /[֐-ࣿיִ-﷿ﹰ-﻿]/; // Hebrew/Arabic/Persian ranges
+  let biFontP = null;     // bundled Vazirmatn for pretty RTL text on the pairs canvas
+  function ensureBiFont() {
+    if (biFontP) return biFontP;
+    biFontP = (async () => {
+      try {
+        for (const [w, f] of [["400", "Vazirmatn-Regular.woff2"], ["700", "Vazirmatn-Bold.woff2"]]) {
+          const ff = new FontFace("SubVibe Vazirmatn", "url(" + chrome.runtime.getURL("fonts/" + f) + ")", { weight: w });
+          await ff.load(); document.fonts.add(ff);
+        }
+      } catch (e) { /* fall back to system fonts */ }
+    })();
+    return biFontP;
+  }
 
   const langName = (c) => (window.svLangMeta ? window.svLangMeta((c || "").split("-")[0])[1] : (c || "").toUpperCase());
   const code = (c) => (c || "").split("-")[0].toUpperCase();
@@ -104,6 +119,123 @@
     }
     return lay;
   }
+
+  // ── bilingual pairs card (generated, not a page screenshot) ────────────────
+  // Sentence pairs to render: per-sentence when we have them, else one pair per
+  // block (older shots translated before sentence-alignment existed).
+  function biPairs() {
+    const out = [];
+    for (const b of rec.blocks) {
+      if (Array.isArray(b.pairs) && b.pairs.length) {
+        for (const p of b.pairs) { const o = (p && p.o) || "", t = (p && p.t) || ""; if (o || t) out.push({ o, t }); }
+      } else if (b.tr) out.push({ o: b.text, t: b.tr });
+    }
+    return out;
+  }
+  const hasPairs = () => !!(rec && rec.blocks.some((b) => (Array.isArray(b.pairs) && b.pairs.length) || b.tr));
+  function wrapText(ctx, text, maxW) {
+    const words = String(text || "").split(/\s+/).filter(Boolean);
+    const lines = []; let cur = "";
+    for (const w of words) {
+      const test = cur ? cur + " " + w : w;
+      if (!cur || ctx.measureText(test).width <= maxW) cur = test;
+      else { lines.push(cur); cur = w; }
+    }
+    if (cur) lines.push(cur);
+    return lines.length ? lines : [""];
+  }
+  // Paints the sentence pairs as a clean reading card in layout A/B/C. Returns
+  // the frame layout (device px) so annotations can map onto it.
+  function drawPairsCard(canvas, scale) {
+    const dpr = (rec.dpr || 1) * scale;
+    const pairs = biPairs();
+    const baseCss = Math.min(860, Math.max(560, Math.round((rec.rect && rec.rect.w) || 640)));
+    const paperW = Math.round(baseCss * dpr);
+    const PAD = Math.round(26 * dpr);
+    const innerW = paperW - PAD * 2;
+    const FS_O = Math.round(16.5 * dpr), FS_T = Math.round(14.5 * dpr);
+    const LH_O = Math.round(FS_O * 1.55), LH_T = Math.round(FS_T * 1.5);
+    const GAP_OT = Math.round(4 * dpr), GAP_PAIR = Math.round(16 * dpr), COL_GUT = Math.round(22 * dpr);
+    const INK = "#1f1c18", DE = "#2c6a64", LINE = "#e8e1d6"; // on the always-white paper
+    const useVazir = rec.font === "vazirmatn";
+    const stack = (rtl) => (rtl || useVazir) ? '"SubVibe Vazirmatn", system-ui, -apple-system, sans-serif' : 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+    const oFont = (rtl) => "400 " + FS_O + "px " + stack(rtl);
+    const tFont = (rtl) => "400 " + FS_T + "px " + stack(rtl);
+
+    const mc = canvas.getContext("2d");
+    const items = []; // {text,x,y,font,color,align,dir} or {divider,y,x1,x2}
+    let contentH = 0;
+
+    if (biLayout === "C") {
+      const colW = Math.max(40, Math.floor((innerW - COL_GUT) / 2));
+      let y = 0;
+      pairs.forEach((p, i) => {
+        const oRtl = BI_RTL.test(p.o), tRtl = BI_RTL.test(p.t);
+        mc.font = oFont(oRtl); const oL = wrapText(mc, p.o, colW);
+        mc.font = tFont(tRtl); const tL = wrapText(mc, p.t, colW);
+        if (i) { items.push({ divider: true, y: Math.round(y - GAP_PAIR / 2), x1: 0, x2: innerW }); }
+        oL.forEach((ln, k) => items.push({ text: ln, x: innerW, y: y + k * LH_O, font: oFont(oRtl), color: INK, align: "right", dir: "rtl" }));
+        tL.forEach((ln, k) => items.push({ text: ln, x: 0, y: y + k * LH_T, font: tFont(tRtl), color: DE, align: "left", dir: "ltr" }));
+        y += Math.max(oL.length * LH_O, tL.length * LH_T) + GAP_PAIR;
+      });
+      contentH = Math.max(0, y - GAP_PAIR);
+    } else if (biLayout === "A") {
+      const oRtl = pairs.some((p) => BI_RTL.test(p.o)), oText = pairs.map((p) => p.o).join(" ");
+      const tText = pairs.map((p) => p.t).join(" "), tRtl = BI_RTL.test(tText);
+      let y = 0;
+      mc.font = oFont(oRtl); wrapText(mc, oText, innerW).forEach((ln, k) => items.push({ text: ln, x: oRtl ? innerW : 0, y: y + k * LH_O, font: oFont(oRtl), color: INK, align: oRtl ? "right" : "left", dir: oRtl ? "rtl" : "ltr" }));
+      y += wrapText(mc, oText, innerW).length * LH_O + Math.round(10 * dpr);
+      items.push({ divider: true, y: Math.round(y - 5 * dpr), x1: 0, x2: innerW }); y += Math.round(6 * dpr);
+      mc.font = tFont(tRtl); wrapText(mc, tText, innerW).forEach((ln, k) => items.push({ text: ln, x: tRtl ? innerW : 0, y: y + k * LH_T, font: tFont(tRtl), color: DE, align: tRtl ? "right" : "left", dir: tRtl ? "rtl" : "ltr" }));
+      y += wrapText(mc, tText, innerW).length * LH_T;
+      contentH = y;
+    } else { // "B" — stacked pairs
+      let y = 0;
+      pairs.forEach((p, i) => {
+        const oRtl = BI_RTL.test(p.o), tRtl = BI_RTL.test(p.t);
+        if (i) { items.push({ divider: true, y: Math.round(y - GAP_PAIR / 2), x1: 0, x2: innerW }); }
+        mc.font = oFont(oRtl); const oL = wrapText(mc, p.o, innerW);
+        oL.forEach((ln, k) => items.push({ text: ln, x: oRtl ? innerW : 0, y: y + k * LH_O, font: oFont(oRtl), color: INK, align: oRtl ? "right" : "left", dir: oRtl ? "rtl" : "ltr" }));
+        y += oL.length * LH_O + GAP_OT;
+        mc.font = tFont(tRtl); const tL = wrapText(mc, p.t, innerW);
+        tL.forEach((ln, k) => items.push({ text: ln, x: tRtl ? innerW : 0, y: y + k * LH_T, font: tFont(tRtl), color: DE, align: tRtl ? "right" : "left", dir: tRtl ? "rtl" : "ltr" }));
+        y += tL.length * LH_T + GAP_PAIR;
+      });
+      contentH = Math.max(0, y - GAP_PAIR);
+    }
+
+    const paperH = PAD * 2 + Math.max(contentH, LH_O);
+    const lay = S.frameLayout({ w: paperW, h: paperH, frame: frame.frame, badge: frame.badge, dpr });
+    canvas.width = lay.width; canvas.height = lay.height;
+    const g = canvas.getContext("2d");
+    if (frame.frame === "card") {
+      const grad = g.createLinearGradient(0, 0, lay.width, lay.height);
+      grad.addColorStop(0, cssVar("--frame-a")); grad.addColorStop(0.55, cssVar("--frame-b")); grad.addColorStop(1, cssVar("--frame-c"));
+      g.fillStyle = grad; g.fillRect(0, 0, lay.width, lay.height);
+      g.save(); g.shadowColor = "rgba(40,20,10,.28)"; g.shadowBlur = 28 * dpr; g.shadowOffsetY = 10 * dpr;
+      g.fillStyle = "#fff"; roundRect(g, lay.img.x, lay.img.y, lay.img.w, lay.img.h, lay.img.radius); g.fill(); g.restore();
+    } else {
+      g.fillStyle = "#fff"; roundRect(g, lay.img.x, lay.img.y, lay.img.w, lay.img.h, lay.img.radius); g.fill();
+    }
+    if (lay.badge) {
+      const label = "SUBVIBE · " + code(rec.source === "xx" ? "" : rec.source) + (rec.source === "xx" ? "" : " → ") + code(rec.target);
+      g.font = "600 " + Math.round(11 * dpr) + "px ui-monospace, Menlo, Consolas, monospace";
+      const tw = g.measureText(label).width, bw = tw + lay.badge.padX * 2, bh = lay.badge.h;
+      const bx = lay.badge.x - bw, by = lay.badge.y - bh / 2;
+      g.fillStyle = "rgba(255,255,255,.72)"; roundRect(g, bx, by, bw, bh, bh / 2); g.fill();
+      g.fillStyle = "#A93521"; g.textBaseline = "middle"; g.textAlign = "left";
+      g.fillText(label, bx + lay.badge.padX, by + bh / 2 + 0.5 * dpr);
+    }
+    g.save(); roundRect(g, lay.img.x, lay.img.y, lay.img.w, lay.img.h, lay.img.radius); g.clip();
+    const ox = lay.img.x + PAD, oy = lay.img.y + PAD;
+    for (const it of items) {
+      if (it.divider) { g.strokeStyle = LINE; g.lineWidth = Math.max(1, dpr); g.beginPath(); g.moveTo(ox + it.x1, oy + it.y + 0.5); g.lineTo(ox + it.x2, oy + it.y + 0.5); g.stroke(); continue; }
+      g.font = it.font; g.fillStyle = it.color; g.textAlign = it.align; g.textBaseline = "top"; g.direction = it.dir;
+      g.fillText(it.text, ox + it.x, oy + it.y);
+    }
+    g.restore();
+    return lay;
+  }
   // The stored blob that renders a view, or null when it hasn't been rendered
   // yet (fills in on first visit via re-shoot, then it's cached here forever).
   // `rec.views` is the per-view cache; the original/variant fields are the
@@ -122,6 +254,7 @@
 
   const viewLabel = (v) => ({ translated: "Translated", bilingual: "Bilingual", original: "Original" }[v] || v);
   async function render() {
+    if (view === "bilingual" && hasPairs()) return renderBilingual();
     const captured = !!viewBlob(view);
     // Show the view's own image if we have it, else a dimmed placeholder while
     // it renders (fall back to the primary layout, then Original).
@@ -143,6 +276,26 @@
     else { vn.className = "note"; vn.textContent = ""; } // the busy overlay signals in-progress renders
     updateReshoot();
     for (const id of ["dlBtn", "copyBtn", "shareBtn"]) { const el = $(id); if (el) el.disabled = !captured; }
+    $("biPick").hidden = true;
+    $("fileNote").textContent = S.filename({ host: rec.host, ts: rec.ts, view, size: exp.size, format: exp.format });
+  }
+  // Bilingual view: a generated pairs card (no blob, no tab). Switching the A/B/C
+  // layout just redraws — instant.
+  async function renderBilingual() {
+    await ensureBiFont();
+    const canvas = $("stage");
+    const lay = drawPairsCard(canvas, 1); curLay = lay;
+    canvas.style.width = Math.round(lay.width / (rec.dpr || 1)) + "px";
+    canvas.style.opacity = "1";
+    lastRenderedView = "bilingual";
+    $("stageSkel").hidden = true; $("canvasWrap").hidden = false;
+    setupAnnot(); $("annotBar").hidden = false; syncAnnot();
+    markViewButton("bilingual");
+    for (const b of $("biBar").querySelectorAll("button")) b.classList.toggle("on", b.dataset.bi === biLayout);
+    $("biPick").hidden = false;
+    const vn = $("viewNote"); vn.className = "note"; vn.textContent = "";
+    updateReshoot();
+    for (const id of ["dlBtn", "copyBtn", "shareBtn"]) { const el = $(id); if (el) el.disabled = false; }
     $("fileNote").textContent = S.filename({ host: rec.host, ts: rec.ts, view, size: exp.size, format: exp.format });
   }
 
@@ -255,6 +408,13 @@
   async function ensureView(v) {
     if (reshooting || !rec) return;
     if (v !== "original") chrome.storage.local.set({ shotLayout: v });
+    if (v === "bilingual") {
+      // Generated pairs card — no tab needed. Translate first if we have no pairs.
+      view = v; markViewButton(v);
+      if (hasPairs()) { await render(); return; }
+      if (rec.target) { retranslate(rec.target, "bilingual"); return; }
+      await render(); return;
+    }
     if (viewBlob(v) || !tabAlive) { view = v; await render(); return; } // instant, or note (no tab)
     // Renders on the page: keep the current image + toolbar visible; the busy
     // overlay covers the wait and the new view fades in when it's ready.
@@ -293,6 +453,12 @@
     note.className = "note";
     if (reshooting) { btn.disabled = true; note.textContent = "Rendering on the original tab…"; return; }
     const n = view === "original" ? 0 : edits.size; // edits are translations; they don't touch Original
+    if (view === "bilingual") { // the card redraws locally — no tab needed
+      btn.disabled = !n;
+      note.textContent = n ? n + (n === 1 ? " translation edited" : " translations edited") + " · apply to redraw the card."
+        : "Edit any translation above, then apply to redraw the card.";
+      return;
+    }
     if (!tabAlive) {
       btn.disabled = true; note.className = n ? "note warn" : "note";
       note.textContent = n ? "Open the original tab to apply your text changes." : "The original tab is closed — views already rendered still export.";
@@ -302,8 +468,24 @@
     if (n) note.textContent = n + (n === 1 ? " translation edited" : " translations edited") + " · apply to re-render this view.";
     else note.textContent = "Edit any translation above, then apply to re-render it.";
   }
+  // Bilingual is a generated card, so applying edited translations folds them
+  // back into the sentence pairs and redraws — no page re-shoot.
+  async function applyBilingualEdits() {
+    if (!edits.size) return;
+    for (const [id, tr] of edits) {
+      const b = rec.blocks.find((x) => x.id === id); if (!b) continue;
+      const oSents = S.splitSentences(b.text), tSents = S.splitSentences(tr);
+      b.tr = tr;
+      b.pairs = oSents.map((o, i) => ({ o, t: (oSents.length === tSents.length ? tSents[i] : (i === 0 ? tr : "")) || "" }));
+    }
+    edits.clear();
+    try { await putShot(rec); } catch (e) {}
+    renderBlocks(); await render();
+    toast("Applied");
+  }
   async function reshoot() {
     if (reshooting || !rec) return;
+    if (view === "bilingual") return applyBilingualEdits(); // card, not a page re-shoot
     const layout = view; // translated | bilingual | original — the view the user is on
     const font = pendingFont != null ? pendingFont : (rec.font || "");
     const hadEdits = edits.size > 0;
@@ -335,10 +517,11 @@
 
   // ── export ────────────────────────────────────────────────────────────────
   async function exportBlob(format) {
-    const bmp = await bitmapFor(view);
-    if (!bmp) return null; // view not rendered yet — export is disabled, but guard anyway
     const c = document.createElement("canvas");
-    const lay = drawFramed(c, bmp, S.exportScale(exp.size, rec.dpr || 1));
+    const scale = S.exportScale(exp.size, rec.dpr || 1);
+    let lay;
+    if (view === "bilingual" && hasPairs()) { await ensureBiFont(); lay = drawPairsCard(c, scale); }
+    else { const bmp = await bitmapFor(view); if (!bmp) return null; lay = drawFramed(c, bmp, scale); }
     renderAnnots(c.getContext("2d"), lay.img);
     const type = format === "jpeg" ? "image/jpeg" : "image/png";
     return new Promise((res) => c.toBlob((b) => res(b), type, 0.9));
@@ -511,8 +694,9 @@
   }
   async function load() {
     const id = new URLSearchParams(location.search).get("id") || "";
-    const prefs = await chrome.storage.local.get(["shotFrame", "shotExport"]);
+    const prefs = await chrome.storage.local.get(["shotFrame", "shotExport", "shotBilingual"]);
     if (prefs.shotFrame && typeof prefs.shotFrame === "object") frame = { frame: prefs.shotFrame.frame === "plain" ? "plain" : "card", badge: prefs.shotFrame.badge !== false };
+    if (["A", "B", "C"].includes(prefs.shotBilingual)) biLayout = prefs.shotBilingual;
     if (prefs.shotExport && typeof prefs.shotExport === "object") exp = { size: ["native", "2x", "1x", "half"].includes(prefs.shotExport.size) ? prefs.shotExport.size : "native", format: prefs.shotExport.format === "jpeg" ? "jpeg" : "png" };
     for (const b of $("frameSeg").querySelectorAll("button")) b.classList.toggle("on", b.dataset.frame === frame.frame);
     $("badgeSw").checked = frame.badge; $("sizeSel").value = exp.size; $("fmtSel").value = exp.format;
@@ -531,6 +715,8 @@
     rec = r; annots = Array.isArray(rec.annots) ? rec.annots : [];
     try { const a = await new Promise((res) => chrome.runtime.sendMessage({ type: "SHOT_TAB_ALIVE", id: rec.id }, (x) => res(chrome.runtime.lastError ? null : x))); tabAlive = !a || a.alive !== false; } catch (e) { tabAlive = true; }
     view = rec.layout === "original" ? "original" : rec.layout;
+    if (view === "bilingual" && !hasPairs()) view = "original"; // nothing to pair yet
+    if (view === "bilingual") ensureBiFont();
     for (const bn of $("fontSeg").querySelectorAll("button")) bn.classList.toggle("on", (bn.dataset.font || "") === (rec.font || ""));
     document.title = "SubVibe Shot · " + (rec.title || rec.host);
     renderHeader(); renderBlocks();
@@ -543,6 +729,17 @@
     // ensureView translates on demand (if the shot has no translation yet) and
     // renders once on the page, then it's cached and every later switch is instant.
     ensureView(b.dataset.view);
+  });
+  // Bilingual pairing layout — switching just redraws the card (instant) and
+  // saves the choice as the default for future shots.
+  $("biBar").addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b || !rec) return;
+    const v = b.dataset.bi; if (!["A", "B", "C"].includes(v) || v === biLayout) return;
+    biLayout = v;
+    try { chrome.storage.local.set({ shotBilingual: v }); } catch (er) {}
+    for (const x of $("biBar").querySelectorAll("button")) x.classList.toggle("on", x === b);
+    const hint = $("biHint"); if (hint) hint.textContent = "Saved as your default.";
+    if (view === "bilingual") renderBilingual();
   });
   $("frameSeg").addEventListener("click", (e) => {
     const b = e.target.closest("button"); if (!b || !rec || reshooting) return;
@@ -560,6 +757,7 @@
     for (const x of $("fontSeg").querySelectorAll("button")) x.classList.toggle("on", x === bn);
     try { chrome.storage.local.set({ shotFont: f }); } catch (er) {} // remember for next shots
     rec.font = f; try { await putShot(rec); } catch (er) {} // persist so the next render (here or on first translate) uses it
+    if (view === "bilingual") { await ensureBiFont(); renderBilingual(); return; } // the card redraws instantly
     if (!isTranslated()) { setNote("The font applies to translated text \u2014 pick Translated or Bilingual first.", ""); return; }
     if (!tabAlive) { setNote("Open the original tab to change the font.", "warn"); return; }
     if (view === "original") view = rec.layout === "original" ? "translated" : rec.layout;
