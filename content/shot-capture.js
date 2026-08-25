@@ -399,22 +399,6 @@
     return i;
   }
 
-  async function translateLines(lines) {
-    for (;;) {
-      const res = await send({ type: "SHOT_TRANSLATE", lines });
-      if (res && res.ok) return res;
-      const err = (res && res.error) || "network";
-      // No key / no language is NOT an error for a screenshot tool — just shoot
-      // the page as-is (original), and tell the user in the editor how to enable
-      // translation. Only a real API failure is worth interrupting for.
-      if (err === "no-key" || err === "no-target") return { noKey: true, reason: err };
-      const a = await ask("Translation failed" + (String(err).startsWith("http-") ? " (" + err.slice(5) + ")" : "") + ".",
-        [["Retry", "retry", true], ["Shoot without translation", "plain", false]]);
-      if (a === "retry") continue;
-      return a === "plain" ? null : "cancel";
-    }
-  }
-
   const armEsc = () => { escHandler = (e) => { if (e.key === "Escape") { aborted = true; } }; window.addEventListener("keydown", escHandler, true); };
 
   // Height a pass actually covered, so an inner-scroll page that wouldn't move
@@ -430,66 +414,23 @@
     maxReachedY = scroll0.y;
     // Provisional rect for BEGIN + block collection (full = whole doc, pre-swap).
     const baseRect = mode === "full" ? { x: rect0.x, y: 0, w: rect0.w, h: docHeight() } : rect0;
-    const begin = await send({ type: "SHOT_BEGIN", url: location.href, title: document.title, mode, layout, rect: baseRect, dpr: devicePixelRatio, scrollX: scroll0.x, viewport: { w: innerWidth, h: innerHeight }, docH: docHeight() });
+    const begin = await send({ type: "SHOT_BEGIN", url: location.href, title: document.title, mode, layout: "original", rect: baseRect, dpr: devicePixelRatio, scrollX: scroll0.x, viewport: { w: innerWidth, h: innerHeight }, docH: docHeight() });
     if (!begin || !begin.ok) { toast("Capture failed — try again.", 3000); return; }
+    // Capture the ORIGINAL page only — no translation, no API call at capture.
+    // The editor translates on demand (Translated / Bilingual / a language pick),
+    // so every shot is free and instant and the user sees the real page first.
+    // Blocks (original text + rects) ride along so the editor can translate later.
     const raw = collectBlocks(baseRect);
     const prep = S().prepBlocks(raw.map((b) => ({ id: b.id, text: b.text, rect: b.rect })));
     const byId = new Map(raw.map((b) => [b.id, b]));
-    armEsc(); // catch Esc during the translate wait too, not only during tiles
-    let tr = null, note = "", partial = false;
-    if (prep.lines.length) {
-      setPill("Translating " + prep.lines.length + " blocks…", 0);
-      const t = await translateLines(prep.lines);
-      setPill("");
-      if (t === "cancel" || aborted) { await send({ type: "SHOT_ABORT" }); return; }
-      if (t && t.sameLang) note = "same";
-      else if (t && t.noKey) note = "no-key"; // shoot the original; translation needs a key/language
-      else if (t && t.ok) { tr = t.tr; partial = !!t.partial; }
-    }
-    const mapped = S().mapTranslations(prep.keep, prep.lineOf, tr || []);
-    const blocks = mapped.blocks.map((b) => { const live = byId.get(b.id); return { id: b.id, text: b.text, tr: tr ? b.tr : "", rect: b.rect, el: live.el, nodes: live.nodes }; });
-    const fontFamily = tr && font ? await ensureShotFont(font) : null;
-    // Two passes (original + translated) only when the shot fits one viewport;
-    // multi-tile shots capture ONLY the chosen layout (Original via re-shoot) to
-    // halve the rate-limited captures. The variant pass is planned AFTER the swap
-    // so bilingual/longer-text reflow can't push content past the last tile.
-    // Two passes (instant Original↔Translated toggle) only for a single-viewport
-    // TRANSLATED shot: bilingual reliably reflows taller, so it's always
-    // single-pass (planned after the swap). `passes` may still drop to
-    // variant-only below if a translated swap grows the page past its plan.
-    const twoPass = tr && layout === "translated" && planPass(baseRect, mode).offsets.length === 1;
-    let passes = tr ? (twoPass ? ["original", "variant"] : ["variant"]) : ["original"];
+    const mapped = S().mapTranslations(prep.keep, prep.lineOf, []); // tr = "" for every block
+    const blocks = mapped.blocks.map((b) => { const live = byId.get(b.id); return { id: b.id, text: b.text, tr: "", rect: b.rect, el: live.el, nodes: live.nodes }; });
+    armEsc();
     let effRect = baseRect, effCut = false;
     try {
-      if (!tr) {
-        const pl = planPass(baseRect, mode); effRect = pl.rect;
-        const n = await shootPass("original", pl.offsets, 0, pl.offsets.length);
-        const c = coveredRect(pl.rect, n, pl.offsets.length); effRect = c.rect; effCut = pl.truncated || c.cut;
-      } else if (twoPass) {
-        const plPre = planPass(baseRect, mode); effRect = plPre.rect;
-        await shootPass("original", plPre.offsets, 0, plPre.offsets.length * 2);
-        swap(layout, blocks, target, fontFamily);
-        if (verifySwap(blocks) < 0.9) { unswap(); swap(layout, blocks, target, fontFamily); }
-        if (verifySwap(blocks) < 0.9) partial = true;
-        const plVar = planPass(baseRect, mode); // re-plan from the swapped layout
-        if (plVar.offsets.length > plPre.offsets.length) {
-          // The translation reflowed the page past its one-tile plan: the two
-          // views now differ in height. Keep only the (correct) translated
-          // layout; the Original view renders on demand via re-shoot.
-          passes = ["variant"];
-          const n = await shootPass("variant", plVar.offsets, 0, plVar.offsets.length);
-          const c = coveredRect(plVar.rect, n, plVar.offsets.length); effRect = c.rect; effCut = plVar.truncated || c.cut;
-        } else {
-          await shootPass("variant", plPre.offsets, plPre.offsets.length, plPre.offsets.length * 2);
-        }
-      } else {
-        swap(layout, blocks, target, fontFamily);
-        if (verifySwap(blocks) < 0.9) { unswap(); swap(layout, blocks, target, fontFamily); }
-        if (verifySwap(blocks) < 0.9) partial = true;
-        const pl = planPass(grownAreaRect(baseRect, blocks, mode), mode); // post-swap layout, grown to fit added lines
-        const n = await shootPass("variant", pl.offsets, 0, pl.offsets.length);
-        const c = coveredRect(pl.rect, n, pl.offsets.length); effRect = c.rect; effCut = pl.truncated || c.cut;
-      }
+      const pl = planPass(baseRect, mode); effRect = pl.rect;
+      const n = await shootPass("original", pl.offsets, 0, pl.offsets.length);
+      const c = coveredRect(pl.rect, n, pl.offsets.length); effRect = c.rect; effCut = pl.truncated || c.cut;
     } catch (e) {
       restore(); setPill("");
       await send({ type: "SHOT_ABORT" });
@@ -498,7 +439,7 @@
     } finally { restore(); }
     const truncated = prep.truncated || (effCut ? "height" : "");
     setPill("Saving…", 1);
-    const res = await send({ type: "SHOT_COMPOSE", rect: effRect, blocks: blocks.map((b) => ({ id: b.id, text: b.text, tr: b.tr, rect: b.rect })), partial, truncated, passes, sameLang: note === "same", noKey: note === "no-key", font: font || "" });
+    const res = await send({ type: "SHOT_COMPOSE", rect: effRect, blocks: blocks.map((b) => ({ id: b.id, text: b.text, tr: b.tr, rect: b.rect })), partial: false, truncated, passes: ["original"], sameLang: false, noKey: false, font: font || "" });
     setPill("");
     if (!res || !res.ok) { toast("Couldn't save the shot. Try again.", 3500); return; }
     toast("Shot saved — opening editor…", 1800);

@@ -131,7 +131,8 @@
     setupAnnot(); $("annotBar").hidden = !captured; syncAnnot();
     for (const b of $("viewSeg").querySelectorAll("button")) b.classList.toggle("on", b.dataset.view === view);
     const vn = $("viewNote");
-    if (captured) { vn.className = "note"; vn.textContent = ""; }
+    if (captured && view === "original" && !isTranslated()) { vn.className = "note"; vn.textContent = "Original page — pick Translated or Bilingual to translate (uses your API key)."; }
+    else if (captured) { vn.className = "note"; vn.textContent = ""; }
     else if (reshooting) { vn.className = "note"; vn.textContent = "Rendering the " + viewLabel(view) + " view on the page…"; }
     else if (!tabAlive) { vn.className = "note warn"; vn.textContent = "Open the original tab to add the " + viewLabel(view) + " view."; }
     else { vn.className = "note"; vn.textContent = "Rendering the " + viewLabel(view) + " view…"; }
@@ -204,7 +205,7 @@
     function open() { pop.hidden = false; btn.setAttribute("aria-expanded", "true"); search.value = ""; render(""); search.focus(); document.addEventListener("mousedown", onDoc, true); }
     function close() { pop.hidden = true; btn.setAttribute("aria-expanded", "false"); document.removeEventListener("mousedown", onDoc, true); }
     function onDoc(e) { if (!wrap.contains(e.target)) close(); }
-    function choose(c) { close(); if (c !== rec.target) retranslate(c); }
+    function choose(c) { close(); retranslate(c, view === "original" ? "translated" : view); }
     btn.onclick = () => (pop.hidden ? open() : close());
     search.oninput = () => render(search.value.trim().toLowerCase());
     search.onkeydown = (e) => {
@@ -214,27 +215,49 @@
       else if (e.key === "Enter") { e.preventDefault(); const r = rows[active]; if (r) choose(r.dataset.code); }
     };
   }
-  async function retranslate(newTarget) {
-    if (reshooting || !rec || !newTarget || newTarget === rec.target) return;
-    reshooting = true; setNote("Re-translating to " + langName(newTarget) + "…", "");
-    const res = await new Promise((r) => chrome.runtime.sendMessage({ type: "SHOT_RETRANSLATE", id: rec.id, target: newTarget }, (x) => r(chrome.runtime.lastError ? null : x)));
+  const isTranslated = () => !!(rec && rec.blocks.some((b) => b.tr));
+  // Translate the shot's original text to `newTarget` and render it as `layout`
+  // (translated | bilingual). This is the ONLY place a shot spends an API call —
+  // capture no longer translates. Used for the first translation (target ==
+  // current) and for language changes (target differs).
+  async function retranslate(newTarget, layout) {
+    if (reshooting || !rec || !newTarget) return;
+    if (newTarget === rec.target && isTranslated() && (!layout || viewBlob(layout))) return; // already there
+    const want = layout === "bilingual" ? "bilingual" : "translated";
+    reshooting = true;
+    setNote("Translating to " + langName(newTarget) + "…", "");
+    { const vn = $("viewNote"); vn.className = "note"; vn.textContent = "Translating to " + langName(newTarget) + "…"; }
+    $("stage").style.opacity = ".3";
+    const res = await new Promise((r) => chrome.runtime.sendMessage({ type: "SHOT_RETRANSLATE", id: rec.id, target: newTarget, layout: want }, (x) => r(chrome.runtime.lastError ? null : x)));
     reshooting = false;
     if (!res || !res.ok) {
       const err = (res && res.error) || "network";
-      const msg = err === "tab-gone" ? "Open the original tab to change the language, then try again."
+      const msg = err === "tab-gone" ? "Open the original tab to translate, then try again."
         : err === "no-key" ? "Add an API key in the SubVibe popup to translate."
-        : "Couldn't re-translate (" + err + "). Try again.";
+        : "Couldn't translate (" + err + "). Try again.";
       setNote(msg, "warn");
+      $("stage").style.opacity = viewBlob(view) ? "1" : ".3";
+      await render();
       return;
     }
     const fresh = await getShot(rec.id);
     if (fresh) { rec = fresh; try { S.validateRecord(rec); } catch (e) {} }
     edits.clear();
     clearBitmaps();
-    if (view === "original") view = rec.layout === "original" ? "translated" : rec.layout;
-    else view = rec.layout;
+    $("stage").style.opacity = "1";
+    view = want;
     renderHeader(); renderBlocks(); await render();
     toast("Now in " + langName(rec.target));
+  }
+  // Show a view, translating first if the shot has no translation yet.
+  async function ensureView(v) {
+    if (reshooting || !rec) return;
+    view = v;
+    if (v !== "original") chrome.storage.local.set({ shotLayout: v });
+    await render();
+    if (viewBlob(v) || !tabAlive) return;           // cached, or render() already showed the note
+    if (v !== "original" && !isTranslated()) retranslate(rec.target, v); // first translation on demand
+    else reshoot();                                  // render from text we already have
   }
   function setNote(text, cls) {
     const bar = $("noteBar"); bar.hidden = !text; bar.textContent = text || ""; bar.className = "notebar" + (cls ? " " + cls : "");
@@ -520,14 +543,11 @@
     renderRecent();
   }
 
-  $("viewSeg").addEventListener("click", async (e) => {
+  $("viewSeg").addEventListener("click", (e) => {
     const b = e.target.closest("button"); if (!b || !rec || reshooting) return;
-    view = b.dataset.view;
-    if (view !== "original") chrome.storage.local.set({ shotLayout: view });
-    await render();
-    // First visit to a view that wasn't captured up front: render it once on the
-    // page, then it's cached and every later switch is instant.
-    if (!viewBlob(view) && tabAlive) reshoot();
+    // ensureView translates on demand (if the shot has no translation yet) and
+    // renders once on the page, then it's cached and every later switch is instant.
+    ensureView(b.dataset.view);
   });
   $("frameSeg").addEventListener("click", (e) => {
     const b = e.target.closest("button"); if (!b || !rec) return;
@@ -538,12 +558,14 @@
   $("badgeSw").addEventListener("change", () => { frame.badge = $("badgeSw").checked; chrome.storage.local.set({ shotFrame: frame }); render(); });
   $("sizeSel").addEventListener("change", () => { exp.size = $("sizeSel").value; chrome.storage.local.set({ shotExport: exp }); render(); });
   $("fmtSel").addEventListener("change", () => { exp.format = $("fmtSel").value; chrome.storage.local.set({ shotExport: exp }); render(); });
-  $("fontSeg").addEventListener("click", (e) => {
+  $("fontSeg").addEventListener("click", async (e) => {
     const bn = e.target.closest("button"); if (!bn || !rec) return;
     const f = bn.dataset.font || "";
     if (f === (rec.font || "")) return;
     for (const x of $("fontSeg").querySelectorAll("button")) x.classList.toggle("on", x === bn);
     try { chrome.storage.local.set({ shotFont: f }); } catch (er) {} // remember for next shots
+    rec.font = f; try { await putShot(rec); } catch (er) {} // persist so the next render (here or on first translate) uses it
+    if (!isTranslated()) { setNote("The font applies to translated text \u2014 pick Translated or Bilingual first.", ""); return; }
     if (!tabAlive) { setNote("Open the original tab to change the font.", "warn"); return; }
     if (view === "original") view = rec.layout === "original" ? "translated" : rec.layout;
     pendingFont = f; setNote("Applying " + (f ? "Vazirmatn" : "the site font") + "\u2026", ""); reshoot();
