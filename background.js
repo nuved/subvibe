@@ -1736,7 +1736,7 @@ async function shotRetranslate(msg, sender) {
   // in flight) — clear any stale session so the re-shoot's busy-guard can't
   // block it.
   shotSessions.delete(rec.tabId);
-  const layout = rec.layout === "bilingual" ? "bilingual" : "translated";
+  const layout = msg.layout === "bilingual" ? "bilingual" : "translated";
   return await shotReshoot({ id: rec.id, layout, blocks: edits, font: rec.font || "" }, sender);
 }
 
