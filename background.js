@@ -1625,7 +1625,7 @@ async function shotReshoot(msg, sender) {
   const editorTab = sender && sender.tab ? sender.tab.id : null;
   const back = async () => { if (editorTab != null) { try { await chrome.tabs.update(editorTab, { active: true }); } catch {} } };
   const edits = new Map((Array.isArray(msg.blocks) ? msg.blocks : []).map((b) => [String(b && b.id), String((b && b.tr) || "")]));
-  const blocks = rec.blocks.map((b) => ({ id: b.id, text: b.text, tr: edits.has(b.id) ? edits.get(b.id) : b.tr, rect: b.rect }));
+  const blocks = rec.blocks.map((b) => ({ id: b.id, text: b.text, tr: edits.has(b.id) ? edits.get(b.id) : b.tr, rect: b.rect, pairs: b.pairs }));
   const layout = msg.layout === "bilingual" ? "bilingual" : msg.layout === "original" ? "original" : "translated";
   const font = typeof msg.font === "string" ? msg.font : (rec.font || "");
   const rect = rec.rect || { x: 0, y: 0, w: rec.w, h: rec.h };
@@ -1703,12 +1703,19 @@ async function shotRetranslate(msg, sender) {
   if (!rec) return { ok: false, error: "gone" };
   const newTarget = String(msg.target || "");
   if (!newTarget) return { ok: false, error: "no-target" };
+  const wantBilingual = msg.layout === "bilingual";
+  // Bilingual is a generated card (drawn in the editor from sentence pairs) — it
+  // needs no tab. Translated re-renders the page, so it needs the source tab.
   let tab = null;
   try { tab = await chrome.tabs.get(rec.tabId); } catch { tab = null; }
-  if (!tab || (tab.url || "") !== rec.url) return { ok: false, error: "tab-gone" };
-  const texts = (rec.blocks || []).map((x) => x.text);
-  if (!texts.length) { rec.target = newTarget; await shotPut(rec); return { ok: true, empty: true }; }
-  const uniq = [...new Set(texts)];
+  const tabOk = !!tab && (tab.url || "") === rec.url;
+  if (!wantBilingual && !tabOk) return { ok: false, error: "tab-gone" };
+  if (!(rec.blocks || []).length) { rec.target = newTarget; await shotPut(rec); return { ok: true, empty: true }; }
+  // Split each block into sentences and translate per-sentence, so the bilingual
+  // card can pair each original sentence with its own translation.
+  const blockSents = rec.blocks.map((b) => SV_SHOT.splitSentences(b.text));
+  const uniq = [...new Set(blockSents.flat())];
+  if (!uniq.length) { rec.target = newTarget; await shotPut(rec); return { ok: true, empty: true }; }
   const started = Date.now();
   const meta = { ts: started, site: "shot", title: "Retranslate: " + (rec.title || "").slice(0, 50), kind: "shot", lines: uniq.length };
   let out;
@@ -1724,20 +1731,20 @@ async function shotRetranslate(msg, sender) {
     return { ok: false, error: http ? "http-" + http[1] : "network", detail: m };
   }
   const map = new Map(uniq.map((t, i) => [t, String(out[i] || "")]));
-  const edits = rec.blocks.map((x) => ({ id: x.id, tr: map.get(x.text) || "" }));
-  // New language ⇒ the cached translated / bilingual views are stale; drop them
-  // so each re-renders in the new language on next visit (Original is untouched).
+  // New language ⇒ cached translated / bilingual raster views are stale.
   if (rec.views && typeof rec.views === "object") { delete rec.views.translated; delete rec.views.bilingual; }
   rec.target = newTarget; rec.noKey = false; rec.sameLang = false;
-  rec.blocks = rec.blocks.map((x) => ({ ...x, tr: map.get(x.text) || x.tr }));
+  rec.blocks = rec.blocks.map((b, i) => {
+    const pairs = blockSents[i].map((o) => ({ o, t: map.get(o) || "" }));
+    const tr = pairs.map((p) => p.t).filter(Boolean).join(" ");
+    return { ...b, tr, pairs };
+  });
   await shotPut(rec);
-  // Re-render the translated (or bilingual) layout with the new translations.
-  // This is a deliberate editor action (source tab is backgrounded, no capture
-  // in flight) — clear any stale session so the re-shoot's busy-guard can't
-  // block it.
+  if (wantBilingual) return { ok: true }; // editor draws the pairs card from rec.blocks
+  // Translated: render the page in the target language (needs the tab).
   shotSessions.delete(rec.tabId);
-  const layout = msg.layout === "bilingual" ? "bilingual" : "translated";
-  return await shotReshoot({ id: rec.id, layout, blocks: edits, font: rec.font || "" }, sender);
+  const edits = rec.blocks.map((x) => ({ id: x.id, tr: x.tr }));
+  return await shotReshoot({ id: rec.id, layout: "translated", blocks: edits, font: rec.font || "" }, sender);
 }
 
 if (chrome.commands && chrome.commands.onCommand) {

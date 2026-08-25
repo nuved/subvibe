@@ -103,6 +103,17 @@
     return RTL.has(base);
   }
 
+  // Split a paragraph into sentences for pair-by-pair bilingual rendering.
+  // Keeps trailing terminators; handles Latin, Persian/Arabic and CJK marks.
+  // Never returns empties; a paragraph with no terminator is one sentence.
+  function splitSentences(text) {
+    const t = normText(text);
+    if (!t) return [];
+    const parts = t.match(/[^.!?…؟۔۔।。！？]+[.!?…؟۔।。！？]+(?=\s|$)|[^.!?…؟۔।。！？]+$/gu) || [t];
+    const out = parts.map((s) => s.trim()).filter(Boolean);
+    return out.length ? out : [t];
+  }
+
   // Geometry (device px) of the exported picture: the bare capture, or a
   // padded card with rounded corners and a small badge under the image.
   function frameLayout(o) {
@@ -164,7 +175,7 @@
 
   g.SV_SHOT = {
     MAX_BLOCKS, MAX_CHARS, MAX_TILES, MIN_WORDS_BILINGUAL, CAPTURE_GAP_MS,
-    planTiles, stitchLayout, prepBlocks, mapTranslations, isBilingualBlock, isRtl,
+    planTiles, stitchLayout, prepBlocks, mapTranslations, isBilingualBlock, isRtl, splitSentences,
     frameLayout, filename, exportScale, validateRecord, newId,
   };
 })(globalThis);
