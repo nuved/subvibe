@@ -288,7 +288,7 @@
         if (fontFamily) span.style.setProperty("font-family", fontFamily, "important");
         const last = nodes[nodes.length - 1];
         last.parentNode.insertBefore(span, last.nextSibling);
-        inserted.push(span);
+        inserted.push(span); b.trEl = span; // measured to grow area shots past the added line
         b.check = () => span.isConnected && span.textContent === b.tr;
       } else {
         const main = nodes.reduce((a, x) => (x.data.length > a.data.length ? x : a));
@@ -342,6 +342,29 @@
   // Plan tiles from the CURRENT layout. For "full" the height is re-read live,
   // so a pass planned AFTER the translation swap covers any reflow growth
   // (bilingual adds a line under each block; longer languages grow paragraphs).
+  // Area shots have a fixed dragged height. A swap that reflows taller (bilingual
+  // adds a translated line under each block; a longer translation wraps to more
+  // lines) pushes text past the box and clips it. Grow the rect's bottom to the
+  // swapped content — measured from the live text nodes plus the inserted
+  // second-language span — capped at the document end. Only ever grows, never
+  // shrinks; full-page shots re-read docHeight already, so they're left alone.
+  function grownAreaRect(baseRect, blocks, mode) {
+    if (mode === "full") return baseRect;
+    let bottom = -Infinity;
+    for (const b of blocks || []) {
+      if (!b || !b.tr) continue;
+      for (const n of b.nodes || []) {
+        if (!n.isConnected || !n.data) continue;
+        const range = document.createRange(); range.selectNodeContents(n);
+        const u = unionRects(range.getClientRects());
+        if (u) bottom = Math.max(bottom, u.y + u.h);
+      }
+      if (b.trEl && b.trEl.isConnected) { const r = b.trEl.getBoundingClientRect(); if (r.height) bottom = Math.max(bottom, r.bottom + scrollY); }
+    }
+    if (bottom === -Infinity) return baseRect;
+    const want = Math.min(bottom + 8, docHeight());
+    return { x: baseRect.x, y: baseRect.y, w: baseRect.w, h: Math.max(baseRect.h, want - baseRect.y) };
+  }
   function planPass(baseRect, mode) {
     const vh = innerHeight, docH = docHeight(), maxScroll = Math.max(0, docH - vh);
     const rect = mode === "full" ? { x: baseRect.x, y: 0, w: baseRect.w, h: docH } : baseRect;
@@ -463,7 +486,7 @@
         swap(layout, blocks, target, fontFamily);
         if (verifySwap(blocks) < 0.9) { unswap(); swap(layout, blocks, target, fontFamily); }
         if (verifySwap(blocks) < 0.9) partial = true;
-        const pl = planPass(baseRect, mode); // post-swap layout
+        const pl = planPass(grownAreaRect(baseRect, blocks, mode), mode); // post-swap layout, grown to fit added lines
         const n = await shootPass("variant", pl.offsets, 0, pl.offsets.length);
         const c = coveredRect(pl.rect, n, pl.offsets.length); effRect = c.rect; effCut = pl.truncated || c.cut;
       }
@@ -538,7 +561,9 @@
           if (verifySwap(blocks) < 0.9) { unswap(); swap(msg.layout, blocks, msg.target, fontFamily); }
           if (verifySwap(blocks) < 0.9) partial = true;
         }
-        const pl = planPass(msg.rect, mode); effRect = pl.rect;
+        // Grow an area shot past a taller re-render (e.g. bilingual adds a line
+        // per block) so the added second language isn't clipped.
+        const pl = planPass(original ? msg.rect : grownAreaRect(msg.rect, blocks, mode), mode); effRect = pl.rect;
         const n = await shootPass("variant", pl.offsets, 0, pl.offsets.length);
         const c = coveredRect(pl.rect, n, pl.offsets.length); effRect = c.rect; effCut = pl.truncated || c.cut;
       } catch (e) {
