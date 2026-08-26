@@ -39,3 +39,11 @@ Netflix / Prime and any DRM-protected video are out: captured frames come back b
 ## Risk cleared first
 
 A real-tab capture test on a live YouTube video (the frame-encode step that an occluded/headless test window can't prove). Everything else builds on the confirmed format/audio/WebM layer and the existing subtitle cache.
+
+## Audio & dubbing — decided 2026-08-26 (after testing)
+
+Live Translate and Clip both need `tabCapture`, and a tab can only be captured once — so they can't run together. Worse, Live's translated speech is synthesized *outside* the tab (in the offscreen audio engine) and never enters the tab's audio, so a tab capture can't pick it up anyway. Dub mode (Web-Audio TTS played in the page) *does* land in the tab audio and is captured fine.
+
+Decision (the operator's call): **don't try to record Live's audio. Capture the video plainly, then dub it in the editor** — a post-capture step that translates the clip's speech and lays the dubbed voice onto the captured video, so the final export has the translated audio. This sidesteps the Live/tab-capture collision entirely (Live doesn't even need to be running to make a dubbed clip).
+
+To align the dub, capture stores `startSec` (the source video's playhead when recording began); the editor maps clip time → source time → the cached translated cues, synthesizes speech per cue (reusing SubVibe's dub/TTS), ducks the original, and mixes at export. Original-audio + burned subtitles remains the default; dubbing is an editor action.

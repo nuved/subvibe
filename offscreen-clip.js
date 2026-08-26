@@ -77,6 +77,7 @@
       id: newId(), ts: Date.now(), blob, mime, durationMs,
       w: st.width || 0, h: st.height || 0,
       crop: (meta.videoRect && meta.videoRect.w > 0) ? meta.videoRect : null, // editor's default crop = just the video
+      startSec: +meta.startSec || 0, // playhead in the source video at capture — lines the clip up with subtitle cues for editor dubbing
       title: meta.title || "", url: meta.url || "", host: meta.host || "", target: meta.target || "",
     };
     try { await saveClip(record); }

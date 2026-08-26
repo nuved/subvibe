@@ -1772,10 +1772,10 @@ async function startClip(tab) {
     if (!ready) throw new Error("recorder not ready");
     // Inject the on-page indicator first, and ask it for the video's rectangle
     // so the editor can open cropped to just the video.
-    let videoRect = null;
+    let videoRect = null, startSec = 0;
     try { await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content/clip-capture.js"] }); } catch (e) {}
     for (let i = 0; i < 4 && !videoRect; i++) {
-      try { const r = await chrome.tabs.sendMessage(tab.id, { type: "SV_CLIP_RECT" }); videoRect = r && r.rect; } catch (e) {}
+      try { const r = await chrome.tabs.sendMessage(tab.id, { type: "SV_CLIP_RECT" }); if (r) { videoRect = r.rect; startSec = +r.startSec || 0; } } catch (e) {}
       if (!videoRect) await new Promise((r) => setTimeout(r, 120));
     }
     const streamId = await Promise.race([
@@ -1784,7 +1784,7 @@ async function startClip(tab) {
     ]);
     clipActive = true; clipTabId = tab.id;
     const { target } = await shotTarget();
-    chrome.runtime.sendMessage({ type: "CLIP_REC_START", streamId, meta: { title: tab.title || "", url: tab.url || "", host, target, videoRect } });
+    chrome.runtime.sendMessage({ type: "CLIP_REC_START", streamId, meta: { title: tab.title || "", url: tab.url || "", host, target, videoRect, startSec } });
     chrome.tabs.sendMessage(tab.id, { type: "SV_CLIP_RECORDING", on: true }).catch(() => {});
     return { ok: true };
   } catch (e) {
