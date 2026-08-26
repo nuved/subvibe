@@ -17,6 +17,7 @@
     <section class="cstage">
       <div class="stagewrap" id="stagewrap">
         <video id="v" playsinline controls></video>
+        <div class="subov" id="subov" hidden><span class="subov__t" id="subT"></span><span class="subov__o" id="subO"></span></div>
         <div class="crop" id="crop" hidden></div>
         <div class="cropdraw" id="cropdraw" hidden><span class="cropdraw__hint">Drag a box over the area to keep</span></div>
       </div>
@@ -43,6 +44,13 @@
         <h3 class="ov">Crop</h3>
         <div class="note">The recording is already just the video. Crop only if you want to reframe it (e.g. a vertical cut for reels).</div>
         <div class="rowf" style="margin-top:6px"><button class="chip" id="cropDrawBtn">Draw box</button><button class="chip" id="cropReset">Full frame</button><span id="cropInfo" class="note"></span></div>
+      </div>
+      <div class="grp">
+        <h3 class="ov">Subtitles</h3>
+        <div class="note" id="subNote">The translated lines you prepared, laid on the clean video (burned in on export).</div>
+        <div class="rowf"><span>Show</span>
+          <span class="seg2" id="subSel"><button data-s="target" class="on">Translation</button><button data-s="both">Both</button><button data-s="off">Off</button></span>
+        </div>
       </div>
       <div class="grp">
         <h3 class="ov">Dub — translated voice</h3>

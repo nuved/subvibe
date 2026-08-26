@@ -121,6 +121,60 @@
     const clipId = site === "youtube" ? "/watch?v=" + (u.searchParams.get("v") || "") : u.pathname;
     return site + ":" + clipId;
   }
+  // Translated lines for this clip, mapped to clip-local time (shared by
+  // subtitles and dubbing). `text` = translation, `o` = original, `dt` =
+  // condensed dub rendition, `absStart` = source-video ms (for TTS cache keys).
+  let cues = null;
+  async function ensureCues() {
+    if (cues) return cues;
+    const base = clipBase(rec.url); if (!base) return (cues = []);
+    const r = await send({ type: "CACHE_GET", key: base + ":auto:" + (rec.target || "") });
+    const track = r && r.track;
+    const from = (rec.startSec || 0) * 1000, to = from + durMs;
+    cues = (((track && track.cues) || [])
+      .filter((c) => c && c.startMs < to && (c.endMs || c.startMs + 2500) > from && (c.text || c.o))
+      .map((c) => ({ tMs: c.startMs - from, endMs: (c.endMs || c.startMs + 2500) - from, absStart: c.startMs, text: c.text || "", o: c.o || "", dt: c.dt || "" }))
+      .sort((a, b) => a.tMs - b.tMs));
+    return cues;
+  }
+  function cueAt(ms) {
+    if (!cues || !cues.length) return null;
+    let ans = null;
+    for (const c of cues) { if (c.tMs <= ms) ans = c; else break; }
+    return ans && ms <= ans.endMs + 300 ? ans : null;
+  }
+  let subsMode = "target"; // target | both | off
+  function renderSub() {
+    if (!$("subov")) return;
+    const c = subsMode !== "off" ? cueAt(curMs()) : null;
+    const t = c ? c.text : "", o = (c && subsMode === "both") ? c.o : "";
+    $("subT").textContent = t; $("subT").dir = "auto";
+    $("subO").textContent = o; $("subO").dir = "auto";
+    $("subov").hidden = !(t || o);
+  }
+  const RTL_RE = /[֐-ࣿיִ-﷿ﹰ-﻿]/;
+  function drawSubOnCanvas(ctx, w, h, clipMs) {
+    if (subsMode === "off") return;
+    const c = cueAt(clipMs); if (!c) return;
+    const lines = [];
+    if (c.text) lines.push({ t: c.text, big: true });
+    if (subsMode === "both" && c.o) lines.push({ t: c.o, big: false });
+    if (!lines.length) return;
+    ctx.save(); ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
+    let y = h - Math.round(h * 0.07);
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const ln = lines[i], fs = Math.max(13, Math.round(h * (ln.big ? 0.052 : 0.044))), pad = Math.round(fs * 0.32);
+      ctx.font = (ln.big ? "600 " : "500 ") + fs + "px system-ui, -apple-system, 'Segoe UI', sans-serif";
+      ctx.direction = RTL_RE.test(ln.t) ? "rtl" : "ltr";
+      const tw = Math.min(w - 20, ctx.measureText(ln.t).width);
+      ctx.fillStyle = "rgba(0,0,0,.4)"; ctx.fillRect(w / 2 - tw / 2 - pad, y - fs, tw + pad * 2, fs + pad);
+      ctx.fillStyle = ln.big ? "#fff" : "#ffe0cf"; ctx.shadowColor = "rgba(0,0,0,.85)"; ctx.shadowBlur = 4;
+      ctx.fillText(ln.t, w / 2, y - pad * 0.4); ctx.shadowBlur = 0;
+      y -= fs + pad + Math.round(fs * 0.35);
+    }
+    ctx.restore();
+  }
+
   let dubSegs = null, audioMode = "orig", dubbing = false;
   let actx = null, vGain = null, dubGain = null, liveSrcs = [];
   function ensureActx() {
@@ -154,25 +208,21 @@
     if (!base) { toast("Dubbing isn't available for this site."); return; }
     dubbing = true; $("dubBtn").disabled = true; $("dubProg").hidden = false; $("dubBar").style.width = "6%";
     try {
-      const r = await send({ type: "CACHE_GET", key: base + ":auto:" + (rec.target || "") });
-      const track = r && r.track;
-      if (!track || !Array.isArray(track.cues) || !track.cues.length) { toast("No cached subtitles for this video — watch it with SubVibe subtitles on first, then dub."); return; }
-      const from = (rec.startSec || 0) * 1000, to = from + durMs;
-      const cues = track.cues.filter((c) => c && c.startMs < to && (c.endMs || c.startMs + 2000) > from && (c.dt || c.text));
-      if (!cues.length) { toast("No subtitle lines fall inside this clip's range."); return; }
+      const cs = (await ensureCues()).filter((c) => c.dt || c.text);
+      if (!cs.length) { toast("No cached subtitles for this clip — watch the video with SubVibe subtitles on, then re-record."); return; }
       ensureActx();
       const prefs = await new Promise((res) => chrome.storage.local.get(["ttsProvider", "dubVoice", "dubGeminiVoice"], res));
       const V = window.SV_VOICES || {};
       const voice = prefs.ttsProvider === "gemini" ? (prefs.dubGeminiVoice || V.GEMINI_DEFAULT_VOICE || "Kore") : (prefs.dubVoice || V.DEFAULT_VOICE || "marin");
       const segs = [];
-      for (let i = 0; i < cues.length; i++) {
-        const c = cues[i], text = String(c.dt || c.text || "").trim(); if (!text) continue;
+      for (let i = 0; i < cs.length; i++) {
+        const c = cs[i], text = String(c.dt || c.text || "").trim(); if (!text) continue;
         const instr = (window.SV_VOICES && SV_VOICES.ttsInstructions) ? SV_VOICES.ttsInstructions(text, rec.target) : "";
-        const resp = await send({ type: "TTS", key: base + ":clipdub:" + rec.id + ":" + voice + "#" + c.startMs, text, voice, instructions: instr, durMs: (c.endMs || c.startMs + 2000) - c.startMs, base, site: base.split(":")[0], title: rec.title, target: rec.target });
-        $("dubBar").style.width = (10 + (i / cues.length) * 86) + "%";
+        const resp = await send({ type: "TTS", key: base + ":clipdub:" + rec.id + ":" + voice + "#" + c.absStart, text, voice, instructions: instr, durMs: c.endMs - c.tMs, base, site: base.split(":")[0], title: rec.title, target: rec.target });
+        $("dubBar").style.width = (10 + (i / cs.length) * 86) + "%";
         if (resp && resp.error) { toast("Dub: " + resp.error); return; }
         if (!resp || !resp.b64) continue;
-        try { segs.push({ tMs: Math.max(0, c.startMs - from), buf: await actx.decodeAudioData(bufFromB64(resp.b64)) }); } catch (e) {}
+        try { segs.push({ tMs: Math.max(0, c.tMs), buf: await actx.decodeAudioData(bufFromB64(resp.b64)) }); } catch (e) {}
       }
       if (!segs.length) { toast("Couldn't generate the dubbed audio."); return; }
       dubSegs = segs; audioMode = "dub"; $("audioRow").hidden = false; applyAudioMode();
@@ -220,7 +270,7 @@
       await new Promise((res) => {
         const step = () => {
           if (src.currentTime >= outS || src.ended) { res(); return; }
-          try { ctx.drawImage(src, sx, sy, sw, sh, 0, 0, sw, sh); } catch (e) {}
+          try { ctx.drawImage(src, sx, sy, sw, sh, 0, 0, sw, sh); drawSubOnCanvas(ctx, sw, sh, src.currentTime * 1000); } catch (e) {}
           $("progBar").style.width = Math.min(100, ((src.currentTime - inS) / Math.max(0.1, outS - inS)) * 100) + "%";
           requestAnimationFrame(step);
         };
@@ -282,15 +332,16 @@
       paintTrim(); paintPlayhead(); paintCrop();
     });
     // Native controls drive playback; the trim bar is just markers. No auto-pause.
-    vid.addEventListener("timeupdate", paintPlayhead);
+    vid.addEventListener("timeupdate", () => { paintPlayhead(); renderSub(); });
     vid.addEventListener("play", () => { paintPlayhead(); applyAudioMode(); });
     vid.addEventListener("pause", () => { paintPlayhead(); stopLiveDub(); });
     vid.addEventListener("seeking", stopLiveDub);
-    vid.addEventListener("seeked", () => { if (!vid.paused) applyAudioMode(); });
+    vid.addEventListener("seeked", () => { renderSub(); if (!vid.paused) applyAudioMode(); });
     const mb = Math.round((r.blob.size || 0) / 1048576 * 10) / 10;
     $("meta").textContent = (r.w ? r.w + "×" + r.h + " · " : "") + fmt(durMs) + " · " + mb + " MB · " + new Date(r.ts).toLocaleString();
     setupScrub(); setupCrop();
     paintTrim();
+    ensureCues().then(() => { renderSub(); if (!cues.length) $("subNote").textContent = "No cached subtitles found for this video — turn SubVibe subtitles on while watching, then re-record."; });
     renderRecent();
   }
 
@@ -300,6 +351,7 @@
   $("cropReset").addEventListener("click", () => { crop = null; setCropDraw(false); paintCrop(); });
   $("dubBtn").addEventListener("click", generateDub);
   $("audioSel").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b || !dubSegs) return; audioMode = b.dataset.a; applyAudioMode(); });
+  $("subSel").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; subsMode = b.dataset.s; for (const x of $("subSel").querySelectorAll("button")) x.classList.toggle("on", x === b); renderSub(); });
   $("exportBtn").addEventListener("click", doExport);
   $("dlOrig").addEventListener("click", () => { if (rec) downloadBlob(rec.blob, "subvibe-clip-full-" + Date.now() + ".webm"); });
   $("delBtn").addEventListener("click", async () => {
