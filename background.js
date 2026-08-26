@@ -1747,10 +1747,29 @@ async function shotRetranslate(msg, sender) {
   return await shotReshoot({ id: rec.id, layout: "translated", blocks: edits, font: rec.font || "" }, sender);
 }
 
+// Clip capture test: inject the recorder on demand; re-injection toggles it
+// (start → stop). Non-DRM only (the script guards, and drawing a DRM video
+// throws). Full editor flow comes next; this proves live capture on a real tab.
+async function startClip(tab) {
+  if (!tab || tab.id == null) return { ok: false, error: "no-tab" };
+  chrome.action.setBadgeText({ tabId: tab.id, text: "" });
+  try {
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content/clip-capture.js"] });
+    return { ok: true };
+  } catch (e) {
+    const detail = String((e && e.message) || e);
+    console.warn("[SubVibe clip] inject failed on tab " + tab.id + ": " + detail);
+    chrome.action.setBadgeText({ tabId: tab.id, text: "!" });
+    chrome.action.setTitle({ tabId: tab.id, title: "SubVibe: can't run on this page" });
+    return { ok: false, error: "inject", detail };
+  }
+}
+
 if (chrome.commands && chrome.commands.onCommand) {
   chrome.commands.onCommand.addListener(async (command, tab) => {
-    if (command !== "sv-shot-area") return;
-    startShot(tab || await activeTabHere(), "area");
+    const t = tab || await activeTabHere();
+    if (command === "sv-shot-area") startShot(t, "area");
+    else if (command === "sv-clip-record") startClip(t);
   });
 }
 
