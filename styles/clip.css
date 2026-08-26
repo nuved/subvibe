@@ -47,6 +47,9 @@ body { margin: 0; background: var(--page); color: var(--ink); font-family: var(-
 .chip { border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 7px; padding: 6px 9px; font: 600 12px/1 var(--ui); cursor: pointer; }
 .chip:hover { background: var(--coral-100); border-color: var(--coral); color: var(--coral-700); }
 .chip.on { background: var(--coral); border-color: var(--coral); color: #fff; }
+.seg2 { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg2 button { border: 0; background: var(--card); color: var(--muted); padding: 6px 11px; font: 600 12px/1 var(--ui); cursor: pointer; }
+.seg2 button.on { background: var(--coral-100); color: var(--coral-700); }
 .note { font-size: 12px; color: var(--muted); line-height: 1.45; }
 .btn-primary { width: 100%; border: 0; border-radius: 9px; background: var(--coral); color: #fff; font: 600 14px/1 var(--ui); padding: 11px; cursor: pointer; }
 .btn-primary:disabled { opacity: .55; cursor: default; }
