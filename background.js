@@ -136,13 +136,14 @@ let _dbPromise = null;
 function db() {
   if (!_dbPromise) {
     _dbPromise = new Promise((resolve, reject) => {
-      const req = indexedDB.open("copilot-subs", 4);
+      const req = indexedDB.open("copilot-subs", 5);
       req.onupgradeneeded = () => {
         const d = req.result;
         if (!d.objectStoreNames.contains("tracks")) d.createObjectStore("tracks");
         if (!d.objectStoreNames.contains("audio")) d.createObjectStore("audio");
         if (!d.objectStoreNames.contains("vocab")) d.createObjectStore("vocab"); // v3: Leitner trainer (cards + inbox + tombstones)
         if (!d.objectStoreNames.contains("shots")) d.createObjectStore("shots"); // v4: Shot records (translated screenshots)
+        if (!d.objectStoreNames.contains("clips")) d.createObjectStore("clips"); // v5: Clip recordings (video + burned-in subs)
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
@@ -1747,22 +1748,53 @@ async function shotRetranslate(msg, sender) {
   return await shotReshoot({ id: rec.id, layout: "translated", blocks: edits, font: rec.font || "" }, sender);
 }
 
-// Clip capture test: inject the recorder on demand; re-injection toggles it
-// (start → stop). Non-DRM only (the script guards, and drawing a DRM video
-// throws). Full editor flow comes next; this proves live capture on a real tab.
+// ─── Clip: record the tab (video + audio, WYSIWYG) in the offscreen document,
+// store the WebM, and open the Clip editor. Non-DRM only. ─────────────────────
+let clipActive = false, clipTabId = null;
+
 async function startClip(tab) {
   if (!tab || tab.id == null) return { ok: false, error: "no-tab" };
+  if (clipActive) return await stopClip();                 // toggle: second trigger stops
+  if (!hasOffscreen) return { ok: false, error: "clip needs the offscreen API (Chrome-only)" };
+  const host = hostOf(tab.url || "");
+  if (/(^|\.)(netflix\.com|primevideo\.com|amazon\.[a-z.]+)$/i.test(host)) return { ok: false, error: "DRM video can't be clipped" };
   chrome.action.setBadgeText({ tabId: tab.id, text: "" });
   try {
-    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content/clip-capture.js"] });
+    await ensureOffscreen();
+    let ready = false;
+    for (let i = 0; i < 12 && !ready; i++) {
+      ready = await new Promise((res) => chrome.runtime.sendMessage({ type: "CLIP_REC_PING" }, (r) => res(!chrome.runtime.lastError && !!(r && r.pong))));
+      if (!ready) await new Promise((r) => setTimeout(r, 150));
+    }
+    if (!ready) throw new Error("recorder not ready");
+    const streamId = await Promise.race([
+      new Promise((res, rej) => chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id }, (id) => chrome.runtime.lastError ? rej(new Error(chrome.runtime.lastError.message)) : res(id))),
+      new Promise((_, rej) => setTimeout(() => rej(new Error("no tab stream in 5s — tabCapture may be blocked")), 5000)),
+    ]);
+    clipActive = true; clipTabId = tab.id;
+    const { target } = await shotTarget();
+    chrome.runtime.sendMessage({ type: "CLIP_REC_START", streamId, meta: { title: tab.title || "", url: tab.url || "", host, target } });
+    try { await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content/clip-capture.js"] }); } catch (e) {}
+    chrome.tabs.sendMessage(tab.id, { type: "SV_CLIP_RECORDING", on: true }).catch(() => {});
     return { ok: true };
   } catch (e) {
-    const detail = String((e && e.message) || e);
-    console.warn("[SubVibe clip] inject failed on tab " + tab.id + ": " + detail);
-    chrome.action.setBadgeText({ tabId: tab.id, text: "!" });
-    chrome.action.setTitle({ tabId: tab.id, title: "SubVibe: can't run on this page" });
-    return { ok: false, error: "inject", detail };
+    clipActive = false; clipTabId = null;
+    return { ok: false, error: "start", detail: String((e && e.message) || e) };
   }
+}
+
+async function stopClip() {
+  if (!clipActive) return { ok: false, error: "not-recording" };
+  chrome.runtime.sendMessage({ type: "CLIP_REC_STOP" });
+  return { ok: true };
+}
+
+async function clipRecEnded(id, err) {
+  const t = clipTabId;
+  clipActive = false; clipTabId = null;
+  if (t != null) chrome.tabs.sendMessage(t, { type: "SV_CLIP_RECORDING", on: false, error: err || "" }).catch(() => {});
+  if (id) { try { await chrome.tabs.create({ url: chrome.runtime.getURL("clip.html?id=" + encodeURIComponent(id)) }); } catch (e) {} }
+  if (!liveActive && !audioActive) { try { await chrome.offscreen.closeDocument(); } catch (e) {} }
 }
 
 if (chrome.commands && chrome.commands.onCommand) {
@@ -2563,6 +2595,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse(await startClip(clipTab));
           break;
         }
+        case "CLIP_STOP": sendResponse(await stopClip()); break;
+        case "CLIP_REC_STARTED": sendResponse({ ok: true }); break;
+        case "CLIP_REC_SAVED": sendResponse({ ok: true }); clipRecEnded(msg.id, ""); break;
+        case "CLIP_REC_ERROR": sendResponse({ ok: true }); clipRecEnded("", msg.error || "recording failed"); break;
         case "SHOT_BEGIN": sendResponse(await shotBegin(msg, sender)); break;
         case "SHOT_TRANSLATE": sendResponse(await shotTranslate(msg, sender)); break;
         case "SHOT_TILE": sendResponse(await shotTile(msg, sender)); break;

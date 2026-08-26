@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SubVibe Clip</title>
+<link rel="stylesheet" href="styles/clip.css" />
+</head>
+<body>
+  <header class="chead">
+    <div class="brand"><span class="logo">S</span> SubVibe <span class="brand__sub">Clip</span></div>
+    <div class="ctitle" id="ctitle"></div>
+    <div class="recent" id="recent"></div>
+  </header>
+
+  <main class="cbody" id="editor" hidden>
+    <section class="cstage">
+      <div class="stagewrap" id="stagewrap">
+        <video id="v" playsinline></video>
+        <div class="crop" id="crop" hidden><div class="crop__mask"></div></div>
+      </div>
+      <div class="transport">
+        <button class="tbtn" id="playBtn" title="Play / pause">▶</button>
+        <div class="scrub" id="scrub">
+          <div class="scrub__sel" id="scrubSel"></div>
+          <div class="scrub__play" id="scrubPlay"></div>
+          <div class="handle in" id="hIn" title="Trim start"></div>
+          <div class="handle out" id="hOut" title="Trim end"></div>
+        </div>
+        <div class="tcode" id="tcode">0:00 / 0:00</div>
+      </div>
+    </section>
+
+    <aside class="cpanel">
+      <div class="grp">
+        <h3 class="ov">Trim</h3>
+        <div class="rowf"><span>In</span><button class="chip" id="setIn">Set to playhead</button><b id="inT">0:00</b></div>
+        <div class="rowf"><span>Out</span><button class="chip" id="setOut">Set to playhead</button><b id="outT">0:00</b></div>
+        <div class="note" id="trimNote">Whole clip. Drag the two handles on the bar, or use these buttons.</div>
+      </div>
+      <div class="grp">
+        <h3 class="ov">Crop</h3>
+        <div class="note">Drag a box on the video to keep just that area (e.g. the frame without the site's UI). </div>
+        <div class="rowf" style="margin-top:6px"><button class="chip" id="cropReset">Full frame</button><span id="cropInfo" class="note"></span></div>
+      </div>
+      <div class="grp">
+        <h3 class="ov">Export</h3>
+        <div class="note" id="fmtNote">WebM · re-cut to your in/out and crop.</div>
+        <button class="btn-primary" id="exportBtn"><span id="exportLbl">Export &amp; download</span></button>
+        <div class="prog" id="prog" hidden><i id="progBar"></i></div>
+        <button class="btn" id="dlOrig">Download the full recording</button>
+        <button class="btn danger" id="delBtn">Delete this clip</button>
+      </div>
+      <div class="note" id="meta"></div>
+    </aside>
+  </main>
+
+  <div class="cempty" id="empty" hidden>No clip to show.</div>
+  <div class="ctoast" id="toast" hidden></div>
+  <script src="clip.js"></script>
+</body>
+</html>
