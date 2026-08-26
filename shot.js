@@ -12,10 +12,10 @@
   function db() {
     if (!dbP) {
       dbP = new Promise((resolve, reject) => {
-        const req = indexedDB.open("copilot-subs", 4);
+        const req = indexedDB.open("copilot-subs", 5);
         req.onupgradeneeded = () => {
           const d = req.result;
-          for (const s of ["tracks", "audio", "vocab", "shots"]) if (!d.objectStoreNames.contains(s)) d.createObjectStore(s);
+          for (const s of ["tracks", "audio", "vocab", "shots", "clips"]) if (!d.objectStoreNames.contains(s)) d.createObjectStore(s);
         };
         req.onsuccess = () => resolve(req.result);
         req.onerror = () => reject(req.error);
