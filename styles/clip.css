@@ -8,6 +8,7 @@
 }
 :root[data-theme="dark"] { --page: #161310; --ink: #f0eae2; --muted: #a79e91; --faint: #766e63; --line: #312b25; --card: #201c18; --surface: #1b1713; --coral: #ef7a54; --coral-700: #f0a184; --coral-100: #2a2019; --danger: #e0765f; }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; } /* class display rules must never override the hidden attribute */
 body { margin: 0; background: var(--page); color: var(--ink); font-family: var(--ui); -webkit-font-smoothing: antialiased; }
 
 .chead { display: flex; align-items: center; gap: 12px; padding: 11px 16px; background: var(--card); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; }
@@ -26,7 +27,8 @@ body { margin: 0; background: var(--page); color: var(--ink); font-family: var(-
 .stagewrap { position: relative; max-width: 720px; width: 100%; line-height: 0; }
 #v { width: 100%; height: auto; display: block; border-radius: 10px; background: #000; box-shadow: 0 8px 26px rgba(0,0,0,.28); }
 .crop { position: absolute; border: 2px solid var(--coral); box-shadow: 0 0 0 100vmax rgba(0,0,0,.42); border-radius: 2px; pointer-events: none; z-index: 2; }
-.cropdraw { position: absolute; inset: 0; z-index: 3; cursor: crosshair; background: rgba(0,0,0,.15); display: grid; place-items: start center; }
+.cropdraw { position: absolute; inset: 0; z-index: 3; cursor: crosshair; background: rgba(0,0,0,.15); }
+.cropdraw:not([hidden]) { display: grid; place-items: start center; } /* [hidden] must win, so only set display when shown */
 .cropdraw__hint { margin-top: 10px; background: rgba(20,16,12,.85); color: #fff; font: 600 12px/1 var(--ui); padding: 6px 10px; border-radius: 16px; }
 
 .transport { width: 100%; max-width: 720px; display: flex; align-items: center; gap: 12px; }
