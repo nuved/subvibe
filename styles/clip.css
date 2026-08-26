@@ -26,6 +26,10 @@ body { margin: 0; background: var(--page); color: var(--ink); font-family: var(-
   background: radial-gradient(circle at 1px 1px, var(--line) 1px, transparent 0) 0 0 / 18px 18px; }
 .stagewrap { position: relative; max-width: 720px; width: 100%; line-height: 0; }
 #v { width: 100%; height: auto; display: block; border-radius: 10px; background: #000; box-shadow: 0 8px 26px rgba(0,0,0,.28); }
+.subov { position: absolute; left: 0; right: 0; bottom: 7%; z-index: 2; display: flex; flex-direction: column; align-items: center; gap: 2px; pointer-events: none; padding: 0 6%; text-align: center; }
+.subov__t { color: #fff; font: 600 clamp(15px, 2.6vw, 24px)/1.35 system-ui, -apple-system, "Segoe UI", sans-serif; text-shadow: 0 2px 5px rgba(0,0,0,.85), 0 0 2px rgba(0,0,0,.9); background: rgba(0,0,0,.34); padding: 1px 8px; border-radius: 4px; }
+.subov__o { color: #ffe0cf; font: 500 clamp(13px, 2.2vw, 20px)/1.3 system-ui, -apple-system, sans-serif; text-shadow: 0 2px 5px rgba(0,0,0,.85); background: rgba(0,0,0,.28); padding: 0 7px; border-radius: 4px; }
+.subov__o:empty, .subov__t:empty { display: none; }
 .crop { position: absolute; border: 2px solid var(--coral); box-shadow: 0 0 0 100vmax rgba(0,0,0,.42); border-radius: 2px; pointer-events: none; z-index: 2; }
 .cropdraw { position: absolute; inset: 0; z-index: 3; cursor: crosshair; background: rgba(0,0,0,.15); }
 .cropdraw:not([hidden]) { display: grid; place-items: start center; } /* [hidden] must win, so only set display when shown */
