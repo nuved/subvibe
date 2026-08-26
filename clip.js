@@ -108,9 +108,84 @@
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
     document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 10000);
   }
+  // ── dub: lay the translated voice onto the clip (reuses SubVibe's TTS) ──
+  const send = (m) => new Promise((res) => chrome.runtime.sendMessage(m, (r) => res(chrome.runtime.lastError ? null : r)));
+  function bufFromB64(b64) { const bin = atob(b64); const a = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i); return a.buffer; }
+  function clipBase(u0) {
+    let u; try { u = new URL(u0); } catch (e) { return null; }
+    const h = u.hostname.replace(/^www\./, "");
+    let site = null;
+    for (const [d, s] of [["youtube.com", "youtube"], ["youtu.be", "youtube"], ["dw.com", "dw"], ["zdf.de", "zdf"], ["udemy.com", "udemy"], ["primevideo.com", "prime"], ["netflix.com", "netflix"]]) if (h.endsWith(d)) { site = s; break; }
+    if (!site && /amazon\./.test(h)) site = "prime";
+    if (!site) return null;
+    const clipId = site === "youtube" ? "/watch?v=" + (u.searchParams.get("v") || "") : u.pathname;
+    return site + ":" + clipId;
+  }
+  let dubSegs = null, audioMode = "orig", dubbing = false;
+  let actx = null, vGain = null, dubGain = null, liveSrcs = [];
+  function ensureActx() {
+    if (actx) return;
+    actx = new (window.AudioContext || window.webkitAudioContext)();
+    try { const s = actx.createMediaElementSource(v()); vGain = actx.createGain(); s.connect(vGain).connect(actx.destination); } catch (e) { vGain = null; }
+    dubGain = actx.createGain(); dubGain.connect(actx.destination);
+  }
+  function stopLiveDub() { for (const s of liveSrcs) { try { s.stop(); } catch (e) {} } liveSrcs = []; }
+  function scheduleDub(fromMs, dest) {
+    stopLiveDub(); if (!dubSegs || !actx) return;
+    const now = actx.currentTime;
+    for (const seg of dubSegs) {
+      if (seg.tMs + seg.buf.duration * 1000 < fromMs) continue;
+      const s = actx.createBufferSource(); s.buffer = seg.buf; s.connect(dest);
+      const when = now + (seg.tMs - fromMs) / 1000;
+      if (when >= now) s.start(when); else s.start(now, (fromMs - seg.tMs) / 1000);
+      liveSrcs.push(s);
+    }
+  }
+  function applyAudioMode() {
+    for (const b of $("audioSel").querySelectorAll("button")) b.classList.toggle("on", b.dataset.a === audioMode);
+    const dub = audioMode === "dub" && !!dubSegs;
+    if (!actx) { if (dub && !v().paused) ensureActx(); else return; }
+    if (vGain) vGain.gain.value = dub ? 0.12 : 1;
+    if (dub && !v().paused) { try { actx.resume(); } catch (e) {} scheduleDub(curMs(), dubGain); } else stopLiveDub();
+  }
+  async function generateDub() {
+    if (dubbing || !rec) return;
+    const base = clipBase(rec.url);
+    if (!base) { toast("Dubbing isn't available for this site."); return; }
+    dubbing = true; $("dubBtn").disabled = true; $("dubProg").hidden = false; $("dubBar").style.width = "6%";
+    try {
+      const r = await send({ type: "CACHE_GET", key: base + ":auto:" + (rec.target || "") });
+      const track = r && r.track;
+      if (!track || !Array.isArray(track.cues) || !track.cues.length) { toast("No cached subtitles for this video — watch it with SubVibe subtitles on first, then dub."); return; }
+      const from = (rec.startSec || 0) * 1000, to = from + durMs;
+      const cues = track.cues.filter((c) => c && c.startMs < to && (c.endMs || c.startMs + 2000) > from && (c.dt || c.text));
+      if (!cues.length) { toast("No subtitle lines fall inside this clip's range."); return; }
+      ensureActx();
+      const prefs = await new Promise((res) => chrome.storage.local.get(["ttsProvider", "dubVoice", "dubGeminiVoice"], res));
+      const V = window.SV_VOICES || {};
+      const voice = prefs.ttsProvider === "gemini" ? (prefs.dubGeminiVoice || V.GEMINI_DEFAULT_VOICE || "Kore") : (prefs.dubVoice || V.DEFAULT_VOICE || "marin");
+      const segs = [];
+      for (let i = 0; i < cues.length; i++) {
+        const c = cues[i], text = String(c.dt || c.text || "").trim(); if (!text) continue;
+        const instr = (window.SV_VOICES && SV_VOICES.ttsInstructions) ? SV_VOICES.ttsInstructions(text, rec.target) : "";
+        const resp = await send({ type: "TTS", key: base + ":clipdub:" + rec.id + ":" + voice + "#" + c.startMs, text, voice, instructions: instr, durMs: (c.endMs || c.startMs + 2000) - c.startMs, base, site: base.split(":")[0], title: rec.title, target: rec.target });
+        $("dubBar").style.width = (10 + (i / cues.length) * 86) + "%";
+        if (resp && resp.error) { toast("Dub: " + resp.error); return; }
+        if (!resp || !resp.b64) continue;
+        try { segs.push({ tMs: Math.max(0, c.startMs - from), buf: await actx.decodeAudioData(bufFromB64(resp.b64)) }); } catch (e) {}
+      }
+      if (!segs.length) { toast("Couldn't generate the dubbed audio."); return; }
+      dubSegs = segs; audioMode = "dub"; $("audioRow").hidden = false; applyAudioMode();
+      $("dubNote").textContent = segs.length + " lines dubbed. Play to hear it; Export bakes it in.";
+      toast("Dubbed voice ready · " + segs.length + " lines");
+    } catch (e) { toast("Dub failed — " + ((e && e.message) || e)); }
+    finally { dubbing = false; $("dubBtn").disabled = false; $("dubProg").hidden = true; $("dubBar").style.width = "0"; }
+  }
+
   async function doExport() {
     if (exporting || !rec) return;
     exporting = true; $("exportBtn").disabled = true; $("exportLbl").textContent = "Exporting…"; $("prog").hidden = false;
+    v().pause(); stopLiveDub();
     const src = document.createElement("video"); src.src = url; src.muted = false; src.playsInline = true; src.preload = "auto";
     try {
       await new Promise((res, rej) => { src.onloadeddata = res; src.onerror = () => rej(new Error("load")); });
@@ -121,8 +196,16 @@
       const canvas = document.createElement("canvas"); canvas.width = sw; canvas.height = sh;
       const ctx = canvas.getContext("2d");
       const cstream = canvas.captureStream(30);
-      let audio = [];
-      try { const ss = src.captureStream ? src.captureStream() : src.mozCaptureStream(); audio = ss.getAudioTracks(); } catch (e) {}
+      const dub = audioMode === "dub" && !!dubSegs;
+      let audio = [], recDest = null;
+      if (dub) { // mix ducked original + the translated voice into the export
+        ensureActx();
+        recDest = actx.createMediaStreamDestination();
+        try { const ss = actx.createMediaElementSource(src); const g = actx.createGain(); g.gain.value = 0.12; ss.connect(g).connect(recDest); } catch (e) {}
+        audio = recDest.stream.getAudioTracks();
+      } else {
+        try { const ss = src.captureStream ? src.captureStream() : src.mozCaptureStream(); audio = ss.getAudioTracks(); } catch (e) {}
+      }
       const mime = pickMime();
       const mixed = new MediaStream([...cstream.getVideoTracks(), ...audio]);
       const chunks = []; const mr = new MediaRecorder(mixed, mime ? { mimeType: mime } : undefined);
@@ -133,6 +216,7 @@
       await new Promise((res) => { src.onseeked = res; });
       mr.start();
       await src.play().catch(() => {});
+      if (dub && recDest) { try { actx.resume(); } catch (e) {} scheduleDub(inMs, recDest); }
       await new Promise((res) => {
         const step = () => {
           if (src.currentTime >= outS || src.ended) { res(); return; }
@@ -148,7 +232,7 @@
       if (!blob.size) toast("Export was empty — keep this tab in front while exporting.");
       else { downloadBlob(blob, "subvibe-clip-" + (rec.host || "video") + "-" + Date.now() + ".webm"); toast("Exported · " + (blob.size / 1048576).toFixed(1) + " MB"); }
     } catch (e) { toast("Export failed — " + ((e && e.message) || e)); }
-    finally { exporting = false; $("exportBtn").disabled = false; $("exportLbl").textContent = "Export & download"; $("prog").hidden = true; $("progBar").style.width = "0"; }
+    finally { stopLiveDub(); exporting = false; $("exportBtn").disabled = false; $("exportLbl").textContent = "Export & download"; $("prog").hidden = true; $("progBar").style.width = "0"; }
   }
 
   // ── recent strip ──
@@ -199,7 +283,10 @@
     });
     // Native controls drive playback; the trim bar is just markers. No auto-pause.
     vid.addEventListener("timeupdate", paintPlayhead);
-    vid.addEventListener("play", paintPlayhead); vid.addEventListener("pause", paintPlayhead);
+    vid.addEventListener("play", () => { paintPlayhead(); applyAudioMode(); });
+    vid.addEventListener("pause", () => { paintPlayhead(); stopLiveDub(); });
+    vid.addEventListener("seeking", stopLiveDub);
+    vid.addEventListener("seeked", () => { if (!vid.paused) applyAudioMode(); });
     const mb = Math.round((r.blob.size || 0) / 1048576 * 10) / 10;
     $("meta").textContent = (r.w ? r.w + "×" + r.h + " · " : "") + fmt(durMs) + " · " + mb + " MB · " + new Date(r.ts).toLocaleString();
     setupScrub(); setupCrop();
@@ -211,6 +298,8 @@
   $("setOut").addEventListener("click", () => { outMs = Math.max(curMs(), inMs + 200); paintTrim(); });
   $("cropDrawBtn").addEventListener("click", () => setCropDraw(!cropDraw));
   $("cropReset").addEventListener("click", () => { crop = null; setCropDraw(false); paintCrop(); });
+  $("dubBtn").addEventListener("click", generateDub);
+  $("audioSel").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b || !dubSegs) return; audioMode = b.dataset.a; applyAudioMode(); });
   $("exportBtn").addEventListener("click", doExport);
   $("dlOrig").addEventListener("click", () => { if (rec) downloadBlob(rec.blob, "subvibe-clip-full-" + Date.now() + ".webm"); });
   $("delBtn").addEventListener("click", async () => {

@@ -45,6 +45,15 @@
         <div class="rowf" style="margin-top:6px"><button class="chip" id="cropDrawBtn">Draw box</button><button class="chip" id="cropReset">Full frame</button><span id="cropInfo" class="note"></span></div>
       </div>
       <div class="grp">
+        <h3 class="ov">Dub — translated voice</h3>
+        <div class="note" id="dubNote">Lay the translated voice onto this clip (uses your API key). Needs the video's subtitles cached — turn SubVibe subtitles on while watching.</div>
+        <button class="btn" id="dubBtn">Generate dubbed audio</button>
+        <div class="prog" id="dubProg" hidden><i id="dubBar"></i></div>
+        <div class="rowf" id="audioRow" hidden><span>Audio</span>
+          <span class="seg2" id="audioSel"><button data-a="dub" class="on">Dubbed</button><button data-a="orig">Original</button></span>
+        </div>
+      </div>
+      <div class="grp">
         <h3 class="ov">Export</h3>
         <div class="note" id="fmtNote">WebM · re-cut to your in/out and crop.</div>
         <button class="btn-primary" id="exportBtn"><span id="exportLbl">Export &amp; download</span></button>
@@ -58,6 +67,7 @@
 
   <div class="cempty" id="empty" hidden>No clip to show.</div>
   <div class="ctoast" id="toast" hidden></div>
+  <script src="shared/voices.js"></script>
   <script src="clip.js"></script>
 </body>
 </html>
