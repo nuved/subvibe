@@ -982,6 +982,19 @@ for (const [id, mode] of [["shotVisible", "visible"], ["shotFull", "full"], ["sh
     });
   });
 }
+// Clip: start recording the playing video on the active tab, then get out of
+// the way (the on-page pill / ⌥⇧C stops it). Re-triggering toggles start/stop.
+el("clipRecord").addEventListener("click", async () => {
+  let tabId;
+  try { const [t] = await chrome.tabs.query({ active: true, currentWindow: true }); tabId = t && t.id; } catch (e) {}
+  chrome.runtime.sendMessage({ type: "CLIP_RECORD", tabId }, (res) => {
+    if (chrome.runtime.lastError || !res || !res.ok) {
+      el("status").textContent = (res && res.detail) ? ("Clip: " + res.detail) : "Can't record on this page";
+      return;
+    }
+    window.close();
+  });
+});
 el("clearClip").addEventListener("click", async () => {
   // clipBase is resolved in loadThisVideo() from the active tab's content script.
   if (!clipBase) return;

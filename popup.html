@@ -880,6 +880,20 @@
     </div>
   </section>
 
+  <!-- Clip: record the playing video with subtitles burned in (non-DRM). Starts
+       recording on the active tab; a red pill on the page (or ⌥⇧C) stops it. -->
+  <section class="shotrow" id="clipRow">
+    <div class="shotrow__ttl">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.5" fill="currentColor" stroke="none"/></svg>
+      Record a clip, with subtitles
+      <span class="shotrow__key" title="Keyboard shortcut (change in chrome://extensions/shortcuts)">⌥⇧C</span>
+    </div>
+    <div class="shotrow__chips" style="grid-template-columns:1fr">
+      <button class="shotbtn" id="clipRecord" title="Start recording this video; click the red pill on the page (or ⌥⇧C) to stop"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6" fill="currentColor" stroke="none"/></svg>Start recording</button>
+    </div>
+    <div id="clipNote" style="font-size:11px;line-height:1.4;color:var(--faint);margin-top:2px">Non-DRM video only (YouTube, DW, ZDF, Udemy). A red <b>REC</b> pill appears on the page — click it, or press ⌥⇧C, to stop and download.</div>
+  </section>
+
   <section class="bottombar">
     <div id="dubSpend" class="usage" title="Open the Library → Activity for the full breakdown">📊 <span id="spendToday">…</span> <span>(est.)</span></div>
     <button class="libbtn" id="openLibrary" title="Your cached videos — replays are free">
