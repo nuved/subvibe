@@ -50,26 +50,32 @@
     else toast("Clip saved — opening the editor…", 2600);
   }
 
-  // The playing video's rectangle as a fraction of the viewport — the tab
-  // capture records the viewport, so this becomes the editor's default crop
-  // (just the video, without the site's chrome).
-  function videoRect() {
+  function biggestVideo() {
     let best = null, area = 0;
     for (const el of document.querySelectorAll("video")) {
       const r = el.getBoundingClientRect();
-      if (r.width * r.height > area && r.width > 40) { area = r.width * r.height; best = r; }
+      if (r.width * r.height > area && r.width > 40) { area = r.width * r.height; best = el; }
     }
-    if (!best) return null;
+    return best;
+  }
+  // The playing video's rectangle (fraction of the viewport — the tab capture
+  // records the viewport, so this is the editor's default crop) and its current
+  // playhead in seconds (so the editor can line the clip up with the translated
+  // subtitle lines for post-capture dubbing).
+  function videoInfo() {
+    const el = biggestVideo();
+    if (!el) return { rect: null, startSec: 0 };
+    const r = el.getBoundingClientRect();
     const vw = innerWidth || 1, vh = innerHeight || 1;
-    const x = Math.max(0, best.left) / vw, y = Math.max(0, best.top) / vh;
-    const w = Math.min(vw, best.right) / vw - x, h = Math.min(vh, best.bottom) / vh - y;
-    if (w <= 0.05 || h <= 0.05) return null;
-    return { x, y, w, h };
+    const x = Math.max(0, r.left) / vw, y = Math.max(0, r.top) / vh;
+    const w = Math.min(vw, r.right) / vw - x, h = Math.min(vh, r.bottom) / vh - y;
+    const rect = (w > 0.05 && h > 0.05) ? { x, y, w, h } : null;
+    return { rect, startSec: el.currentTime || 0 };
   }
 
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (!msg) return;
-    if (msg.type === "SV_CLIP_RECT") { sendResponse({ rect: videoRect() }); return; }
+    if (msg.type === "SV_CLIP_RECT") { sendResponse(videoInfo()); return; }
     if (msg.type === "SV_CLIP_RECORDING") { if (msg.on) show(); else hide(msg.error); return; }
   });
 })();
