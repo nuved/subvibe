@@ -2556,6 +2556,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse(await startShot(shotTab, String(msg.mode || "area")));
           break;
         }
+        case "CLIP_RECORD": {
+          let clipTab = null;
+          if (msg.tabId != null) { try { clipTab = await chrome.tabs.get(msg.tabId); } catch (e) { clipTab = null; } }
+          if (!clipTab) clipTab = await activeTabHere();
+          sendResponse(await startClip(clipTab));
+          break;
+        }
         case "SHOT_BEGIN": sendResponse(await shotBegin(msg, sender)); break;
         case "SHOT_TRANSLATE": sendResponse(await shotTranslate(msg, sender)); break;
         case "SHOT_TILE": sendResponse(await shotTile(msg, sender)); break;

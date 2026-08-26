@@ -47,11 +47,14 @@
   let pill = null, pillT = null, t0 = 0;
   function showPill() {
     pill = document.createElement("div");
-    pill.style.cssText = "position:fixed;top:16px;left:16px;z-index:2147483647;background:rgba(20,16,12,.82);color:#fff;font:600 13px/1 system-ui,-apple-system,sans-serif;padding:8px 12px;border-radius:20px;display:flex;gap:8px;align-items:center;pointer-events:none;";
+    pill.style.cssText = "position:fixed;top:16px;left:16px;z-index:2147483647;background:rgba(20,16,12,.88);color:#fff;font:600 13px/1 system-ui,-apple-system,sans-serif;padding:9px 14px;border-radius:22px;display:flex;gap:8px;align-items:center;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.4);user-select:none;";
+    pill.title = "Click to stop recording";
     const dot = document.createElement("span"); dot.style.cssText = "width:10px;height:10px;border-radius:50%;background:#ff4b4b;animation:svclipblink 1s steps(2) infinite;";
     const st = document.createElement("style"); st.textContent = "@keyframes svclipblink{50%{opacity:.25}}";
     const label = document.createElement("span"); label.id = "svclip-t"; label.textContent = "REC 0:00";
-    pill.append(st, dot, label); document.documentElement.appendChild(pill);
+    const stop = document.createElement("span"); stop.textContent = "◼ Stop"; stop.style.cssText = "margin-left:4px;padding-left:8px;border-left:1px solid rgba(255,255,255,.25);opacity:.9;";
+    pill.append(st, dot, label, stop); document.documentElement.appendChild(pill);
+    pill.addEventListener("click", () => { try { toggle(); } catch (e) {} });
     t0 = Date.now();
     pillT = setInterval(() => {
       const s = Math.floor((Date.now() - t0) / 1000);
