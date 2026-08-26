@@ -989,7 +989,8 @@ el("clipRecord").addEventListener("click", async () => {
   try { const [t] = await chrome.tabs.query({ active: true, currentWindow: true }); tabId = t && t.id; } catch (e) {}
   chrome.runtime.sendMessage({ type: "CLIP_RECORD", tabId }, (res) => {
     if (chrome.runtime.lastError || !res || !res.ok) {
-      el("status").textContent = (res && res.detail) ? ("Clip: " + res.detail) : "Can't record on this page";
+      const m = (res && (res.error || res.detail)) || "Can't record on this page";
+      el("status").textContent = /^[A-Z]/.test(m) ? m : ("Clip: " + m); // full sentences (e.g. the Live conflict) shown as-is
       return;
     }
     window.close();

@@ -50,7 +50,6 @@
     const p = durMs ? Math.min(1, curMs() / durMs) : 0;
     $("scrubPlay").style.left = p * w + "px";
     $("tcode").textContent = fmt(curMs()) + " / " + fmt(durMs);
-    $("playBtn").textContent = v().paused ? "▶" : "⏸";
   }
 
   // ── crop marquee on the video ──
@@ -64,24 +63,24 @@
     const vw = vid.videoWidth || 0, vh = vid.videoHeight || 0;
     $("cropInfo").textContent = vw ? Math.round(crop.w * vw) + "×" + Math.round(crop.h * vh) : "";
   }
+  let cropDraw = false;
+  function setCropDraw(on) {
+    cropDraw = on; $("cropdraw").hidden = !on;
+    $("cropDrawBtn").classList.toggle("on", on);
+    $("cropDrawBtn").textContent = on ? "Done" : "Draw box";
+  }
   function setupCrop() {
-    const wrapEl = $("stagewrap"); let start = null;
-    wrapEl.addEventListener("pointerdown", (e) => {
-      if (e.target.closest(".transport")) return;
-      const r = v().getBoundingClientRect();
-      start = { x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height };
-      wrapEl.setPointerCapture(e.pointerId);
-    });
-    wrapEl.addEventListener("pointermove", (e) => {
-      if (!start) return;
-      const r = v().getBoundingClientRect();
-      const x2 = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)), y2 = Math.max(0, Math.min(1, (e.clientY - r.top) / r.height));
-      crop = { x: Math.min(start.x, x2), y: Math.min(start.y, y2), w: Math.abs(x2 - start.x), h: Math.abs(y2 - start.y) };
+    const layer = $("cropdraw"); let start = null;
+    const norm = (e) => { const r = layer.getBoundingClientRect(); return { x: Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)), y: Math.max(0, Math.min(1, (e.clientY - r.top) / r.height)) }; };
+    layer.addEventListener("pointerdown", (e) => { start = norm(e); layer.setPointerCapture(e.pointerId); });
+    layer.addEventListener("pointermove", (e) => {
+      if (!start) return; const p = norm(e);
+      crop = { x: Math.min(start.x, p.x), y: Math.min(start.y, p.y), w: Math.abs(p.x - start.x), h: Math.abs(p.y - start.y) };
       paintCrop();
     });
-    const end = () => { if (start && crop && (crop.w < 0.02 || crop.h < 0.02)) crop = null; start = null; paintCrop(); };
-    wrapEl.addEventListener("pointerup", end);
-    wrapEl.addEventListener("pointercancel", end);
+    const end = () => { if (start && crop && (crop.w < 0.02 || crop.h < 0.02)) crop = null; start = null; setCropDraw(false); paintCrop(); };
+    layer.addEventListener("pointerup", end);
+    layer.addEventListener("pointercancel", end);
   }
 
   // ── trim handle drag + scrub seek ──
@@ -182,16 +181,24 @@
     if (!r) { const newest = (await listClips())[0]; if (newest && !id) { location.search = "?id=" + encodeURIComponent(newest.id); return; } }
     if (!r || !(r.blob instanceof Blob)) { $("empty").hidden = false; renderRecent(); return; }
     rec = r; url = URL.createObjectURL(r.blob); durMs = r.durationMs || 0; inMs = 0; outMs = durMs;
+    crop = (r.crop && typeof r.crop === "object" && r.crop.w > 0) ? { x: +r.crop.x || 0, y: +r.crop.y || 0, w: +r.crop.w, h: +r.crop.h } : null;
     $("editor").hidden = false;
     $("ctitle").textContent = r.title || r.url || "";
     document.title = "SubVibe Clip · " + (r.title || r.host || "");
     const vid = v(); vid.src = url;
     vid.addEventListener("loadedmetadata", () => {
-      if ((!durMs || !isFinite(durMs)) && isFinite(vid.duration)) durMs = vid.duration * 1000;
+      if ((!durMs || !isFinite(durMs))) {
+        if (isFinite(vid.duration) && vid.duration > 0) durMs = vid.duration * 1000;
+        else { // MediaRecorder WebM often reports Infinity until you seek to the end
+          const fix = () => { if (isFinite(vid.duration) && vid.duration > 0) { durMs = vid.duration * 1000; if (!outMs) outMs = durMs; } vid.removeEventListener("seeked", fix); vid.currentTime = 0; paintTrim(); };
+          vid.addEventListener("seeked", fix); try { vid.currentTime = 1e7; } catch (e) {}
+        }
+      }
       if (!outMs) outMs = durMs;
       paintTrim(); paintPlayhead(); paintCrop();
     });
-    vid.addEventListener("timeupdate", () => { if (curMs() >= outMs - 30 && !vid.paused) { vid.pause(); } paintPlayhead(); });
+    // Native controls drive playback; the trim bar is just markers. No auto-pause.
+    vid.addEventListener("timeupdate", paintPlayhead);
     vid.addEventListener("play", paintPlayhead); vid.addEventListener("pause", paintPlayhead);
     const mb = Math.round((r.blob.size || 0) / 1048576 * 10) / 10;
     $("meta").textContent = (r.w ? r.w + "×" + r.h + " · " : "") + fmt(durMs) + " · " + mb + " MB · " + new Date(r.ts).toLocaleString();
@@ -200,10 +207,10 @@
     renderRecent();
   }
 
-  $("playBtn").addEventListener("click", () => { const vid = v(); if (vid.paused) { if (curMs() >= outMs - 30) seek(inMs); vid.play(); } else vid.pause(); });
   $("setIn").addEventListener("click", () => { inMs = Math.min(curMs(), outMs - 200); paintTrim(); });
   $("setOut").addEventListener("click", () => { outMs = Math.max(curMs(), inMs + 200); paintTrim(); });
-  $("cropReset").addEventListener("click", () => { crop = null; paintCrop(); });
+  $("cropDrawBtn").addEventListener("click", () => setCropDraw(!cropDraw));
+  $("cropReset").addEventListener("click", () => { crop = null; setCropDraw(false); paintCrop(); });
   $("exportBtn").addEventListener("click", doExport);
   $("dlOrig").addEventListener("click", () => { if (rec) downloadBlob(rec.blob, "subvibe-clip-full-" + Date.now() + ".webm"); });
   $("delBtn").addEventListener("click", async () => {
