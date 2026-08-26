@@ -76,6 +76,7 @@
     const record = {
       id: newId(), ts: Date.now(), blob, mime, durationMs,
       w: st.width || 0, h: st.height || 0,
+      crop: (meta.videoRect && meta.videoRect.w > 0) ? meta.videoRect : null, // editor's default crop = just the video
       title: meta.title || "", url: meta.url || "", host: meta.host || "", target: meta.target || "",
     };
     try { await saveClip(record); }

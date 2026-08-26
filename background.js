@@ -1756,6 +1756,9 @@ async function startClip(tab) {
   if (!tab || tab.id == null) return { ok: false, error: "no-tab" };
   if (clipActive) return await stopClip();                 // toggle: second trigger stops
   if (!hasOffscreen) return { ok: false, error: "clip needs the offscreen API (Chrome-only)" };
+  // A tab can only be captured once. Live Translate holds that capture, so the
+  // two can't run together — say so plainly instead of a cryptic capture error.
+  if (liveActive) return { ok: false, error: "Turn off Live Translate first — it's using the tab audio, and a tab can only be captured once. (A clip records the original audio + your subtitles.)" };
   const host = hostOf(tab.url || "");
   if (/(^|\.)(netflix\.com|primevideo\.com|amazon\.[a-z.]+)$/i.test(host)) return { ok: false, error: "DRM video can't be clipped" };
   chrome.action.setBadgeText({ tabId: tab.id, text: "" });
@@ -1767,14 +1770,18 @@ async function startClip(tab) {
       if (!ready) await new Promise((r) => setTimeout(r, 150));
     }
     if (!ready) throw new Error("recorder not ready");
+    // Inject the on-page indicator first, and ask it for the video's rectangle
+    // so the editor can open cropped to just the video.
+    let videoRect = null;
+    try { await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content/clip-capture.js"] }); } catch (e) {}
+    try { const r = await chrome.tabs.sendMessage(tab.id, { type: "SV_CLIP_RECT" }); videoRect = r && r.rect; } catch (e) {}
     const streamId = await Promise.race([
       new Promise((res, rej) => chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id }, (id) => chrome.runtime.lastError ? rej(new Error(chrome.runtime.lastError.message)) : res(id))),
       new Promise((_, rej) => setTimeout(() => rej(new Error("no tab stream in 5s — tabCapture may be blocked")), 5000)),
     ]);
     clipActive = true; clipTabId = tab.id;
     const { target } = await shotTarget();
-    chrome.runtime.sendMessage({ type: "CLIP_REC_START", streamId, meta: { title: tab.title || "", url: tab.url || "", host, target } });
-    try { await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content/clip-capture.js"] }); } catch (e) {}
+    chrome.runtime.sendMessage({ type: "CLIP_REC_START", streamId, meta: { title: tab.title || "", url: tab.url || "", host, target, videoRect } });
     chrome.tabs.sendMessage(tab.id, { type: "SV_CLIP_RECORDING", on: true }).catch(() => {});
     return { ok: true };
   } catch (e) {

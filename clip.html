@@ -16,11 +16,12 @@
   <main class="cbody" id="editor" hidden>
     <section class="cstage">
       <div class="stagewrap" id="stagewrap">
-        <video id="v" playsinline></video>
-        <div class="crop" id="crop" hidden><div class="crop__mask"></div></div>
+        <video id="v" playsinline controls></video>
+        <div class="crop" id="crop" hidden></div>
+        <div class="cropdraw" id="cropdraw" hidden><span class="cropdraw__hint">Drag a box over the area to keep</span></div>
       </div>
       <div class="transport">
-        <button class="tbtn" id="playBtn" title="Play / pause">▶</button>
+        <span class="tlabel">Trim</span>
         <div class="scrub" id="scrub">
           <div class="scrub__sel" id="scrubSel"></div>
           <div class="scrub__play" id="scrubPlay"></div>
@@ -40,8 +41,8 @@
       </div>
       <div class="grp">
         <h3 class="ov">Crop</h3>
-        <div class="note">Drag a box on the video to keep just that area (e.g. the frame without the site's UI). </div>
-        <div class="rowf" style="margin-top:6px"><button class="chip" id="cropReset">Full frame</button><span id="cropInfo" class="note"></span></div>
+        <div class="note">Keep just the video (the recording grabs the whole tab). It opens cropped to the video already.</div>
+        <div class="rowf" style="margin-top:6px"><button class="chip" id="cropDrawBtn">Draw box</button><button class="chip" id="cropReset">Full frame</button><span id="cropInfo" class="note"></span></div>
       </div>
       <div class="grp">
         <h3 class="ov">Export</h3>
