@@ -1774,7 +1774,10 @@ async function startClip(tab) {
     // so the editor can open cropped to just the video.
     let videoRect = null;
     try { await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content/clip-capture.js"] }); } catch (e) {}
-    try { const r = await chrome.tabs.sendMessage(tab.id, { type: "SV_CLIP_RECT" }); videoRect = r && r.rect; } catch (e) {}
+    for (let i = 0; i < 4 && !videoRect; i++) {
+      try { const r = await chrome.tabs.sendMessage(tab.id, { type: "SV_CLIP_RECT" }); videoRect = r && r.rect; } catch (e) {}
+      if (!videoRect) await new Promise((r) => setTimeout(r, 120));
+    }
     const streamId = await Promise.race([
       new Promise((res, rej) => chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id }, (id) => chrome.runtime.lastError ? rej(new Error(chrome.runtime.lastError.message)) : res(id))),
       new Promise((_, rej) => setTimeout(() => rej(new Error("no tab stream in 5s — tabCapture may be blocked")), 5000)),
