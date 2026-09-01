@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>shot-harness</title>
+  <link rel="stylesheet" href="../../../styles/tokens.css" />
+  <link rel="stylesheet" href="../../../styles/components.css" />
+  <link rel="stylesheet" href="../../../styles/shot.css" />
+  <style>html, body { height: 100%; margin: 0; } body { display: flex; flex-direction: column; }</style>
+</head>
+<body>
+  <!-- The editor DOM, mirrored from shot.html (ids must match — shot.js runs unmodified). -->
+  <header class="top">
+    <div class="brand">
+      <div class="brand__name">SubVibe</div>
+      <div class="brand__sub">Shot</div>
+    </div>
+    <a class="pagelink" id="pageLink" href="#" target="_blank" rel="noopener"></a>
+    <span class="chip learn" id="srcChip" hidden></span>
+    <div class="langpick" id="langPick" hidden>
+      <button class="langpick__btn" id="langBtn" type="button"><span id="langBtnLabel">—</span></button>
+      <div class="langpick__pop" id="langPop" hidden>
+        <input class="langpick__search" id="langSearch" type="text" />
+        <div class="langpick__list" id="langList" role="listbox"></div>
+      </div>
+    </div>
+    <span class="meta" id="metaLine"></span>
+    <div class="recent" id="recent"><span class="overline">History</span></div>
+  </header>
+  <div class="notebar" id="noteBar" hidden></div>
+
+  <main class="body" id="editor">
+    <section class="stage" id="stageWrap">
+      <div class="annotbar" id="annotBar" hidden>
+        <div class="annotbar__tools" id="annTools">
+          <button class="anntool on" data-tool="" title="Move / select">&#x2715;</button>
+          <button class="anntool" data-tool="pen" title="Pen">&#x270E;</button>
+          <button class="anntool" data-tool="highlight" title="Highlighter">&#x25AC;</button>
+          <button class="anntool" id="annTextmark" data-tool="textmark" title="Highlight text" hidden>&#x1F58D;</button>
+          <button class="anntool" data-tool="text" title="Text">T</button>
+          <button class="anntool" data-tool="arrow" title="Arrow">&#x2197;</button>
+          <button class="anntool" data-tool="rect" title="Rectangle">&#x25AD;</button>
+          <button class="anntool" id="annCrop" data-tool="crop" title="Crop">&#x26F6;</button>
+        </div>
+        <div class="annotbar__colors" id="annColors"></div>
+        <label class="annotbar__size"><input type="range" id="annSize" min="2" max="20" value="5" /></label>
+        <div class="annotbar__acts">
+          <button class="anntool wide" id="annUncrop" title="Remove the crop" hidden>Uncrop</button>
+          <button class="anntool" id="annUndo" title="Undo">&#x21B6;</button>
+          <button class="anntool" id="annClear" title="Clear all">&#x1F5D1;</button>
+        </div>
+      </div>
+      <div class="stage-canvaswrap" id="canvasWrap" hidden>
+        <canvas id="stage"></canvas>
+        <canvas id="annot"></canvas>
+        <input class="annot-textin" id="annotText" type="text" hidden />
+        <div class="stage-busy" id="stageBusy"><div class="stage-busy__box"><span class="stage-busy__spin"></span><span id="stageBusyLabel">Rendering…</span></div></div>
+      </div>
+      <div class="skeleton stage-skel" id="stageSkel"></div>
+      <div class="empty-state" id="emptyState" hidden>No shots yet.</div>
+    </section>
+
+    <aside class="panel">
+      <div class="group">
+        <div class="seg" id="viewSeg"><button data-view="translated">Translated</button><button data-view="bilingual">Bilingual</button><button data-view="original">Original</button></div>
+        <div class="note" id="viewNote"></div>
+        <div class="bi-pick" id="biPick" hidden>
+          <div class="seg seg-sm" id="biBar"><button data-bi="A">Blocks</button><button data-bi="B">Pairs</button><button data-bi="C">Columns</button></div>
+          <div class="note" id="biHint"></div>
+        </div>
+      </div>
+      <div class="group">
+        <div class="seg" id="frameSeg"><button data-frame="plain">Plain</button><button data-frame="card" class="on">Card</button></div>
+        <div class="row"><label class="switch"><input type="checkbox" id="badgeSw" checked /><span class="slider"></span></label></div>
+      </div>
+      <div class="group">
+        <div class="seg" id="fontSeg"><button data-font="" class="on">Site font</button><button data-font="vazirmatn">Vazirmatn</button></div>
+      </div>
+      <div class="group">
+        <h3 class="overline">Text <span class="n" id="blockCount"></span></h3>
+        <div class="blocks" id="blocks"></div>
+        <button class="btn-primary" id="reshootBtn" disabled>Apply text changes</button>
+        <div class="note" id="reshootNote"></div>
+      </div>
+      <div class="group">
+        <div class="opts">
+          <label>Size <select id="sizeSel"><option value="native">Native</option><option value="2x">2×</option><option value="1x">1×</option><option value="half">½</option></select></label>
+          <label>Format <select id="fmtSel"><option value="png">PNG</option><option value="jpeg">JPEG</option></select></label>
+        </div>
+        <div class="exports">
+          <button class="btn-primary" id="dlBtn">Download</button>
+          <button class="btn-secondary" id="copyBtn">Copy</button>
+          <button class="btn-secondary" id="shareBtn" hidden>Share</button>
+        </div>
+        <div class="note" id="fileNote"></div>
+      </div>
+      <div class="group last"><button class="btn-danger" id="delBtn">Delete this shot</button></div>
+    </aside>
+  </main>
+  <div class="toast" id="toast" hidden></div>
+
+  <script>
+    // fake-env: just enough chrome.* for shot.js. SHOT_TAB_ALIVE answers alive:false
+    // (source tab closed) — export/annotate/crop must all work without a tab.
+    window.chrome = {
+      runtime: {
+        lastError: undefined,
+        getURL: (p) => "../../../" + p,
+        sendMessage: (msg, cb) => { if (cb) setTimeout(() => cb(msg && msg.type === "SHOT_TAB_ALIVE" ? { ok: true, alive: false } : { ok: false, error: "harness" }), 0); },
+      },
+      storage: { local: { get: async () => ({}), set: async () => {} } },
+      tabs: { create: () => {} },
+    };
+    // Synthetic PointerEvents carry a pointerId no real pointer backs.
+    Element.prototype.setPointerCapture = function () {};
+  </script>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    async function until(fn, ms) {
+      const end = Date.now() + (ms || 5000);
+      while (Date.now() < end) { if (fn()) return true; await sleep(50); }
+      return false;
+    }
+    const openDb = () => new Promise((res, rej) => {
+      const req = indexedDB.open("copilot-subs", 5);
+      req.onupgradeneeded = () => { const d = req.result; for (const s of ["tracks", "audio", "vocab", "shots", "clips"]) if (!d.objectStoreNames.contains(s)) d.createObjectStore(s); };
+      req.onsuccess = () => res(req.result); req.onerror = () => rej(req.error);
+    });
+    const dbGet = async (id) => { const d = await openDb(); const r = await new Promise((res, rej) => { const q = d.transaction("shots", "readonly").objectStore("shots").get(id); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); d.close(); return r; };
+
+    // Drag helper in DEVICE px of the annot canvas (evToNorm's own input space).
+    function drag(devA, devB) {
+      const an = $("annot"), r = an.getBoundingClientRect();
+      const toClient = (d) => ({ clientX: r.left + d[0] * (r.width / an.width), clientY: r.top + d[1] * (r.height / an.height) });
+      const ev = (type, d) => an.dispatchEvent(new PointerEvent(type, { ...toClient(d), pointerId: 1, button: 0, bubbles: true }));
+      ev("pointerdown", devA);
+      ev("pointermove", [(devA[0] + devB[0]) / 2, (devA[1] + devB[1]) / 2]);
+      ev("pointermove", devB);
+      ev("pointerup", devB);
+    }
+
+    (async () => {
+      // Seed a 400×6000 shot (a "full page" tall capture), then run the REAL scripts.
+      const cv = document.createElement("canvas"); cv.width = 400; cv.height = 6000;
+      const cx = cv.getContext("2d");
+      const grad = cx.createLinearGradient(0, 0, 0, 6000); grad.addColorStop(0, "#4ade80"); grad.addColorStop(1, "#1e3a8a");
+      cx.fillStyle = grad; cx.fillRect(0, 0, 400, 6000);
+      const blob = await new Promise((r) => cv.toBlob(r, "image/png"));
+      const rec = { id: "t1", ts: Date.now(), url: "https://example.com/tall", title: "Tall test page", host: "example.com",
+        source: "xx", target: "fa", mode: "full", layout: "original", dpr: 1,
+        rect: { x: 0, y: 0, w: 400, h: 6000 }, w: 400, h: 6000,
+        original: blob, variant: blob, blocks: [], views: { original: blob }, annots: [],
+        partial: false, truncated: "", sameLang: false, noKey: false, font: "" };
+      const d = await openDb();
+      await new Promise((res, rej) => { const q = d.transaction("shots", "readwrite").objectStore("shots").put(rec, rec.id); q.onsuccess = res; q.onerror = () => rej(q.error); });
+      d.close();
+      if (!/\bid=t1\b/.test(location.search)) { location.search = "?id=t1"; return; } // shot.js needs ?id
+      for (const src of ["../../../shared/shot.js", "../../../shot.js"]) {
+        await new Promise((res, rej) => { const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = rej; document.body.appendChild(s); });
+      }
+
+      // ── judge ──
+      const results = [];
+      const check = (name, ok, info) => results.push({ name, ok: !!ok, info: String(info || "").slice(0, 200) });
+      const stageEl = $("stageWrap"), bar = $("annotBar"), stage = $("stage"), an = $("annot");
+
+      await until(() => !$("canvasWrap").hidden && stage.width > 0);
+      const stR = () => stageEl.getBoundingClientRect();
+      const barR = () => bar.getBoundingClientRect();
+
+      // 1) Toolbar reachable at the very top of a tall shot (the ed4e237 regression).
+      stageEl.scrollTop = 0; await sleep(80);
+      check("toolbar visible at scrollTop 0", !bar.hidden && barR().top >= stR().top - 1 && barR().top < stR().top + 140,
+        "bar.top-stage.top=" + Math.round(barR().top - stR().top) + " hidden=" + bar.hidden);
+
+      // 2) Toolbar sticky while scrolling the tall image.
+      stageEl.scrollTop = 2000; await sleep(120);
+      check("toolbar sticky after scrolling 2000px", barR().top >= stR().top && barR().top < stR().top + 80,
+        "bar.top-stage.top=" + Math.round(barR().top - stR().top) + " scrollTop=" + stageEl.scrollTop);
+      stageEl.scrollTop = 0; await sleep(80);
+
+      // 3) Crop: drag x 148→348 (img 48+0.25·400 → 48+0.75·400), y 648→2148 (0.10→0.35).
+      const w0 = stage.width, h0 = stage.height;
+      $("annCrop").click();
+      drag([148, 648], [348, 2148]);
+      await until(() => stage.width !== w0);
+      const saved = await dbGet("t1");
+      const c = saved && saved.crop;
+      const near = (a, b) => Math.abs(a - b) < 0.02;
+      check("crop saved with the dragged window", c && near(c.x, 0.25) && near(c.y, 0.10) && near(c.w, 0.5) && near(c.h, 0.25), JSON.stringify(c));
+      check("canvas resized to the crop", near(stage.width / w0, (0.5 * 400 + 96) / (400 + 96)) && stage.height < h0,
+        w0 + "x" + h0 + " -> " + stage.width + "x" + stage.height);
+      check("Uncrop revealed, tool back to select", !$("annUncrop").hidden && !!document.querySelector('#annTools [data-tool=""].on'));
+
+      // 4) An annotation drawn on the cropped view stores FULL-image coords.
+      document.querySelector('#annTools [data-tool="rect"]').click();
+      drag([48, 48], [48 + 0.5 * 400, 48 + 0.25 * 6000]); // corner to corner of the visible crop
+      await until(() => { const s = document.querySelector('#annTools [data-tool="rect"].on'); return !!s; }, 500);
+      const saved2 = await dbGet("t1");
+      const a0 = saved2 && (saved2.annots || [])[0];
+      check("cropped-view rect maps to full-image coords", a0 && near(a0.a.x, 0.25) && near(a0.a.y, 0.10) && near(a0.b.x, 0.75) && near(a0.b.y, 0.35), JSON.stringify(a0));
+
+      // 5) Uncrop restores the full image and clears the stored crop.
+      $("annUncrop").click();
+      await until(() => stage.width === w0);
+      const saved3 = await dbGet("t1");
+      check("uncrop restores size and clears rec.crop", stage.width === w0 && stage.height === h0 && !(saved3 && saved3.crop),
+        stage.width + "x" + stage.height + " crop=" + JSON.stringify(saved3 && saved3.crop));
+
+      const pass = results.filter((r) => r.ok).length;
+      document.title = (pass === results.length ? "PASS " : "FAIL ") + pass + "/" + results.length;
+      const pre = document.createElement("pre");
+      pre.style.cssText = "position:fixed;left:8px;bottom:8px;z-index:99;background:#fff;border:1px solid #ccc;padding:8px;font:12px monospace;max-width:60ch;white-space:pre-wrap;";
+      pre.textContent = results.map((r) => (r.ok ? "ok " : "NOT OK ") + r.name + (r.ok ? "" : " — " + r.info)).join("\n");
+      document.body.appendChild(pre);
+      window.__results = results;
+    })();
+  </script>
+</body>
+</html>

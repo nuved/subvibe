@@ -44,6 +44,9 @@
   let annSizeFrac = 0.006;
   let curLay = null;           // last drawFramed() layout (device px) for coord mapping
   const ANN_COLORS = ["#F45D48", "#FFC53D", "#22C55E", "#3B82F6", "#111827", "#FFFFFF"];
+  // Non-destructive crop (rec.crop, full-image fractions) — applies to the page
+  // image views only; the bilingual card is generated, not cropped.
+  const curCrop = () => (rec && view !== "bilingual" && rec.crop && !S.isFullCrop(rec.crop) ? S.normCrop(rec.crop) : null);
   const edits = new Map();     // block id → edited translation
   let reshooting = false;
   let lastRenderedView = null; // the view whose pixels are actually on the canvas
@@ -92,7 +95,8 @@
   // capture's device pixels (1 = native).
   function drawFramed(canvas, bmp, scale) {
     const dpr = (rec.dpr || 1) * scale;
-    const lay = S.frameLayout({ w: Math.round(bmp.width * scale), h: Math.round(bmp.height * scale), frame: frame.frame, badge: frame.badge, dpr });
+    const { sx, sy, sw, sh } = S.cropSrc(curCrop(), bmp.width, bmp.height);
+    const lay = S.frameLayout({ w: Math.round(sw * scale), h: Math.round(sh * scale), frame: frame.frame, badge: frame.badge, dpr });
     canvas.width = lay.width; canvas.height = lay.height;
     const ctx = canvas.getContext("2d");
     if (frame.frame === "card") {
@@ -104,7 +108,7 @@
       ctx.fillStyle = "#fff"; roundRect(ctx, lay.img.x, lay.img.y, lay.img.w, lay.img.h, lay.img.radius); ctx.fill();
       ctx.restore();
       ctx.save(); roundRect(ctx, lay.img.x, lay.img.y, lay.img.w, lay.img.h, lay.img.radius); ctx.clip();
-      ctx.drawImage(bmp, lay.img.x, lay.img.y, lay.img.w, lay.img.h); ctx.restore();
+      ctx.drawImage(bmp, sx, sy, sw, sh, lay.img.x, lay.img.y, lay.img.w, lay.img.h); ctx.restore();
       if (lay.badge) {
         const label = "SUBVIBE · " + code(rec.source === "xx" ? "" : rec.source) + (rec.source === "xx" ? "" : " → ") + code(rec.target);
         ctx.font = "600 " + Math.round(11 * dpr) + "px ui-monospace, Menlo, Consolas, monospace";
@@ -116,7 +120,7 @@
         ctx.fillText(label, bx + lay.badge.padX, by + bh / 2 + 0.5 * dpr);
       }
     } else {
-      ctx.drawImage(bmp, 0, 0, lay.width, lay.height);
+      ctx.drawImage(bmp, sx, sy, sw, sh, 0, 0, lay.width, lay.height);
     }
     return lay;
   }
@@ -278,7 +282,8 @@
     if (captured) lastRenderedView = view;
     $("stageSkel").hidden = true; $("canvasWrap").hidden = false;
     setupAnnot(); $("annotBar").hidden = !captured;
-    { const tm = $("annTextmark"); if (tm) tm.hidden = true; if (annTool === "textmark") { annTool = ""; for (const x of $("annTools").querySelectorAll("button")) x.classList.toggle("on", (x.dataset.tool||"") === ""); } }
+    $("annTextmark").hidden = true; if (annTool === "textmark") setTool("");
+    $("annCrop").hidden = false; $("annUncrop").hidden = !curCrop();
     syncAnnot();
     for (const b of $("viewSeg").querySelectorAll("button")) b.classList.toggle("on", b.dataset.view === view);
     const vn = $("viewNote");
@@ -301,7 +306,8 @@
     lastRenderedView = "bilingual";
     $("stageSkel").hidden = true; $("canvasWrap").hidden = false;
     setupAnnot(); $("annotBar").hidden = false;
-    { const tm = $("annTextmark"); if (tm) tm.hidden = false; }
+    $("annTextmark").hidden = false;
+    $("annCrop").hidden = true; $("annUncrop").hidden = true; if (annTool === "crop") setTool("");
     syncAnnot();
     markViewButton("bilingual");
     for (const b of $("biBar").querySelectorAll("button")) b.classList.toggle("on", b.dataset.bi === biLayout);
@@ -571,12 +577,17 @@
     } catch (e) { return false; }
   }
 
-  function annPt(n, img) { return [img.x + n.x * img.w, img.y + n.y * img.h]; }
+  function annPt(n, img) { return S.cropToView(n, img, curCrop()); }
   function renderAnnots(ctx, img) {
+    // A crop zooms the image: sizes stored as full-image fractions scale by the
+    // same factor, and shapes outside the crop window are clipped away.
+    const c = S.normCrop(curCrop());
+    const iw = img.w / c.w, ih = img.h / c.h;
+    ctx.save(); ctx.beginPath(); ctx.rect(img.x, img.y, img.w, img.h); ctx.clip();
     for (const a of annots) {
       ctx.save();
       const col = a.color || "#F45D48";
-      const lw = Math.max(1, (a.size || 0.006) * img.w);
+      const lw = Math.max(1, (a.size || 0.006) * iw);
       if (a.tool === "pen" || a.tool === "highlight") {
         ctx.strokeStyle = col; ctx.lineCap = "round"; ctx.lineJoin = "round";
         ctx.lineWidth = a.tool === "highlight" ? lw * 3.2 : lw;
@@ -599,7 +610,7 @@
         ctx.lineTo(x2 - head * Math.cos(ang + 0.42), y2 - head * Math.sin(ang + 0.42));
         ctx.closePath(); ctx.fill();
       } else if (a.tool === "text" && a.text) {
-        const fs = Math.max(11, (a.fontSize || 0.03) * img.w);
+        const fs = Math.max(11, (a.fontSize || 0.03) * iw);
         ctx.font = "600 " + fs + "px system-ui, -apple-system, sans-serif";
         ctx.textBaseline = "top";
         ctx.direction = /[֐-ࣿ]/.test(a.text) ? "rtl" : "ltr";
@@ -610,10 +621,11 @@
         ctx.globalAlpha = 1; ctx.fillStyle = col; ctx.fillText(a.text, x, y);
       } else if (a.tool === "textmark") {
         ctx.globalAlpha = 0.3; ctx.fillStyle = col;
-        for (const bx of a.boxes || []) { const [x, y] = annPt(bx, img); ctx.fillRect(x - 2, y - 1, bx.w * img.w + 4, bx.h * img.h + 1); }
+        for (const bx of a.boxes || []) { const [x, y] = annPt(bx, img); ctx.fillRect(x - 2, y - 1, bx.w * iw + 4, bx.h * ih + 1); }
       }
       ctx.restore();
     }
+    ctx.restore();
   }
   function syncAnnot() {
     const stage = $("stage"), an = $("annot"); if (!an || !curLay) return;
@@ -630,9 +642,7 @@
   function evToNorm(e) {
     const an = $("annot"), r = an.getBoundingClientRect();
     const px = (e.clientX - r.left) * (an.width / r.width), py = (e.clientY - r.top) * (an.height / r.height);
-    const img = curLay.img;
-    const nx = (px - img.x) / img.w, ny = (py - img.y) / img.h;
-    return { x: Math.max(0, Math.min(1, nx)), y: Math.max(0, Math.min(1, ny)) };
+    return S.viewToCrop(px, py, curLay.img, curCrop());
   }
   // Line boxes the drag from a→b crosses vertically — the text-highlight snaps
   // to whole lines (only meaningful on the bilingual card, where biLineBoxes is set).
@@ -641,6 +651,31 @@
     return biLineBoxes.filter((bx) => bx.y < maxY + 0.002 && bx.y + bx.h > minY - 0.002);
   }
   let annBuilt = false, drawing = null;
+  function setTool(t) {
+    annTool = t;
+    for (const x of $("annTools").querySelectorAll("button")) x.classList.toggle("on", (x.dataset.tool || "") === t);
+    syncAnnot();
+  }
+  // Crop drag preview: dim everything outside the dragged window, dashed border.
+  function drawCropPreview(ctx, img, a, b) {
+    const [x1, y1] = annPt(a, img), [x2, y2] = annPt(b, img);
+    const x = Math.min(x1, x2), y = Math.min(y1, y2), w = Math.abs(x2 - x1), h = Math.abs(y2 - y1);
+    ctx.save();
+    ctx.beginPath(); ctx.rect(img.x, img.y, img.w, img.h); ctx.rect(x, y, w, h);
+    ctx.fillStyle = "rgba(17,24,39,.45)"; ctx.fill("evenodd");
+    ctx.strokeStyle = "#fff"; ctx.setLineDash([6, 4]); ctx.lineWidth = Math.max(1.5, (rec.dpr || 1) * 1.5);
+    ctx.strokeRect(x, y, w, h);
+    ctx.restore();
+  }
+  async function applyCrop(d) {
+    const x = Math.min(d.a.x, d.b.x), y = Math.min(d.a.y, d.b.y), w = Math.abs(d.a.x - d.b.x), h = Math.abs(d.a.y - d.b.y);
+    if (w < 0.01 || h < 0.01 || S.isFullCrop({ x, y, w, h })) { syncAnnot(); return; } // too small / whole image → no-op
+    rec.crop = { x, y, w, h };
+    setTool(""); // back to select so the next drag doesn't re-crop by surprise
+    try { await putShot(rec); } catch (e) {}
+    await render();
+    toast("Cropped — Uncrop restores the full image");
+  }
   function setupAnnot() {
     if (annBuilt) return; annBuilt = true;
     const colors = $("annColors");
@@ -652,11 +687,16 @@
     });
     $("annTools").addEventListener("click", (e) => {
       const b = e.target.closest("button"); if (!b) return;
-      annTool = b.dataset.tool || "";
-      for (const x of $("annTools").querySelectorAll("button")) x.classList.toggle("on", x === b);
-      syncAnnot();
+      setTool(b.dataset.tool || "");
     });
     $("annSize").addEventListener("input", (e) => { annSizeFrac = (+e.target.value || 5) / 850; });
+    $("annUncrop").addEventListener("click", async () => {
+      if (!rec || !rec.crop) return;
+      rec.crop = null;
+      try { await putShot(rec); } catch (e) {}
+      await render();
+      toast("Full image restored");
+    });
     $("annUndo").addEventListener("click", () => { annots.pop(); syncAnnot(); saveAnnots(); });
     $("annClear").addEventListener("click", () => { if (annots.length && confirm("Remove all annotations?")) { annots = []; syncAnnot(); saveAnnots(); } });
     const an = $("annot");
@@ -664,6 +704,7 @@
       if (!annTool || !curLay) return; e.preventDefault(); an.setPointerCapture(e.pointerId);
       const p = evToNorm(e);
       if (annTool === "text") { placeText(p); return; }
+      if (annTool === "crop") { drawing = { tool: "crop", a: p, b: p }; return; }
       if (annTool === "textmark") { drawing = { tool: "textmark", color: annColor, a: p, boxes: coveredBoxes(p, p) }; }
       else if (annTool === "pen" || annTool === "highlight") drawing = { tool: annTool, color: annColor, size: annSizeFrac, pts: [p] };
       else drawing = { tool: annTool, color: annColor, size: annSizeFrac, a: p, b: p };
@@ -671,18 +712,24 @@
     an.addEventListener("pointermove", (e) => {
       if (!drawing) return;
       const p = evToNorm(e);
+      if (drawing.tool === "crop") {
+        drawing.b = p;
+        const ctx = an.getContext("2d"); ctx.clearRect(0, 0, an.width, an.height);
+        renderAnnots(ctx, curLay.img); drawCropPreview(ctx, curLay.img, drawing.a, drawing.b);
+        return;
+      }
       if (drawing.tool === "textmark") drawing.boxes = coveredBoxes(drawing.a, p);
       else if (drawing.pts) drawing.pts.push(p); else drawing.b = p;
       const ctx = an.getContext("2d"); ctx.clearRect(0, 0, an.width, an.height); renderAnnots(ctx, curLay.img);
       annots.push(drawing); renderAnnots(ctx, curLay.img); annots.pop(); // preview the in-progress shape
     });
-    function finish() { if (!drawing) return; const d = drawing; drawing = null; const ok = d.tool === "textmark" ? (d.boxes && d.boxes.length > 0) : d.pts ? d.pts.length > 1 : (Math.abs(d.a.x - d.b.x) + Math.abs(d.a.y - d.b.y)) > 0.005; if (ok) { annots.push(d); saveAnnots(); } syncAnnot(); }
+    function finish() { if (!drawing) return; const d = drawing; drawing = null; if (d.tool === "crop") { applyCrop(d); return; } const ok = d.tool === "textmark" ? (d.boxes && d.boxes.length > 0) : d.pts ? d.pts.length > 1 : (Math.abs(d.a.x - d.b.x) + Math.abs(d.a.y - d.b.y)) > 0.005; if (ok) { annots.push(d); saveAnnots(); } syncAnnot(); }
     an.addEventListener("pointerup", finish);
     an.addEventListener("pointercancel", finish);
   }
   function placeText(p) {
     const inp = $("annotText"), an = $("annot"), r = an.getBoundingClientRect(), wrap = $("canvasWrap").getBoundingClientRect();
-    const px = p.x * curLay.img.w + curLay.img.x, py = p.y * curLay.img.h + curLay.img.y;
+    const [px, py] = annPt(p, curLay.img);
     inp.style.left = (r.left - wrap.left + px * (r.width / an.width)) + "px";
     inp.style.top = (r.top - wrap.top + py * (r.height / an.height)) + "px";
     inp.style.color = annColor; inp.value = ""; inp.hidden = false; inp.focus();
