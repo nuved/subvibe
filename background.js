@@ -969,15 +969,42 @@ function wordPrompt(source, target) {
 const EXPLAIN_SCHEMA = { name: "sentence_explain", strict: true, schema: { type: "object", additionalProperties: false,
   properties: {
     tr: { type: "string" }, g: { type: "string" },
-    words: { type: "array", items: { type: "object", additionalProperties: false, properties: { w: { type: "string" }, m: { type: "string" } }, required: ["w", "m"] } },
+    words: { type: "array", items: { type: "object", additionalProperties: false, properties: { w: { type: "string" }, m: { type: "string" }, pos: { type: "string" }, level: { type: "string" }, forms: { type: "string" } }, required: ["w", "m", "pos", "level", "forms"] } },
   }, required: ["tr", "g", "words"] } };
-function explainPrompt(source, target) {
+// What kind of video this is — inferred once from the title and a sample of
+// its lines, cached per video, and put in front of every explanation so the
+// model knows whether it is reading an interview, a lesson, a match, a game…
+const CONTEXT_SCHEMA = { name: "video_context", strict: true, schema: { type: "object", additionalProperties: false,
+  properties: { kind: { type: "string" }, about: { type: "string" }, register: { type: "string" }, speakers: { type: "string" } }, required: ["kind", "about", "register", "speakers"] } };
+function contextPrompt(source) {
+  return `You are given the title of a video and a sample of its ${langName(source)} subtitle lines. Return STRICT JSON {"kind":"…","about":"…","register":"…","speakers":"…"}: ` +
+    `kind = what kind of video this is (interview, vlog, language lesson, news, documentary, football match commentary, video-game stream, comedy sketch, talk, podcast …); ` +
+    `about = the topic in one short sentence; register = how people speak (casual/formal, slang, dialect, jokes, technical terms); speakers = who is talking to whom. English, ≤ 60 words in total.`;
+}
+async function videoContext(base, title, lines, source) {
+  if (!base) return null;
+  const cx = (await idbVocabGet("clipexplain:" + base)) || { base, at: Date.now(), e: {} };
+  if (cx.ctx && cx.ctx.kind) return cx.ctx;
+  const sample = (lines || []).filter(Boolean).slice(0, 40);
+  if (!sample.length) return null;
+  try {
+    const r = await llmJSON(contextPrompt(source || "auto"), { title: String(title || "").slice(0, 120), lines: sample.map((l) => String(l).slice(0, 160)) }, CONTEXT_SCHEMA);
+    const p = (r && r.parsed) || {};
+    const ctx = { kind: String(p.kind || "").trim(), about: String(p.about || "").trim(), register: String(p.register || "").trim(), speakers: String(p.speakers || "").trim(), at: Date.now() };
+    if (ctx.kind) { cx.ctx = ctx; await idbVocabPut("clipexplain:" + base, cx); }
+    await logCall({ ts: Date.now(), site: "learn", title: "Context: " + String(title || "").slice(0, 40), kind: "enrich", lines: sample.length, ms: 0, inTok: (r.usage && r.usage.prompt_tokens) || 0, outTok: (r.usage && r.usage.completion_tokens) || 0, ok: true, provider: r.provider, model: r.model });
+    return ctx.kind ? ctx : null;
+  } catch (e) { return null; }
+}
+const contextLine = (ctx) => (ctx && ctx.kind ? `VIDEO CONTEXT: ${ctx.kind}${ctx.about ? " — " + ctx.about : ""}${ctx.register ? ". Register: " + ctx.register : ""}${ctx.speakers ? ". Speakers: " + ctx.speakers : ""}. Read the lines in that light (a joke, a chant, a command in a game, an idiom of that world).\n` : "");
+function explainPrompt(source, target, ctx) {
   const fa = (target || "").split("-")[0] === "fa";
-  return `You explain ONE ${langName(source)} sentence to a learner. The user message carries {"s":"<the sentence>"}.\n` +
-    `Return STRICT JSON {"tr":"…","g":"…","words":[{"w":"…","m":"…"}]}:\n` +
-    `- tr: a natural ${langName(target)} translation of the whole sentence.\n` +
+  return `You explain ONE ${langName(source)} passage (one or a few sentences that belong together) to a learner. The user message carries {"s":"<the passage>","before":[…earlier lines…],"after":[…later lines…]}; "before" and "after" are ONLY context — never explain or translate them.\n` +
+    contextLine(ctx) +
+    `Return STRICT JSON {"tr":"…","g":"…","words":[{"w":"…","m":"…","pos":"…","level":"…","forms":"…"}]}:\n` +
+    `- tr: a natural ${langName(target)} translation of the whole passage.\n` +
     `- g: a plain-${langName(target)} grammar note as 2–4 short points separated by " • ": (1) how the sentence is built — tense/mood, clauses, word order, any separable or phrasal verb; (2) WHY it takes that form, naming the rule with the everyday word next to it; (3) a watch-out for learners (a false friend, an ending, a word that moves) or the everyday way to say it. Concrete, about THIS sentence's words; no bare jargon.\n` +
-    `- words: the 2–5 most useful/learnable words or phrases in this sentence, each {w: the ${langName(source)} word or phrase (the FULL reunited separable verb if one applies, e.g. "anschauen"), m: its concise ${langName(target)} meaning}. Skip trivial function words.` +
+    `- words: the 3–8 most useful/learnable words or phrases in this passage, each {w: the ${langName(source)} word or phrase as it appears (the FULL reunited separable verb if one applies, e.g. "anschauen"), m: its concise ${langName(target)} meaning, pos: one of noun|verb|phrasal verb|adjective|adverb|idiom|expression|preposition|conjunction|pronoun|other, level: CEFR A1–C2 for a learner, forms: for a verb its base · past · participle plus "regular"/"irregular" (e.g. "say · said · said · irregular"), for a noun its plural (and article, where the language has one), for an adjective its comparative if irregular, else ""}. Skip trivial function words.` +
     (fa ? `\nفارسیِ سادهٔ روزمره؛ هرگز واژه‌های دستوریِ سنگین. STANDARD IRANIAN FARSI — no Urdu letters/words.` : "");
 }
 
@@ -986,33 +1013,37 @@ function explainPrompt(source, target) {
 // analysis per shot/side/explanation language, cached on the record.
 const STUDY_SCHEMA = { name: "study_card", strict: true, schema: { type: "object", additionalProperties: false,
   properties: {
-    sentences: { type: "array", items: { type: "object", additionalProperties: false, properties: {
-      i: { type: "integer" },
-      tokens: { type: "array", items: { type: "object", additionalProperties: false, properties: {
-        w: { type: "string" }, g: { type: "string", enum: ["", "m", "f", "n"] }, v: { type: "integer" }, n: { type: "array", items: { type: "integer" } } }, required: ["w", "g", "v", "n"] } },
-      notes: { type: "array", items: { type: "object", additionalProperties: false, properties: { n: { type: "integer" }, term: { type: "string" }, text: { type: "string" } }, required: ["n", "term", "text"] } },
-      simple: { type: "string" },
+    blocks: { type: "array", items: { type: "object", additionalProperties: false, properties: {
+      b: { type: "string" },
       grammar: { type: "string" },
-    }, required: ["i", "tokens", "notes", "simple", "grammar"] } },
-    summaries: { type: "array", items: { type: "object", additionalProperties: false, properties: { b: { type: "string" }, text: { type: "string" } }, required: ["b", "text"] } },
-  }, required: ["sentences", "summaries"] } };
+      simple: { type: "string" },
+      notes: { type: "array", items: { type: "object", additionalProperties: false, properties: { n: { type: "integer" }, term: { type: "string" }, pos: { type: "string" }, level: { type: "string" }, forms: { type: "string" }, text: { type: "string" } }, required: ["n", "term", "pos", "level", "forms", "text"] } },
+      sentences: { type: "array", items: { type: "object", additionalProperties: false, properties: {
+        i: { type: "integer" },
+        tokens: { type: "array", items: { type: "object", additionalProperties: false, properties: {
+          w: { type: "string" }, g: { type: "string", enum: ["", "m", "f", "n"] }, v: { type: "integer" }, n: { type: "array", items: { type: "integer" } }, p: { type: "string", enum: ["", "n", "v", "aux", "adj", "adv", "prep", "conj", "pron", "art", "num", "int", "part"] } }, required: ["w", "g", "v", "n", "p"] } },
+      }, required: ["i", "tokens"] } },
+    }, required: ["b", "grammar", "simple", "notes", "sentences"] } },
+  }, required: ["blocks"] } };
 // CACHE-STABLE per (lang, explain).
-function studyPrompt(lang, explain) {
+function studyPrompt(lang, explain, ctx) {
   const L = langName(lang), E = langName(explain), same = (lang || "").split("-")[0] === (explain || "").split("-")[0];
   const fa = (explain || "").split("-")[0] === "fa";
   const inE = same ? "simple " + L + " (A2 words, short sentences)" : E;
   return `You are a patient ${L} teacher for learners at A2–B1${same ? "" : " whose first language is " + E}. The user message carries ` +
-    `{"blocks":[{"b":"<id>","sentences":[{"i":<n>,"text":"<${L} sentence>"}]}]}.\n` +
-    `Return STRICT JSON {"sentences":[…],"summaries":[…]}: one entry per input sentence (same i) and one summary per block (same b).\n` +
+    `{"blocks":[{"b":"<id>","sentences":[{"i":<n>,"text":"<${L} sentence>"}]}]} — each block is a CHUNK, a passage of sentences that belong together.\n` +
+    contextLine(ctx) +
+    `Return STRICT JSON {"blocks":[{"b","grammar","simple","notes":[…],"sentences":[{"i","tokens":[…]}]}]}: one block per input block (same b), one sentence entry per input sentence (same i). The tips (grammar, simple, notes) are given ONCE per chunk, never per sentence.\n` +
     `For each sentence:\n` +
-    `- tokens: the sentence split into words IN ORDER; punctuation stays attached to the word before it; joining the tokens with single spaces must reproduce the sentence exactly. Each token is {w, g, v, n}.\n` +
+    `- tokens: the sentence split into words IN ORDER; punctuation stays attached to the word before it; joining the tokens with single spaces must reproduce the sentence exactly. Each token is {w, g, v, n, p}.\n` +
+    `  p: the word's character: n (noun), v (verb), aux (auxiliary or modal), adj, adv, prep, conj, pron, art (article/determiner), num, int (interjection), part (particle, incl. a separable prefix); "" for names and punctuation-only tokens.\n` +
     `  g: grammatical gender "m", "f" or "n" on every NOUN and on the article, pronoun or adjective that agrees with that noun — ONLY if ${L} has grammatical gender (German, French, Spanish, Russian …); for a language without it (English, Persian, Turkish …) ALWAYS ""; also "" for verbs, adverbs, prepositions, names, numbers and plurals without a clear gender.\n` +
     `  v: the parts of ONE verb group share one number (1, 2, …): auxiliary + participle (hat … gebrochen, has … broken), modal + infinitive (kann … gleichkommen, could say), separable prefix + stem (geht … weiter), phrasal verb (mix … up), verb + zu/to + infinitive; 0 otherwise.\n` +
-    `  n: the numbers of the notes this token belongs to — put a note's number on the LAST token of its phrase, and for a two-part verb on the verb's last part (the participle, infinitive or prefix), so every underlined verb carries its note; at most 2 per token; [] otherwise.\n` +
-    `- notes: 3 to 7 per sentence, numbered 1… in reading order, each {n, term: the exact words as they appear, text: at most 25 words in ${inE}}. Say WHAT the form is and WHY it is that form; name the rule and the specific words; add the everyday version where useful. Prefer: the case after prepositions and verbs (why dative / accusative / genitive), the verb bracket and word order (verb second, verb last in subordinate clauses), separable and two-part verbs, adjective endings, comparatives, plurals, idioms and false friends.\n` +
-    `- simple: the same sentence said more simply in ${L}: A2 vocabulary, short clauses, same meaning, no longer than 1.3× the original.\n` +
-    `- grammar: how the sentence is built, as 2–4 short points in ${inE} separated by " • ": the clauses and their order, the tense or mood, what moves where and why — the sentence's skeleton, not the word notes.\n` +
-    `summaries: for each block, one sentence in ${inE} (at most 25 words) saying what that paragraph says.\n` +
+    `  n: the numbers of the chunk's notes this token belongs to — put a note's number on the LAST token of its phrase, and for a verb group on the verb's last part, so every underlined verb carries its note; at most 2 per token; [] otherwise.\n` +
+    `For each chunk (block):\n` +
+    `- notes: 4 to 10 for the whole chunk, numbered 1… in reading order across its sentences, each {n, term: the exact words as they appear, pos: one of noun|verb|phrasal verb|adjective|adverb|idiom|expression|preposition|conjunction|pronoun|article|number|other, level: CEFR A1–C2 for a learner, forms: for a verb its base · past · participle plus "regular"/"irregular" (e.g. "gehen · ging · gegangen · irregular"), for a noun its plural with the article where the language has one, for an adjective an irregular comparative, else "", text: at most 25 words in ${inE}}. Say WHAT the form is and WHY it is that form; name the rule and the specific words; add the everyday version where useful. Prefer: the case after prepositions and verbs, the verb bracket and word order, separable and two-part verbs, adjective endings, comparatives, plurals, idioms, false friends, and anything the video context makes special (slang, a chant, a game command).\n` +
+    `- simple: the whole chunk said more simply in ${L}: A2 vocabulary, short clauses, same meaning, no longer than 1.3× the original.\n` +
+    `- grammar: how the chunk is built, as 2–5 short points in ${inE} separated by " • ": the clauses and their order, the tenses or moods, what moves where and why — the skeleton, not the word notes.\n` +
     `Never invent words that are not in the sentence. Be concrete and encouraging; whenever you use a grammar term, put the everyday word next to it.` +
     (fa ? `\nفارسیِ سادهٔ روزمره. STANDARD IRANIAN FARSI — no Urdu letters/words.` : "");
 }
@@ -1031,18 +1062,19 @@ async function shotStudy(msg) {
   const started = Date.now();
   const meta = { ts: started, site: "shot", title: "Study: " + (rec.title || "").slice(0, 50), kind: "study", lines: input.count };
   let inTok = 0, outTok = 0, cacheR = 0, cacheW = 0, provider, model;
-  const merged = { sentences: [], summaries: [] };
+  const merged = { blocks: [] };
+  // The video's kind, when this shot comes from one (snap / tips sheet); a web page has none.
+  const ctx = rec.mode === "snap" || rec.mode === "tips" ? await videoContext(String(msg.base || rec.tipsBase || ""), rec.title, input.blocks.flatMap((b) => b.sentences.map((x) => x.text)), lang) : null;
   try {
     const batches = []; let cur = [], n = 0;
     for (const b of input.blocks) { if (n && n + b.sentences.length > 10) { batches.push(cur); cur = []; n = 0; } cur.push(b); n += b.sentences.length; }
     if (cur.length) batches.push(cur);
     for (const batch of batches) {
-      const r = await llmJSON(studyPrompt(lang, explain), { blocks: batch.map((b) => ({ b: b.b, sentences: b.sentences.map((x) => ({ i: x.i, text: x.text })) })) }, STUDY_SCHEMA);
+      const r = await llmJSON(studyPrompt(lang, explain, ctx), { blocks: batch.map((b) => ({ b: b.b, sentences: b.sentences.map((x) => ({ i: x.i, text: x.text })) })) }, STUDY_SCHEMA);
       provider = r.provider; model = r.model;
       if (r.usage) { inTok += r.usage.prompt_tokens || 0; outTok += r.usage.completion_tokens || 0; cacheR += r.usage.cache_r || 0; cacheW += r.usage.cache_w || 0; }
       const pr = r.parsed || {};
-      if (Array.isArray(pr.sentences)) merged.sentences.push(...pr.sentences);
-      if (Array.isArray(pr.summaries)) merged.summaries.push(...pr.summaries);
+      if (Array.isArray(pr.blocks)) merged.blocks.push(...pr.blocks);
     }
   } catch (e) {
     const m = String((e && e.message) || e);
@@ -1053,9 +1085,48 @@ async function shotStudy(msg) {
   await logCall({ ...meta, ms: Date.now() - started, inTok, outTok, cacheR, cacheW, ok: true, provider, model });
   const blocks = SV_SHOT.buildStudy(input, merged, lang);
   if (!rec.study || typeof rec.study !== "object") rec.study = {};
-  rec.study[key] = { side, lang, explain, ts: Date.now(), provider, model, truncated: input.truncated, count: input.count, blocks };
+  rec.study[key] = { v: 2, side, lang, explain, ts: Date.now(), provider, model, truncated: input.truncated, count: input.count, blocks };
   await shotPut(rec);
   return { ok: true, key };
+}
+
+// One line's explanation (translation, grammar note, key words), cached per
+// video under clipexplain:<base> by sentence hash. The sentence's OWN language
+// drives the prompt — the popup's "I'm learning" setting is a preference, not
+// a fact about this video (an English line on a German learner's account was
+// being explained as "not a German sentence"). Used by the ? card and by
+// "Tips for this clip".
+async function explainLine(base, sent, langHint, opts) {
+  const o = opts || {};
+  let h = 5381;
+  for (let i = 0; i < sent.length; i++) h = ((h << 5) + h + sent.charCodeAt(i)) | 0;
+  const skey = "e2" + (h >>> 0).toString(36); // e2: passage-level explanations with pos/level/forms
+  const cx = (await idbVocabGet("clipexplain:" + base)) || { base, at: Date.now(), e: {} };
+  const { targets: cfgX } = await chrome.storage.local.get(["targets"]);
+  const target = (Array.isArray(cfgX) && cfgX[0]) || "en";
+  const fa = (target || "").split("-")[0] === "fa";
+  const faS = (s) => (fa ? SV_VOCAB.normalizeFa(String(s || "")) : String(s || ""));
+  if (cx.e[skey] && cx.e[skey].tr) {
+    const c = cx.e[skey];
+    return { ok: true, tr: faS(c.tr), g: faS(c.g), lang: c.lang || "", words: (c.words || []).map((x) => ({ w: x.w, m: faS(x.m), pos: x.pos || "", level: x.level || "", forms: x.forms || "" })), cached: true };
+  }
+  const started = Date.now();
+  let lang = langHint && langHint !== "xx" ? String(langHint) : "";
+  try { const det = await detectClipLang([{ o: sent }]); if (det && det !== "xx") lang = det; } catch {}
+  // The video's kind (interview, lesson, match …) is inferred once and cached;
+  // the neighbouring lines ride along as context only.
+  const ctx = await videoContext(base, o.title, o.sample, lang || "auto");
+  if (ctx && !cx.ctx) cx.ctx = ctx; // the record below is written back whole — keep the context it just inferred
+  const payload = { s: sent, before: (o.before || []).slice(-3).map((x) => String(x).slice(0, 200)), after: (o.after || []).slice(0, 3).map((x) => String(x).slice(0, 200)) };
+  const r = await llmJSON(explainPrompt(lang || "auto", target, ctx), payload, EXPLAIN_SCHEMA);
+  const p = (r && r.parsed) || {};
+  const out = { tr: String(p.tr || "").trim(), g: String(p.g || "").trim(), lang,
+    words: Array.isArray(p.words) ? p.words.filter((x) => x && x.w && x.m).slice(0, 8).map((x) => ({ w: String(x.w).trim(), m: String(x.m).trim(), pos: String(x.pos || "").trim().toLowerCase(), level: String(x.level || "").trim().toUpperCase(), forms: String(x.forms || "").trim() })) : [] };
+  if (out.tr) { out.s = sent; out.at = started; cx.e[skey] = out; cx.target = target; cx.lang = lang || String(cx.lang || ""); cx.at = Date.now(); await idbVocabPut("clipexplain:" + base, cx); }
+  await logCall({ ts: started, site: "learn", title: "Explain: " + sent.slice(0, 40), kind: "enrich", lines: 1, ms: Date.now() - started,
+    inTok: (r.usage && r.usage.prompt_tokens) || 0, outTok: (r.usage && r.usage.completion_tokens) || 0,
+    cacheR: (r.usage && r.usage.cache_r) || 0, cacheW: (r.usage && r.usage.cache_w) || 0, ok: true, provider: r.provider, model: r.model });
+  return { ok: true, tr: faS(out.tr), g: faS(out.g), lang, words: out.words.map((x) => ({ w: x.w, m: faS(x.m), pos: x.pos, level: x.level, forms: x.forms })) };
 }
 
 // ── Tips sheet: every ﹖-explained line of a video as one Study card ─────────
@@ -1068,16 +1139,42 @@ async function tipsSheet(msg) {
   const cx = base ? await idbVocabGet("clipexplain:" + base) : null;
   const entries = cx && cx.e ? Object.values(cx.e).filter((e) => e && e.s && e.tr).sort((a, b) => (a.at || 0) - (b.at || 0)) : [];
   if (!entries.length) return { ok: false, error: "empty" };
-  const built = SV_SHOT.tipsSheet(entries);
   let tab = null; try { tab = await activeTabHere(); } catch { tab = null; }
   const title = String(msg.title || (tab && tab.title) || "Tips");
   const url = String(msg.url || (tab && tab.url) || "");
-  const tally = {}; for (const e of entries) if (e.lang && e.lang !== "xx") tally[e.lang] = (tally[e.lang] || 0) + 1;
-  const detected = Object.keys(tally).sort((a, b) => tally[b] - tally[a])[0] || "";
-  const lang = detected || String(cx.lang && cx.lang !== "xx" ? cx.lang : (msg.lang && msg.lang !== "xx" ? msg.lang : "")) || "";
   const { targets } = await chrome.storage.local.get("targets");
   const target = String(cx.target || (Array.isArray(targets) && targets[0]) || "en");
   const id = "tips-" + base.replace(/[^a-z0-9_-]/gi, "-").slice(0, 60);
+  return buildTipsRecord({ id, entries, title, url, target, langHint: cx.lang || msg.lang, tab, mode: "tips", label: "TIPS SHEET" });
+}
+// "Tips for this clip": explain every line in the clip's trim range (cached
+// per video line), then a sheet of just those lines. Slides for Instagram in
+// the editor turn it into the carousel pages that follow the clip.
+async function clipTips(msg) {
+  // `lines` are chunks (each may carry its sentences); a bare line is a one-sentence chunk.
+  const base = String(msg.base || ""), lines = Array.isArray(msg.lines) ? msg.lines.filter((l) => l && l.s).slice(0, 40) : [];
+  if (!base || !lines.length) return { ok: false, error: "empty" };
+  const entries = [];
+  const norm = (x) => String(x || "").replace(/\s+/g, " ").trim();
+  for (let i = 0; i < lines.length; i++) {
+    const sTxt = norm(lines[i].s).slice(0, 700);
+    try {
+      const r = await explainLine(base, sTxt, msg.lang, { title: msg.title, sample: msg.sample, before: lines[i - 1] ? [norm(lines[i - 1].s)] : [], after: lines[i + 1] ? [norm(lines[i + 1].s)] : [] });
+      if (r && r.ok && r.tr) entries.push({ s: sTxt, tr: r.tr, g: r.g, words: r.words || [], lang: r.lang || "", at: i,
+        sentences: Array.isArray(lines[i].sentences) ? lines[i].sentences.map((x) => ({ s: norm(x.s), tr: norm(x.tr) })).filter((x) => x.s) : null });
+    } catch (e) { if (/key/i.test(String((e && e.message) || e))) return { ok: false, error: "no-key" }; }
+  }
+  if (!entries.length) return { ok: false, error: "network" };
+  const { targets } = await chrome.storage.local.get("targets");
+  const target = String(msg.target || (Array.isArray(targets) && targets[0]) || "en");
+  const id = "tips-clip-" + String(msg.clipId || Date.now()).replace(/[^a-z0-9_-]/gi, "-").slice(0, 60);
+  return buildTipsRecord({ id, entries, title: String(msg.title || "Clip"), url: String(msg.url || ""), target, langHint: msg.lang, tab: null, mode: "tips", label: "CLIP · TIPS" });
+}
+async function buildTipsRecord({ id, entries, title, url, target, langHint, tab, mode, label }) {
+  const built = SV_SHOT.tipsSheet(entries);
+  const tally = {}; for (const e of entries) if (e.lang && e.lang !== "xx") tally[e.lang] = (tally[e.lang] || 0) + 1;
+  const detected = Object.keys(tally).sort((a, b) => tally[b] - tally[a])[0] || "";
+  const lang = detected || String(langHint && langHint !== "xx" ? langHint : "") || "";
   const prev = await shotGet(id);
   // A small paper card as the sheet's raster: it is what History shows and
   // what the page views fall back to; the Study card is the real content.
@@ -1086,7 +1183,7 @@ async function tipsSheet(msg) {
     const c = new OffscreenCanvas(640, 360), g = c.getContext("2d");
     g.fillStyle = "#FAF6F0"; g.fillRect(0, 0, 640, 360);
     g.fillStyle = "#FFFFFF"; g.beginPath(); g.roundRect(40, 40, 560, 280, 16); g.fill();
-    g.fillStyle = "#C93F2B"; g.font = "700 12px ui-monospace, Menlo, monospace"; g.fillText("SUBVIBE · TIPS SHEET", 64, 80);
+    g.fillStyle = "#C93F2B"; g.font = "700 12px ui-monospace, Menlo, monospace"; g.fillText("SUBVIBE · " + (label || "TIPS SHEET"), 64, 80);
     g.fillStyle = "#241F1A"; g.font = "700 24px system-ui, -apple-system, sans-serif";
     const t = title.length > 40 ? title.slice(0, 39) + "…" : title; g.fillText(t, 64, 130);
     g.fillStyle = "#5B5348"; g.font = "500 16px system-ui, -apple-system, sans-serif";
@@ -1096,11 +1193,11 @@ async function tipsSheet(msg) {
   if (!(blob instanceof Blob)) return { ok: false, error: "raster" };
   const key = SV_SHOT.studyKey("source:" + (lang || "xx"), target);
   const rec = {
-    id, ts: Date.now(), url, title, host: hostOf(url) || "tips", source: lang || "xx", target, mode: "tips", layout: "bilingual", dpr: 1,
+    id, ts: Date.now(), url, title, host: hostOf(url) || "tips", source: lang || "xx", target, mode: mode || "tips", layout: "bilingual", dpr: 1,
     w: 640, h: 360, rect: { x: 0, y: 0, w: 640, h: 360 }, original: blob, variant: blob, views: { original: blob },
     blocks: built.blocks, annots: (prev && Array.isArray(prev.annots)) ? prev.annots : [], crop: null, font: (prev && prev.font) || "",
     tabId: (tab && tab.id) || -1, windowId: (tab && tab.windowId) || -1, partial: false, truncated: "", sameLang: false, noKey: false,
-    study: { [key]: { side: "source", lang: lang || "xx", explain: target, ts: Date.now(), provider: "tips", model: "", count: entries.length, truncated: false, blocks: built.study } },
+    study: { [key]: { v: 2, side: "source", lang: lang || "xx", explain: target, ts: Date.now(), provider: "tips", model: "", count: entries.length, truncated: false, blocks: built.study } },
   };
   try { SV_SHOT.validateRecord(rec); await shotPut(rec); } catch (e) { return { ok: false, error: "store" }; }
   await chrome.tabs.create({ url: chrome.runtime.getURL("shot.html?id=" + encodeURIComponent(id)) });
@@ -1124,10 +1221,22 @@ async function tipsSnap(msg, sender) {
   let blob;
   try { blob = await (await fetch(msg.frame)).blob(); } catch (e) { return { ok: false, error: "frame" }; }
   const dpr = 1;
-  const line = msg.line || {};
-  const sTxt = String(line.s || "").replace(/\s+/g, " ").trim(), tr = String(line.tr || "").replace(/\s+/g, " ").trim();
+  // One or more whole chunks (each a passage with its sentences and tips);
+  // the older single-line shape still arrives as `line`.
+  const norm = (x) => String(x || "").replace(/\s+/g, " ").trim();
+  const chunks = (Array.isArray(msg.chunks) && msg.chunks.length ? msg.chunks : [msg.line || {}]).slice(0, 3)
+    .map((c) => ({ s: norm(c.s), tr: norm(c.tr), g: c.g, lang: c.lang, words: c.words || [], sentences: Array.isArray(c.sentences) ? c.sentences.map((x) => ({ s: norm(x.s), tr: norm(x.tr) })).filter((x) => x.s) : null }))
+    .filter((c) => c.s);
+  const line = chunks[0] || {};
+  const sTxt = line.s || "", tr = line.tr || "";
   const lr = msg.lineRect && +msg.lineRect.w > 0 ? msg.lineRect : null;
-  const blocks = sTxt ? [{ id: "b0", text: sTxt, tr, rect: lr ? { x: +lr.x || 0, y: +lr.y || 0, w: +lr.w, h: +lr.h || 24 } : { x: 24, y: Math.max(0, rh - 80), w: Math.max(1, rw - 48), h: 40 }, pairs: [{ o: sTxt, t: tr }], segs: [sTxt] }] : [];
+  const rect0 = lr ? { x: +lr.x || 0, y: +lr.y || 0, w: +lr.w, h: +lr.h || 24 } : { x: 24, y: Math.max(0, rh - 80), w: Math.max(1, rw - 48), h: 40 };
+  const blocks = chunks.map((c, i) => {
+    const pairs = c.sentences && c.sentences.length ? c.sentences.map((x) => ({ o: x.s, t: x.tr })) : [{ o: c.s, t: c.tr }];
+    // later chunks stack above the line's rect (they have no place on the frame of their own)
+    const rect = i === 0 ? rect0 : { x: rect0.x, y: Math.max(0, rect0.y - i * (rect0.h + 8)), w: rect0.w, h: rect0.h };
+    return { id: "b" + i, text: c.s, tr: c.tr, rect, pairs, segs: pairs.map((p) => p.o) };
+  });
   const lang = String(line.lang && line.lang !== "xx" ? line.lang : (msg.lang && msg.lang !== "xx" ? msg.lang : "")) || "";
   const { targets } = await chrome.storage.local.get("targets");
   const target = String((Array.isArray(targets) && targets[0]) || "en");
@@ -1138,9 +1247,9 @@ async function tipsSnap(msg, sender) {
     blocks, annots: [], crop: null, font: "", tabId: -1, windowId: -1, partial: false, truncated: "", sameLang: false, noKey: false,
   };
   if (sTxt && tr) {
-    const built = SV_SHOT.tipsSheet([{ s: sTxt, tr, g: line.g, words: line.words }]);
-    built.study.forEach((b) => { b.b = "b0"; });
-    rec.study = { [SV_SHOT.studyKey("source:" + (lang || "xx"), target)]: { side: "source", lang: lang || "xx", explain: target, ts: Date.now(), provider: "tips", model: "", count: 1, truncated: false, blocks: built.study } };
+    const built = SV_SHOT.tipsSheet(chunks.map((c) => ({ s: c.s, tr: c.tr, g: c.g, words: c.words, sentences: c.sentences })));
+    built.study.forEach((b, i) => { b.b = "b" + i; });
+    rec.study = { [SV_SHOT.studyKey("source:" + (lang || "xx"), target)]: { v: 2, side: "source", lang: lang || "xx", explain: target, ts: Date.now(), provider: "tips", model: "", count: blocks.reduce((n, b) => n + b.pairs.length, 0), truncated: false, blocks: built.study } };
   }
   try { SV_SHOT.validateRecord(rec); await shotPut(rec); } catch (e) { return { ok: false, error: "store" }; }
   await chrome.tabs.create({ url: chrome.runtime.getURL("shot.html?id=" + encodeURIComponent(rec.id)), openerTabId: tab.id });
@@ -2642,41 +2751,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         case "VOCAB_EXPLAIN": {
           // The whole line in labeled sections (translation + structure + key
           // words) for the on-video ﹖ button. Cached per sentence forever.
-          const base = String(msg.base || ""), sent = String(msg.s || "").slice(0, 320);
+          const base = String(msg.base || ""), sent = String(msg.s || "").slice(0, 700);
           if (!sent) { sendResponse({ error: "missing sentence" }); break; }
-          let h = 5381;
-          for (let i = 0; i < sent.length; i++) h = ((h << 5) + h + sent.charCodeAt(i)) | 0;
-          const skey = "e1" + (h >>> 0).toString(36);
-          const cx = (await idbVocabGet("clipexplain:" + base)) || { base, at: Date.now(), e: {} };
-          const { targets: cfgX } = await chrome.storage.local.get(["targets"]);
-          const target = (Array.isArray(cfgX) && cfgX[0]) || "en";
-          const fa = (target || "").split("-")[0] === "fa";
-          const faS = (s) => (fa ? SV_VOCAB.normalizeFa(String(s || "")) : String(s || ""));
-          if (cx.e[skey] && cx.e[skey].tr) {
-            const c = cx.e[skey];
-            sendResponse({ ok: true, tr: faS(c.tr), g: faS(c.g), lang: c.lang || "", words: (c.words || []).map((x) => ({ w: x.w, m: faS(x.m) })), cached: true });
-            break;
-          }
-          const started = Date.now();
-          // The sentence's OWN language drives the prompt: the popup's "I'm
-          // learning" setting is a preference, not a fact about this video —
-          // an English line on a German learner's account was being explained
-          // as "not a German sentence".
-          let lang = msg.lang && msg.lang !== "xx" ? String(msg.lang) : "";
-          try { const det = await detectClipLang([{ o: sent }]); if (det && det !== "xx") lang = det; } catch {}
-          try {
-            const r = await llmJSON(explainPrompt(lang || "auto", target), { s: sent }, EXPLAIN_SCHEMA);
-            const p = (r && r.parsed) || {};
-            const out = { tr: String(p.tr || "").trim(), g: String(p.g || "").trim(), lang,
-              words: Array.isArray(p.words) ? p.words.filter((x) => x && x.w && x.m).slice(0, 6).map((x) => ({ w: String(x.w).trim(), m: String(x.m).trim() })) : [] };
-            if (out.tr) { out.s = sent; out.at = started; cx.e[skey] = out; cx.target = target; cx.lang = lang || String(cx.lang || ""); cx.at = Date.now(); await idbVocabPut("clipexplain:" + base, cx); }
-            await logCall({ ts: started, site: "learn", title: "Explain: " + sent.slice(0, 40), kind: "enrich", lines: 1, ms: Date.now() - started,
-              inTok: (r.usage && r.usage.prompt_tokens) || 0, outTok: (r.usage && r.usage.completion_tokens) || 0,
-              cacheR: (r.usage && r.usage.cache_r) || 0, cacheW: (r.usage && r.usage.cache_w) || 0, ok: true, provider: r.provider, model: r.model });
-            sendResponse({ ok: true, tr: faS(out.tr), g: faS(out.g), lang, words: out.words.map((x) => ({ w: x.w, m: faS(x.m) })) });
-          } catch (e2) {
-            sendResponse({ error: String((e2 && e2.message) || e2) });
-          }
+          try { sendResponse(await explainLine(base, sent, msg.lang, { before: msg.before, after: msg.after, title: msg.title, sample: msg.sample })); }
+          catch (e2) { sendResponse({ error: String((e2 && e2.message) || e2) }); }
           break;
         }
         case "VOCAB_CLIP_ENRICH": {
@@ -2838,6 +2916,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         case "SHOT_STUDY": sendResponse(await shotStudy(msg)); break;
         case "TIPS_SHEET": sendResponse(await tipsSheet(msg)); break;
         case "TIPS_SNAP": sendResponse(await tipsSnap(msg, sender)); break;
+        case "CLIP_TIPS": sendResponse(await clipTips(msg)); break;
         default:
           sendResponse({ error: "unknown message: " + (msg && msg.type) });
       }

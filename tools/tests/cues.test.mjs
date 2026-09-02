@@ -74,3 +74,20 @@ test("rechunkTimed: untimed cues pass through in place; isTimed tells them apart
   assert.equal(C.isTimed(timed), true); assert.equal(C.isTimed(plain), false);
   assert.equal(C.isTimed({ startMs: 0, endMs: 1, text: "x y", w: [{ o: 0, t: "x" }, { o: 0, t: "y" }] }), false, "all-zero offsets are not word timing");
 });
+
+test("chunkCues: lines group into passages at long silences or the caps, never inside a line", () => {
+  const L = (startMs, endMs, original) => ({ startMs, endMs, original });
+  const lines = [
+    L(0, 2000, "Hallo, wir sind heute in Udine."), L(2300, 5000, "Udine ist eine italienische Stadt."), L(5200, 7000, "Wir sind also in Italien."),
+    L(12000, 14000, "Ich sitze auf einer Bank."), L(14300, 16000, "Die Parkbank."), // 5 s silence before → new chunk
+    L(16200, 18000, "A."), L(18100, 20000, "B."), L(20100, 22000, "C."), L(22100, 24000, "D."), L(24100, 26000, "E."), // 4-line cap
+  ];
+  const ch = C.chunkCues(lines);
+  assert.deepEqual(ch.map((c) => [c.from, c.to]), [[0, 2], [3, 6], [7, 9]], "silence before line 3; then the 4-line cap");
+  assert.deepEqual([ch[0].startMs, ch[0].endMs], [0, 7000]);
+  assert.equal(C.chunkOf(ch, 4), 1); assert.equal(C.chunkOf(ch, 9), 2); assert.equal(C.chunkOf(ch, 99), -1);
+  // a long passage without silences breaks on characters
+  const long = Array.from({ length: 3 }, (_, i) => L(i * 3000, i * 3000 + 2800, "x".repeat(140) + "."));
+  assert.deepEqual(C.chunkCues(long, { maxChars: 300, maxSents: 10 }).map((c) => [c.from, c.to]), [[0, 1], [2, 2]]);
+  assert.deepEqual(C.chunkCues([]), []);
+});

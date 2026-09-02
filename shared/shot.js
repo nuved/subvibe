@@ -356,28 +356,54 @@
   // Model output → per-block card data, defensively. Tokens must be strings;
   // gender ∈ m/f/n; note numbers are kept only when the note exists; a
   // sentence the model skipped falls back to plain tokens (no marks).
+  const POS = new Set(["noun", "verb", "phrasal verb", "adjective", "adverb", "idiom", "expression", "preposition", "conjunction", "pronoun", "article", "number", "other"]);
+  const TOKPOS = new Set(["n", "v", "adj", "adv", "prep", "conj", "pron", "art", "num", "int", "part", "aux"]); // per-word "character" codes
+  const LEVELS = new Set(["A1", "A2", "B1", "B2", "C1", "C2"]);
+  // A note as the card shows it: what, part of speech, level, forms, why.
+  function cleanNote(nt, k) {
+    return { n: Number.isInteger(nt && nt.n) ? nt.n : k + 1, term: normText(nt && nt.term), text: normText(nt && nt.text),
+      pos: POS.has(String(nt && nt.pos || "").toLowerCase()) ? String(nt.pos).toLowerCase() : "", level: LEVELS.has(String(nt && nt.level || "").toUpperCase()) ? String(nt.level).toUpperCase() : "", forms: normText(nt && nt.forms) };
+  }
+  // Model output → card data. Version 2: the tips (grammar points, the simpler
+  // version, the numbered notes) belong to the BLOCK — a chunk, a passage of a
+  // few sentences — and the sentences carry only their marks. Tokens are
+  // strings; gender only for gendered languages; note numbers only when the
+  // note exists; a sentence the model skipped falls back to plain tokens.
   function buildStudy(input, out, lang) {
     const gendered = lang == null ? true : isGendered(lang);
-    const bySent = new Map();
-    for (const s of (out && Array.isArray(out.sentences)) ? out.sentences : []) if (s && Number.isInteger(s.i)) bySent.set(s.i, s);
-    const sumBy = new Map();
-    for (const su of (out && Array.isArray(out.summaries)) ? out.summaries : []) if (su && su.b != null) sumBy.set(String(su.b), normText(su.text));
+    const byBlock = new Map();
+    for (const b of (out && Array.isArray(out.blocks)) ? out.blocks : []) if (b && b.b != null) byBlock.set(String(b.b), b);
     const blocks = [];
     for (const blk of input.blocks) {
+      const m = byBlock.get(String(blk.b)) || {};
+      const notes = (Array.isArray(m.notes) ? m.notes : []).map(cleanNote).filter((nt) => nt.text).slice(0, 10);
+      const ids = new Set(notes.map((nt) => nt.n));
+      const bySent = new Map();
+      for (const sm of Array.isArray(m.sentences) ? m.sentences : []) if (sm && Number.isInteger(sm.i)) bySent.set(sm.i, sm);
       const sentences = blk.sentences.map((src) => {
-        const m = bySent.get(src.i) || {};
-        const notes = (Array.isArray(m.notes) ? m.notes : []).map((nt, k) => ({ n: Number.isInteger(nt && nt.n) ? nt.n : k + 1, term: normText(nt && nt.term), text: normText(nt && nt.text) })).filter((nt) => nt.text).slice(0, 8);
-        const ids = new Set(notes.map((nt) => nt.n));
-        let tokens = (Array.isArray(m.tokens) ? m.tokens : []).map((t) => ({
+        const sm = bySent.get(src.i) || {};
+        let tokens = (Array.isArray(sm.tokens) ? sm.tokens : []).map((t) => ({
           w: normText(t && t.w), g: gendered && ["m", "f", "n"].includes(t && t.g) ? t.g : "", v: Number.isInteger(t && t.v) && t.v > 0 ? t.v : 0,
           n: (Array.isArray(t && t.n) ? t.n : []).filter((x) => ids.has(x)).slice(0, 2),
+          p: TOKPOS.has(String(t && t.p || "").toLowerCase()) ? String(t.p).toLowerCase() : "",
         })).filter((t) => t.w);
-        if (!tokens.length) tokens = src.text.split(" ").map((w) => ({ w, g: "", v: 0, n: [] }));
-        return { text: src.text, meaning: src.meaning, tokens, notes, simple: normText(m.simple), grammar: normText(m.grammar) };
+        if (!tokens.length) tokens = src.text.split(" ").map((w) => ({ w, g: "", v: 0, n: [], p: "" }));
+        return { text: src.text, meaning: src.meaning, tokens };
       });
-      blocks.push({ b: blk.b, summary: sumBy.get(blk.b) || "", sentences });
+      blocks.push({ b: blk.b, grammar: normText(m.grammar), simple: normText(m.simple), notes, sentences });
     }
     return blocks;
+  }
+  // Older analyses kept the tips on each sentence: lift them so every sentence
+  // becomes its own block — the card then draws one shape for both.
+  function normalizeStudy(blocks) {
+    const out = [];
+    for (const b of blocks || []) {
+      const v1 = (b.sentences || []).some((snt) => snt && (Array.isArray(snt.notes) || snt.simple != null || snt.grammar != null)) && !Array.isArray(b.notes);
+      if (!v1) { out.push({ b: b.b, grammar: b.grammar || "", simple: b.simple || "", notes: (b.notes || []).map(cleanNote), sentences: b.sentences || [] }); continue; }
+      (b.sentences || []).forEach((snt, i) => out.push({ b: String(b.b) + "." + i, grammar: snt.grammar || "", simple: snt.simple || "", notes: (snt.notes || []).map(cleanNote), sentences: [{ text: snt.text, meaning: snt.meaning, tokens: snt.tokens || [] }] }));
+    }
+    return out;
   }
   // Which marks a study actually uses (the legend shows only those).
   function studyMarks(blocks) {
@@ -403,17 +429,22 @@
     clean.forEach((e, i) => {
       const s = normText(e.s), tr = normText(e.tr);
       blocks.push({ id: "t" + i, text: s, tr, rect: { x: 0, y: i * 40, w: 640, h: 36 }, pairs: [{ o: s, t: tr }] });
-      const tokens = s.split(" ").filter(Boolean).map((w) => ({ w, g: "", v: 0, n: [] }));
+      // A chunk entry may carry its sentences (with their own translations); a
+      // line entry is one sentence. Tokens per sentence, notes on the chunk.
+      const sents = Array.isArray(e.sentences) && e.sentences.length ? e.sentences.map((x) => ({ text: normText(x.s), meaning: normText(x.tr) })).filter((x) => x.text) : [{ text: s, meaning: tr }];
+      const sentences = sents.map((x) => ({ text: x.text, meaning: x.meaning, tokens: x.text.split(" ").filter(Boolean).map((w) => ({ w, g: "", v: 0, n: [] })) }));
       const notes = []; let n = 0; // words are the numbered notes; the grammar note gets its own box
       const bare = (w) => String(w || "").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
-      for (const x of (Array.isArray(e.words) ? e.words : []).filter((x) => x && x.w && x.m).slice(0, 6)) {
+      for (const x of (Array.isArray(e.words) ? e.words : []).filter((x) => x && x.w && x.m).slice(0, 8)) {
         const num = ++n;
-        notes.push({ n: num, term: normText(x.w), text: normText(x.m) });
+        notes.push(cleanNote({ n: num, term: normText(x.w), text: normText(x.m), pos: x.pos, level: x.level, forms: x.forms }, num - 1));
         const last = bare(normText(x.w).split(" ").pop());
-        const tok = last ? tokens.find((t) => bare(t.w) === last) || tokens.find((t) => bare(t.w).includes(last) || last.includes(bare(t.w)) && bare(t.w).length > 3) : null;
-        if (tok && tok.n.length < 2) tok.n.push(num);
+        for (const snt of sentences) {
+          const tok = last ? snt.tokens.find((t) => bare(t.w) === last) || snt.tokens.find((t) => bare(t.w).includes(last) || last.includes(bare(t.w)) && bare(t.w).length > 3) : null;
+          if (tok && tok.n.length < 2) { tok.n.push(num); break; }
+        }
       }
-      study.push({ b: "t" + i, summary: "", sentences: [{ text: s, meaning: tr, simple: "", grammar: normText(e.g), tokens, notes }] });
+      study.push({ b: "t" + i, grammar: normText(e.g), simple: normText(e.simple), notes, sentences });
     });
     return { blocks, study };
   }
@@ -454,6 +485,6 @@
     frameLayout, filename, exportScale, validateRecord, newId,
     normCrop, isFullCrop, cropSrc, cropToView, viewToCrop,
     sideBySide, layoutNotes, annBounds, hitAnnot, moveAnnot, renumber, distributeTranslation,
-    STUDY_MAX_SENTENCES, studyKey, studySentences, buildStudy, studyMarks, tipsSheet, isGendered, articleFor,
+    STUDY_MAX_SENTENCES, studyKey, studySentences, buildStudy, normalizeStudy, studyMarks, tipsSheet, isGendered, articleFor, TOKPOS,
   };
 })(globalThis);

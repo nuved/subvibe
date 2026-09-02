@@ -57,5 +57,41 @@
     return out;
   }
   const isTimed = (c) => Array.isArray(c && c.w) && c.w.length > 1 && c.w.some((x) => x && x.o > 0);
-  g.SV_CUES = { rechunkTimed, isTimed };
+
+  // A CHUNK is the unit tips are given for: a passage of consecutive lines
+  // (sentences) that belong together. Boundaries fall at a silence that is
+  // long for this speaker (max of `silenceMs` and 2.5× the median gap between
+  // lines), or once a chunk reaches `maxSents` lines or `maxChars` characters —
+  // never inside a line. Returns [{ from, to, startMs, endMs }] over cue indices.
+  function chunkCues(cues, opt) {
+    const o = opt || {};
+    const maxSents = o.maxSents == null ? 4 : o.maxSents, maxChars = o.maxChars == null ? 300 : o.maxChars;
+    const list = Array.isArray(cues) ? cues : [];
+    const gaps = [];
+    for (let i = 1; i < list.length; i++) { const gp = list[i].startMs - (list[i - 1].endMs != null ? list[i - 1].endMs : list[i - 1].startMs); if (gp > 0 && gp < 30000) gaps.push(gp); }
+    gaps.sort((a, b) => a - b);
+    const median = gaps.length ? gaps[gaps.length >> 1] : 400;
+    const silence = Math.max(o.silenceMs == null ? 1500 : o.silenceMs, median * 2.5);
+    const out = [];
+    let from = 0, chars = 0;
+    const text = (c) => String((c && (c.original != null ? c.original : c.text)) || "");
+    for (let i = 0; i < list.length; i++) {
+      chars += text(list[i]).length + 1;
+      const next = list[i + 1];
+      const gap = next ? next.startMs - (list[i].endMs != null ? list[i].endMs : list[i].startMs) : Infinity;
+      const n = i - from + 1;
+      const nextLen = next ? text(next).length + 1 : 0;
+      if (!next || gap >= silence || n >= maxSents || chars + nextLen > maxChars) { // never let the next line push a chunk past the cap
+        out.push({ from, to: i, startMs: list[from].startMs, endMs: list[i].endMs != null ? list[i].endMs : list[i].startMs });
+        from = i + 1; chars = 0;
+      }
+    }
+    // Overlapping windows (a line's end past the next line's start) must not
+    // make one chunk's time range swallow the next — a trim cut at the chunk's
+    // end lands where the next chunk begins.
+    for (let k = 0; k + 1 < out.length; k++) if (out[k + 1].startMs > out[k].startMs && out[k + 1].startMs < out[k].endMs) out[k].endMs = out[k + 1].startMs;
+    return out;
+  }
+  const chunkOf = (chunks, idx) => (chunks || []).findIndex((ch) => idx >= ch.from && idx <= ch.to);
+  g.SV_CUES = { rechunkTimed, isTimed, chunkCues, chunkOf };
 })(globalThis);
