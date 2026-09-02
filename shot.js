@@ -321,7 +321,12 @@
     return other && other !== lang ? other : lang;
   }
   const studyKeyNow = () => S.studyKey(effStudySide() + ":" + studyLangOf(effStudySide()), studyExplainLang());
-  const studyData = () => (rec && rec.study && typeof rec.study === "object" ? rec.study[studyKeyNow()] : null) || null;
+  const isTips = () => !!(rec && rec.mode === "tips");
+  const studyData = () => {
+    if (!rec || !rec.study || typeof rec.study !== "object") return null;
+    if (isTips()) { const k = Object.keys(rec.study)[0]; return k ? rec.study[k] : null; } // one ready-made analysis, no side/explain choice
+    return rec.study[studyKeyNow()] || null;
+  };
   let studying = false;
   async function fetchStudy() {
     const side = effStudySide(), lang = studyLangOf(side);
@@ -355,7 +360,7 @@
   }
   function syncStudyRow() {
     const row = $("studyRow"); if (!row) return;
-    row.hidden = biLayout !== "G";
+    row.hidden = biLayout !== "G" || isTips();
     if (row.hidden || !rec) return;
     const side = effStudySide(), lang = studyLangOf(side);
     for (const b of $("studySideBar").querySelectorAll("button")) {
@@ -845,7 +850,7 @@
     chip.title = (rec.source && rec.source !== "xx" ? langName(rec.source) : "Detected language") + " → " + langName(rec.target);
     setupLangPick();
     const d = new Date(rec.ts);
-    const modeName = { visible: "Visible area", full: "Full page", area: "Select area", element: "Pick element" }[rec.mode] || rec.mode;
+    const modeName = { visible: "Visible area", full: "Full page", area: "Select area", element: "Pick element", tips: "Tips sheet · " + rec.blocks.length + (rec.blocks.length === 1 ? " line" : " lines") }[rec.mode] || rec.mode;
     $("metaLine").textContent = d.toLocaleDateString() + " " + d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) + " · " + modeName + " · " + Math.round(rec.w) + " × " + Math.round(rec.h);
     const notes = [];
     if (rec.noKey) notes.push("Captured without translation — add an API key in the SubVibe popup to translate.");
@@ -870,7 +875,8 @@
   }
   function setupLangPick() {
     const wrap = $("langPick"); if (!wrap) return;
-    wrap.hidden = false;
+    wrap.hidden = isTips(); // a sheet's lines are already translated; nothing to re-render
+    if (isTips()) return;
     const btn = $("langBtn"), pop = $("langPop"), search = $("langSearch"), list = $("langList");
     const m = langMeta(rec.target);
     $("langBtnLabel").textContent = m[1];
@@ -1425,6 +1431,8 @@
     try { const a = await new Promise((res) => chrome.runtime.sendMessage({ type: "SHOT_TAB_ALIVE", id: rec.id }, (x) => res(chrome.runtime.lastError ? null : x))); tabAlive = !a || a.alive !== false; } catch (e) { tabAlive = true; }
     view = rec.layout === "original" ? "original" : rec.layout;
     if (view === "bilingual" && !hasPairs()) view = "original"; // nothing to pair yet
+    if (isTips()) { view = "bilingual"; biLayout = "G"; } // a tips sheet is its Study card; the other views have no page behind them
+    document.body.classList.toggle("tips", isTips());
     if (view === "bilingual") ensureBiFont();
     for (const bn of $("fontSeg").querySelectorAll("button")) bn.classList.toggle("on", (bn.dataset.font || "") === (rec.font || ""));
     document.title = "SubVibe Shot · " + (rec.title || rec.host);
@@ -1434,7 +1442,7 @@
   }
 
   $("viewSeg").addEventListener("click", (e) => {
-    const b = e.target.closest("button"); if (!b || !rec || reshooting) return;
+    const b = e.target.closest("button"); if (!b || !rec || reshooting || isTips()) return;
     // ensureView translates on demand (if the shot has no translation yet) and
     // renders once on the page, then it's cached and every later switch is instant.
     ensureView(b.dataset.view);

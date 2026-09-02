@@ -277,6 +277,7 @@
   z-index: 6;
 }
 #copilot-subs .copilot-subs__wtip.show { display: block; }
+#copilot-subs .copilot-subs__wtip.below { transform: translate(-50%, 9px); }
 #copilot-subs .copilot-subs__wtip .wt-head { display: inline-block; background: #E4F2EF; color: #0D9488; font-size: 11px; font-weight: 700; border-radius: 999px; padding: 1px 9px; margin-bottom: 3px; }
 #copilot-subs .copilot-subs__wtip .wt-mean { font-size: 15px; font-weight: 650; }
 #copilot-subs .copilot-subs__wtip .wt-phrase { color: #786D60; font-size: 11.5px; font-style: italic; margin-top: 3px; }
@@ -301,22 +302,31 @@
    line by the tick (position set in JS). */
 #copilot-subs .copilot-subs__hint {
   position: absolute; display: none; pointer-events: auto; cursor: pointer; z-index: 6;
-  width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%;
-  background: rgba(201, 63, 43, 0.92); color: #fff; font: 700 13px/22px -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
-  text-align: center; opacity: 0.85; transition: opacity 0.15s;
+  width: 26px; height: 26px; padding: 0; border: 0; border-radius: 50%;
+  background: #C93F2B; color: #fff; font: 800 15px/26px -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  text-align: center; opacity: 0.92; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35), 0 0 0 2px rgba(255, 255, 255, 0.85);
+  transition: opacity 0.15s, transform 0.12s;
 }
-#copilot-subs .copilot-subs__hint:hover { opacity: 1; }
+#copilot-subs .copilot-subs__hint:hover { opacity: 1; transform: scale(1.08); }
 
-/* Line-explain card: stacked labeled sections (Translation / Grammar / Words). */
-#copilot-subs .copilot-subs__wtip.wt-explain { text-align: start; max-width: 380px; }
-#copilot-subs .copilot-subs__wtip .wt-line { font-size: 13px; font-weight: 650; color: #241F1A; margin-bottom: 4px; }
-#copilot-subs .copilot-subs__wtip .wt-sect { margin-top: 6px; }
-#copilot-subs .copilot-subs__wtip .wt-lbl { font-size: 9.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
-  color: #0D9488; margin-bottom: 1px; }
+/* Line-explain card: a coral band with the sentence, then Translation, a
+   Grammar box, the Words grid, and the actions row (Tips sheet · close). */
+#copilot-subs .copilot-subs__wtip.wt-explain { text-align: start; max-width: 400px; padding: 0; overflow: hidden; border-radius: 14px; }
+#copilot-subs .copilot-subs__wtip .wt-line { font-size: 13.5px; font-weight: 650; color: #241F1A; line-height: 1.45;
+  background: #FDE8E4; border-bottom: 1px solid #F6C9C0; padding: 9px 13px 8px; margin: 0 0 4px; }
+#copilot-subs .copilot-subs__wtip .wt-sect { margin-top: 7px; padding: 0 13px; }
+#copilot-subs .copilot-subs__wtip .wt-lbl { font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: #0D9488; margin-bottom: 2px; border-left: 2px solid #0D9488; padding-left: 6px; }
 #copilot-subs .copilot-subs__wtip .wt-val { font-size: 12.5px; color: #5B5348; line-height: 1.5; }
-#copilot-subs .copilot-subs__wtip .wt-words { display: flex; flex-direction: column; gap: 1px; }
-#copilot-subs .copilot-subs__wtip .wt-wordrow { font-size: 12.5px; color: #5B5348; }
-#copilot-subs .copilot-subs__wtip .wt-wordrow b { color: #241F1A; }
+#copilot-subs .copilot-subs__wtip .wt-grambox { background: #FBF7F0; border-left: 3px solid #E7B27C; border-radius: 0 6px 6px 0; padding: 6px 9px; color: #3D362F; }
+#copilot-subs .copilot-subs__wtip .wt-words { display: grid; grid-template-columns: max-content 1fr; gap: 2px 10px; align-items: baseline; font-size: 12.5px; }
+#copilot-subs .copilot-subs__wtip .wt-words b { color: #241F1A; font-weight: 700; }
+#copilot-subs .copilot-subs__wtip .wt-words span { color: #5B5348; }
+#copilot-subs .copilot-subs__wtip.wt-explain .wt-actions { justify-content: space-between; padding: 8px 13px 10px; margin-top: 8px; border-top: 1px solid #EDE5DA; }
+#copilot-subs .copilot-subs__wtip .wt-sheet { border: 1px solid #EDE5DA; background: #fff; color: #C93F2B; font: 600 12px/1.3 -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  padding: 5px 10px; border-radius: 8px; cursor: pointer; }
+#copilot-subs .copilot-subs__wtip .wt-sheet:hover { background: #FDE8E4; }
+#copilot-subs .copilot-subs__wtip .wt-sheet:disabled { opacity: 0.6; cursor: default; }
 
 /* Original-line words are clickable — a click opens the word card (pointer
    cursor). The .saved pulse below is kept for any optimistic save confirmation. */

@@ -379,6 +379,34 @@
     return marks;
   }
 
+  // ── tips sheet: the ﹖ explanations of one video as a Study card ──────────
+  // entries: [{ s: sentence, tr, g: grammar note, words: [{w, m}] }] in the
+  // order they were explained. Returns the shot blocks (sentence pairs) and
+  // the study blocks the editor's Study card draws without another call:
+  // each word note lands on the token that carries the word (the last word
+  // of a phrase), the grammar note is note 1 with no term.
+  function tipsSheet(entries) {
+    const clean = (entries || []).filter((e) => e && e.s && e.tr);
+    const blocks = [], study = [];
+    clean.forEach((e, i) => {
+      const s = normText(e.s), tr = normText(e.tr);
+      blocks.push({ id: "t" + i, text: s, tr, rect: { x: 0, y: i * 40, w: 640, h: 36 }, pairs: [{ o: s, t: tr }] });
+      const tokens = s.split(" ").filter(Boolean).map((w) => ({ w, g: "", v: 0, n: [] }));
+      const notes = []; let n = 0;
+      if (e.g) notes.push({ n: ++n, term: "", text: normText(e.g) });
+      const bare = (w) => String(w || "").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+      for (const x of (Array.isArray(e.words) ? e.words : []).filter((x) => x && x.w && x.m).slice(0, 6)) {
+        const num = ++n;
+        notes.push({ n: num, term: normText(x.w), text: normText(x.m) });
+        const last = bare(normText(x.w).split(" ").pop());
+        const tok = last ? tokens.find((t) => bare(t.w) === last) || tokens.find((t) => bare(t.w).includes(last) || last.includes(bare(t.w)) && bare(t.w).length > 3) : null;
+        if (tok && tok.n.length < 2) tok.n.push(num);
+      }
+      study.push({ b: "t" + i, summary: "", sentences: [{ text: s, meaning: tr, simple: "", tokens, notes }] });
+    });
+    return { blocks, study };
+  }
+
   // ── crop ──────────────────────────────────────────────────────────────────
   // A crop is non-destructive: {x,y,w,h} normalized to the FULL image, stored
   // on the record; views and exports draw only that window, the blobs and the
@@ -415,6 +443,6 @@
     frameLayout, filename, exportScale, validateRecord, newId,
     normCrop, isFullCrop, cropSrc, cropToView, viewToCrop,
     sideBySide, layoutNotes, annBounds, hitAnnot, moveAnnot, renumber, distributeTranslation,
-    STUDY_MAX_SENTENCES, studyKey, studySentences, buildStudy, studyMarks,
+    STUDY_MAX_SENTENCES, studyKey, studySentences, buildStudy, studyMarks, tipsSheet,
   };
 })(globalThis);

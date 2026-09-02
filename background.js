@@ -1056,6 +1056,53 @@ async function shotStudy(msg) {
   return { ok: true, key };
 }
 
+// ── Tips sheet: every ﹖-explained line of a video as one Study card ─────────
+// Reads clipexplain:<base>, builds (or refreshes) the shot record tips-<base>
+// with the sentence pairs and a ready-made study analysis (no model call), and
+// opens it in the Shot editor. Entries explained before the sentence text was
+// stored alongside (pre-2026-09-02) are skipped.
+async function tipsSheet(msg) {
+  const base = String(msg.base || "");
+  const cx = base ? await idbVocabGet("clipexplain:" + base) : null;
+  const entries = cx && cx.e ? Object.values(cx.e).filter((e) => e && e.s && e.tr).sort((a, b) => (a.at || 0) - (b.at || 0)) : [];
+  if (!entries.length) return { ok: false, error: "empty" };
+  const built = SV_SHOT.tipsSheet(entries);
+  let tab = null; try { tab = await activeTabHere(); } catch { tab = null; }
+  const title = String(msg.title || (tab && tab.title) || "Tips");
+  const url = String(msg.url || (tab && tab.url) || "");
+  const lang = String(msg.lang && msg.lang !== "xx" ? msg.lang : (cx.lang && cx.lang !== "xx" ? cx.lang : "")) || "";
+  const { targets } = await chrome.storage.local.get("targets");
+  const target = String(cx.target || (Array.isArray(targets) && targets[0]) || "en");
+  const id = "tips-" + base.replace(/[^a-z0-9_-]/gi, "-").slice(0, 60);
+  const prev = await shotGet(id);
+  // A small paper card as the sheet's raster: it is what History shows and
+  // what the page views fall back to; the Study card is the real content.
+  let blob = prev && prev.variant instanceof Blob ? prev.variant : null;
+  try {
+    const c = new OffscreenCanvas(640, 360), g = c.getContext("2d");
+    g.fillStyle = "#FAF6F0"; g.fillRect(0, 0, 640, 360);
+    g.fillStyle = "#FFFFFF"; g.beginPath(); g.roundRect(40, 40, 560, 280, 16); g.fill();
+    g.fillStyle = "#C93F2B"; g.font = "700 12px ui-monospace, Menlo, monospace"; g.fillText("SUBVIBE · TIPS SHEET", 64, 80);
+    g.fillStyle = "#241F1A"; g.font = "700 24px system-ui, -apple-system, sans-serif";
+    const t = title.length > 40 ? title.slice(0, 39) + "…" : title; g.fillText(t, 64, 130);
+    g.fillStyle = "#5B5348"; g.font = "500 16px system-ui, -apple-system, sans-serif";
+    g.fillText(entries.length + (entries.length === 1 ? " explained line" : " explained lines"), 64, 170);
+    blob = await c.convertToBlob({ type: "image/png" });
+  } catch (e) { /* keep the previous raster, if any */ }
+  if (!(blob instanceof Blob)) return { ok: false, error: "raster" };
+  const key = SV_SHOT.studyKey("source:" + (lang || "xx"), target);
+  const rec = {
+    id, ts: Date.now(), url, title, host: hostOf(url) || "tips", source: lang || "xx", target, mode: "tips", layout: "bilingual", dpr: 1,
+    w: 640, h: 360, rect: { x: 0, y: 0, w: 640, h: 360 }, original: blob, variant: blob, views: { original: blob },
+    blocks: built.blocks, annots: (prev && Array.isArray(prev.annots)) ? prev.annots : [], crop: null, font: (prev && prev.font) || "",
+    tabId: (tab && tab.id) || -1, windowId: (tab && tab.windowId) || -1, partial: false, truncated: "", sameLang: false, noKey: false,
+    study: { [key]: { side: "source", lang: lang || "xx", explain: target, ts: Date.now(), provider: "tips", model: "", count: entries.length, truncated: false, blocks: built.study } },
+  };
+  try { SV_SHOT.validateRecord(rec); await shotPut(rec); } catch (e) { return { ok: false, error: "store" }; }
+  await chrome.tabs.create({ url: chrome.runtime.getURL("shot.html?id=" + encodeURIComponent(id)) });
+  return { ok: true, id, count: entries.length };
+}
+
 // CACHE-STABLE per (source, target) — same rule as systemPrompt(): nothing
 // per-call in here, so provider prompt caching can serve repeat batches.
 function enrichPrompt(source, target) {
@@ -2556,7 +2603,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             const p = (r && r.parsed) || {};
             const out = { tr: String(p.tr || "").trim(), g: String(p.g || "").trim(),
               words: Array.isArray(p.words) ? p.words.filter((x) => x && x.w && x.m).slice(0, 6).map((x) => ({ w: String(x.w).trim(), m: String(x.m).trim() })) : [] };
-            if (out.tr) { cx.e[skey] = out; cx.target = target; cx.at = Date.now(); await idbVocabPut("clipexplain:" + base, cx); }
+            if (out.tr) { out.s = sent; out.at = started; cx.e[skey] = out; cx.target = target; cx.lang = String(msg.lang || cx.lang || ""); cx.at = Date.now(); await idbVocabPut("clipexplain:" + base, cx); }
             await logCall({ ts: started, site: "learn", title: "Explain: " + sent.slice(0, 40), kind: "enrich", lines: 1, ms: Date.now() - started,
               inTok: (r.usage && r.usage.prompt_tokens) || 0, outTok: (r.usage && r.usage.completion_tokens) || 0,
               cacheR: (r.usage && r.usage.cache_r) || 0, cacheW: (r.usage && r.usage.cache_w) || 0, ok: true, provider: r.provider, model: r.model });
@@ -2723,6 +2770,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         case "SHOT_TAB_ALIVE": sendResponse(await shotTabAlive(msg.id)); break;
         case "SHOT_RETRANSLATE": sendResponse(await shotRetranslate(msg, sender)); break;
         case "SHOT_STUDY": sendResponse(await shotStudy(msg)); break;
+        case "TIPS_SHEET": sendResponse(await tipsSheet(msg)); break;
         default:
           sendResponse({ error: "unknown message: " + (msg && msg.type) });
       }

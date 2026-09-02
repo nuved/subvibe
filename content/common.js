@@ -1624,8 +1624,12 @@
     // ZDF streams subtitle cues in as you play, so ingest is incremental.
     const cues = [];
     const seen = new Set();
+    // Word-timed cues (YouTube ASR) are re-cut at speech pauses first, so a
+    // line is a spoken phrase instead of a fixed window that carries the tail
+    // of the previous item and the head of the next (shared/cues.js).
+    const recut = (f) => (globalThis.SV_CUES && f && f.w ? SV_CUES.splitAtPauses(f) : [f]);
     const ingest = (list) => {
-      for (const f of list) {
+      for (const f0 of list) for (const f of recut(f0)) {
         if (seen.has(f.startMs)) continue;
         seen.add(f.startMs);
         // Live captions ROLL UP — the same line is re-sent across consecutive
@@ -1770,7 +1774,7 @@
     // so it can't disturb word clicks). The tick tracks it to the original line's
     // box; clicking it opens the stacked line card (openLineCard, defined below).
     let hintBtn = overlay.querySelector(".copilot-subs__hint");
-    if (!hintBtn) { hintBtn = document.createElement("button"); hintBtn.type = "button"; hintBtn.className = "copilot-subs__hint"; hintBtn.textContent = "﹖"; hintBtn.title = "Explain this line"; overlay.appendChild(hintBtn); }
+    if (!hintBtn) { hintBtn = document.createElement("button"); hintBtn.type = "button"; hintBtn.className = "copilot-subs__hint"; hintBtn.textContent = "?"; hintBtn.title = "Explain this line — translation, grammar, key words"; overlay.appendChild(hintBtn); }
     hintBtn.onclick = (e) => { e.stopPropagation(); openLineCard(els.__orig); };
 
     const positionWtip = (w) => {
@@ -1781,7 +1785,11 @@
       const half = wtip.offsetWidth / 2 + 6;
       const cx = wr.left + wr.width / 2 - or.left;
       wtip.style.left = Math.round(Math.max(half, Math.min(or.width - half, cx))) + "px";
-      wtip.style.top = Math.round(wr.top - or.top) + "px";
+      // Above by default; below when the line sits near the top of the player
+      // (a subtitle the user moved up) so the card never leaves the screen.
+      const below = (wr.top - or.top) < wtip.offsetHeight + 14;
+      wtip.classList.toggle("below", below);
+      wtip.style.top = Math.round((below ? wr.bottom : wr.top) - or.top) + "px";
     };
 
     // ── Pinned card controller (click) ───────────────────────────────────────
@@ -1792,7 +1800,7 @@
       wtip._word = null;
       wtip._lineSig = null;
       wtip._pinned = false;
-      wtip.classList.remove("show", "pinned", "wt-explain");
+      wtip.classList.remove("show", "pinned", "wt-explain", "below");
       document.removeEventListener("click", onDocClick, true);
       document.removeEventListener("keydown", onKey, true);
       if (resume && wtip._resume) {
@@ -1973,19 +1981,32 @@
       else if (content.error) { wtip.appendChild(line(content.error)); }
       else {
         if (content.translation) addSect("Translation", line(content.translation));
-        if (content.grammar) addSect("Grammar", line(content.grammar));
+        if (content.grammar) { const gbox = line(content.grammar); gbox.className = "wt-val wt-grambox"; addSect("Grammar", gbox); }
         if (content.words && content.words.length) {
           const list = document.createElement("div"); list.className = "wt-words";
           for (const x of content.words) {
-            const r = document.createElement("div"); r.className = "wt-wordrow"; r.dir = "auto";
-            const b = document.createElement("b"); b.textContent = x.w; r.appendChild(b);
-            const m = document.createElement("span"); m.textContent = " — " + x.m; r.appendChild(m);
-            list.appendChild(r);
+            const b = document.createElement("b"); b.textContent = x.w; b.dir = "auto";
+            const m = document.createElement("span"); m.textContent = x.m; m.dir = "auto";
+            list.appendChild(b); list.appendChild(m);
           }
           addSect("Words", list);
         }
       }
       const act = document.createElement("div"); act.className = "wt-actions";
+      if (!content.loading && !content.error) {
+        // Every line explained on this video is kept with the video; the sheet
+        // opens them all as one Study card in the Shot editor.
+        const sheet = document.createElement("button"); sheet.type = "button"; sheet.className = "wt-sheet"; sheet.textContent = "Tips sheet ↗";
+        sheet.title = "All the lines you explained on this video, as one Study sheet";
+        sheet.addEventListener("click", (ev) => {
+          ev.stopPropagation(); sheet.disabled = true;
+          send({ type: "TIPS_SHEET", base, lang: vocabPoolLang, title: document.title, url: location.href }).then((r) => {
+            sheet.disabled = false;
+            if (!r || !r.ok) sheet.textContent = r && r.error === "empty" ? "No tips saved yet" : "Couldn't open the sheet";
+          });
+        });
+        act.appendChild(sheet);
+      }
       const close = document.createElement("button"); close.type = "button"; close.className = "wt-close"; close.title = "Close"; close.textContent = "×";
       close.addEventListener("click", (ev) => { ev.stopPropagation(); closeWtip(true); });
       act.appendChild(close); wtip.appendChild(act);
