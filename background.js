@@ -1103,6 +1103,46 @@ async function tipsSheet(msg) {
   return { ok: true, id, count: entries.length };
 }
 
+// ── Snap this line: the video frame as a Shot with one line's tips attached ─
+// The page draws the frame off its <video> (media-source players allow it; a
+// DRM stream doesn't — there the popup's Screenshot is the route, and it picks
+// the line up via window.__svOverlayLine in shotCompose). The record is a
+// normal shot: the frame is the Original, the line is its one text block (so
+// Translated paints the translation where the subtitle sat, Notes puts it in
+// the margin), and the tips are its ready-made Study analysis. tabId −1:
+// nothing to re-shoot.
+async function tipsSnap(msg, sender) {
+  const tab = sender && sender.tab;
+  if (!tab) return { ok: false, error: "no-tab" };
+  // The frame arrives from the page (drawn off the <video> at native size).
+  const rw = Math.round(+msg.w || 0), rh = Math.round(+msg.h || 0);
+  if (!msg.frame || typeof msg.frame !== "string" || rw < 8 || rh < 8) return { ok: false, error: "frame" };
+  let blob;
+  try { blob = await (await fetch(msg.frame)).blob(); } catch (e) { return { ok: false, error: "frame" }; }
+  const dpr = 1;
+  const line = msg.line || {};
+  const sTxt = String(line.s || "").replace(/\s+/g, " ").trim(), tr = String(line.tr || "").replace(/\s+/g, " ").trim();
+  const lr = msg.lineRect && +msg.lineRect.w > 0 ? msg.lineRect : null;
+  const blocks = sTxt ? [{ id: "b0", text: sTxt, tr, rect: lr ? { x: +lr.x || 0, y: +lr.y || 0, w: +lr.w, h: +lr.h || 24 } : { x: 24, y: Math.max(0, rh - 80), w: Math.max(1, rw - 48), h: 40 }, pairs: [{ o: sTxt, t: tr }], segs: [sTxt] }] : [];
+  const lang = String(msg.lang && msg.lang !== "xx" ? msg.lang : "") || "";
+  const { targets } = await chrome.storage.local.get("targets");
+  const target = String((Array.isArray(targets) && targets[0]) || "en");
+  const url = String(msg.url || tab.url || ""), title = String(msg.title || tab.title || "");
+  const rec = {
+    id: SV_SHOT.newId(), ts: Date.now(), url, title, host: hostOf(url), source: lang || "xx", target, mode: "snap", layout: "original", dpr,
+    w: rw, h: rh, rect: { x: 0, y: 0, w: rw, h: rh }, original: blob, variant: blob, views: { original: blob },
+    blocks, annots: [], crop: null, font: "", tabId: -1, windowId: -1, partial: false, truncated: "", sameLang: false, noKey: false,
+  };
+  if (sTxt && tr) {
+    const built = SV_SHOT.tipsSheet([{ s: sTxt, tr, g: line.g, words: line.words }]);
+    built.study.forEach((b) => { b.b = "b0"; });
+    rec.study = { [SV_SHOT.studyKey("source:" + (lang || "xx"), target)]: { side: "source", lang: lang || "xx", explain: target, ts: Date.now(), provider: "tips", model: "", count: 1, truncated: false, blocks: built.study } };
+  }
+  try { SV_SHOT.validateRecord(rec); await shotPut(rec); } catch (e) { return { ok: false, error: "store" }; }
+  await chrome.tabs.create({ url: chrome.runtime.getURL("shot.html?id=" + encodeURIComponent(rec.id)), openerTabId: tab.id });
+  return { ok: true, id: rec.id };
+}
+
 // CACHE-STABLE per (source, target) — same rule as systemPrompt(): nothing
 // per-call in here, so provider prompt caching can serve repeat batches.
 function enrichPrompt(source, target) {
@@ -1765,6 +1805,22 @@ async function shotCompose(msg, sender) {
   rec.views = {};
   if (original instanceof Blob) rec.views.original = original;
   if (variant instanceof Blob) rec.views[layout] = variant;
+  // A line explained on the video overlay (window.__svOverlayLine, sent as
+  // msg.tip): its own text block at the line's spot and a ready-made Study
+  // card — the DRM-safe way to snap a frame with its tips (see tipsSnap).
+  const tip = msg.tip && typeof msg.tip === "object" && msg.tip.s && msg.tip.tr ? msg.tip : null;
+  if (tip) {
+    const tr0 = tip.rect || {};
+    const inside = typeof tr0.x === "number" && tr0.x + (tr0.w || 0) > rec.rect.x && tr0.x < rec.rect.x + rec.rect.w && tr0.y + (tr0.h || 0) > rec.rect.y && tr0.y < rec.rect.y + rec.rect.h;
+    const tipRect = inside ? { x: +tr0.x, y: +tr0.y, w: +tr0.w || 1, h: +tr0.h || 24 } : { x: rec.rect.x + 24, y: rec.rect.y + Math.max(0, rec.rect.h - 80), w: Math.max(1, rec.rect.w - 48), h: 40 };
+    const sTxt = String(tip.s).replace(/\s+/g, " ").trim(), trT = String(tip.tr).replace(/\s+/g, " ").trim();
+    rec.blocks = rec.blocks.filter((b) => b.text !== sTxt); // the overlay's own line may have been collected as page text
+    rec.blocks.push({ id: "tip0", text: sTxt, tr: trT, rect: tipRect, pairs: [{ o: sTxt, t: trT }], segs: [sTxt] });
+    const lang = tip.lang && tip.lang !== "xx" ? String(tip.lang) : (rec.source && rec.source !== "xx" ? rec.source : "");
+    const built = SV_SHOT.tipsSheet([{ s: sTxt, tr: trT, g: tip.g, words: tip.words }]);
+    built.study.forEach((b) => { b.b = "tip0"; });
+    rec.study = { [SV_SHOT.studyKey("source:" + (lang || "xx"), rec.target)]: { side: "source", lang: lang || "xx", explain: rec.target, ts: Date.now(), provider: "tips", model: "", count: 1, truncated: false, blocks: built.study } };
+  }
   try { SV_SHOT.validateRecord(rec); await shotPut(rec); }
   catch (e) { console.warn("[SubVibe shot] store failed:", (e && e.message) || e); return { ok: false, error: "store" }; }
   await chrome.tabs.create({ url: chrome.runtime.getURL("shot.html?id=" + encodeURIComponent(rec.id)), openerTabId: sess.tabId });
@@ -2771,6 +2827,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         case "SHOT_RETRANSLATE": sendResponse(await shotRetranslate(msg, sender)); break;
         case "SHOT_STUDY": sendResponse(await shotStudy(msg)); break;
         case "TIPS_SHEET": sendResponse(await tipsSheet(msg)); break;
+        case "TIPS_SNAP": sendResponse(await tipsSnap(msg, sender)); break;
         default:
           sendResponse({ error: "unknown message: " + (msg && msg.type) });
       }
