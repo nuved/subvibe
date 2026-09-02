@@ -68,7 +68,9 @@ Seen on the seeded preview (`tools/tests/shot-harness/preview.html`, real
 - Style: **Plain · Card · Window.** Window = Card plus a 36 px title bar on
   the image: three dots, the page host centred in a soft address pill, the
   image below with only the bottom corners rounded. Geometry lives in
-  `S.frameLayout({chrome:true})` (pure, tested); painting in `shot.js`.
+  `S.frameLayout({frame: "window"})` (pure, tested; returns `bar`); painting
+  in `shot.js` (`paintBg` / `paintPaper` / `paintBar` / `paintBadge`, shared
+  by every view).
 - **Background** swatches for Card/Window: Sunset (today's warm gradient,
   default), Ocean (teal→blue), Ember (coral→amber), Meadow (green→teal),
   Stone (neutral), Ink (dark). Hidden on Plain. Persisted with the frame
@@ -88,13 +90,39 @@ Seen on the seeded preview (`tools/tests/shot-harness/preview.html`, real
 - **Translation line** control next to Pairing: **Quiet · Balanced · Equal.**
   Quiet = 0.85× the original size, 70 % ink; Balanced = today's 15.5/17
   (default); Equal = same size, full ink. Saved under `shotBiStyle`.
-- `splitSentences` keeps a terminator attached when the token before it is
-  a known abbreviation (`Dr.`, `Prof.`, `Mr.`, `Mrs.`, `Ms.`, `St.`, `Nr.`,
-  `Nr.`, `ca.`, `bzw.`, `z.B.`, `u.a.`, `vs.`, `etc.`, `e.g.`, `i.e.`,
-  month names, …), a single letter (initials: `J. K. Rowling`), or a number
-  (`2. September`, `Nr. 5.`). A sentence still ends after these when the
-  next token starts a new sentence AND the abbreviation is one that
-  normally ends sentences (`etc.`) — kept simple: `etc.` ends, the rest join.
+- `splitSentences` keeps a period attached when the token before it is a
+  known abbreviation (`Dr.`, `Prof.`, `Mr.`, `Mrs.`, `Ms.`, `St.`, `Nr.`,
+  `ca.`, `bzw.`, `z.B.`, `u.a.`, `vs.`, `e.g.`, `i.e.`, `p.m.`, month
+  names …), a single letter (initials: `J. K. Rowling`), or a 1–2 digit
+  number (`2. September`). Four-digit years, `etc.`, `usw.` and tokens that
+  are also words (`may`, `so`) still end a sentence. `?` and `!` always end.
+  The old match-based regex also silently dropped the text before any
+  inner dot ("Das gilt z.B. für" lost "Das gilt z."); the splitter is now a
+  split, never a match, so no text can vanish.
+
+### Bilingual on the page (operator suggestion, 2026-09-02)
+
+Two layouts next to the reading card, under "On the page":
+
+- **Notes** — the original page as captured, plus a margin column (42 % of
+  the page width, 220–360 px) where each text block's translation sits as a
+  numbered note level with its block; a note is pushed down only when the
+  previous one is in the way (`S.layoutNotes`, greedy). Coral number badges
+  mark the block on the page and the note in the margin. Needs no source
+  tab (the original raster always exists; translation comes from the
+  blocks). The Translation-line control sets the note size. Crop applies to
+  the page part. This is the study-sheet the operator described: "the
+  translated sentence as a hint written in the free space, like a note".
+- **Side by side** — the original page and the translated page in one
+  framed picture, tops aligned, a 28 px gap, a small language caption above
+  each page (card/window only), one badge. Needs the translated raster: if
+  it's missing and the source tab is open, the editor renders it first and
+  comes back (`resumeView`); if the tab is gone, the reading card shows with
+  a note saying to open the tab and pick Translated once.
+- Follow-up, not built: notes whose content is a **same-language
+  paraphrase** (learn the language with itself) — needs the Simplify
+  pipeline per block; the Notes renderer takes its text from the block, so
+  the source is swappable.
 
 ## Not doing
 
@@ -113,7 +141,8 @@ Seen on the seeded preview (`tools/tests/shot-harness/preview.html`, real
   plus: select-drag moves a rect and persists; Delete removes the selected
   annotation; a blur region changes the overlay pixels under it; number
   badges increment and renumber; Window frame adds the bar height; the
-  Export footer is visible at 900 px without scrolling the panel.
+  Export footer is visible at 900 px without scrolling the panel; Notes =
+  page + 220 px column; Side by side = two pages + gap. PASS 18/18.
 - `tools/tests/shot-harness/preview.html` seeds a realistic German→Persian
   shot for screenshots; `chrome-stub.js` lets the real `shot.html` run from
   `file://`.
