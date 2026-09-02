@@ -1624,12 +1624,18 @@
     // ZDF streams subtitle cues in as you play, so ingest is incremental.
     const cues = [];
     const seen = new Set();
-    // Word-timed cues (YouTube ASR) are re-cut at speech pauses first, so a
-    // line is a spoken phrase instead of a fixed window that carries the tail
-    // of the previous item and the head of the next (shared/cues.js).
-    const recut = (f) => (globalThis.SV_CUES && f && f.w ? SV_CUES.splitAtPauses(f) : [f]);
-    const ingest = (list) => {
-      for (const f0 of list) for (const f of recut(f0)) {
+    // Word-timed cues (YouTube ASR) are re-chunked into SENTENCES first — the
+    // unit a creator's own captions use — instead of YouTube's fixed windows
+    // that carry the tail of one sentence and the head of the next
+    // (shared/cues.js). Only when the batch is (nearly) all word-timed.
+    const recut = (list) => {
+      if (!globalThis.SV_CUES || !Array.isArray(list) || list.length < 2) return list;
+      const timed = list.filter((c) => SV_CUES.isTimed(c)).length;
+      return timed >= list.length * 0.8 ? SV_CUES.rechunkTimed(list) : list;
+    };
+    const ingest = (list0) => {
+      const list = recut(list0);
+      for (const f of list) {
         if (seen.has(f.startMs)) continue;
         seen.add(f.startMs);
         // Live captions ROLL UP — the same line is re-sent across consecutive
@@ -1785,10 +1791,16 @@
       const half = wtip.offsetWidth / 2 + 6;
       const cx = wr.left + wr.width / 2 - or.left;
       wtip.style.left = Math.round(Math.max(half, Math.min(or.width - half, cx))) + "px";
-      // Above by default; below when the line sits near the top of the player
-      // (a subtitle the user moved up) so the card never leaves the screen.
-      const below = (wr.top - or.top) < wtip.offsetHeight + 14;
+      // Above by default. When the card doesn't fit above (a subtitle moved to
+      // the top) it goes to whichever side has more room, and is capped to that
+      // room — the sentence band and the buttons stay, the middle scrolls.
+      wtip.style.maxHeight = "";
+      const roomAbove = wr.top - or.top - 12, roomBelow = or.bottom - wr.bottom - 12;
+      const h = wtip.offsetHeight;
+      const below = h > roomAbove && roomBelow > roomAbove;
       wtip.classList.toggle("below", below);
+      const room = Math.max(140, below ? roomBelow : roomAbove);
+      if (h > room) wtip.style.maxHeight = Math.round(room) + "px";
       wtip.style.top = Math.round((below ? wr.bottom : wr.top) - or.top) + "px";
     };
 
@@ -1801,6 +1813,7 @@
       wtip._lineSig = null;
       wtip._pinned = false;
       wtip.classList.remove("show", "pinned", "wt-explain", "below");
+      wtip.style.maxHeight = "";
       document.removeEventListener("click", onDocClick, true);
       document.removeEventListener("keydown", onKey, true);
       if (resume && wtip._resume) {
@@ -1968,17 +1981,25 @@
     const renderLineCard = (anchor, content) => {
       wtip.textContent = "";
       wtip.classList.add("pinned", "wt-explain");
+      if (!content.loading && !content.error && content.sentence) {
+        // A Shot taken from the popup on this page attaches this line and its
+        // tips (content/shot-capture.js reads it) — the DRM-safe route to a snap.
+        const lr = anchor.getBoundingClientRect();
+        window.__svOverlayLine = { s: content.sentence, tr: content.translation || "", g: content.grammar || "", words: content.words || [], lang: vocabPoolLang,
+          rect: { x: lr.left + scrollX, y: lr.top + scrollY, w: lr.width, h: lr.height }, at: Date.now() };
+      }
       const sent = document.createElement("div");
       sent.className = "wt-line"; sent.dir = "auto"; sent.textContent = content.sentence || "";
       wtip.appendChild(sent);
+      const body = document.createElement("div"); body.className = "wt-body"; wtip.appendChild(body);
       const addSect = (label, node) => {
         const s = document.createElement("div"); s.className = "wt-sect";
         const lb = document.createElement("div"); lb.className = "wt-lbl"; lb.textContent = label; s.appendChild(lb);
-        s.appendChild(node); wtip.appendChild(s);
+        s.appendChild(node); body.appendChild(s);
       };
       const line = (text) => { const v = document.createElement("div"); v.className = "wt-val"; v.dir = "auto"; v.textContent = text; return v; };
-      if (content.loading) { wtip.appendChild(line("…")); }
-      else if (content.error) { wtip.appendChild(line(content.error)); }
+      if (content.loading) { body.appendChild(line("…")); }
+      else if (content.error) { body.appendChild(line(content.error)); }
       else {
         if (content.translation) addSect("Translation", line(content.translation));
         if (content.grammar) { const gbox = line(content.grammar); gbox.className = "wt-val wt-grambox"; addSect("Grammar", gbox); }
@@ -1994,6 +2015,32 @@
       }
       const act = document.createElement("div"); act.className = "wt-actions";
       if (!content.loading && !content.error) {
+        // Snap: this video frame as a Shot, with this line and its tips attached —
+        // the editor then offers the frame, the translation painted onto it, the
+        // margin notes and the Study card. The overlay hides for the capture.
+        const snap = document.createElement("button"); snap.type = "button"; snap.className = "wt-sheet wt-snap"; snap.textContent = "Snap this line";
+        snap.title = "Capture this frame as a Shot with this line's translation, grammar and words";
+        snap.addEventListener("click", async (ev) => {
+          ev.stopPropagation(); snap.disabled = true; snap.textContent = "Snapping…";
+          // The frame comes straight from the <video> at its native size — no
+          // player UI, no overlay, no tab-capture permission. Media-source
+          // players (YouTube) allow it; a DRM stream taints the canvas, and the
+          // popup's Screenshot (which may capture the tab) is the way there —
+          // it attaches this line too (window.__svOverlayLine).
+          const v = liveVideoEl(video) || video;
+          const vr = v.getBoundingClientRect(), lr = anchor.getBoundingClientRect();
+          const w = v.videoWidth || Math.round(vr.width), h = v.videoHeight || Math.round(vr.height);
+          let frame = null;
+          try { const cv = document.createElement("canvas"); cv.width = w; cv.height = h; cv.getContext("2d").drawImage(v, 0, 0, w, h); frame = cv.toDataURL("image/jpeg", 0.92); } catch (e) { frame = null; }
+          if (!frame || w < 8 || h < 8) { snap.disabled = false; snap.textContent = "Protected video — use the popup's Screenshot"; return; }
+          const kx = w / (vr.width || 1), ky = h / (vr.height || 1);
+          const lineRect = { x: (lr.left - vr.left) * kx, y: (lr.top - vr.top) * ky, w: lr.width * kx, h: lr.height * ky };
+          const r = await send({ type: "TIPS_SNAP", base, lang: vocabPoolLang, title: document.title, url: location.href, frame, w, h, lineRect,
+            line: { s: content.sentence, tr: content.translation, g: content.grammar, words: content.words || [] } });
+          snap.disabled = false;
+          snap.textContent = r && r.ok ? "Snapped ↗" : "Couldn't snap";
+        });
+        act.appendChild(snap);
         // Every line explained on this video is kept with the video; the sheet
         // opens them all as one Study card in the Shot editor.
         const sheet = document.createElement("button"); sheet.type = "button"; sheet.className = "wt-sheet"; sheet.textContent = "Tips sheet ↗";

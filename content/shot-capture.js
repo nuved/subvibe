@@ -451,7 +451,11 @@
     } finally { restore(); }
     const truncated = prep.truncated || (effCut ? "height" : "");
     setPill("Saving…", 1);
-    const res = await send({ type: "SHOT_COMPOSE", rect: effRect, blocks: blocks.map((b) => ({ id: b.id, text: b.text, tr: b.tr, rect: b.rect, segs: b.segs })), partial: false, truncated, passes: ["original"], sameLang: false, noKey: false, font: font || "" });
+    // A line explained on the video overlay (common.js leaves it on the window,
+    // same isolated world) rides along: the editor gets its translation, grammar
+    // and words as a ready-made Study card and a text block at the line's spot.
+    const tip = window.__svOverlayLine && window.__svOverlayLine.s ? window.__svOverlayLine : null;
+    const res = await send({ type: "SHOT_COMPOSE", rect: effRect, blocks: blocks.map((b) => ({ id: b.id, text: b.text, tr: b.tr, rect: b.rect, segs: b.segs })), partial: false, truncated, passes: ["original"], sameLang: false, noKey: false, font: font || "", tip });
     setPill("");
     if (!res || !res.ok) { toast("Couldn't save the shot. Try again.", 3500); return; }
     toast("Shot saved — opening editor…", 1800);

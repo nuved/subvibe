@@ -324,7 +324,7 @@
   const isTips = () => !!(rec && rec.mode === "tips");
   const studyData = () => {
     if (!rec || !rec.study || typeof rec.study !== "object") return null;
-    if (isTips()) { const k = Object.keys(rec.study)[0]; return k ? rec.study[k] : null; } // one ready-made analysis, no side/explain choice
+    if (isTips() || rec.mode === "snap") { const k = Object.keys(rec.study)[0]; return k ? rec.study[k] : null; } // one ready-made analysis, no side/explain choice
     return rec.study[studyKeyNow()] || null;
   };
   let studying = false;
@@ -360,7 +360,7 @@
   }
   function syncStudyRow() {
     const row = $("studyRow"); if (!row) return;
-    row.hidden = biLayout !== "G" || isTips();
+    row.hidden = biLayout !== "G" || isTips() || rec.mode === "snap";
     if (row.hidden || !rec) return;
     const side = effStudySide(), lang = studyLangOf(side);
     for (const b of $("studySideBar").querySelectorAll("button")) {
@@ -850,7 +850,7 @@
     chip.title = (rec.source && rec.source !== "xx" ? langName(rec.source) : "Detected language") + " → " + langName(rec.target);
     setupLangPick();
     const d = new Date(rec.ts);
-    const modeName = { visible: "Visible area", full: "Full page", area: "Select area", element: "Pick element", tips: "Tips sheet · " + rec.blocks.length + (rec.blocks.length === 1 ? " line" : " lines") }[rec.mode] || rec.mode;
+    const modeName = { visible: "Visible area", full: "Full page", area: "Select area", element: "Pick element", snap: "Video frame · one line", tips: "Tips sheet · " + rec.blocks.length + (rec.blocks.length === 1 ? " line" : " lines") }[rec.mode] || rec.mode;
     $("metaLine").textContent = d.toLocaleDateString() + " " + d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) + " · " + modeName + " · " + Math.round(rec.w) + " × " + Math.round(rec.h);
     const notes = [];
     if (rec.noKey) notes.push("Captured without translation — add an API key in the SubVibe popup to translate.");

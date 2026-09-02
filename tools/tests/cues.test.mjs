@@ -6,29 +6,71 @@ import "../../shared/cues.js";
 const C = globalThis.SV_CUES;
 const cue = (startMs, endMs, words) => ({ startMs, endMs, text: words.map((x) => x[1]).join(" "), w: words.map(([o, t]) => ({ o, t })) });
 
-test("splitAtPauses: a YouTube window that spans a pause becomes one line per spoken phrase", () => {
-  // "Schlüssel" (tail of the previous item) · pause · "eine Tasse" · pause · "die" (head of the next)
-  const c = cue(10000, 14000, [[0, "Schlüssel"], [1200, "eine"], [1500, "Tasse"], [2900, "die"]]);
-  const out = C.splitAtPauses(c);
-  assert.deepEqual(out.map((p) => p.text), ["Schlüssel", "eine Tasse", "die"]);
-  assert.deepEqual(out.map((p) => [p.startMs, p.endMs]), [[10000, 11199], [11200, 12899], [12900, 14000]]);
-  assert.deepEqual(out[1].w, [{ o: 0, t: "eine" }, { o: 300, t: "Tasse" }], "word offsets re-based to the piece");
+test("rechunkTimed: YouTube windows become sentence lines, spanning windows where a sentence does", () => {
+  // window 1: "… in Udine. Ud"  window 2: "italienische Stadt, ungefähr 5 Stunden entfernt."  — the creator's captions are the two sentences
+  const w1 = cue(10000, 13000, [[0, "Hallo,"], [400, "wir"], [700, "sind"], [900, "heute"], [1200, "in"], [1400, "Udine."], [2600, "Ud"]]);
+  const w2 = cue(13000, 17000, [[0, "italienische"], [500, "Stadt,"], [900, "ungefähr"], [1300, "5"], [1500, "Stunden"], [1900, "entfernt."]]);
+  const out = C.rechunkTimed([w1, w2]);
+  assert.deepEqual(out.map((p) => p.text), ["Hallo, wir sind heute in Udine.", "Ud italienische Stadt, ungefähr 5 Stunden entfernt."]);
+  assert.deepEqual(out.map((p) => [p.startMs, p.endMs]), [[10000, 12599], [12600, 17000]]);
+  assert.deepEqual(out[1].w.slice(0, 2), [{ o: 0, t: "Ud" }, { o: 400, t: "italienische" }], "word offsets re-based to the new line");
 });
 
-test("splitAtPauses: continuous speech stays one cue; no word timing stays as is", () => {
-  const flowing = cue(0, 3000, [[0, "wir"], [250, "gehen"], [520, "heute"], [800, "nach"], [1000, "Hause"]]);
-  assert.equal(C.splitAtPauses(flowing).length, 1);
-  assert.deepEqual(C.splitAtPauses(flowing)[0], flowing);
-  const plain = { startMs: 0, endMs: 2000, text: "no timing here" };
-  assert.deepEqual(C.splitAtPauses(plain), [plain]);
-  assert.deepEqual(C.splitAtPauses({ startMs: 0, endMs: 2000, text: "one", w: [{ o: 0, t: "one" }] }).length, 1);
+test("rechunkTimed: a silence long for this speaker ends a line; ordinary pauses don't", () => {
+  const c = cue(0, 8000, [[0, "der"], [300, "Schlüssel"], [2200, "eine"], [2500, "Tasse"], [4200, "die"], [4500, "Tasse"]]); // 1.9 s and 1.7 s silences, 300 ms words
+  assert.deepEqual(C.rechunkTimed([c]).map((p) => p.text), ["der Schlüssel", "eine Tasse", "die Tasse"]);
+  const flowing = cue(0, 3000, [[0, "wir"], [250, "gehen"], [900, "heute"], [1200, "nach"], [1400, "Hause"]]); // a 650 ms pause stays inside the line
+  assert.deepEqual(C.rechunkTimed([flowing]).map((p) => p.text), ["wir gehen heute nach Hause"]);
 });
 
-test("splitAtPauses: a long run cuts at the next soft gap once it passes maxChars", () => {
+test("rechunkTimed: a slow learner video (real timings) keeps its sentences whole, like the creator's captions", () => {
+  // youtube.com/watch?v=uzNrP5ZyH0A, json3 ASR, first 70 s — words 1–2.5 s apart, "Ud" is the ASR mishearing "Udine"
+  const W = [
+    cue(300, 10140, [[0, "[Musik]"]]),
+    cue(3400, 14241, [[0, "Hallo,"], [1360, "wir"], [1880, "sind"], [2400, "heute"], [3241, "in"], [3841, "Udine."], [5160, "Ud"]]),
+    cue(10200, 18720, [[0, "italienische"], [760, "Stadt"], [1960, "ungefähr"], [3120, "5"], [3559, "Stunden"]]),
+    cue(14200, 20360, [[0, "von"], [639, "München"], [1160, "entfernt."], [2360, "Wir"], [2640, "sind"], [3080, "also"], [3720, "in"]]),
+    cue(18700, 28219, [[0, "Italien."]]),
+    cue(20400, 34680, [[0, "Ich"], [1200, "sitze"], [2400, "auf"], [3320, "einer"], [4119, "Bank,"], [5160, "die"], [6000, "Parkbank."]]),
+    cue(28200, 41080, [[0, "Ich"], [1400, "sitze"], [2320, "im"], [3201, "Schatten,"], [4360, "der"], [5241, "Schatten,"]]),
+    cue(34700, 43820, [[0, "denn"], [760, "heute"], [1800, "ist"], [2120, "es"], [3039, "sehr"], [4440, "heiß."], [5520, "Und"], [6080, "guck"]]),
+    cue(41100, 45981, [[0, "mal,"]]), cue(43800, 47559, [[0, "Taco"]]), cue(46000, 51560, [[0, "liegt"]]),
+    cue(47600, 58321, [[0, "unter"], [1281, "der"], [2361, "Bank."]]),
+    cue(51500, 61179, [[0, "Taco"], [1039, "liegt"], [2240, "unter"], [2879, "der"], [3320, "Bank"], [3879, "und"], [4359, "ich"], [5359, "sitze"]]),
+    cue(58300, 66700, [[0, "auf"], [840, "der"], [1320, "Bank"]]),
+    cue(61200, 68480, [[0, "und"], [1200, "wir"], [2360, "ruhen"], [2920, "uns"], [3280, "jetzt"], [3960, "ein"], [4361, "bisschen"]]),
+    cue(66700, 72340, [[0, "aus,"], [900, "denn"], [1500, "es"], [1900, "ist"], [2400, "warm."]]),
+  ];
+  const lines = C.rechunkTimed(W).map((p) => p.text);
+  assert.deepEqual(lines, [
+    "[Musik] Hallo, wir sind heute in Udine.",
+    "Ud italienische Stadt ungefähr 5 Stunden von München entfernt.",
+    "Wir sind also in Italien.",
+    "Ich sitze auf einer Bank, die Parkbank.",
+    "Ich sitze im Schatten, der Schatten, denn heute ist es sehr heiß.",
+    "Und guck mal, Taco liegt unter der Bank.",
+    "Taco liegt unter der Bank und ich sitze auf der Bank und wir ruhen uns jetzt ein bisschen aus,", // past the length cap: cut at the clause end, "aus" stays with "ruhen"
+    "denn es ist warm.",
+  ]);
+  assert.ok(lines.every((l) => l.split(" ").length >= 2 || /[.!?]$/.test(l)), "no dangling one-word lines");
+});
+
+test("rechunkTimed: past maxChars a line breaks at a clause end or a breath, and at the hard cap regardless", () => {
   const words = []; let t = 0;
-  for (let i = 0; i < 16; i++) { words.push([t, "wort" + i]); t += i === 9 ? 400 : 250; } // one 400 ms breath after the 10th word
-  const out = C.splitAtPauses(cue(0, 6000, words), { maxChars: 40 });
-  assert.equal(out.length, 2);
-  assert.equal(out[0].w.length, 10, "cut at the breath after passing 40 chars");
-  assert.ok(out[0].endMs < out[1].startMs);
+  for (let i = 0; i < 40; i++) { words.push([t, "wort" + i + (i === 14 ? "," : "")]); t += 250; } // ~ 270 chars, one comma after word 15, no breaths
+  const out = C.rechunkTimed([cue(0, 12000, words)], { maxChars: 84, hardChars: 120 });
+  assert.ok(out.length >= 3, "pieces: " + out.length);
+  assert.ok(out[0].text.endsWith("wort14,"), "first break at the comma once past maxChars: " + out[0].text.slice(-12));
+  assert.ok(out[1].text.length >= 120 && out[1].text.length <= 128, "second piece is cut by the hard cap: " + out[1].text.length);
+  assert.equal(out.map((p) => p.text).join(" "), words.map((x) => x[1]).join(" "), "no word lost or duplicated");
+});
+
+test("rechunkTimed: untimed cues pass through in place; isTimed tells them apart", () => {
+  const plain = { startMs: 0, endMs: 2000, text: "no timing here" };
+  const timed = cue(3000, 5000, [[0, "Hallo."], [800, "Welt."]]);
+  const out = C.rechunkTimed([plain, timed]);
+  assert.deepEqual(out.map((p) => p.text), ["no timing here", "Hallo.", "Welt."]);
+  assert.equal(out[0], plain);
+  assert.equal(C.isTimed(timed), true); assert.equal(C.isTimed(plain), false);
+  assert.equal(C.isTimed({ startMs: 0, endMs: 1, text: "x y", w: [{ o: 0, t: "x" }, { o: 0, t: "y" }] }), false, "all-zero offsets are not word timing");
 });
