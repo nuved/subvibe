@@ -999,12 +999,14 @@ async function videoContext(base, title, lines, source) {
 const contextLine = (ctx) => (ctx && ctx.kind ? `VIDEO CONTEXT: ${ctx.kind}${ctx.about ? " — " + ctx.about : ""}${ctx.register ? ". Register: " + ctx.register : ""}${ctx.speakers ? ". Speakers: " + ctx.speakers : ""}. Read the lines in that light (a joke, a chant, a command in a game, an idiom of that world).\n` : "");
 function explainPrompt(source, target, ctx) {
   const fa = (target || "").split("-")[0] === "fa";
-  return `You explain ONE ${langName(source)} passage (one or a few sentences that belong together) to a learner. The user message carries {"s":"<the passage>","before":[…earlier lines…],"after":[…later lines…]}; "before" and "after" are ONLY context — never explain or translate them.\n` +
+  const same = source && source !== "auto" && (source || "").split("-")[0] === (target || "").split("-")[0];
+  return `You explain ONE ${langName(source)} passage (one or a few sentences that belong together) to a learner${same ? " — in " + langName(source) + " itself, with simple words (A2), so the learner stays inside the language" : ""}. The user message carries {"s":"<the passage>","before":[…earlier lines…],"after":[…later lines…]}; "before" and "after" are ONLY context — never explain or translate them.\n` +
     contextLine(ctx) +
     `Return STRICT JSON {"tr":"…","g":"…","words":[{"w":"…","m":"…","pos":"…","level":"…","forms":"…"}]}:\n` +
-    `- tr: a natural ${langName(target)} translation of the whole passage.\n` +
+    (same ? `- tr: the whole passage said more simply in ${langName(source)}: A2 vocabulary, short clauses, same meaning.\n`
+          : `- tr: a natural ${langName(target)} translation of the whole passage.\n`) +
     `- g: a plain-${langName(target)} grammar note as 2–4 short points separated by " • ": (1) how the sentence is built — tense/mood, clauses, word order, any separable or phrasal verb; (2) WHY it takes that form, naming the rule with the everyday word next to it; (3) a watch-out for learners (a false friend, an ending, a word that moves) or the everyday way to say it. Concrete, about THIS sentence's words; no bare jargon.\n` +
-    `- words: the 3–8 most useful/learnable words or phrases in this passage, each {w: the ${langName(source)} word or phrase as it appears (the FULL reunited separable verb if one applies, e.g. "anschauen"), m: its concise ${langName(target)} meaning, pos: one of noun|verb|phrasal verb|adjective|adverb|idiom|expression|preposition|conjunction|pronoun|other, level: CEFR A1–C2 for a learner, forms: for a verb its base · past · participle plus "regular"/"irregular" (e.g. "say · said · said · irregular"), for a noun its plural (and article, where the language has one), for an adjective its comparative if irregular, else ""}. Skip trivial function words.` +
+    `- words: the 3–8 most useful/learnable words or phrases in this passage, each {w: the ${langName(source)} word or phrase as it appears (the FULL reunited separable verb if one applies, e.g. "anschauen"), m: ${same ? "a short " + langName(source) + " definition or everyday synonym" : "its concise " + langName(target) + " meaning"}, pos: one of noun|verb|phrasal verb|adjective|adverb|idiom|expression|preposition|conjunction|pronoun|other, level: CEFR A1–C2 for a learner, forms: for a verb its base · past · participle plus "regular"/"irregular" (e.g. "say · said · said · irregular"), for a noun its plural (and article, where the language has one), for an adjective its comparative if irregular, else ""}. Skip trivial function words.` +
     (fa ? `\nفارسیِ سادهٔ روزمره؛ هرگز واژه‌های دستوریِ سنگین. STANDARD IRANIAN FARSI — no Urdu letters/words.` : "");
 }
 
@@ -1100,19 +1102,25 @@ async function explainLine(base, sent, langHint, opts) {
   const o = opts || {};
   let h = 5381;
   for (let i = 0; i < sent.length; i++) h = ((h << 5) + h + sent.charCodeAt(i)) | 0;
-  const skey = "e2" + (h >>> 0).toString(36); // e2: passage-level explanations with pos/level/forms
+  // Which language the tips are in: the popup's target by default, "same" = the
+  // video's own language (immersion), or a language code. Part of the cache key.
+  const explainPref = String(o.explain || "").trim();
+  const skey = "e2" + (h >>> 0).toString(36) + (explainPref ? "|" + explainPref : ""); // e2: passage-level explanations with pos/level/forms
   const cx = (await idbVocabGet("clipexplain:" + base)) || { base, at: Date.now(), e: {} };
   const { targets: cfgX } = await chrome.storage.local.get(["targets"]);
-  const target = (Array.isArray(cfgX) && cfgX[0]) || "en";
-  const fa = (target || "").split("-")[0] === "fa";
+  const defTarget = (Array.isArray(cfgX) && cfgX[0]) || "en";
+  let target = explainPref && explainPref !== "same" ? explainPref : defTarget;
+  let fa = (target || "").split("-")[0] === "fa";
   const faS = (s) => (fa ? SV_VOCAB.normalizeFa(String(s || "")) : String(s || ""));
   if (cx.e[skey] && cx.e[skey].tr) {
     const c = cx.e[skey];
-    return { ok: true, tr: faS(c.tr), g: faS(c.g), lang: c.lang || "", words: (c.words || []).map((x) => ({ w: x.w, m: faS(x.m), pos: x.pos || "", level: x.level || "", forms: x.forms || "" })), cached: true };
+    fa = ((c.explain && c.explain !== "same" ? c.explain : c.explain === "same" ? c.lang : target) || "").split("-")[0] === "fa";
+    return { ok: true, tr: faS(c.tr), g: faS(c.g), lang: c.lang || "", explain: c.explain || "", words: (c.words || []).map((x) => ({ w: x.w, m: faS(x.m), pos: x.pos || "", level: x.level || "", forms: x.forms || "" })), cached: true };
   }
   const started = Date.now();
   let lang = langHint && langHint !== "xx" ? String(langHint) : "";
   try { const det = await detectClipLang([{ o: sent }]); if (det && det !== "xx") lang = det; } catch {}
+  if (explainPref === "same" && lang) { target = lang; fa = (target || "").split("-")[0] === "fa"; }
   // The video's kind (interview, lesson, match …) is inferred once and cached;
   // the neighbouring lines ride along as context only.
   const ctx = await videoContext(base, o.title, o.sample, lang || "auto");
@@ -1122,11 +1130,21 @@ async function explainLine(base, sent, langHint, opts) {
   const p = (r && r.parsed) || {};
   const out = { tr: String(p.tr || "").trim(), g: String(p.g || "").trim(), lang,
     words: Array.isArray(p.words) ? p.words.filter((x) => x && x.w && x.m).slice(0, 8).map((x) => ({ w: String(x.w).trim(), m: String(x.m).trim(), pos: String(x.pos || "").trim().toLowerCase(), level: String(x.level || "").trim().toUpperCase(), forms: String(x.forms || "").trim() })) : [] };
-  if (out.tr) { out.s = sent; out.at = started; cx.e[skey] = out; cx.target = target; cx.lang = lang || String(cx.lang || ""); cx.at = Date.now(); await idbVocabPut("clipexplain:" + base, cx); }
+  if (out.tr) { out.s = sent; out.at = started; out.explain = explainPref; cx.e[skey] = out; if (!explainPref) cx.target = target; cx.lang = lang || String(cx.lang || ""); cx.at = Date.now(); await idbVocabPut("clipexplain:" + base, cx); }
   await logCall({ ts: started, site: "learn", title: "Explain: " + sent.slice(0, 40), kind: "enrich", lines: 1, ms: Date.now() - started,
     inTok: (r.usage && r.usage.prompt_tokens) || 0, outTok: (r.usage && r.usage.completion_tokens) || 0,
     cacheR: (r.usage && r.usage.cache_r) || 0, cacheW: (r.usage && r.usage.cache_w) || 0, ok: true, provider: r.provider, model: r.model });
-  return { ok: true, tr: faS(out.tr), g: faS(out.g), lang, words: out.words.map((x) => ({ w: x.w, m: faS(x.m), pos: x.pos, level: x.level, forms: x.forms })) };
+  return { ok: true, tr: faS(out.tr), g: faS(out.g), lang, explain: explainPref, words: out.words.map((x) => ({ w: x.w, m: faS(x.m), pos: x.pos, level: x.level, forms: x.forms })) };
+}
+// Everything already explained on a video, for one tips language — the story
+// board seeds its marks and tips from this after a page load, so nothing
+// explained is ever lost.
+async function tipsCached(msg) {
+  const base = String(msg.base || ""); if (!base) return { ok: false, error: "empty" };
+  const pref = String(msg.explain || "").trim();
+  const cx = await idbVocabGet("clipexplain:" + base);
+  const entries = cx && cx.e ? Object.values(cx.e).filter((e) => e && e.s && e.tr && String(e.explain || "") === pref) : [];
+  return { ok: true, entries: entries.map((e) => ({ s: e.s, tr: e.tr, g: e.g || "", lang: e.lang || "", at: e.at || 0, words: (e.words || []).map((x) => ({ w: x.w, m: x.m, pos: x.pos || "", level: x.level || "", forms: x.forms || "" })) })), ctx: cx && cx.ctx ? cx.ctx : null };
 }
 
 // ── Tips sheet: every ﹖-explained line of a video as one Study card ─────────
@@ -2753,7 +2771,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           // words) for the on-video ﹖ button. Cached per sentence forever.
           const base = String(msg.base || ""), sent = String(msg.s || "").slice(0, 700);
           if (!sent) { sendResponse({ error: "missing sentence" }); break; }
-          try { sendResponse(await explainLine(base, sent, msg.lang, { before: msg.before, after: msg.after, title: msg.title, sample: msg.sample })); }
+          try { sendResponse(await explainLine(base, sent, msg.lang, { before: msg.before, after: msg.after, title: msg.title, sample: msg.sample, explain: msg.explain })); }
           catch (e2) { sendResponse({ error: String((e2 && e2.message) || e2) }); }
           break;
         }
@@ -2917,6 +2935,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         case "TIPS_SHEET": sendResponse(await tipsSheet(msg)); break;
         case "TIPS_SNAP": sendResponse(await tipsSnap(msg, sender)); break;
         case "CLIP_TIPS": sendResponse(await clipTips(msg)); break;
+        case "TIPS_CACHED": sendResponse(await tipsCached(msg)); break;
         default:
           sendResponse({ error: "unknown message: " + (msg && msg.type) });
       }

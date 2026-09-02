@@ -81,6 +81,34 @@ is removed with the overlay on teardown.
 The Study card draws a sentence's number in its chunk as a grey badge, so
 it cannot be read as one of the coral note numbers.
 
+### Board controls (round 7)
+
+- **Tips language.** A select in the board's tool row: "Tips in FA" (the
+  popup's target) or "Tips in the video's language" (immersion: a simpler
+  paraphrase, definitions and grammar in that language). The floating card
+  has the same switch as a small button in its pager. The choice is stored
+  in `chrome.storage.local.tipsExplain`; the background keys its cache by it
+  (`e2<hash>|same`), so both languages stay cached side by side.
+- **Subtitles on video: on/off.** Hides the overlay's lines and the ﹖ button
+  on the picture (class `sv-lines-off` on `#copilot-subs`) while the board
+  keeps following; the playing chunk's words light up on the board as they
+  are spoken (karaoke via the same `lineUnits`/`updateSung` as the overlay).
+  Remembered in localStorage `sv-lines-off`.
+- **Persisted.** On load the board asks the background for everything already
+  explained on this video in the chosen tips language (`TIPS_CACHED`) and
+  seeds its "✓ tips" marks and tips from it; explanations live in
+  `clipexplain:<base>` in IndexedDB, translations in the cue cache.
+- **Hearing a sentence.** The time button plays from the chunk's start; each
+  sentence number plays from that sentence's start.
+- **Scrolling.** Rows are keyed by content signature and replaced only when
+  they change (no wholesale wipe of the list), and the follow-the-playhead
+  scroll is suppressed for 6 s after the reader wheels or touches the list.
+- **Leitner.** Every word row in the tips has a ＋ that saves the word with
+  its sentence and translation through the same `VOCAB_ADD` path as the
+  word card.
+- **Opening the board.** It appears on its own on a YouTube watch page while
+  SubVibe subtitles are on. Pressing ﹖ with the board hidden expands it.
+
 ## Video context (background.js)
 
 `videoContext(base, title, sample, lang)` asks the model once per video what
@@ -127,6 +155,15 @@ the clip's lines as the context sample, and opens the sheet ("CLIP · TIPS").
   per chunk (`build/shots/brave-chunk-card.png`, `brave-chunk-snap.png`).
   The clip editor found 2 chunks in an 8 s recording, trimmed to both, and
   "Tips for this clip" opened a two-chunk sheet (`brave-clip-chunk-sheet.png`).
+- Board controls, in an isolated lab Brave (scratch profile on port 9333 with
+  the unpacked extension, so the operator's own tabs are never touched):
+  27 karaoke spans on the playing row with the sung count rising 4 → 7 in
+  2.5 s; "Subtitles on video: off" hid the overlay stack and ﹖; a sentence
+  number played from 155.6 s; a wheel on the list then a seek left
+  scrollTop at 0; "Tips in the video's language" on this German-audio track
+  explained chunk 1 in German (simpler paraphrase + German definitions);
+  ＋ saved a word ("Saved to Leitner"); after a page reload the explained
+  chunk's mark came back once that tips language was selected.
 
 ## Not done
 

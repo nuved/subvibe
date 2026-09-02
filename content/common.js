@@ -2003,7 +2003,7 @@
         const us = units.slice(r.from, r.to + 1);
         // ASR stage tags ("[Music]", "[Applause]") are not language — keep them out of the tips.
         const clean = (t) => String(t || "").replace(/\[[^\]]{1,24}\]/g, " ").replace(/\s+/g, " ").trim();
-        const sentences = us.map((u) => ({ s: clean(u.original), tr: clean(unitTr(u, tg)) })).filter((x) => x.s);
+        const sentences = us.map((u) => ({ s: clean(u.original), tr: clean(unitTr(u, tg)), startMs: u.startMs, cue: u.cue })).filter((x) => x.s);
         return { k, from: r.from, to: r.to, startMs: r.startMs, endMs: r.endMs, units: us, text: sentences.map((x) => x.s).join(" "), sentences };
       });
     };
@@ -2012,8 +2012,29 @@
     // kind from it once (cached per video), so every later tip knows whether
     // this is an interview, a lesson, a match or a game stream.
     const sampleLines = () => { const us = sentenceUnits(); if (us.length <= 40) return us.map((u) => u.original); const step = us.length / 40; const out = []; for (let i = 0; i < 40; i++) out.push(us[Math.floor(i * step)].original); return out; };
-    const explainPayload = (ch, list) => ({ type: "VOCAB_EXPLAIN", base, s: ch.text, lang: vocabPoolLang, title: document.title,
+    // Tips language: "" = the popup's target, "same" = the video's own language.
+    let tipsExplain = "";
+    try { chrome.storage.local.get("tipsExplain", (r) => { tipsExplain = String((r && r.tipsExplain) || ""); if (board.el) { const sel = board.el.querySelector(".svb-lang"); if (sel) sel.value = tipsExplain; seedExplained(); board.sig = ""; } }); } catch (e) {}
+    const explainPayload = (ch, list) => ({ type: "VOCAB_EXPLAIN", base, s: ch.text, lang: vocabPoolLang, title: document.title, explain: tipsExplain,
       before: list[ch.k - 1] ? [list[ch.k - 1].text] : [], after: list[ch.k + 1] ? [list[ch.k + 1].text] : [], sample: sampleLines() });
+    // Seed the explanations already made on this video (for this tips language)
+    // so marks and tips survive a page load.
+    let seededFor = null;
+    const seedExplained = () => {
+      if (seededFor === tipsExplain) return; seededFor = tipsExplain;
+      send({ type: "TIPS_CACHED", base, explain: tipsExplain }).then((r) => {
+        if (!r || !r.ok || seededFor !== tipsExplain) return;
+        for (const e of r.entries || []) if (!lineExplainCache.has(e.s)) lineExplainCache.set(e.s, { tr: e.tr, g: e.g, lang: e.lang || "", words: e.words || [] });
+        board.sig = "";
+      });
+    };
+    const setTipsExplain = (v) => {
+      tipsExplain = String(v || ""); lineExplainCache.clear(); chunkFetching.clear(); seededFor = null;
+      try { chrome.storage.local.set({ tipsExplain }); } catch (e) {}
+      seedExplained(); board.sig = ""; boardTick(true);
+      if (wtip._pinned && card.list.length) renderChunkCard(els.__orig);
+    };
+    const tipsLangLabel = (short) => tipsExplain === "same" ? (short ? (vocabPoolLang || "same").toUpperCase().slice(0, 2) : "the video's language") : (short ? (vocabTg || (settings.targets && settings.targets[0]) || "").toUpperCase().slice(0, 2) : (vocabTg || (settings.targets && settings.targets[0]) || "target"));
 
     const chunkFetching = new Map(); // chunk text → pending explain promise (deduped)
     const explainChunk = (ch, list) => {
@@ -2035,7 +2056,7 @@
       ch.sentences.forEach((x, i) => { const r = mk("div", "wt-sent"); r.appendChild(mk("i", "wt-sn", String(startNo + i))); const t = mk("span", null, x.s); t.dir = "auto"; r.appendChild(t); box.appendChild(r); });
       return box;
     };
-    const buildTips = (ex) => {
+    const buildTips = (ex, ch) => {
       const body = mk("div", "wt-body");
       const addSect = (label, node) => { const sc = mk("div", "wt-sect"); sc.appendChild(mk("div", "wt-lbl", label)); sc.appendChild(node); body.appendChild(sc); };
       const line = (text) => { const v = mk("div", "wt-val", text); v.dir = "auto"; return v; };
@@ -2056,6 +2077,17 @@
           if (tag) b.appendChild(mk("i", "wt-tag", tag));
           const m = mk("span", null, x.m); m.dir = "auto";
           if (x.forms) m.appendChild(mk("i", "wt-forms", x.forms));
+          // Into the Leitner boxes, with the sentence it appeared in.
+          const add = mk("button", "wt-add", "＋"); add.type = "button"; add.title = "Save to Leitner";
+          add.addEventListener("click", (ev) => {
+            ev.stopPropagation(); if (add.disabled) return; add.disabled = true; add.textContent = "…";
+            const snt = (ch && ch.sentences.find((q) => q.s.toLowerCase().includes(String(x.w).toLowerCase()))) || (ch && ch.sentences[0]) || null;
+            const langHint = /[?&]lang=([a-z-]+)/i.exec(interceptedUrl || "");
+            send({ type: "VOCAB_ADD", word: x.w, sentence: snt ? snt.s : (ch ? ch.text : ""), translation: snt ? snt.tr : "", lang: (ex.lang || (langHint ? langHint[1].toLowerCase() : null)) || null,
+              videoTitle: pageTitle, base, ms: snt ? snt.startMs : (ch ? ch.startMs : 0), channel: adapter?.getChannel?.() || "" })
+              .then((r) => { if (r && r.error) { add.disabled = false; add.textContent = "＋"; add.title = "Save failed — retry"; return; } add.textContent = "✓"; add.title = "Saved to Leitner"; });
+          });
+          m.appendChild(add);
           list.appendChild(b); list.appendChild(m);
         }
         addSect("Words", list);
@@ -2072,7 +2104,7 @@
       for (let k = k0; k < Math.min(list.length, k0 + n); k++) {
         const ch = list[k]; status("Explaining chunk " + (k - k0 + 1) + "/" + n + "…");
         const ex = await explainChunk(ch, list); if (!ex || ex.error) continue;
-        picked.push({ s: ch.text, tr: ex.tr, g: ex.g, lang: ex.lang || "", words: ex.words || [], sentences: ch.sentences });
+        picked.push({ s: ch.text, tr: ex.tr, g: ex.g, lang: ex.lang || "", words: ex.words || [], sentences: ch.sentences.map((x) => ({ s: x.s, tr: x.tr })) });
       }
       if (!picked.length) return { ok: false, error: "explain" };
       status("Snapping…");
@@ -2130,7 +2162,7 @@
         // A Shot taken from the popup on this page attaches this chunk and its
         // tips (content/shot-capture.js reads it) — the DRM-safe route to a snap.
         const lr = anchor.getBoundingClientRect();
-        window.__svOverlayLine = { s: first.text, tr: ex0.tr || "", g: ex0.g || "", words: ex0.words || [], lang: ex0.lang || vocabPoolLang, sentences: first.sentences,
+        window.__svOverlayLine = { s: first.text, tr: ex0.tr || "", g: ex0.g || "", words: ex0.words || [], lang: ex0.lang || vocabPoolLang, sentences: first.sentences.map((x) => ({ s: x.s, tr: x.tr })),
           rect: { x: lr.left + scrollX, y: lr.top + scrollY, w: lr.width, h: lr.height }, at: Date.now() };
       }
       const pager = mk("div", "wt-pager");
@@ -2139,14 +2171,16 @@
       const lbl = mk("span", "wt-chunk", "chunk " + (k0 + 1) + (n > 1 ? "–" + (k0 + n) : "") + " / " + list.length + " · " + fmtT(first.startMs));
       prev.addEventListener("click", (ev) => { ev.stopPropagation(); goChunk(k0 - 1, anchor); });
       next.addEventListener("click", (ev) => { ev.stopPropagation(); goChunk(k0 + n, anchor); });
-      pager.append(prev, lbl, next); wtip.appendChild(pager);
+      const lang = mk("button", "wt-pg wt-lang", tipsLangLabel(true)); lang.type = "button"; lang.title = "Tips in " + tipsLangLabel(false) + " — click to switch between your language and the video's own language";
+      lang.addEventListener("click", (ev) => { ev.stopPropagation(); setTipsExplain(tipsExplain === "same" ? "" : "same"); });
+      pager.append(prev, lbl, lang, next); wtip.appendChild(pager);
       const scroller = mk("div", "wt-scroll"); // sentences + tips of every shown chunk scroll together
       let no = 1;
       for (let k = k0; k < k0 + n; k++) {
         const ch = list[k]; const ex = lineExplainCache.get(ch.text);
         if (k > k0) scroller.appendChild(mk("div", "wt-div", "chunk " + (k + 1) + " · " + fmtT(ch.startMs)));
         scroller.appendChild(buildSents(ch, no)); no += ch.sentences.length;
-        scroller.appendChild(buildTips(ex));
+        scroller.appendChild(buildTips(ex, ch));
         if (!ex) explainChunk(ch, list).then(() => { if (wtip._pinned && card.k0 === k0 && card.list === list) renderChunkCard(anchor); });
       }
       wtip.appendChild(scroller);
@@ -2178,7 +2212,10 @@
       // With the story board beside the video, the tips go there and the
       // picture stays clean; the floating card is for sites without a board
       // (and for fullscreen).
-      if (boardVisible()) { if (v && !v.paused) v.pause(); boardFocus(ki, true); return; }
+      if (board.el && board.el.isConnected && !document.fullscreenElement && (boardVisible() || board.collapsed)) {
+        if (board.collapsed) setBoardCollapsed(false);
+        if (v && !v.paused) v.pause(); boardFocus(ki, true); return;
+      }
       wtip._resume = !!(v && !v.paused);
       if (v && !v.paused) v.pause();
       wtip._pinned = true; wtip._word = null; wtip._lineSig = list[ki].text;
@@ -2195,9 +2232,16 @@
     // subtitles: every chunk in order with its translation, the playing one
     // highlighted and followed, the explained ones marked; the open chunk
     // shows its Translation · Grammar · Words and the actions row.
-    const board = { el: null, list: [], ki: -1, open: -1, sig: "", at: 0, collapsed: false };
-    try { board.collapsed = localStorage.getItem("sv-board-collapsed") === "1"; } catch (e) {}
+    const board = { el: null, list: [], ki: -1, open: -1, sig: "", at: 0, collapsed: false, userScrollAt: 0, linesOff: false };
+    try { board.collapsed = localStorage.getItem("sv-board-collapsed") === "1"; board.linesOff = localStorage.getItem("sv-lines-off") === "1"; } catch (e) {}
     const boardVisible = () => !!(board.el && board.el.isConnected && !board.collapsed && !document.fullscreenElement && board.el.offsetParent !== null);
+    const setBoardCollapsed = (v) => {
+      board.collapsed = !!v; try { localStorage.setItem("sv-board-collapsed", board.collapsed ? "1" : ""); } catch (e) {}
+      if (board.el) { board.el.classList.toggle("collapsed", board.collapsed); const t = board.el.querySelector(".svb-toggle"); if (t) t.textContent = board.collapsed ? "Show" : "Hide"; }
+      board.sig = "";
+    };
+    // Subtitles on the picture: off = read them on the board (karaoke follows there).
+    const applyLinesOff = () => { overlay.classList.toggle("sv-lines-off", board.linesOff && boardVisible()); const t = board.el && board.el.querySelector(".svb-lines"); if (t) { t.textContent = board.linesOff ? "Subtitles on video: off" : "Subtitles on video: on"; t.classList.toggle("off", board.linesOff); } };
     const ensureBoard = () => {
       if (board.el && board.el.isConnected) return board.el;
       if (!(adapter && adapter.site === "youtube")) return null;
@@ -2206,30 +2250,64 @@
       const b = mk("div", "sv-board" + (board.collapsed ? " collapsed" : "")); b.id = "sv-board"; b.dir = "auto";
       const head = mk("div", "svb-head");
       const toggle = mk("button", "svb-toggle", board.collapsed ? "Show" : "Hide"); toggle.type = "button";
-      toggle.addEventListener("click", () => { board.collapsed = !board.collapsed; try { localStorage.setItem("sv-board-collapsed", board.collapsed ? "1" : ""); } catch (e) {} b.classList.toggle("collapsed", board.collapsed); toggle.textContent = board.collapsed ? "Show" : "Hide"; board.sig = ""; });
+      toggle.addEventListener("click", () => { setBoardCollapsed(!board.collapsed); applyLinesOff(); });
       head.append(mk("span", "svb-logo", "S"), mk("b", null, "Story board"), mk("span", "svb-count", ""), toggle);
-      b.appendChild(head); b.appendChild(mk("div", "svb-list"));
+      const tools = mk("div", "svb-tools");
+      const lines = mk("button", "svb-lines", ""); lines.type = "button"; lines.title = "Hide the subtitles on the picture and read them here instead (the playing words light up on the board)";
+      lines.addEventListener("click", () => { board.linesOff = !board.linesOff; try { localStorage.setItem("sv-lines-off", board.linesOff ? "1" : ""); } catch (e) {} applyLinesOff(); });
+      const sel = mk("select", "svb-lang"); sel.title = "Which language the tips are in";
+      const tgCode = vocabTg || (settings.targets && settings.targets[0]) || "";
+      const o1 = mk("option", null, "Tips in " + (tgCode ? tgCode.toUpperCase() : "your language")); o1.value = "";
+      const o2 = mk("option", null, "Tips in the video's language"); o2.value = "same";
+      sel.append(o1, o2); sel.value = tipsExplain;
+      sel.addEventListener("change", () => setTipsExplain(sel.value));
+      sel.addEventListener("click", (ev) => ev.stopPropagation());
+      tools.append(lines, sel);
+      b.appendChild(head); b.appendChild(tools);
+      const listEl = mk("div", "svb-list");
+      // A hand on the list pauses the follow for a while, so it never yanks
+      // the reader back while they scroll.
+      for (const evn of ["wheel", "touchstart", "pointerdown"]) listEl.addEventListener(evn, () => { board.userScrollAt = performance.now(); }, { passive: true });
+      b.appendChild(listEl);
       host.insertBefore(b, host.firstChild);
-      board.el = b; return b;
+      board.el = b;
+      applyLinesOff(); seedExplained();
+      return b;
     };
+    const playFrom = (ms) => { const v = liveVideoEl(video) || video; try { v.currentTime = ms / 1000 + 0.05; const pr = v.play(); if (pr && pr.catch) pr.catch(() => {}); } catch (e) {} };
+    const rowSig = (ch, k) => [ch.text, ch.sentences.map((x) => x.tr).join("\u0002"), lineExplainCache.has(ch.text) ? 1 : 0, k === board.open ? 1 : 0, k === board.ki ? 1 : 0, k === board.open ? snapChunks : 0].join("\u0001");
     const boardRow = (ch, k) => {
-      const row = mk("div", "svb-chunk" + (k === board.ki ? " on" : "") + (k === board.open ? " open" : "")); row.dataset.k = String(k);
+      const on = k === board.ki;
+      const row = mk("div", "svb-chunk" + (on ? " on" : "") + (k === board.open ? " open" : "")); row.dataset.k = String(k); row.dataset.sig = rowSig(ch, k);
       const time = mk("button", "svb-time", fmtT(ch.startMs)); time.type = "button"; time.title = "Play from here";
-      time.addEventListener("click", (ev) => { ev.stopPropagation(); const v = liveVideoEl(video) || video; try { v.currentTime = ch.startMs / 1000 + 0.05; const pr = v.play(); if (pr && pr.catch) pr.catch(() => {}); } catch (e) {} });
+      time.addEventListener("click", (ev) => { ev.stopPropagation(); playFrom(ch.startMs); });
       const main = mk("div", "svb-main");
       ch.sentences.forEach((x, i) => {
-        const r = mk("div", "svb-sent"); r.appendChild(mk("i", "svb-sn", String(i + 1))); const t = mk("span", null, x.s); t.dir = "auto"; r.appendChild(t); main.appendChild(r);
+        const r = mk("div", "svb-sent");
+        const num = mk("button", "svb-sn", String(i + 1)); num.type = "button"; num.title = "Hear this sentence"; num.addEventListener("click", (ev) => { ev.stopPropagation(); playFrom(x.startMs != null ? x.startMs : ch.startMs); });
+        r.appendChild(num);
+        const t = mk("span", "svb-txt", x.s); t.dir = "auto";
+        // The playing chunk reads like the subtitle: its words light up as they are spoken.
+        const units = on && settings.karaokeHl !== false && x.cue ? lineUnits(x.cue, null, x.s) : null;
+        if (units) { const spans = []; units.forEach((u, j) => { if (j) t.appendChild(document.createTextNode(" ")); const w = mk("span", "svb-w", u.t); t.appendChild(w); spans.push(w); }); t.__svW = { units, spans, k: -1 }; }
+        r.appendChild(t); main.appendChild(r);
         if (x.tr) { const tr = mk("div", "svb-tr", x.tr); tr.dir = "auto"; main.appendChild(tr); }
       });
       const ex = lineExplainCache.get(ch.text);
       if (k === board.open) {
-        main.appendChild(buildTips(ex));
+        main.appendChild(buildTips(ex, ch));
         main.appendChild(buildActions({ list: board.list, k0: k, n: snapChunks, setN: (m) => { snapChunks = m; board.sig = ""; boardTick(true); }, anchor: () => els.__orig }));
       } else if (ex && !ex.error) row.appendChild(mk("i", "svb-mark", "✓ tips"));
-      else if (k === board.ki) { const b = mk("button", "svb-explain", "Explain"); b.type = "button"; b.addEventListener("click", (ev) => { ev.stopPropagation(); boardFocus(k, false); }); row.appendChild(b); }
-      row.addEventListener("click", () => { if (board.open === k) { board.open = -1; board.sig = ""; boardTick(true); } else boardFocus(k, false); });
+      else if (on) { const b = mk("button", "svb-explain", "Explain"); b.type = "button"; b.addEventListener("click", (ev) => { ev.stopPropagation(); boardFocus(k, false); }); row.appendChild(b); }
+      row.addEventListener("click", (ev) => { if (ev.target && ev.target.closest && ev.target.closest("button, select, .wt-body")) return; if (board.open === k) { board.open = -1; board.sig = ""; boardTick(true); } else boardFocus(k, false); });
       row.append(time, main);
       return row;
+    };
+    // Karaoke on the board: sweep the playing chunk's words (called every frame).
+    const boardSung = (t) => {
+      if (!board.el || board.collapsed || board.ki < 0) return;
+      const row = board.el.querySelector(".svb-chunk.on"); if (!row) return;
+      for (const el of row.querySelectorAll(".svb-txt")) if (el.__svW) updateSung(el, t);
     };
     const boardScrollTo = (k, smooth) => {
       const listEl = board.el && board.el.querySelector(".svb-list"); const row = listEl && listEl.querySelector('.svb-chunk[data-k="' + k + '"]');
@@ -2237,13 +2315,20 @@
       const target = Math.max(0, row.offsetTop - listEl.clientHeight / 3);
       try { listEl.scrollTo({ top: target, behavior: smooth ? "smooth" : "auto" }); } catch (e) { listEl.scrollTop = target; }
     };
+    // Keyed re-render: only rows whose content changed are replaced, so the
+    // list under the reader's hand never disappears mid-scroll.
     const renderBoard = () => {
       const b = ensureBoard(); if (!b) return;
-      const listEl = b.querySelector(".svb-list"); const st = listEl.scrollTop;
+      const listEl = b.querySelector(".svb-list");
       b.querySelector(".svb-count").textContent = board.list.length + (board.list.length === 1 ? " chunk" : " chunks");
-      listEl.textContent = "";
-      board.list.forEach((ch, k) => listEl.appendChild(boardRow(ch, k)));
-      listEl.scrollTop = st;
+      const rows = listEl.children;
+      board.list.forEach((ch, k) => {
+        const cur = rows[k]; const sig = rowSig(ch, k);
+        if (cur && cur.dataset.sig === sig) return;
+        const fresh = boardRow(ch, k);
+        if (cur) listEl.replaceChild(fresh, cur); else listEl.appendChild(fresh);
+      });
+      while (listEl.children.length > board.list.length) listEl.removeChild(listEl.lastChild);
     };
     // Open a chunk on the board: explain it (cached), show its tips, follow it.
     const boardFocus = (k, flash) => {
@@ -2268,12 +2353,14 @@
       if (ki !== board.ki && ki >= 0 && lineExplainCache.get(list[ki].text)) board.open = ki;
       const trN = list.reduce((n, ch) => n + ch.sentences.filter((x) => x.tr).length, 0);
       const exN = list.filter((ch) => lineExplainCache.has(ch.text)).length;
-      const sig = [list.length, trN, ki, exN, board.open, snapChunks].join(":");
+      const sig = [list.length, trN, ki, exN, board.open, snapChunks, tipsExplain].join(":");
       if (sig === board.sig) return;
       const follow = ki !== board.ki;
       board.sig = sig; board.list = list; board.ki = ki;
       renderBoard();
-      if (follow && ki >= 0) boardScrollTo(ki, true);
+      // Follow the playhead — unless the reader scrolled the list in the last 6 s.
+      if (follow && ki >= 0 && now - board.userScrollAt > 6000) boardScrollTo(ki, true);
+      applyLinesOff();
     };
 
     // No hover handler — a word's card opens on CLICK only (openWordCard above),
@@ -2354,6 +2441,7 @@
       }
       const c = i >= 0 ? cues[i] : null;
       curCue = c; // click-to-save reads the on-screen cue from here
+      boardSung(t);
       const kar = settings.karaokeHl !== false;
       for (const d of defs) {
         const el = els[d.key];
