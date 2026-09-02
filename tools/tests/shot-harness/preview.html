@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>shot-preview seeder</title>
+  <style>body { font: 14px system-ui; padding: 24px; color: #241F1A; background: #FAF6F0; } a { color: #C93F2B; } canvas { max-width: 360px; border: 1px solid #ddd; margin: 8px 8px 0 0; }</style>
+</head>
+<body>
+  <h1>Shot preview seeder</h1>
+  <p>Seeds a realistic shot (German article, Persian translation, sentence pairs) into IndexedDB
+    <code>copilot-subs / shots</code> as <code>preview1</code>, then open the REAL editor:
+    <a id="open" href="../../../shot.html?id=preview1">shot.html?id=preview1</a> — with
+    <code>chrome-stub.js</code> injected before its scripts (chrome-devtools <code>initScript</code>, or paste it in the console first).</p>
+  <p id="status">Seeding…</p>
+  <div id="thumbs"></div>
+  <script>
+    const W = 720, DPR = 2, PAD = 40, COL = W - PAD * 2;
+    const de = {
+      title: "Wie Berlin seine Straßen kühler machen will",
+      byline: "Von Lena Hartmann · 2. September 2026",
+      p: [
+        "Die Stadt Berlin will in den kommenden fünf Jahren tausend neue Bäume pflanzen. Dr. Anna Meier vom Senat sagt, dass Schatten die Temperatur an heißen Tagen um bis zu zehn Grad senken kann. Die ersten Bäume sollen im Herbst gesetzt werden.",
+        "Auch helle Straßenbeläge gehören zum Plan. Sie reflektieren mehr Sonnenlicht als dunkler Asphalt und heizen sich weniger auf. In Wien und Paris gibt es damit bereits gute Erfahrungen.",
+        "Kritiker fragen, wer die Pflege der neuen Bäume bezahlt. Der Senat rechnet mit Kosten von rund zwölf Millionen Euro pro Jahr.",
+      ],
+    };
+    const fa = {
+      title: "چگونه برلین می‌خواهد خیابان‌هایش را خنک‌تر کند",
+      byline: "نوشتهٔ لنا هارتمان · ۲ سپتامبر ۲۰۲۶",
+      p: [
+        ["Die Stadt Berlin will in den kommenden fünf Jahren tausend neue Bäume pflanzen.", "شهر برلین می‌خواهد در پنج سال آینده هزار درخت جدید بکارد."],
+        ["Dr. Anna Meier vom Senat sagt, dass Schatten die Temperatur an heißen Tagen um bis zu zehn Grad senken kann.", "دکتر آنا مایر از سنا می‌گوید که سایه می‌تواند دما را در روزهای گرم تا ده درجه کاهش دهد."],
+        ["Die ersten Bäume sollen im Herbst gesetzt werden.", "نخستین درخت‌ها قرار است در پاییز کاشته شوند."],
+        ["Auch helle Straßenbeläge gehören zum Plan.", "روکش‌های روشن خیابان هم بخشی از این برنامه‌اند."],
+        ["Sie reflektieren mehr Sonnenlicht als dunkler Asphalt und heizen sich weniger auf.", "آن‌ها نور خورشید بیشتری را نسبت به آسفالت تیره بازمی‌تابانند و کمتر گرم می‌شوند."],
+        ["In Wien und Paris gibt es damit bereits gute Erfahrungen.", "وین و پاریس تجربه‌های خوبی با این روش دارند."],
+        ["Kritiker fragen, wer die Pflege der neuen Bäume bezahlt.", "منتقدان می‌پرسند چه کسی هزینهٔ نگهداری درختان جدید را می‌پردازد."],
+        ["Der Senat rechnet mit Kosten von rund zwölf Millionen Euro pro Jahr.", "سنا هزینه‌ای حدود دوازده میلیون یورو در سال را پیش‌بینی می‌کند."],
+      ],
+    };
+    const pairsFor = (i) => fa.p.slice([0, 3, 6][i], [3, 6, 8][i]).map(([o, t]) => ({ o, t }));
+
+    function wrap(ctx, text, maxW) {
+      const words = text.split(/\s+/), lines = []; let cur = "";
+      for (const w of words) { const t = cur ? cur + " " + w : w; if (!cur || ctx.measureText(t).width <= maxW) cur = t; else { lines.push(cur); cur = w; } }
+      if (cur) lines.push(cur); return lines;
+    }
+    // Draws the article; `tx` maps a block's German text to what to paint (German or Persian).
+    // Returns { canvas, blocks } with rects in document CSS px.
+    function paint(rtl, faFont) {
+      const c = document.createElement("canvas"); c.width = W * DPR; c.height = 1180 * DPR;
+      const g = c.getContext("2d"); g.scale(DPR, DPR);
+      g.fillStyle = "#fff"; g.fillRect(0, 0, W, 1180);
+      // site bar
+      g.fillStyle = "#1c1917"; g.fillRect(0, 0, W, 56);
+      g.fillStyle = "#fff"; g.font = "800 20px Georgia, serif"; g.textBaseline = "middle"; g.fillText("Tagesblick", PAD, 28);
+      g.fillStyle = "#a8a29e"; g.font = "500 12px system-ui"; ["Politik", "Stadt", "Klima", "Kultur"].forEach((s, i) => g.fillText(s, 300 + i * 70, 28));
+      g.fillStyle = "#C93F2B"; g.beginPath(); g.roundRect(W - PAD - 92, 17, 92, 22, 11); g.fill();
+      g.fillStyle = "#fff"; g.font = "700 11px system-ui"; g.fillText("ABONNIEREN", W - PAD - 82, 28);
+      g.textBaseline = "alphabetic";
+      const blocks = [];
+      const stack = faFont ? '"SubVibe Vazirmatn", system-ui' : "system-ui, -apple-system, sans-serif";
+      const line = (text, x, y, font, color) => { g.font = font; g.fillStyle = color; g.direction = rtl ? "rtl" : "ltr"; g.textAlign = rtl ? "right" : "left"; g.fillText(text, rtl ? W - PAD : PAD, y); };
+      let y = 100;
+      // title
+      g.font = rtl ? "700 26px " + stack : "800 28px Georgia, serif";
+      const tl = wrap(g, rtl ? fa.title : de.title, COL);
+      tl.forEach((ln, k) => line(ln, 0, y + k * 36, g.font, "#1c1917"));
+      blocks.push({ id: "b0", text: de.title, tr: fa.title, rect: { x: PAD, y: y - 28, w: COL, h: tl.length * 36 }, pairs: [{ o: de.title, t: fa.title }] });
+      y += tl.length * 36 + 6;
+      // byline
+      line(rtl ? fa.byline : de.byline, 0, y, "500 13px " + stack, "#78716c");
+      blocks.push({ id: "b1", text: de.byline, tr: fa.byline, rect: { x: PAD, y: y - 13, w: COL, h: 20 }, pairs: [{ o: de.byline, t: fa.byline }] });
+      y += 26;
+      // hero image
+      const gr = g.createLinearGradient(PAD, y, W - PAD, y + 250); gr.addColorStop(0, "#86efac"); gr.addColorStop(0.6, "#0d9488"); gr.addColorStop(1, "#1e3a5f");
+      g.fillStyle = gr; g.beginPath(); g.roundRect(PAD, y, COL, 250, 8); g.fill();
+      g.fillStyle = "rgba(255,255,255,.85)"; g.font = "600 12px system-ui"; g.textAlign = "left"; g.direction = "ltr"; g.fillText("Foto: Unter den Linden, Juli 2026", PAD, y + 268);
+      y += 300;
+      // paragraphs
+      de.p.forEach((para, i) => {
+        const text = rtl ? pairsFor(i).map((p) => p.t).join(" ") : para;
+        g.font = (rtl ? "400 17px " : "400 17px ") + (rtl ? stack : "Georgia, serif");
+        const ls = wrap(g, text, COL);
+        ls.forEach((ln, k) => line(ln, 0, y + k * 28, g.font, "#292524"));
+        blocks.push({ id: "b" + (i + 2), text: para, tr: pairsFor(i).map((p) => p.t).join(" "), rect: { x: PAD, y: y - 17, w: COL, h: ls.length * 28 }, pairs: pairsFor(i) });
+        y += ls.length * 28 + 18;
+      });
+      // a related-links box below, so the page doesn't end at the text
+      g.fillStyle = "#f5f5f4"; g.beginPath(); g.roundRect(PAD, y + 8, COL, 92, 10); g.fill();
+      g.fillStyle = "#57534e"; g.font = "700 11px system-ui"; g.textAlign = "left"; g.direction = "ltr"; g.fillText("MEHR ZUM THEMA", PAD + 16, y + 34);
+      g.font = "500 14px Georgia, serif"; g.fillStyle = "#1c1917"; g.fillText("Hitzeplan 2030: Was die Bezirke jetzt vorhaben", PAD + 16, y + 58); g.fillText("Stadtbäume im Stress — ein Sommer der Rekorde", PAD + 16, y + 82);
+      return { canvas: c, blocks, h: y + 120 };
+    }
+    const toBlob = (c) => new Promise((r) => c.toBlob(r, "image/png"));
+    const openDb = () => new Promise((res, rej) => {
+      const req = indexedDB.open("copilot-subs", 5);
+      req.onupgradeneeded = () => { const d = req.result; for (const s of ["tracks", "audio", "vocab", "shots", "clips"]) if (!d.objectStoreNames.contains(s)) d.createObjectStore(s); };
+      req.onsuccess = () => res(req.result); req.onerror = () => rej(req.error);
+    });
+    (async () => {
+      let faFont = false;
+      try {
+        for (const [f, w] of [["Vazirmatn-Regular.woff2", "400"], ["Vazirmatn-Bold.woff2", "700"]]) {
+          const ff = new FontFace("SubVibe Vazirmatn", "url(../../../fonts/" + f + ")", { weight: w }); await ff.load(); document.fonts.add(ff);
+        }
+        faFont = true;
+      } catch (e) { /* system font */ }
+      const o = paint(false, faFont), t = paint(true, faFont);
+      const H = Math.max(o.h, t.h);
+      const crop = (p) => { const c = document.createElement("canvas"); c.width = W * DPR; c.height = H * DPR; c.getContext("2d").drawImage(p.canvas, 0, 0); return c; };
+      const oc = crop(o), tc = crop(t);
+      const original = await toBlob(oc), translated = await toBlob(tc);
+      const rec = {
+        id: "preview1", ts: Date.now() - 5 * 60000, url: "https://tagesblick.example/berlin/strassen-kuehler", title: de.title, host: "tagesblick.example",
+        source: "de", target: "fa", mode: "full", layout: "translated", dpr: DPR, w: W, h: H,
+        rect: { x: 0, y: 0, w: W, h: H }, original, variant: translated,
+        views: { original, translated },
+        blocks: o.blocks, annots: [], crop: null, font: "", tabId: 1, windowId: 1,
+        partial: false, truncated: "", sameLang: false, noKey: false,
+      };
+      // A second, smaller "area" shot with no translation yet — the on-demand path.
+      const ac = document.createElement("canvas"); ac.width = 520 * DPR; ac.height = 300 * DPR;
+      ac.getContext("2d").drawImage(oc, 40 * DPR, 400 * DPR, 520 * DPR, 300 * DPR, 0, 0, 520 * DPR, 300 * DPR);
+      const areaBlob = await toBlob(ac);
+      const rec2 = {
+        id: "preview2", ts: Date.now() - 2 * 3600000, url: rec.url, title: de.title, host: rec.host,
+        source: "xx", target: "fa", mode: "area", layout: "original", dpr: DPR, w: 520, h: 300,
+        rect: { x: 40, y: 400, w: 520, h: 300 }, original: areaBlob, variant: areaBlob, views: { original: areaBlob },
+        blocks: o.blocks.slice(2).map((b) => ({ id: b.id, text: b.text, tr: "", rect: b.rect })), annots: [], crop: null, font: "", tabId: 1, windowId: 1,
+        partial: false, truncated: "", sameLang: false, noKey: false,
+      };
+      const d = await openDb();
+      for (const r of [rec, rec2]) await new Promise((res, rej) => { const q = d.transaction("shots", "readwrite").objectStore("shots").put(r, r.id); q.onsuccess = res; q.onerror = () => rej(q.error); });
+      d.close();
+      document.getElementById("status").textContent = "Seeded preview1 (full page, translated, " + W + "×" + H + " @" + DPR + "x) and preview2 (area, untranslated). Persian font: " + (faFont ? "Vazirmatn" : "system");
+      document.getElementById("thumbs").append(oc, tc);
+    })().catch((e) => { document.getElementById("status").textContent = "Seed failed: " + e; });
+  </script>
+</body>
+</html>
