@@ -23,6 +23,19 @@ Windows: the host manifest lives in the registry; not automated yet.
 - `{type:"chat", system, prompt, model, schema}` → `claude -p --output-format json --no-session-persistence --system-prompt … --model … --json-schema …`, stdin = the prompt. The CLI's JSON envelope is returned verbatim; `shared/cli.js` in the extension parses it (`structured_output`, token usage, errors such as *not logged in*).
 - No tools: the CLI only answers. No files are read or written. Each call is a fresh, unsaved session.
 
+## Seeing it work
+
+Every call appends one line to `~/.subvibe/bridge.log`:
+
+```
+2026-09-02T15:40:12.345Z ping ok 2.1.258 (Claude Code)
+2026-09-02T15:41:03.120Z chat ok claude -p model=claude-haiku-4-5 in=10 out=447 cache_w=35809 ms=6213 prompt_chars=812
+```
+
+`tail -f ~/.subvibe/bridge.log` while translating: a line per batch means the
+extension is using Claude Code on this machine. The Library's Activity view
+shows the same calls labelled *Claude Code*.
+
 ## Cost
 
 Calls run on your Claude subscription's usage, not on a metered key. The envelope still reports a nominal `total_cost_usd`; the Activity view shows it as *included* rather than adding it to the estimated spend.

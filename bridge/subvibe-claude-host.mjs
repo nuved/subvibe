@@ -14,8 +14,22 @@
 // envelope (shared/cli.js). No tools are allowed: the CLI only answers.
 
 import { spawn } from "node:child_process";
+import { appendFileSync, mkdirSync, statSync, renameSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 const CLAUDE_BIN = "__CLAUDE_BIN__";
+// One line per call in ~/.subvibe/bridge.log — the user's own proof that a
+// translation went through claude -p on this machine (`tail -f` it). Rotated
+// once at 1 MB; never fails a call.
+const LOG_DIR = join(homedir(), ".subvibe"), LOG = join(LOG_DIR, "bridge.log");
+function log(line) {
+  try {
+    mkdirSync(LOG_DIR, { recursive: true });
+    try { if (statSync(LOG).size > 1_000_000) renameSync(LOG, LOG + ".1"); } catch {}
+    appendFileSync(LOG, new Date().toISOString() + " " + line + "\n");
+  } catch {}
+}
 const VERSION = "1";
 const DEFAULT_TIMEOUT_MS = 180_000;
 
@@ -43,6 +57,7 @@ function run(args, stdin, timeoutMs) {
 
 async function ping() {
   const r = await run(["--version"], null, 15_000);
+  log("ping " + (r.code === 0 ? "ok " + r.out.trim().split("\n")[0] : "FAIL " + (r.err || r.out).slice(0, 120)));
   if (r.code !== 0) return { ok: false, error: "claude --version failed: " + (r.err || r.out).slice(0, 200) };
   return { ok: true, version: VERSION, claude: r.out.trim().split("\n")[0], bin: CLAUDE_BIN };
 }
@@ -56,14 +71,18 @@ async function chat(msg) {
   if (msg.schema && typeof msg.schema === "object") args.push("--json-schema", JSON.stringify(msg.schema));
   if (typeof msg.effort === "string" && /^(low|medium|high|max)$/.test(msg.effort)) args.push("--effort", msg.effort);
   const timeoutMs = Math.min(600_000, Math.max(20_000, (+msg.maxSeconds || 0) * 1000 || DEFAULT_TIMEOUT_MS));
+  const t0 = Date.now();
   let r = await run(args, prompt, timeoutMs);
   // Unknown --model on this plan/version → exit ≠ 0 with a hint; retry on the plan's default once.
   if (r.code !== 0 && msg.model && /model/i.test(r.err || r.out)) {
     r = await run(args.filter((a, i, all) => !(a === "--model" || all[i - 1] === "--model")), prompt, timeoutMs);
   }
-  if (r.code !== 0 && !r.out.trim()) return { ok: false, error: "claude exited " + r.code + ": " + (r.err || "no output").slice(0, 400) };
+  if (r.code !== 0 && !r.out.trim()) { log("chat FAIL exit=" + r.code + " model=" + (msg.model || "default") + " " + (r.err || "").replace(/\s+/g, " ").slice(0, 160)); return { ok: false, error: "claude exited " + r.code + ": " + (r.err || "no output").slice(0, 400) }; }
   let envelope;
-  try { envelope = JSON.parse(r.out); } catch { return { ok: false, error: "claude returned non-JSON output: " + r.out.slice(0, 200) }; }
+  try { envelope = JSON.parse(r.out); } catch { log("chat FAIL non-JSON output"); return { ok: false, error: "claude returned non-JSON output: " + r.out.slice(0, 200) }; }
+  const u = envelope.usage || {};
+  const ran = envelope.modelUsage && typeof envelope.modelUsage === "object" ? Object.keys(envelope.modelUsage)[0] : "";
+  log("chat " + (envelope.is_error ? "ERROR " : "ok ") + "claude -p model=" + (ran || msg.model || "default") + " in=" + (u.input_tokens || 0) + " out=" + (u.output_tokens || 0) + " cache_w=" + (u.cache_creation_input_tokens || 0) + " ms=" + (Date.now() - t0) + " prompt_chars=" + prompt.length + (envelope.is_error ? " " + String(envelope.result || "").slice(0, 120) : ""));
   return { ok: true, envelope };
 }
 
