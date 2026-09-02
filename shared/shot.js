@@ -324,6 +324,14 @@
 
   // ── study card (grammar hints) ───────────────────────────────────────────
   const STUDY_MAX_SENTENCES = 30;
+  // Languages with grammatical gender; a gender mark on any other language
+  // (English, Persian, Turkish, Japanese …) is a model slip and is dropped.
+  const GENDERED = new Set(["de", "fr", "es", "it", "pt", "ro", "ca", "gl", "ru", "uk", "be", "pl", "cs", "sk", "bg", "sr", "hr", "bs", "sl", "mk", "nl", "sv", "da", "nb", "nn", "no", "is", "el", "ar", "he", "hi", "ur", "pa", "mr", "gu", "bn", "lt", "lv", "ga", "cy", "af", "lb", "yi"]);
+  const isGendered = (lang) => GENDERED.has(String(lang || "").toLowerCase().split(/[-_]/)[0]);
+  // The article that names each gender in the legend, per language; null when
+  // the language shows gender without a distinct article.
+  const ARTICLES = { de: { m: "der", f: "die", n: "das" }, fr: { m: "le", f: "la" }, es: { m: "el", f: "la" }, it: { m: "il", f: "la" }, pt: { m: "o", f: "a" }, ca: { m: "el", f: "la" }, ro: { m: "un", f: "o", n: "un" }, nl: { m: "de", f: "de", n: "het" }, sv: { m: "en", f: "en", n: "ett" }, da: { m: "en", f: "en", n: "et" }, nb: { m: "en", f: "ei", n: "et" }, no: { m: "en", f: "ei", n: "et" }, el: { m: "ο", f: "η", n: "το" }, ar: { m: "", f: "ة" }, he: { m: "", f: "ה" } };
+  const articleFor = (lang, g) => { const a = ARTICLES[String(lang || "").toLowerCase().split(/[-_]/)[0]]; return a && a[g] ? a[g] : ""; };
   const studyKey = (lang, explain) => String(lang || "") + "|" + String(explain || "");
   // The sentences of one side of the shot, in reading order, each with the
   // other side as its meaning. `side` = "target" (study the translation) or
@@ -348,7 +356,8 @@
   // Model output → per-block card data, defensively. Tokens must be strings;
   // gender ∈ m/f/n; note numbers are kept only when the note exists; a
   // sentence the model skipped falls back to plain tokens (no marks).
-  function buildStudy(input, out) {
+  function buildStudy(input, out, lang) {
+    const gendered = lang == null ? true : isGendered(lang);
     const bySent = new Map();
     for (const s of (out && Array.isArray(out.sentences)) ? out.sentences : []) if (s && Number.isInteger(s.i)) bySent.set(s.i, s);
     const sumBy = new Map();
@@ -360,11 +369,11 @@
         const notes = (Array.isArray(m.notes) ? m.notes : []).map((nt, k) => ({ n: Number.isInteger(nt && nt.n) ? nt.n : k + 1, term: normText(nt && nt.term), text: normText(nt && nt.text) })).filter((nt) => nt.text).slice(0, 8);
         const ids = new Set(notes.map((nt) => nt.n));
         let tokens = (Array.isArray(m.tokens) ? m.tokens : []).map((t) => ({
-          w: normText(t && t.w), g: ["m", "f", "n"].includes(t && t.g) ? t.g : "", v: Number.isInteger(t && t.v) && t.v > 0 ? t.v : 0,
+          w: normText(t && t.w), g: gendered && ["m", "f", "n"].includes(t && t.g) ? t.g : "", v: Number.isInteger(t && t.v) && t.v > 0 ? t.v : 0,
           n: (Array.isArray(t && t.n) ? t.n : []).filter((x) => ids.has(x)).slice(0, 2),
         })).filter((t) => t.w);
         if (!tokens.length) tokens = src.text.split(" ").map((w) => ({ w, g: "", v: 0, n: [] }));
-        return { text: src.text, meaning: src.meaning, tokens, notes, simple: normText(m.simple) };
+        return { text: src.text, meaning: src.meaning, tokens, notes, simple: normText(m.simple), grammar: normText(m.grammar) };
       });
       blocks.push({ b: blk.b, summary: sumBy.get(blk.b) || "", sentences });
     }
@@ -386,7 +395,10 @@
   // each word note lands on the token that carries the word (the last word
   // of a phrase); the grammar note is the sentence's `grammar` box, unnumbered.
   function tipsSheet(entries) {
-    const clean = (entries || []).filter((e) => e && e.s && e.tr);
+    // Lines explained before the sentence-level cut could overlap their
+    // neighbours; a line contained in another one is dropped.
+    const raw = (entries || []).filter((e) => e && e.s && e.tr).map((e) => ({ ...e, s: normText(e.s) }));
+    const clean = raw.filter((e, i) => !raw.some((o, j) => j !== i && o.s.length > e.s.length && o.s.includes(e.s)));
     const blocks = [], study = [];
     clean.forEach((e, i) => {
       const s = normText(e.s), tr = normText(e.tr);
@@ -442,6 +454,6 @@
     frameLayout, filename, exportScale, validateRecord, newId,
     normCrop, isFullCrop, cropSrc, cropToView, viewToCrop,
     sideBySide, layoutNotes, annBounds, hitAnnot, moveAnnot, renumber, distributeTranslation,
-    STUDY_MAX_SENTENCES, studyKey, studySentences, buildStudy, studyMarks, tipsSheet,
+    STUDY_MAX_SENTENCES, studyKey, studySentences, buildStudy, studyMarks, tipsSheet, isGendered, articleFor,
   };
 })(globalThis);

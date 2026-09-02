@@ -2002,7 +2002,13 @@
       else if (content.error) { body.appendChild(line(content.error)); }
       else {
         if (content.translation) addSect("Translation", line(content.translation));
-        if (content.grammar) { const gbox = line(content.grammar); gbox.className = "wt-val wt-grambox"; addSect("Grammar", gbox); }
+        if (content.grammar) {
+          const parts = String(content.grammar).split(/\s*•\s*/).map((x) => x.trim()).filter(Boolean);
+          const gbox = document.createElement("div"); gbox.className = "wt-val wt-grambox"; gbox.dir = "auto";
+          if (parts.length > 1) { for (const pt of parts) { const li = document.createElement("div"); li.className = "wt-gpt"; li.textContent = pt; gbox.appendChild(li); } }
+          else gbox.textContent = content.grammar;
+          addSect("Grammar", gbox);
+        }
         if (content.words && content.words.length) {
           const list = document.createElement("div"); list.className = "wt-words";
           for (const x of content.words) {
@@ -2018,8 +2024,8 @@
         // Snap: this video frame as a Shot, with this line and its tips attached —
         // the editor then offers the frame, the translation painted onto it, the
         // margin notes and the Study card. The overlay hides for the capture.
-        const snap = document.createElement("button"); snap.type = "button"; snap.className = "wt-sheet wt-snap"; snap.textContent = "Snap this line";
-        snap.title = "Capture this frame as a Shot with this line's translation, grammar and words";
+        const snap = document.createElement("button"); snap.type = "button"; snap.className = "wt-sheet wt-snap"; snap.textContent = "Frame + this line";
+        snap.title = "Capture this video frame as a Shot, with this line's translation, grammar and words under it";
         snap.addEventListener("click", async (ev) => {
           ev.stopPropagation(); snap.disabled = true; snap.textContent = "Snapping…";
           // The frame comes straight from the <video> at its native size — no
@@ -2043,8 +2049,8 @@
         act.appendChild(snap);
         // Every line explained on this video is kept with the video; the sheet
         // opens them all as one Study card in the Shot editor.
-        const sheet = document.createElement("button"); sheet.type = "button"; sheet.className = "wt-sheet"; sheet.textContent = "Tips sheet ↗";
-        sheet.title = "All the lines you explained on this video, as one Study sheet";
+        const sheet = document.createElement("button"); sheet.type = "button"; sheet.className = "wt-sheet"; sheet.textContent = "All explained lines ↗";
+        sheet.title = "Every line you explained on this video, gathered as one Study sheet";
         sheet.addEventListener("click", (ev) => {
           ev.stopPropagation(); sheet.disabled = true;
           send({ type: "TIPS_SHEET", base, lang: vocabPoolLang, title: document.title, url: location.href }).then((r) => {
@@ -2064,7 +2070,9 @@
     const openLineCard = (row) => {
       const cue = curCue;
       if (!cue) return;
-      const sentence = sentenceForWord(cues.indexOf(cue), null) || (cue.grp ? cue.grp.orig : cue.original) || (row && row.textContent) || "";
+      // The line's own sentence group: groups partition the cues, so two
+      // explained lines never share text (the old cross-cue walk did).
+      const sentence = (cue.grp ? cue.grp.orig : cue.original) || (row && row.textContent) || "";
       if (!sentence) return;
       const anchor = row || els.__orig;
       const v = liveVideoEl(video) || video;

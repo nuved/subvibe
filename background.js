@@ -976,7 +976,7 @@ function explainPrompt(source, target) {
   return `You explain ONE ${langName(source)} sentence to a learner. The user message carries {"s":"<the sentence>"}.\n` +
     `Return STRICT JSON {"tr":"…","g":"…","words":[{"w":"…","m":"…"}]}:\n` +
     `- tr: a natural ${langName(target)} translation of the whole sentence.\n` +
-    `- g: a SHORT plain-${langName(target)} structure note — tense/mood, clauses, notable word order, any separable or phrasal verb. 1–2 sentences, everyday register, NEVER textbook grammar jargon.\n` +
+    `- g: a plain-${langName(target)} grammar note as 2–4 short points separated by " • ": (1) how the sentence is built — tense/mood, clauses, word order, any separable or phrasal verb; (2) WHY it takes that form, naming the rule with the everyday word next to it; (3) a watch-out for learners (a false friend, an ending, a word that moves) or the everyday way to say it. Concrete, about THIS sentence's words; no bare jargon.\n` +
     `- words: the 2–5 most useful/learnable words or phrases in this sentence, each {w: the ${langName(source)} word or phrase (the FULL reunited separable verb if one applies, e.g. "anschauen"), m: its concise ${langName(target)} meaning}. Skip trivial function words.` +
     (fa ? `\nفارسیِ سادهٔ روزمره؛ هرگز واژه‌های دستوریِ سنگین. STANDARD IRANIAN FARSI — no Urdu letters/words.` : "");
 }
@@ -992,7 +992,8 @@ const STUDY_SCHEMA = { name: "study_card", strict: true, schema: { type: "object
         w: { type: "string" }, g: { type: "string", enum: ["", "m", "f", "n"] }, v: { type: "integer" }, n: { type: "array", items: { type: "integer" } } }, required: ["w", "g", "v", "n"] } },
       notes: { type: "array", items: { type: "object", additionalProperties: false, properties: { n: { type: "integer" }, term: { type: "string" }, text: { type: "string" } }, required: ["n", "term", "text"] } },
       simple: { type: "string" },
-    }, required: ["i", "tokens", "notes", "simple"] } },
+      grammar: { type: "string" },
+    }, required: ["i", "tokens", "notes", "simple", "grammar"] } },
     summaries: { type: "array", items: { type: "object", additionalProperties: false, properties: { b: { type: "string" }, text: { type: "string" } }, required: ["b", "text"] } },
   }, required: ["sentences", "summaries"] } };
 // CACHE-STABLE per (lang, explain).
@@ -1005,11 +1006,12 @@ function studyPrompt(lang, explain) {
     `Return STRICT JSON {"sentences":[…],"summaries":[…]}: one entry per input sentence (same i) and one summary per block (same b).\n` +
     `For each sentence:\n` +
     `- tokens: the sentence split into words IN ORDER; punctuation stays attached to the word before it; joining the tokens with single spaces must reproduce the sentence exactly. Each token is {w, g, v, n}.\n` +
-    `  g: grammatical gender "m", "f" or "n" on every NOUN and on the article, pronoun or adjective that agrees with that noun; "" otherwise (verbs, adverbs, prepositions, names, numbers, plurals without a clear gender).\n` +
-    `  v: the parts of ONE two-part verb share one number (1, 2, …): auxiliary + participle (hat … gebrochen), modal + infinitive (kann … gleichkommen), separable prefix + stem (geht … weiter, weitergeht), verb + zu + infinitive (scheint zu lauten); 0 otherwise.\n` +
-    `  n: the numbers of the notes this token belongs to — put a note's number on the LAST token of its phrase; at most 2 per token; [] otherwise.\n` +
+    `  g: grammatical gender "m", "f" or "n" on every NOUN and on the article, pronoun or adjective that agrees with that noun — ONLY if ${L} has grammatical gender (German, French, Spanish, Russian …); for a language without it (English, Persian, Turkish …) ALWAYS ""; also "" for verbs, adverbs, prepositions, names, numbers and plurals without a clear gender.\n` +
+    `  v: the parts of ONE verb group share one number (1, 2, …): auxiliary + participle (hat … gebrochen, has … broken), modal + infinitive (kann … gleichkommen, could say), separable prefix + stem (geht … weiter), phrasal verb (mix … up), verb + zu/to + infinitive; 0 otherwise.\n` +
+    `  n: the numbers of the notes this token belongs to — put a note's number on the LAST token of its phrase, and for a two-part verb on the verb's last part (the participle, infinitive or prefix), so every underlined verb carries its note; at most 2 per token; [] otherwise.\n` +
     `- notes: 3 to 7 per sentence, numbered 1… in reading order, each {n, term: the exact words as they appear, text: at most 25 words in ${inE}}. Say WHAT the form is and WHY it is that form; name the rule and the specific words; add the everyday version where useful. Prefer: the case after prepositions and verbs (why dative / accusative / genitive), the verb bracket and word order (verb second, verb last in subordinate clauses), separable and two-part verbs, adjective endings, comparatives, plurals, idioms and false friends.\n` +
     `- simple: the same sentence said more simply in ${L}: A2 vocabulary, short clauses, same meaning, no longer than 1.3× the original.\n` +
+    `- grammar: how the sentence is built, as 2–4 short points in ${inE} separated by " • ": the clauses and their order, the tense or mood, what moves where and why — the sentence's skeleton, not the word notes.\n` +
     `summaries: for each block, one sentence in ${inE} (at most 25 words) saying what that paragraph says.\n` +
     `Never invent words that are not in the sentence. Be concrete and encouraging; whenever you use a grammar term, put the everyday word next to it.` +
     (fa ? `\nفارسیِ سادهٔ روزمره. STANDARD IRANIAN FARSI — no Urdu letters/words.` : "");
@@ -1049,7 +1051,7 @@ async function shotStudy(msg) {
     return { ok: false, error: "network", detail: m };
   }
   await logCall({ ...meta, ms: Date.now() - started, inTok, outTok, cacheR, cacheW, ok: true, provider, model });
-  const blocks = SV_SHOT.buildStudy(input, merged);
+  const blocks = SV_SHOT.buildStudy(input, merged, lang);
   if (!rec.study || typeof rec.study !== "object") rec.study = {};
   rec.study[key] = { side, lang, explain, ts: Date.now(), provider, model, truncated: input.truncated, count: input.count, blocks };
   await shotPut(rec);

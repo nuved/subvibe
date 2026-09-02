@@ -382,7 +382,7 @@ test("buildStudy: marks are kept only when valid, notes referenced only when the
   assert.deepEqual(s0.tokens.map((t) => t.g), ["n", "n", "", ""], "invalid gender x dropped");
   assert.deepEqual(s0.tokens.map((t) => t.v), [0, 0, 1, 1]);
   assert.deepEqual(s0.tokens[3].n, [2], "note 9 does not exist → dropped");
-  assert.equal(s0.notes.length, 2, "empty note dropped"); assert.equal(s0.simple, "Das Modell brach."); assert.equal(s0.meaning, "مدل شکست.");
+  assert.equal(s0.notes.length, 2, "empty note dropped"); assert.equal(s0.simple, "Das Modell brach."); assert.equal(s0.meaning, "مدل شکست."); assert.equal(s0.grammar, "");
   const s1 = blocks[0].sentences[1];
   assert.deepEqual(s1.tokens.map((t) => t.w), ["Zweiter", "Satz."]); assert.equal(s1.notes.length, 0); assert.equal(s1.simple, "");
   assert.deepEqual(S.studyMarks(blocks), { m: false, f: false, n: true, v: true, notes: true });
@@ -402,4 +402,21 @@ test("tipsSheet: explained lines become sentence pairs and a ready-made study ca
   assert.deepEqual(s0.tokens.map((t) => t.n), [[], [], [], [1], [2]], "phrase note on its last word, punctuation ignored");
   assert.equal(s0.meaning, "باید برم خونه.");
   assert.equal(r.study[1].sentences[0].notes.length, 0); assert.equal(r.study[1].sentences[0].grammar, "");
+});
+
+test("tipsSheet: a line contained in a longer explained line is dropped (pre-sentence-cut overlaps)", () => {
+  const r = S.tipsSheet([
+    { s: "along with putting you on a spot and being shocked,", tr: "…", g: "", words: [] },
+    { s: "the correction that you will have, along with putting you on a spot and being shocked, will make you never forget.", tr: "…2", g: "", words: [] },
+  ]);
+  assert.equal(r.blocks.length, 1); assert.equal(r.blocks[0].tr, "…2");
+});
+
+test("gender marks exist only for languages that have grammatical gender; the legend article comes from the language", () => {
+  const input = { blocks: [{ b: "b0", sentences: [{ i: 0, text: "The cat sleeps.", meaning: "گربه می‌خوابد." }] }] };
+  const out = { sentences: [{ i: 0, simple: "", grammar: "", tokens: [{ w: "The", g: "f", v: 0, n: [] }, { w: "cat", g: "f", v: 0, n: [] }, { w: "sleeps.", g: "", v: 0, n: [] }], notes: [] }], summaries: [] };
+  assert.deepEqual(S.buildStudy(input, out, "en")[0].sentences[0].tokens.map((t) => t.g), ["", "", ""], "English: a model's gender slip is dropped");
+  assert.deepEqual(S.buildStudy(input, out, "de")[0].sentences[0].tokens.map((t) => t.g), ["f", "f", ""], "German keeps it");
+  assert.equal(S.isGendered("en"), false); assert.equal(S.isGendered("fa"), false); assert.equal(S.isGendered("de-DE"), true); assert.equal(S.isGendered("fr"), true);
+  assert.equal(S.articleFor("de", "f"), "die"); assert.equal(S.articleFor("fr", "m"), "le"); assert.equal(S.articleFor("es", "n"), ""); assert.equal(S.articleFor("en", "f"), "");
 });
