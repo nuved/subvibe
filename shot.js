@@ -70,8 +70,14 @@
   let biLayout = "B";     // bilingual: A blocks · B pairs · C columns (reading card) · N margin notes · S pages side by side
   let biStyle = "balanced"; // the translation line on the card / notes: quiet · balanced · equal
   let resumeView = null;  // view to return to after a re-shoot that only served as an ingredient (side by side)
+  // Study card: grammar of one side (target = the translation, source = the
+  // original), explained in "other" (your language) or "same" (immersion).
+  let studySide = "", studyExpl = "";     // "" = derive the default per shot
+  let nativeLang = "";                   // the popup's primary language (targets[0])
+  let learnLang = "";                    // the popup's "I'm learning" language
   const BI_DESC = {
     A: "Whole original, then the whole translation.", B: "Each sentence, then its translation.", C: "Original and translation side by side, sentence by sentence.",
+    G: "Grammar hints on every sentence: gender colours, numbered notes, a simpler version, a summary per paragraph.",
     N: "The original page, every translation as a numbered note in the margin.", S: "The original page and the translated page in one image.",
   };
   let biLineBoxes = [];   // per-line boxes (normalized to the paper) for the text-highlight tool
@@ -296,11 +302,248 @@
     paintBadge(g, lay, dpr);
     return lay;
   }
+  // ── study card ────────────────────────────────────────────────────────────
+  const studyLangOf = (side) => (side === "source" ? (rec.source && rec.source !== "xx" ? rec.source : "") : rec.target) || "";
+  // Default side: the language you're learning if it is one of the two, else
+  // the translation. Default explanation: your language when studying the
+  // translation, the same language (immersion) when studying the original.
+  function effStudySide() {
+    if (studySide) return studySide;
+    if (learnLang && studyLangOf("source") === learnLang) return "source";
+    return "target";
+  }
+  function effStudyExpl() { return studyExpl || (effStudySide() === "source" ? "same" : "other"); }
+  function studyExplainLang() {
+    const side = effStudySide(), lang = studyLangOf(side);
+    if (effStudyExpl() === "same") return lang;
+    const other = side === "source" ? rec.target : (rec.source && rec.source !== "xx" ? rec.source : "");
+    if (nativeLang && nativeLang !== lang.split("-")[0]) return nativeLang;
+    return other && other !== lang ? other : lang;
+  }
+  const studyKeyNow = () => S.studyKey(effStudySide() + ":" + studyLangOf(effStudySide()), studyExplainLang());
+  const studyData = () => (rec && rec.study && typeof rec.study === "object" ? rec.study[studyKeyNow()] : null) || null;
+  let studying = false;
+  async function fetchStudy() {
+    const side = effStudySide(), lang = studyLangOf(side);
+    const vn = $("viewNote");
+    if (!lang) { vn.className = "note warn"; vn.textContent = "The original's language isn't known — translate first, or study the translation."; await ensureBiFont(); const lay = drawPairsCard($("stage"), 1); finishBilingual(lay); return; }
+    studying = true; syncStudyRow();
+    showBusy("Analysing " + langName(lang) + " grammar…");
+    const res = await new Promise((r) => chrome.runtime.sendMessage({ type: "SHOT_STUDY", id: rec.id, side, explain: studyExplainLang() }, (x) => r(chrome.runtime.lastError ? null : x)));
+    studying = false;
+    hideBusy();
+    if (!res || !res.ok) {
+      const err = (res && res.error) || "network";
+      vn.className = "note warn";
+      vn.textContent = err === "no-key" ? "Add an API key in the SubVibe popup (or connect Claude Code) to analyse grammar."
+        : err === "empty" || err === "no-lang" ? "Nothing to analyse on this side yet — translate first."
+        : "Couldn't analyse the grammar (" + err + "). Try again.";
+      await ensureBiFont(); const lay = drawPairsCard($("stage"), 1); finishBilingual(lay); return;
+    }
+    const fresh = await getShot(rec.id); if (fresh) { rec = fresh; try { S.validateRecord(rec); } catch (e) {} }
+    if (view === "bilingual") renderBilingual();
+  }
+  // Stage bookkeeping shared by the fallback paths (mirrors renderBilingual's tail).
+  function finishBilingual(lay) {
+    const canvas = $("stage"); curLay = lay;
+    canvas.style.width = Math.round(lay.width / (rec.dpr || 1)) + "px"; canvas.style.opacity = "1";
+    lastRenderedView = "bilingual"; $("stageSkel").hidden = true; $("canvasWrap").hidden = false;
+    setupAnnot(); $("annotBar").hidden = false; selected = -1; syncAnnot(); markViewButton("bilingual");
+    for (const b of $("biPick").querySelectorAll("[data-bi]")) b.classList.toggle("on", b.dataset.bi === biLayout);
+    syncStudyRow(); $("biPick").hidden = false; updateReshoot();
+    for (const id of ["dlBtn", "copyBtn", "shareBtn"]) { const el = $(id); if (el) el.disabled = false; }
+  }
+  function syncStudyRow() {
+    const row = $("studyRow"); if (!row) return;
+    row.hidden = biLayout !== "G";
+    if (row.hidden || !rec) return;
+    const side = effStudySide(), lang = studyLangOf(side);
+    for (const b of $("studySideBar").querySelectorAll("button")) {
+      const l = studyLangOf(b.dataset.side);
+      b.textContent = l ? langName(l) : (b.dataset.side === "source" ? "Original" : "Translation");
+      b.classList.toggle("on", b.dataset.side === side);
+      b.disabled = !l || studying;
+    }
+    const other = (() => { const o = side === "source" ? rec.target : (rec.source && rec.source !== "xx" ? rec.source : ""); return nativeLang && nativeLang !== lang.split("-")[0] ? nativeLang : (o && o !== lang ? o : ""); })();
+    for (const b of $("studyExplBar").querySelectorAll("button")) {
+      b.textContent = b.dataset.expl === "same" ? (lang ? langName(lang) : "Same language") : (other ? langName(other) : "Your language");
+      b.classList.toggle("on", b.dataset.expl === effStudyExpl());
+      b.disabled = studying || (b.dataset.expl === "other" && !other);
+    }
+  }
+  const GENDER = { m: ["#2F6FE4", "#E8F0FD"], f: ["#D64550", "#FCE9EB"], n: ["#2E9E5B", "#E6F5EC"] };
+  const STUDY_LABELS = {
+    de: { m: "der · maskulin", f: "die · feminin", n: "das · neutrum", v: "zweiteiliges Verb", note: "Hinweis", simple: "Einfacher gesagt", notes: "Hinweise", summary: "Kurz gesagt" },
+    fa: { m: "der · مذکر", f: "die · مؤنث", n: "das · خنثی", v: "فعل دوبخشی", note: "نکته", simple: "ساده‌تر", notes: "نکته‌ها", summary: "خلاصه" },
+    en: { m: "der · masculine", f: "die · feminine", n: "das · neuter", v: "two-part verb", note: "note", simple: "Put simply", notes: "Notes", summary: "In short" },
+  };
+  const studyLabels = (lang) => STUDY_LABELS[(lang || "").split("-")[0]] || STUDY_LABELS.en;
+  // A note = bold term + explanation. The term is its own run on the first
+  // line; the explanation wraps as whole-line strings so the canvas can shape
+  // mixed-direction text (Latin words inside Persian) correctly.
+  function wrapNote(ctx, term, text, fTerm, fText, maxW) {
+    ctx.font = fTerm; const termW = term ? ctx.measureText(term + " —").width + 6 : 0;
+    const termAlone = termW > maxW * 0.7;
+    ctx.font = fText;
+    const words = String(text || "").split(" ").filter(Boolean);
+    const lines = []; let cur = "", avail = termAlone ? maxW : maxW - termW;
+    for (const wd of words) {
+      const test = cur ? cur + " " + wd : wd;
+      if (!cur || ctx.measureText(test).width <= avail) cur = test;
+      else { lines.push(cur); cur = wd; avail = maxW; }
+    }
+    if (cur || !lines.length) lines.push(cur);
+    return { termW: termAlone ? 0 : termW, termAlone, lines };
+  }
+  // The study card: per sentence the marked text, its meaning, a simpler
+  // version and the numbered notes; per block a summary. Returns the frame
+  // layout, or null when this side/language has no analysis yet.
+  function drawStudyCard(canvas, scale) {
+    const d = studyData(); if (!d) return null;
+    const dpr = (rec.dpr || 1) * scale;
+    const lang = d.lang, expl = d.explain || lang;
+    const L = studyLabels(expl), Ls = studyLabels(lang);
+    const rtlS = S.isRtl(lang), rtlE = S.isRtl(expl);
+    const baseCss = Math.min(880, Math.max(640, Math.round((rec.rect && rec.rect.w) || 640)));
+    const paperW = Math.round(baseCss * dpr), PAD = Math.round(28 * dpr), innerW = paperW - PAD * 2;
+    const px = (n) => Math.round(n * dpr);
+    const fS = "400 " + px(17.5) + "px " + fontStack(rtlS), lhS = px(17.5 * 1.75);
+    const fSup = "700 " + px(10.5) + "px ui-monospace, Menlo, Consolas, monospace";
+    const fM = "400 " + px(15) + "px " + fontStack(rtlE), lhM = px(15 * 1.6);
+    const fSimple = "400 " + px(14.5) + "px " + fontStack(rtlS), lhSimple = px(14.5 * 1.55);
+    const fNote = "400 " + px(13.5) + "px " + fontStack(rtlE), fTerm = "600 " + px(13.5) + "px " + fontStack(rtlS), lhNote = px(13.5 * 1.55);
+    const fLbl = "600 " + px(10) + "px ui-monospace, Menlo, Consolas, monospace";
+    const fLegend = "600 " + px(11) + "px ui-monospace, Menlo, Consolas, monospace";
+    const INK = "#1f1c18", INK2 = "#3d362f", MUTED = "#8a7d6f", TEAL = "#2c6a64", CORAL = "#C93F2B", LINE = "#ebe4d9";
+    const mc = canvas.getContext("2d");
+    const ops = []; let y = 0;
+    biLineBoxes = [];
+    const boxes = []; const box = (x, yy, w, h) => boxes.push({ x, y: yy, w, h }); // text lines for the text-highlight tool
+    // legend: only the marks that occur
+    const marks = S.studyMarks(d.blocks);
+    const legend = [];
+    for (const g of ["m", "f", "n"]) if (marks[g]) legend.push({ dot: GENDER[g][0], text: L[g] });
+    if (marks.v) legend.push({ bar: CORAL, text: L.v });
+    if (marks.notes) legend.push({ sup: "1", text: L.note });
+    if (legend.length) {
+      let x = 0; mc.font = fLegend;
+      for (const it of legend) {
+        const w = mc.measureText(it.text).width + px(14) + px(16);
+        if (x + w > innerW) { x = 0; y += px(18); }
+        ops.push({ legend: it, x, y }); x += w;
+      }
+      y += px(18); ops.push({ rule: true, y }); y += px(14);
+    }
+    d.blocks.forEach((blk, bi) => {
+      blk.sentences.forEach((snt, si) => {
+        if (bi || si) { ops.push({ rule: true, y: y - px(6) }); }
+        // 1) the marked sentence — wrap by tokens (a token = word + its superscript)
+        mc.font = fS;
+        const toks = snt.tokens.map((t) => { mc.font = fS; const tw = mc.measureText(t.w).width; mc.font = fSup; const sup = t.n && t.n.length ? t.n.join(",") : ""; const sw = sup ? mc.measureText(sup).width + px(2) : 0; return { w: t.w, g: t.g, v: t.v, tw, sup, sw }; });
+        mc.font = fS; const sp = mc.measureText(" ").width;
+        let x = 0; let line = [];
+        const flush = () => { if (!line.length) return; ops.push({ tokens: line, y, rtl: rtlS }); box(0, y, innerW, lhS); y += lhS; line = []; x = 0; };
+        for (const t of toks) { const need = t.tw + t.sw; if (x + need > innerW && line.length) flush(); line.push({ ...t, x }); x += need + sp; }
+        flush(); y += px(4);
+        // 2) meaning (the other side of the pair), teal
+        if (snt.meaning && expl !== lang) {
+          mc.font = fM; const rtlM = BI_RTL.test(snt.meaning);
+          for (const ln of wrapText(mc, snt.meaning, innerW)) { ops.push({ text: ln, font: fM, color: TEAL, x: rtlM ? innerW : 0, y, align: rtlM ? "right" : "left", dir: rtlM ? "rtl" : "ltr" }); box(0, y, innerW, lhM); y += lhM; }
+          y += px(6);
+        }
+        // 3) simpler version, in a soft box with a bar on the reading-start side
+        if (snt.simple) {
+          mc.font = fSimple; const lines = wrapText(mc, snt.simple, innerW - px(26));
+          const h = px(8) + px(14) + lines.length * lhSimple + px(8);
+          ops.push({ softbox: true, y, h, bar: "#E7B27C", fill: "#FBF7F0", rtl: rtlS });
+          ops.push({ text: Ls.simple.toUpperCase(), font: fLbl, color: MUTED, x: rtlS ? innerW - px(12) : px(12), y: y + px(8), align: rtlS ? "right" : "left", dir: "ltr" });
+          let yy = y + px(8) + px(14);
+          for (const ln of lines) { ops.push({ text: ln, font: fSimple, color: INK, x: rtlS ? innerW - px(12) : px(12), y: yy, align: rtlS ? "right" : "left", dir: rtlS ? "rtl" : "ltr" }); box(px(12), yy, innerW - px(24), lhSimple); yy += lhSimple; }
+          y += h + px(8);
+        }
+        // 4) notes: number, bold term, explanation
+        if (snt.notes.length) {
+          ops.push({ text: L.notes.toUpperCase(), font: fLbl, color: MUTED, x: rtlE ? innerW : 0, y, align: rtlE ? "right" : "left", dir: "ltr" }); y += px(14);
+          const numW = px(16);
+          for (const nt of snt.notes) {
+            const maxW = innerW - numW - px(6), x0 = rtlE ? innerW - numW - px(6) : numW + px(6);
+            const nl = wrapNote(mc, nt.term, nt.text, fTerm, fNote, maxW);
+            ops.push({ text: String(nt.n), font: fSup, color: CORAL, x: rtlE ? innerW - numW / 2 : numW / 2, y: y + px(1), align: "center", dir: "ltr" });
+            if (nt.term) {
+              ops.push({ text: nt.term + " —", font: fTerm, color: INK, x: x0, y: y + px(2), align: rtlE ? "right" : "left", dir: "ltr" });
+              if (nl.termAlone) { box(numW, y, innerW - numW, lhNote); y += lhNote; }
+            }
+            nl.lines.forEach((ln, i) => {
+              const off = i === 0 ? nl.termW : 0;
+              ops.push({ text: ln, font: fNote, color: INK2, x: rtlE ? x0 - off : x0 + off, y: y + px(2), align: rtlE ? "right" : "left", dir: rtlE ? "rtl" : "ltr" });
+              box(numW, y, innerW - numW, lhNote); y += lhNote;
+            });
+            y += px(2);
+          }
+          y += px(4);
+        }
+        y += px(10);
+      });
+      if (blk.summary) {
+        mc.font = fM; const lines = wrapText(mc, blk.summary, innerW - px(24));
+        const h = px(8) + px(14) + lines.length * lhM + px(8);
+        ops.push({ softbox: true, y, h, fill: "#F3EDE4" });
+        ops.push({ text: L.summary.toUpperCase(), font: fLbl, color: MUTED, x: rtlE ? innerW - px(12) : px(12), y: y + px(8), align: rtlE ? "right" : "left", dir: "ltr" });
+        let yy = y + px(8) + px(14);
+        for (const ln of lines) { ops.push({ text: ln, font: fM, color: INK, x: rtlE ? innerW - px(12) : px(12), y: yy, align: rtlE ? "right" : "left", dir: rtlE ? "rtl" : "ltr" }); box(px(12), yy, innerW - px(24), lhM); yy += lhM; }
+        y += h + px(16);
+      }
+    });
+    const paperH = PAD * 2 + Math.max(y, lhS);
+    const lay = S.frameLayout({ w: paperW, h: paperH, frame: frame.frame, badge: frame.badge, dpr });
+    canvas.width = lay.width; canvas.height = lay.height;
+    const g = canvas.getContext("2d");
+    paintBg(g, lay);
+    const outer = lay.bar ? { x: lay.bar.x, y: lay.bar.y, w: lay.bar.w, h: lay.bar.h + lay.img.h } : lay.img;
+    paintPaper(g, outer, lay.img.radius, dpr);
+    if (lay.bar) paintBar(g, lay.bar, lay.img.radius, lay.img.h, dpr);
+    paintBadge(g, lay, dpr);
+    g.save(); roundRect(g, outer.x, outer.y, outer.w, outer.h, lay.img.radius); g.clip();
+    const ox = lay.img.x + PAD, oy = lay.img.y + PAD;
+    const dashUnder = (x, yy, w) => { g.save(); g.strokeStyle = CORAL; g.lineWidth = Math.max(1.5, px(1.5)); g.setLineDash([px(2.5), px(2.5)]); g.beginPath(); g.moveTo(ox + x, oy + yy); g.lineTo(ox + x + w, oy + yy); g.stroke(); g.restore(); };
+    for (const op of ops) {
+      if (op.rule) { g.strokeStyle = LINE; g.lineWidth = Math.max(1, dpr); g.beginPath(); g.moveTo(ox, oy + op.y + 0.5); g.lineTo(ox + innerW, oy + op.y + 0.5); g.stroke(); continue; }
+      if (op.softbox) { g.fillStyle = op.fill; roundRect(g, ox, oy + op.y, innerW, op.h, px(6)); g.fill(); if (op.bar) { g.fillStyle = op.bar; g.fillRect(op.rtl ? ox + innerW - px(3) : ox, oy + op.y, px(3), op.h); } continue; }
+      if (op.legend) {
+        let x = ox + op.x; const yy = oy + op.y + px(6);
+        if (op.legend.dot) { g.fillStyle = op.legend.dot; g.beginPath(); g.arc(x + px(4.5), yy, px(4.5), 0, Math.PI * 2); g.fill(); x += px(14); }
+        else if (op.legend.bar) { g.fillStyle = op.legend.bar; g.fillRect(x, yy - px(1.5), px(12), px(3)); x += px(16); }
+        else if (op.legend.sup) { g.font = fSup; g.fillStyle = CORAL; g.textBaseline = "middle"; g.textAlign = "left"; g.direction = "ltr"; g.fillText(op.legend.sup, x, yy); x += px(10); }
+        g.font = fLegend; g.fillStyle = MUTED; g.textBaseline = "middle"; g.textAlign = "left"; g.direction = "ltr"; g.fillText(op.legend.text, x, yy);
+        continue;
+      }
+      if (op.tokens) {
+        // RTL study language: lay the same line out from the right edge.
+        for (const t of op.tokens) {
+          const tx = op.rtl ? innerW - t.x - t.tw - t.sw : t.x, ty = op.y;
+          const wordX = op.rtl ? tx + t.sw : tx; // in RTL the superscript sits to the LEFT of the word
+          if (t.g && GENDER[t.g]) { g.fillStyle = GENDER[t.g][1]; roundRect(g, ox + wordX - px(3), oy + ty + px(2), t.tw + px(6), lhS - px(6), px(4)); g.fill(); }
+          g.font = fS; g.fillStyle = t.g && GENDER[t.g] ? GENDER[t.g][0] : INK; g.textBaseline = "top"; g.textAlign = "left"; g.direction = "ltr";
+          g.fillText(t.w, ox + wordX, oy + ty + px(4));
+          if (t.v) dashUnder(wordX, ty + lhS - px(8), t.tw);
+          if (t.sup) { g.font = fSup; g.fillStyle = CORAL; g.fillText(t.sup, ox + (op.rtl ? tx : tx + t.tw + px(2)), oy + ty + px(1)); }
+        }
+        continue;
+      }
+      g.font = op.font; g.fillStyle = op.color; g.textBaseline = "top"; g.textAlign = op.align; g.direction = op.dir;
+      g.fillText(op.text, ox + op.x, oy + op.y);
+    }
+    g.restore();
+    biLineBoxes = boxes.map((b) => ({ x: (PAD + b.x) / lay.img.w, y: (PAD + b.y) / lay.img.h, w: b.w / lay.img.w, h: b.h / lay.img.h }));
+    return lay;
+  }
+
   let sideBySidePainted = false; // last drawSideBySide used the painted page (set the note)
   // One entry for every bilingual layout; null when an ingredient is missing.
   async function drawBilingual(canvas, scale) {
     if (biLayout === "S") return drawSideBySide(canvas, scale);
     if (biLayout === "N") return drawNotes(canvas, scale);
+    if (biLayout === "G") { await ensureBiFont(); return drawStudyCard(canvas, scale); }
     await ensureBiFont();
     return drawPairsCard(canvas, scale);
   }
@@ -565,9 +808,13 @@
       resumeView = "bilingual"; view = "translated"; reshoot(); return;
     }
     sideBySidePainted = false;
+    if (biLayout === "G" && !studyData()) { // first look at this side/language: analyse once, cache on the record
+      if (!studying) { fetchStudy(); return; }
+    }
     let lay = await drawBilingual(canvas, 1);
     if (!lay) { await ensureBiFont(); lay = drawPairsCard(canvas, 1); }
     else if (biLayout === "S" && sideBySidePainted) { vn.className = "note"; vn.textContent = PAINTED_NOTE; }
+    else if (biLayout === "G") { const d = studyData(); if (d && d.truncated) { vn.className = "note"; vn.textContent = "Grammar hints cover the first " + d.count + " sentences."; } }
     curLay = lay;
     canvas.style.width = Math.round(lay.width / (rec.dpr || 1)) + "px";
     canvas.style.opacity = "1";
@@ -581,7 +828,8 @@
     markViewButton("bilingual");
     for (const b of $("biPick").querySelectorAll("[data-bi]")) b.classList.toggle("on", b.dataset.bi === biLayout);
     for (const b of $("biStyleBar").querySelectorAll("button")) b.classList.toggle("on", b.dataset.bistyle === biStyle);
-    $("biStyleRow").hidden = biLayout === "S";
+    $("biStyleRow").hidden = biLayout === "S" || biLayout === "G";
+    syncStudyRow();
     $("biPick").hidden = false;
     updateReshoot();
     for (const id of ["dlBtn", "copyBtn", "shareBtn"]) { const el = $(id); if (el) el.disabled = false; }
@@ -1147,12 +1395,16 @@
   }
   async function load() {
     const id = new URLSearchParams(location.search).get("id") || "";
-    const prefs = await chrome.storage.local.get(["shotFrame", "shotExport", "shotBilingual", "shotBiStyle"]);
+    const prefs = await chrome.storage.local.get(["shotFrame", "shotExport", "shotBilingual", "shotBiStyle", "shotStudySide", "shotStudyExplain", "targets", "learnLang"]);
+    if (["target", "source"].includes(prefs.shotStudySide)) studySide = prefs.shotStudySide;
+    if (["other", "same"].includes(prefs.shotStudyExplain)) studyExpl = prefs.shotStudyExplain;
+    nativeLang = Array.isArray(prefs.targets) && prefs.targets.length ? String(prefs.targets[0]).split("-")[0] : "";
+    learnLang = typeof prefs.learnLang === "string" ? prefs.learnLang.split("-")[0] : "";
     if (prefs.shotFrame && typeof prefs.shotFrame === "object") {
       const f = prefs.shotFrame;
       frame = { frame: ["plain", "card", "window"].includes(f.frame) ? f.frame : "card", badge: f.badge !== false, bg: FRAME_BGS[f.bg] ? f.bg : "sunset" };
     }
-    if (["A", "B", "C", "N", "S"].includes(prefs.shotBilingual)) biLayout = prefs.shotBilingual;
+    if (["A", "B", "C", "N", "S", "G"].includes(prefs.shotBilingual)) biLayout = prefs.shotBilingual;
     if (["quiet", "balanced", "equal"].includes(prefs.shotBiStyle)) biStyle = prefs.shotBiStyle;
     buildSwatches();
     if (prefs.shotExport && typeof prefs.shotExport === "object") exp = { size: ["native", "2x", "1x", "half"].includes(prefs.shotExport.size) ? prefs.shotExport.size : "native", format: prefs.shotExport.format === "jpeg" ? "jpeg" : "png" };
@@ -1190,12 +1442,18 @@
   // Bilingual pairing layout — switching just redraws the card (instant) and
   // saves the choice as the default for future shots.
   $("biPick").addEventListener("click", (e) => {
-    const b = e.target.closest("[data-bi], [data-bistyle]"); if (!b || !rec || reshooting) return;
+    const b = e.target.closest("[data-bi], [data-bistyle], [data-side], [data-expl]"); if (!b || !rec || reshooting) return;
     if (b.dataset.bi) {
       const v = b.dataset.bi; if (!BI_DESC[v] || v === biLayout) return;
       biLayout = v;
       try { chrome.storage.local.set({ shotBilingual: v }); } catch (er) {}
       const hint = $("biHint"); if (hint) hint.textContent = BI_DESC[v] + " Saved as your default.";
+    } else if (b.dataset.side) {
+      if (b.dataset.side === effStudySide()) return;
+      studySide = b.dataset.side; try { chrome.storage.local.set({ shotStudySide: studySide }); } catch (er) {}
+    } else if (b.dataset.expl) {
+      if (b.dataset.expl === effStudyExpl()) return;
+      studyExpl = b.dataset.expl; try { chrome.storage.local.set({ shotStudyExplain: studyExpl }); } catch (er) {}
     } else {
       const st = b.dataset.bistyle; if (!["quiet", "balanced", "equal"].includes(st) || st === biStyle) return;
       biStyle = st;

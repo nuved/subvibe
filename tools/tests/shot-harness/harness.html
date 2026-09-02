@@ -69,7 +69,8 @@
           <div class="seg" id="viewSeg"><button data-view="translated">Translated</button><button data-view="bilingual">Bilingual</button><button data-view="original">Original</button></div>
           <div class="note" id="viewNote"></div>
           <div class="bi-pick" id="biPick" hidden>
-            <div class="bi-row"><span class="bi-pick__lbl">Reading card</span><div class="seg seg-sm" id="biBar"><button data-bi="A">Blocks</button><button data-bi="B">Pairs</button><button data-bi="C">Columns</button></div></div>
+            <div class="bi-row"><span class="bi-pick__lbl">Reading card</span><div class="seg seg-sm" id="biBar"><button data-bi="A">Blocks</button><button data-bi="B">Pairs</button><button data-bi="C">Columns</button><button data-bi="G">Study</button></div></div>
+            <div class="bi-row" id="studyRow" hidden><div class="seg seg-sm" id="studySideBar"><button data-side="target">Translation</button><button data-side="source">Original</button></div><div class="seg seg-sm" id="studyExplBar"><button data-expl="other">Your language</button><button data-expl="same">Same language</button></div></div>
             <div class="bi-row"><span class="bi-pick__lbl">On the page</span><div class="seg seg-sm" id="biPageBar"><button data-bi="N">Notes</button><button data-bi="S">Side by side</button></div></div>
             <div class="bi-row" id="biStyleRow"><span class="bi-pick__lbl">Translation line</span><div class="seg seg-sm" id="biStyleBar"><button data-bistyle="quiet">Quiet</button><button data-bistyle="balanced">Balanced</button><button data-bistyle="equal">Equal</button></div></div>
             <div class="note" id="biHint"></div>
@@ -165,6 +166,10 @@
         source: "en", target: "fa", mode: "full", layout: "original", dpr: 1,
         rect: { x: 0, y: 0, w: 400, h: 6000 }, w: 400, h: 6000,
         original: blob, variant: blob, blocks, views: { original: blob }, annots: [],
+        study: { "target:fa|en": { side: "target", lang: "fa", explain: "en", ts: Date.now(), count: 3, truncated: false, blocks: [
+          { b: "b0", summary: "A greeting.", sentences: [{ text: "سلام دنیا.", meaning: "Hello world.", simple: "سلام.", tokens: [{ w: "سلام", g: "", v: 0, n: [1] }, { w: "دنیا.", g: "m", v: 0, n: [] }], notes: [{ n: 1, term: "سلام", text: "Hello — the everyday greeting." }] }] },
+          { b: "b1", summary: "", sentences: [{ text: "بلوک دوم اینجا.", meaning: "Second block here.", simple: "", tokens: [{ w: "بلوک", g: "f", v: 1, n: [] }, { w: "دوم", g: "", v: 0, n: [] }, { w: "اینجا.", g: "", v: 1, n: [1, 2] }], notes: [{ n: 1, term: "اینجا", text: "here" }, { n: 2, term: "بلوک … اینجا", text: "a two-part verb, for the test" }] }] },
+        ] } },
         partial: false, truncated: "", sameLang: false, noKey: false, font: "" };
       const d = await openDb();
       await new Promise((res, rej) => { const q = d.transaction("shots", "readwrite").objectStore("shots").put(rec, rec.id); q.onsuccess = res; q.onerror = () => rej(q.error); });
@@ -294,6 +299,20 @@
       for (let i = 0; i < px.length; i += 4) if (Math.abs(px[i] - ref[0]) + Math.abs(px[i + 1] - ref[1]) + Math.abs(px[i + 2] - ref[2]) > 120) diff++;
       check("Translated without a raster paints the translation onto the page", stage.style.opacity === "1" && !$("annotBar").hidden && !$("dlBtn").disabled && diff > 40,
         "opacity=" + stage.style.opacity + " bar=" + !$("annotBar").hidden + " dl=" + !$("dlBtn").disabled + " textPixels=" + diff);
+
+      // 15) Study card from seeded data (target side, explained in English): renders, legend shows only used marks, textmark tool available.
+      document.querySelector('#viewSeg [data-view="bilingual"]').click();
+      await until(() => !$("biPick").hidden, 2000);
+      document.querySelector('#biPick [data-bi="G"]').click();
+      await until(() => document.querySelector('#biPick [data-bi="G"].on') && stage.width > 500 && stage.width !== 924 && !$("stageBusy").classList.contains("on"), 4000);
+      await sleep(200);
+      check("Study card renders from the cached analysis", document.querySelector('#biPick [data-bi="G"].on') && !$("studyRow").hidden && stage.height > 400 && !$("annTextmark").hidden && !/analys/i.test($("viewNote").textContent),
+        stage.width + "x" + stage.height + " note=" + $("viewNote").textContent.slice(0, 60) + " studyRow=" + !$("studyRow").hidden);
+      // 16) Switching to the unanalysed side asks background; the stub refuses → warn note, pairs card stays usable.
+      document.querySelector('#studySideBar [data-side="source"]').click();
+      await until(() => /couldn|try again|key|analys/i.test($("viewNote").textContent) && !$("stageBusy").classList.contains("on"), 5000);
+      check("Unanalysed side: refused analysis leaves a warning and a usable card", $("viewNote").className.includes("warn") && stage.width > 0 && !$("dlBtn").disabled,
+        "note=" + $("viewNote").textContent.slice(0, 80) + " class=" + $("viewNote").className);
 
       const pass = results.filter((r) => r.ok).length;
       document.title = (pass === results.length ? "PASS " : "FAIL ") + pass + "/" + results.length;

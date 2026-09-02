@@ -322,6 +322,63 @@
     return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8).padEnd(6, "0");
   }
 
+  // ── study card (grammar hints) ───────────────────────────────────────────
+  const STUDY_MAX_SENTENCES = 30;
+  const studyKey = (lang, explain) => String(lang || "") + "|" + String(explain || "");
+  // The sentences of one side of the shot, in reading order, each with the
+  // other side as its meaning. `side` = "target" (study the translation) or
+  // "source" (study the original). Capped; `truncated` says so.
+  function studySentences(rec, side, cap) {
+    const max = cap || STUDY_MAX_SENTENCES;
+    const blocks = []; let n = 0, truncated = false;
+    for (const b of (rec && rec.blocks) || []) {
+      const pairs = Array.isArray(b.pairs) && b.pairs.length ? b.pairs : (b.tr ? [{ o: b.text, t: b.tr }] : []);
+      const sents = [];
+      for (const p of pairs) {
+        const text = normText(side === "source" ? p.o : p.t), meaning = normText(side === "source" ? p.t : p.o);
+        if (!text) continue;
+        if (n >= max) { truncated = true; break; }
+        sents.push({ i: n++, text, meaning });
+      }
+      if (sents.length) blocks.push({ b: String(b.id), sentences: sents });
+      if (truncated) break;
+    }
+    return { blocks, count: n, truncated };
+  }
+  // Model output → per-block card data, defensively. Tokens must be strings;
+  // gender ∈ m/f/n; note numbers are kept only when the note exists; a
+  // sentence the model skipped falls back to plain tokens (no marks).
+  function buildStudy(input, out) {
+    const bySent = new Map();
+    for (const s of (out && Array.isArray(out.sentences)) ? out.sentences : []) if (s && Number.isInteger(s.i)) bySent.set(s.i, s);
+    const sumBy = new Map();
+    for (const su of (out && Array.isArray(out.summaries)) ? out.summaries : []) if (su && su.b != null) sumBy.set(String(su.b), normText(su.text));
+    const blocks = [];
+    for (const blk of input.blocks) {
+      const sentences = blk.sentences.map((src) => {
+        const m = bySent.get(src.i) || {};
+        const notes = (Array.isArray(m.notes) ? m.notes : []).map((nt, k) => ({ n: Number.isInteger(nt && nt.n) ? nt.n : k + 1, term: normText(nt && nt.term), text: normText(nt && nt.text) })).filter((nt) => nt.text).slice(0, 8);
+        const ids = new Set(notes.map((nt) => nt.n));
+        let tokens = (Array.isArray(m.tokens) ? m.tokens : []).map((t) => ({
+          w: normText(t && t.w), g: ["m", "f", "n"].includes(t && t.g) ? t.g : "", v: Number.isInteger(t && t.v) && t.v > 0 ? t.v : 0,
+          n: (Array.isArray(t && t.n) ? t.n : []).filter((x) => ids.has(x)).slice(0, 2),
+        })).filter((t) => t.w);
+        if (!tokens.length) tokens = src.text.split(" ").map((w) => ({ w, g: "", v: 0, n: [] }));
+        return { text: src.text, meaning: src.meaning, tokens, notes, simple: normText(m.simple) };
+      });
+      blocks.push({ b: blk.b, summary: sumBy.get(blk.b) || "", sentences });
+    }
+    return blocks;
+  }
+  // Which marks a study actually uses (the legend shows only those).
+  function studyMarks(blocks) {
+    const marks = { m: false, f: false, n: false, v: false, notes: false };
+    for (const b of blocks || []) for (const s of b.sentences || []) {
+      for (const t of s.tokens || []) { if (t.g) marks[t.g] = true; if (t.v) marks.v = true; if (t.n && t.n.length) marks.notes = true; }
+    }
+    return marks;
+  }
+
   // ── crop ──────────────────────────────────────────────────────────────────
   // A crop is non-destructive: {x,y,w,h} normalized to the FULL image, stored
   // on the record; views and exports draw only that window, the blobs and the
@@ -358,5 +415,6 @@
     frameLayout, filename, exportScale, validateRecord, newId,
     normCrop, isFullCrop, cropSrc, cropToView, viewToCrop,
     sideBySide, layoutNotes, annBounds, hitAnnot, moveAnnot, renumber, distributeTranslation,
+    STUDY_MAX_SENTENCES, studyKey, studySentences, buildStudy, studyMarks,
   };
 })(globalThis);

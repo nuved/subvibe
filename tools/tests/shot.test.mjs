@@ -353,3 +353,37 @@ test("distributeTranslation: each sentence's translation lands on the node where
   assert.equal(S.distributeTranslation(["Hallo."], [{ o: "Hallo.", t: "" }]), null);
   assert.equal(S.distributeTranslation([], [{ o: "x", t: "y" }]), null);
 });
+
+// ── study card ───────────────────────────────────────────────────────────────
+test("studySentences: one side of the pairs in reading order, the other side as meaning, capped", () => {
+  const rec = { blocks: [
+    { id: "b0", text: "Hallo Welt.", tr: "سلام دنیا.", pairs: [{ o: "Hallo Welt.", t: "سلام دنیا." }] },
+    { id: "b1", text: "A. B.", tr: "آ. ب.", pairs: [{ o: "A.", t: "آ." }, { o: "B.", t: "ب." }] },
+    { id: "b2", text: "Nur tr.", tr: "فقط ترجمه." }, // no pairs → the block itself
+  ] };
+  const t = S.studySentences(rec, "target");
+  assert.deepEqual(t.blocks.map((b) => b.sentences.map((s) => s.text)), [["سلام دنیا."], ["آ.", "ب."], ["فقط ترجمه."]]);
+  assert.equal(t.blocks[1].sentences[0].meaning, "A."); assert.equal(t.count, 4); assert.equal(t.truncated, false);
+  const s = S.studySentences(rec, "source", 2);
+  assert.deepEqual(s.blocks.map((b) => b.sentences.map((x) => x.text)), [["Hallo Welt."], ["A."]]);
+  assert.equal(s.truncated, true); assert.equal(s.blocks[0].sentences[0].i, 0); assert.equal(s.blocks[1].sentences[0].i, 1);
+  assert.equal(S.studyKey("de", "fa"), "de|fa");
+});
+
+test("buildStudy: marks are kept only when valid, notes referenced only when they exist, skipped sentences fall back to plain tokens", () => {
+  const input = { blocks: [{ b: "b0", sentences: [{ i: 0, text: "Das Modell hat gebrochen.", meaning: "مدل شکست." }, { i: 1, text: "Zweiter Satz.", meaning: "دوم." }] }] };
+  const out = { sentences: [{ i: 0, simple: "Das Modell brach.", tokens: [
+      { w: "Das", g: "n", v: 0, n: [1] }, { w: "Modell", g: "n", v: 0, n: [1] }, { w: "hat", g: "", v: 1, n: [] }, { w: "gebrochen.", g: "x", v: 1, n: [2, 9] } ],
+    notes: [{ n: 1, term: "Das Modell", text: "فاعل، خنثی." }, { n: 2, term: "hat … gebrochen", text: "Perfekt." }, { n: 3, term: "", text: "" }] }],
+    summaries: [{ b: "b0", text: "Ein Rekord." }] };
+  const blocks = S.buildStudy(input, out);
+  assert.equal(blocks.length, 1); assert.equal(blocks[0].summary, "Ein Rekord.");
+  const s0 = blocks[0].sentences[0];
+  assert.deepEqual(s0.tokens.map((t) => t.g), ["n", "n", "", ""], "invalid gender x dropped");
+  assert.deepEqual(s0.tokens.map((t) => t.v), [0, 0, 1, 1]);
+  assert.deepEqual(s0.tokens[3].n, [2], "note 9 does not exist → dropped");
+  assert.equal(s0.notes.length, 2, "empty note dropped"); assert.equal(s0.simple, "Das Modell brach."); assert.equal(s0.meaning, "مدل شکست.");
+  const s1 = blocks[0].sentences[1];
+  assert.deepEqual(s1.tokens.map((t) => t.w), ["Zweiter", "Satz."]); assert.equal(s1.notes.length, 0); assert.equal(s1.simple, "");
+  assert.deepEqual(S.studyMarks(blocks), { m: false, f: false, n: true, v: true, notes: true });
+});

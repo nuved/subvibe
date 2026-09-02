@@ -92,6 +92,19 @@
                 <button data-bi="A" title="Whole original, then the whole translation">Blocks</button>
                 <button data-bi="B" title="Each sentence, then its translation">Pairs</button>
                 <button data-bi="C" title="Original and translation side by side, sentence by sentence">Columns</button>
+                <button data-bi="G" title="Grammar hints: gender colours, numbered notes, a simpler version, a summary">Study</button>
+              </div>
+            </div>
+            <div class="bi-row" id="studyRow" hidden>
+              <span class="bi-pick__lbl">Grammar of</span>
+              <div class="seg seg-sm" id="studySideBar" role="group" aria-label="Which language to study">
+                <button data-side="target">Translation</button>
+                <button data-side="source">Original</button>
+              </div>
+              <span class="bi-pick__lbl">Explain in</span>
+              <div class="seg seg-sm" id="studyExplBar" role="group" aria-label="Explanation language">
+                <button data-expl="other">Your language</button>
+                <button data-expl="same">Same language</button>
               </div>
             </div>
             <div class="bi-row">

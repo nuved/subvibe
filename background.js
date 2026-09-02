@@ -981,6 +981,81 @@ function explainPrompt(source, target) {
     (fa ? `\nفارسیِ سادهٔ روزمره؛ هرگز واژه‌های دستوریِ سنگین. STANDARD IRANIAN FARSI — no Urdu letters/words.` : "");
 }
 
+// ── Study card: grammar hints for one side of a Shot ─────────────────────────
+// Spec: docs/superpowers/specs/2026-09-02-shot-study-card-design.md. One
+// analysis per shot/side/explanation language, cached on the record.
+const STUDY_SCHEMA = { name: "study_card", strict: true, schema: { type: "object", additionalProperties: false,
+  properties: {
+    sentences: { type: "array", items: { type: "object", additionalProperties: false, properties: {
+      i: { type: "integer" },
+      tokens: { type: "array", items: { type: "object", additionalProperties: false, properties: {
+        w: { type: "string" }, g: { type: "string", enum: ["", "m", "f", "n"] }, v: { type: "integer" }, n: { type: "array", items: { type: "integer" } } }, required: ["w", "g", "v", "n"] } },
+      notes: { type: "array", items: { type: "object", additionalProperties: false, properties: { n: { type: "integer" }, term: { type: "string" }, text: { type: "string" } }, required: ["n", "term", "text"] } },
+      simple: { type: "string" },
+    }, required: ["i", "tokens", "notes", "simple"] } },
+    summaries: { type: "array", items: { type: "object", additionalProperties: false, properties: { b: { type: "string" }, text: { type: "string" } }, required: ["b", "text"] } },
+  }, required: ["sentences", "summaries"] } };
+// CACHE-STABLE per (lang, explain).
+function studyPrompt(lang, explain) {
+  const L = langName(lang), E = langName(explain), same = (lang || "").split("-")[0] === (explain || "").split("-")[0];
+  const fa = (explain || "").split("-")[0] === "fa";
+  const inE = same ? "simple " + L + " (A2 words, short sentences)" : E;
+  return `You are a patient ${L} teacher for learners at A2–B1${same ? "" : " whose first language is " + E}. The user message carries ` +
+    `{"blocks":[{"b":"<id>","sentences":[{"i":<n>,"text":"<${L} sentence>"}]}]}.\n` +
+    `Return STRICT JSON {"sentences":[…],"summaries":[…]}: one entry per input sentence (same i) and one summary per block (same b).\n` +
+    `For each sentence:\n` +
+    `- tokens: the sentence split into words IN ORDER; punctuation stays attached to the word before it; joining the tokens with single spaces must reproduce the sentence exactly. Each token is {w, g, v, n}.\n` +
+    `  g: grammatical gender "m", "f" or "n" on every NOUN and on the article, pronoun or adjective that agrees with that noun; "" otherwise (verbs, adverbs, prepositions, names, numbers, plurals without a clear gender).\n` +
+    `  v: the parts of ONE two-part verb share one number (1, 2, …): auxiliary + participle (hat … gebrochen), modal + infinitive (kann … gleichkommen), separable prefix + stem (geht … weiter, weitergeht), verb + zu + infinitive (scheint zu lauten); 0 otherwise.\n` +
+    `  n: the numbers of the notes this token belongs to — put a note's number on the LAST token of its phrase; at most 2 per token; [] otherwise.\n` +
+    `- notes: 3 to 7 per sentence, numbered 1… in reading order, each {n, term: the exact words as they appear, text: at most 25 words in ${inE}}. Say WHAT the form is and WHY it is that form; name the rule and the specific words; add the everyday version where useful. Prefer: the case after prepositions and verbs (why dative / accusative / genitive), the verb bracket and word order (verb second, verb last in subordinate clauses), separable and two-part verbs, adjective endings, comparatives, plurals, idioms and false friends.\n` +
+    `- simple: the same sentence said more simply in ${L}: A2 vocabulary, short clauses, same meaning, no longer than 1.3× the original.\n` +
+    `summaries: for each block, one sentence in ${inE} (at most 25 words) saying what that paragraph says.\n` +
+    `Never invent words that are not in the sentence. Be concrete and encouraging; whenever you use a grammar term, put the everyday word next to it.` +
+    (fa ? `\nفارسیِ سادهٔ روزمره. STANDARD IRANIAN FARSI — no Urdu letters/words.` : "");
+}
+// Analyses one side of a shot (≤ 30 sentences, batches of ~10) and caches the
+// card data on the record under side:lang|explain.
+async function shotStudy(msg) {
+  const rec = await shotGet(String(msg.id || ""));
+  if (!rec) return { ok: false, error: "gone" };
+  const side = msg.side === "source" ? "source" : "target";
+  const lang = side === "source" ? (rec.source && rec.source !== "xx" ? rec.source : "") : rec.target;
+  if (!lang) return { ok: false, error: "no-lang" };
+  const explain = String(msg.explain || lang);
+  const key = SV_SHOT.studyKey(side + ":" + lang, explain);
+  const input = SV_SHOT.studySentences(rec, side);
+  if (!input.count) return { ok: false, error: "empty" };
+  const started = Date.now();
+  const meta = { ts: started, site: "shot", title: "Study: " + (rec.title || "").slice(0, 50), kind: "study", lines: input.count };
+  let inTok = 0, outTok = 0, cacheR = 0, cacheW = 0, provider, model;
+  const merged = { sentences: [], summaries: [] };
+  try {
+    const batches = []; let cur = [], n = 0;
+    for (const b of input.blocks) { if (n && n + b.sentences.length > 10) { batches.push(cur); cur = []; n = 0; } cur.push(b); n += b.sentences.length; }
+    if (cur.length) batches.push(cur);
+    for (const batch of batches) {
+      const r = await llmJSON(studyPrompt(lang, explain), { blocks: batch.map((b) => ({ b: b.b, sentences: b.sentences.map((x) => ({ i: x.i, text: x.text })) })) }, STUDY_SCHEMA);
+      provider = r.provider; model = r.model;
+      if (r.usage) { inTok += r.usage.prompt_tokens || 0; outTok += r.usage.completion_tokens || 0; cacheR += r.usage.cache_r || 0; cacheW += r.usage.cache_w || 0; }
+      const pr = r.parsed || {};
+      if (Array.isArray(pr.sentences)) merged.sentences.push(...pr.sentences);
+      if (Array.isArray(pr.summaries)) merged.summaries.push(...pr.summaries);
+    }
+  } catch (e) {
+    const m = String((e && e.message) || e);
+    await logCall({ ...meta, ms: Date.now() - started, inTok, outTok, cacheR, cacheW, ok: false, err: m, provider, model });
+    if (/key/i.test(m)) return { ok: false, error: "no-key" };
+    return { ok: false, error: "network", detail: m };
+  }
+  await logCall({ ...meta, ms: Date.now() - started, inTok, outTok, cacheR, cacheW, ok: true, provider, model });
+  const blocks = SV_SHOT.buildStudy(input, merged);
+  if (!rec.study || typeof rec.study !== "object") rec.study = {};
+  rec.study[key] = { side, lang, explain, ts: Date.now(), provider, model, truncated: input.truncated, count: input.count, blocks };
+  await shotPut(rec);
+  return { ok: true, key };
+}
+
 // CACHE-STABLE per (source, target) — same rule as systemPrompt(): nothing
 // per-call in here, so provider prompt caching can serve repeat batches.
 function enrichPrompt(source, target) {
@@ -2647,6 +2722,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         case "SHOT_RESHOOT": sendResponse(await shotReshoot(msg, sender)); break;
         case "SHOT_TAB_ALIVE": sendResponse(await shotTabAlive(msg.id)); break;
         case "SHOT_RETRANSLATE": sendResponse(await shotRetranslate(msg, sender)); break;
+        case "SHOT_STUDY": sendResponse(await shotStudy(msg)); break;
         default:
           sendResponse({ error: "unknown message: " + (msg && msg.type) });
       }
