@@ -397,8 +397,9 @@ test("tipsSheet: explained lines become sentence pairs and a ready-made study ca
   assert.equal(r.blocks.length, 2);
   assert.deepEqual(r.blocks[0].pairs, [{ o: "Ich muss nach Hause gehen.", t: "باید برم خونه." }]);
   const s0 = r.study[0].sentences[0];
-  assert.deepEqual(s0.notes.map((x) => [x.n, x.term]), [[1, ""], [2, "nach Hause"], [3, "gehen"]]);
-  assert.deepEqual(s0.tokens.map((t) => t.n), [[], [], [], [2], [3]], "phrase note on its last word, punctuation ignored");
+  assert.deepEqual(s0.notes.map((x) => [x.n, x.term]), [[1, "nach Hause"], [2, "gehen"]], "words are numbered from 1");
+  assert.equal(s0.grammar, "Modal + Infinitiv am Ende.", "the grammar note is its own box, not note 1");
+  assert.deepEqual(s0.tokens.map((t) => t.n), [[], [], [], [1], [2]], "phrase note on its last word, punctuation ignored");
   assert.equal(s0.meaning, "باید برم خونه.");
-  assert.equal(r.study[1].sentences[0].notes.length, 0);
+  assert.equal(r.study[1].sentences[0].notes.length, 0); assert.equal(r.study[1].sentences[0].grammar, "");
 });

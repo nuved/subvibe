@@ -378,9 +378,9 @@
   }
   const GENDER = { m: ["#2F6FE4", "#E8F0FD"], f: ["#D64550", "#FCE9EB"], n: ["#2E9E5B", "#E6F5EC"] };
   const STUDY_LABELS = {
-    de: { m: "der · maskulin", f: "die · feminin", n: "das · neutrum", v: "zweiteiliges Verb", note: "Hinweis", simple: "Einfacher gesagt", notes: "Hinweise", summary: "Kurz gesagt" },
-    fa: { m: "der · مذکر", f: "die · مؤنث", n: "das · خنثی", v: "فعل دوبخشی", note: "نکته", simple: "ساده‌تر", notes: "نکته‌ها", summary: "خلاصه" },
-    en: { m: "der · masculine", f: "die · feminine", n: "das · neuter", v: "two-part verb", note: "note", simple: "Put simply", notes: "Notes", summary: "In short" },
+    de: { m: "der · maskulin", f: "die · feminin", n: "das · neutrum", v: "zweiteiliges Verb", note: "Hinweis", simple: "Einfacher gesagt", grammar: "Grammatik", notes: "Hinweise", summary: "Kurz gesagt" },
+    fa: { m: "der · مذکر", f: "die · مؤنث", n: "das · خنثی", v: "فعل دوبخشی", note: "نکته", simple: "ساده‌تر", grammar: "دستور زبان", notes: "نکته‌ها", summary: "خلاصه" },
+    en: { m: "der · masculine", f: "die · feminine", n: "das · neuter", v: "two-part verb", note: "note", simple: "Put simply", grammar: "Grammar", notes: "Notes", summary: "In short" },
   };
   const studyLabels = (lang) => STUDY_LABELS[(lang || "").split("-")[0]] || STUDY_LABELS.en;
   // A note = bold term + explanation. The term is its own run on the first
@@ -403,13 +403,15 @@
   // The study card: per sentence the marked text, its meaning, a simpler
   // version and the numbered notes; per block a summary. Returns the frame
   // layout, or null when this side/language has no analysis yet.
-  function drawStudyCard(canvas, scale) {
+  async function drawStudyCard(canvas, scale) {
     const d = studyData(); if (!d) return null;
     const dpr = (rec.dpr || 1) * scale;
+    // A snapped video frame sits on top of its own tips.
+    const frameBmp = rec.mode === "snap" ? await bitmapFor("original") : null;
     const lang = d.lang, expl = d.explain || lang;
     const L = studyLabels(expl), Ls = studyLabels(lang);
     const rtlS = S.isRtl(lang), rtlE = S.isRtl(expl);
-    const baseCss = Math.min(880, Math.max(640, Math.round((rec.rect && rec.rect.w) || 640)));
+    const baseCss = frameBmp ? 880 : Math.min(880, Math.max(640, Math.round((rec.rect && rec.rect.w) || 640)));
     const paperW = Math.round(baseCss * dpr), PAD = Math.round(28 * dpr), innerW = paperW - PAD * 2;
     const px = (n) => Math.round(n * dpr);
     const fS = "400 " + px(17.5) + "px " + fontStack(rtlS), lhS = px(17.5 * 1.75);
@@ -424,6 +426,7 @@
     const ops = []; let y = 0;
     biLineBoxes = [];
     const boxes = []; const box = (x, yy, w, h) => boxes.push({ x, y: yy, w, h }); // text lines for the text-highlight tool
+    if (frameBmp) { const fh = Math.round(innerW * frameBmp.height / frameBmp.width); ops.push({ frame: true, y, h: fh }); y += fh + px(18); }
     // legend: only the marks that occur
     const marks = S.studyMarks(d.blocks);
     const legend = [];
@@ -455,6 +458,16 @@
           mc.font = fM; const rtlM = BI_RTL.test(snt.meaning);
           for (const ln of wrapText(mc, snt.meaning, innerW)) { ops.push({ text: ln, font: fM, color: TEAL, x: rtlM ? innerW : 0, y, align: rtlM ? "right" : "left", dir: rtlM ? "rtl" : "ltr" }); box(0, y, innerW, lhM); y += lhM; }
           y += px(6);
+        }
+        // 3a) the grammar note (tips sheets and snaps), in a soft box like the simpler version
+        if (snt.grammar) {
+          mc.font = fM; const rtlG = BI_RTL.test(snt.grammar); const lines = wrapText(mc, snt.grammar, innerW - px(26));
+          const h = px(8) + px(14) + lines.length * lhM + px(8);
+          ops.push({ softbox: true, y, h, bar: "#E7B27C", fill: "#FBF7F0", rtl: rtlG });
+          ops.push({ text: L.grammar.toUpperCase(), font: fLbl, color: MUTED, x: rtlG ? innerW - px(12) : px(12), y: y + px(8), align: rtlG ? "right" : "left", dir: "ltr" });
+          let yy = y + px(8) + px(14);
+          for (const ln of lines) { ops.push({ text: ln, font: fM, color: INK, x: rtlG ? innerW - px(12) : px(12), y: yy, align: rtlG ? "right" : "left", dir: rtlG ? "rtl" : "ltr" }); box(px(12), yy, innerW - px(24), lhM); yy += lhM; }
+          y += h + px(8);
         }
         // 3) simpler version, in a soft box with a bar on the reading-start side
         if (snt.simple) {
@@ -512,6 +525,7 @@
     const ox = lay.img.x + PAD, oy = lay.img.y + PAD;
     const dashUnder = (x, yy, w) => { g.save(); g.strokeStyle = CORAL; g.lineWidth = Math.max(1.5, px(1.5)); g.setLineDash([px(2.5), px(2.5)]); g.beginPath(); g.moveTo(ox + x, oy + yy); g.lineTo(ox + x + w, oy + yy); g.stroke(); g.restore(); };
     for (const op of ops) {
+      if (op.frame) { g.save(); roundRect(g, ox, oy + op.y, innerW, op.h, px(8)); g.clip(); g.drawImage(frameBmp, ox, oy + op.y, innerW, op.h); g.restore(); continue; }
       if (op.rule) { g.strokeStyle = LINE; g.lineWidth = Math.max(1, dpr); g.beginPath(); g.moveTo(ox, oy + op.y + 0.5); g.lineTo(ox + innerW, oy + op.y + 0.5); g.stroke(); continue; }
       if (op.softbox) { g.fillStyle = op.fill; roundRect(g, ox, oy + op.y, innerW, op.h, px(6)); g.fill(); if (op.bar) { g.fillStyle = op.bar; g.fillRect(op.rtl ? ox + innerW - px(3) : ox, oy + op.y, px(3), op.h); } continue; }
       if (op.legend) {
@@ -1432,6 +1446,7 @@
     view = rec.layout === "original" ? "original" : rec.layout;
     if (view === "bilingual" && !hasPairs()) view = "original"; // nothing to pair yet
     if (isTips()) { view = "bilingual"; biLayout = "G"; } // a tips sheet is its Study card; the other views have no page behind them
+    if (rec.mode === "snap" && hasPairs()) { view = "bilingual"; biLayout = "G"; } // a snap opens on the frame + its tips; Original/Notes stay a click away
     document.body.classList.toggle("tips", isTips());
     if (view === "bilingual") ensureBiFont();
     for (const bn of $("fontSeg").querySelectorAll("button")) bn.classList.toggle("on", (bn.dataset.font || "") === (rec.font || ""));

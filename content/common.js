@@ -1985,7 +1985,7 @@
         // A Shot taken from the popup on this page attaches this line and its
         // tips (content/shot-capture.js reads it) — the DRM-safe route to a snap.
         const lr = anchor.getBoundingClientRect();
-        window.__svOverlayLine = { s: content.sentence, tr: content.translation || "", g: content.grammar || "", words: content.words || [], lang: vocabPoolLang,
+        window.__svOverlayLine = { s: content.sentence, tr: content.translation || "", g: content.grammar || "", words: content.words || [], lang: content.lang || vocabPoolLang,
           rect: { x: lr.left + scrollX, y: lr.top + scrollY, w: lr.width, h: lr.height }, at: Date.now() };
       }
       const sent = document.createElement("div");
@@ -2035,8 +2035,8 @@
           if (!frame || w < 8 || h < 8) { snap.disabled = false; snap.textContent = "Protected video — use the popup's Screenshot"; return; }
           const kx = w / (vr.width || 1), ky = h / (vr.height || 1);
           const lineRect = { x: (lr.left - vr.left) * kx, y: (lr.top - vr.top) * ky, w: lr.width * kx, h: lr.height * ky };
-          const r = await send({ type: "TIPS_SNAP", base, lang: vocabPoolLang, title: document.title, url: location.href, frame, w, h, lineRect,
-            line: { s: content.sentence, tr: content.translation, g: content.grammar, words: content.words || [] } });
+          const r = await send({ type: "TIPS_SNAP", base, lang: content.lang || vocabPoolLang, title: document.title, url: location.href, frame, w, h, lineRect,
+            line: { s: content.sentence, tr: content.translation, g: content.grammar, lang: content.lang || "", words: content.words || [] } });
           snap.disabled = false;
           snap.textContent = r && r.ok ? "Snapped ↗" : "Couldn't snap";
         });
@@ -2072,7 +2072,7 @@
       if (v && !v.paused) v.pause();
       wtip._pinned = true; wtip._word = null; wtip._lineSig = sentence;
       const cached = lineExplainCache.get(sentence);
-      renderLineCard(anchor, cached ? { sentence, translation: cached.tr, grammar: cached.g, words: cached.words } : { sentence, loading: true });
+      renderLineCard(anchor, cached ? { sentence, translation: cached.tr, grammar: cached.g, lang: cached.lang || "", words: cached.words } : { sentence, loading: true });
       setTimeout(() => {
         document.addEventListener("click", onDocClick, true);
         document.addEventListener("keydown", onKey, true);
@@ -2082,10 +2082,10 @@
         send({ type: "VOCAB_EXPLAIN", base, s: sentence, lang: vocabPoolLang })
           .then((r) => {
             lineExplainFetching.delete(sentence);
-            if (r && r.tr) lineExplainCache.set(sentence, { tr: r.tr, g: r.g, words: r.words || [] });
+            if (r && r.tr) lineExplainCache.set(sentence, { tr: r.tr, g: r.g, lang: r.lang || "", words: r.words || [] });
             if (wtip._pinned && wtip._lineSig === sentence) {
               renderLineCard(anchor, (r && r.tr)
-                ? { sentence, translation: r.tr, grammar: r.g, words: r.words || [] }
+                ? { sentence, translation: r.tr, grammar: r.g, lang: r.lang || "", words: r.words || [] }
                 : { sentence, error: (r && r.error) ? "couldn't explain — check the provider key in the popup" : "no explanation — close & click ﹖ again to retry" });
             }
           });
