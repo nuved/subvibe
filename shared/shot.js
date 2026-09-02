@@ -384,7 +384,7 @@
   // order they were explained. Returns the shot blocks (sentence pairs) and
   // the study blocks the editor's Study card draws without another call:
   // each word note lands on the token that carries the word (the last word
-  // of a phrase), the grammar note is note 1 with no term.
+  // of a phrase); the grammar note is the sentence's `grammar` box, unnumbered.
   function tipsSheet(entries) {
     const clean = (entries || []).filter((e) => e && e.s && e.tr);
     const blocks = [], study = [];
@@ -392,8 +392,7 @@
       const s = normText(e.s), tr = normText(e.tr);
       blocks.push({ id: "t" + i, text: s, tr, rect: { x: 0, y: i * 40, w: 640, h: 36 }, pairs: [{ o: s, t: tr }] });
       const tokens = s.split(" ").filter(Boolean).map((w) => ({ w, g: "", v: 0, n: [] }));
-      const notes = []; let n = 0;
-      if (e.g) notes.push({ n: ++n, term: "", text: normText(e.g) });
+      const notes = []; let n = 0; // words are the numbered notes; the grammar note gets its own box
       const bare = (w) => String(w || "").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
       for (const x of (Array.isArray(e.words) ? e.words : []).filter((x) => x && x.w && x.m).slice(0, 6)) {
         const num = ++n;
@@ -402,7 +401,7 @@
         const tok = last ? tokens.find((t) => bare(t.w) === last) || tokens.find((t) => bare(t.w).includes(last) || last.includes(bare(t.w)) && bare(t.w).length > 3) : null;
         if (tok && tok.n.length < 2) tok.n.push(num);
       }
-      study.push({ b: "t" + i, summary: "", sentences: [{ text: s, meaning: tr, simple: "", tokens, notes }] });
+      study.push({ b: "t" + i, summary: "", sentences: [{ text: s, meaning: tr, simple: "", grammar: normText(e.g), tokens, notes }] });
     });
     return { blocks, study };
   }

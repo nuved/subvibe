@@ -1070,7 +1070,9 @@ async function tipsSheet(msg) {
   let tab = null; try { tab = await activeTabHere(); } catch { tab = null; }
   const title = String(msg.title || (tab && tab.title) || "Tips");
   const url = String(msg.url || (tab && tab.url) || "");
-  const lang = String(msg.lang && msg.lang !== "xx" ? msg.lang : (cx.lang && cx.lang !== "xx" ? cx.lang : "")) || "";
+  const tally = {}; for (const e of entries) if (e.lang && e.lang !== "xx") tally[e.lang] = (tally[e.lang] || 0) + 1;
+  const detected = Object.keys(tally).sort((a, b) => tally[b] - tally[a])[0] || "";
+  const lang = detected || String(cx.lang && cx.lang !== "xx" ? cx.lang : (msg.lang && msg.lang !== "xx" ? msg.lang : "")) || "";
   const { targets } = await chrome.storage.local.get("targets");
   const target = String(cx.target || (Array.isArray(targets) && targets[0]) || "en");
   const id = "tips-" + base.replace(/[^a-z0-9_-]/gi, "-").slice(0, 60);
@@ -1124,12 +1126,12 @@ async function tipsSnap(msg, sender) {
   const sTxt = String(line.s || "").replace(/\s+/g, " ").trim(), tr = String(line.tr || "").replace(/\s+/g, " ").trim();
   const lr = msg.lineRect && +msg.lineRect.w > 0 ? msg.lineRect : null;
   const blocks = sTxt ? [{ id: "b0", text: sTxt, tr, rect: lr ? { x: +lr.x || 0, y: +lr.y || 0, w: +lr.w, h: +lr.h || 24 } : { x: 24, y: Math.max(0, rh - 80), w: Math.max(1, rw - 48), h: 40 }, pairs: [{ o: sTxt, t: tr }], segs: [sTxt] }] : [];
-  const lang = String(msg.lang && msg.lang !== "xx" ? msg.lang : "") || "";
+  const lang = String(line.lang && line.lang !== "xx" ? line.lang : (msg.lang && msg.lang !== "xx" ? msg.lang : "")) || "";
   const { targets } = await chrome.storage.local.get("targets");
   const target = String((Array.isArray(targets) && targets[0]) || "en");
   const url = String(msg.url || tab.url || ""), title = String(msg.title || tab.title || "");
   const rec = {
-    id: SV_SHOT.newId(), ts: Date.now(), url, title, host: hostOf(url), source: lang || "xx", target, mode: "snap", layout: "original", dpr,
+    id: SV_SHOT.newId(), ts: Date.now(), url, title, host: hostOf(url), source: lang || "xx", target, mode: "snap", layout: sTxt && tr ? "bilingual" : "original", dpr,
     w: rw, h: rh, rect: { x: 0, y: 0, w: rw, h: rh }, original: blob, variant: blob, views: { original: blob },
     blocks, annots: [], crop: null, font: "", tabId: -1, windowId: -1, partial: false, truncated: "", sameLang: false, noKey: false,
   };
@@ -2650,20 +2652,26 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           const faS = (s) => (fa ? SV_VOCAB.normalizeFa(String(s || "")) : String(s || ""));
           if (cx.e[skey] && cx.e[skey].tr) {
             const c = cx.e[skey];
-            sendResponse({ ok: true, tr: faS(c.tr), g: faS(c.g), words: (c.words || []).map((x) => ({ w: x.w, m: faS(x.m) })), cached: true });
+            sendResponse({ ok: true, tr: faS(c.tr), g: faS(c.g), lang: c.lang || "", words: (c.words || []).map((x) => ({ w: x.w, m: faS(x.m) })), cached: true });
             break;
           }
           const started = Date.now();
+          // The sentence's OWN language drives the prompt: the popup's "I'm
+          // learning" setting is a preference, not a fact about this video —
+          // an English line on a German learner's account was being explained
+          // as "not a German sentence".
+          let lang = msg.lang && msg.lang !== "xx" ? String(msg.lang) : "";
+          try { const det = await detectClipLang([{ o: sent }]); if (det && det !== "xx") lang = det; } catch {}
           try {
-            const r = await llmJSON(explainPrompt(msg.lang && msg.lang !== "xx" ? msg.lang : "auto", target), { s: sent }, EXPLAIN_SCHEMA);
+            const r = await llmJSON(explainPrompt(lang || "auto", target), { s: sent }, EXPLAIN_SCHEMA);
             const p = (r && r.parsed) || {};
-            const out = { tr: String(p.tr || "").trim(), g: String(p.g || "").trim(),
+            const out = { tr: String(p.tr || "").trim(), g: String(p.g || "").trim(), lang,
               words: Array.isArray(p.words) ? p.words.filter((x) => x && x.w && x.m).slice(0, 6).map((x) => ({ w: String(x.w).trim(), m: String(x.m).trim() })) : [] };
-            if (out.tr) { out.s = sent; out.at = started; cx.e[skey] = out; cx.target = target; cx.lang = String(msg.lang || cx.lang || ""); cx.at = Date.now(); await idbVocabPut("clipexplain:" + base, cx); }
+            if (out.tr) { out.s = sent; out.at = started; cx.e[skey] = out; cx.target = target; cx.lang = lang || String(cx.lang || ""); cx.at = Date.now(); await idbVocabPut("clipexplain:" + base, cx); }
             await logCall({ ts: started, site: "learn", title: "Explain: " + sent.slice(0, 40), kind: "enrich", lines: 1, ms: Date.now() - started,
               inTok: (r.usage && r.usage.prompt_tokens) || 0, outTok: (r.usage && r.usage.completion_tokens) || 0,
               cacheR: (r.usage && r.usage.cache_r) || 0, cacheW: (r.usage && r.usage.cache_w) || 0, ok: true, provider: r.provider, model: r.model });
-            sendResponse({ ok: true, tr: faS(out.tr), g: faS(out.g), words: out.words.map((x) => ({ w: x.w, m: faS(x.m) })) });
+            sendResponse({ ok: true, tr: faS(out.tr), g: faS(out.g), lang, words: out.words.map((x) => ({ w: x.w, m: faS(x.m) })) });
           } catch (e2) {
             sendResponse({ error: String((e2 && e2.message) || e2) });
           }
