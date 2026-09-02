@@ -200,3 +200,49 @@ test("splitSentences: sentence-aligned pairing input", () => {
   // whitespace is normalized, terminators kept
   assert.deepEqual(S.splitSentences("A.\n\nB."), ["A.", "B."]);
 });
+
+// ── crop (non-destructive: rect normalized to the full image) ────────────────
+test("normCrop: null/degenerate/out-of-range all collapse to the full image", () => {
+  const full = { x: 0, y: 0, w: 1, h: 1 };
+  assert.deepEqual(S.normCrop(null), full);
+  assert.deepEqual(S.normCrop(undefined), full);
+  assert.deepEqual(S.normCrop({ x: 0.4, y: 0.4, w: 0.001, h: 0.5 }), full); // sliver
+  assert.deepEqual(S.normCrop({ x: 2, y: 2, w: 1, h: 1 }), full);           // fully outside
+});
+
+test("normCrop: clamps a rect that hangs past the right/bottom edge", () => {
+  assert.deepEqual(S.normCrop({ x: 0.8, y: 0.9, w: 0.5, h: 0.5 }),
+    { x: 0.8, y: 0.9, w: 0.19999999999999996, h: 0.09999999999999998 });
+});
+
+test("cropSrc: source-pixel rect for drawImage, full image when crop is null", () => {
+  assert.deepEqual(S.cropSrc(null, 1000, 800), { sx: 0, sy: 0, sw: 1000, sh: 800 });
+  assert.deepEqual(S.cropSrc({ x: 0.25, y: 0.5, w: 0.5, h: 0.25 }, 1000, 800),
+    { sx: 250, sy: 400, sw: 500, sh: 200 });
+});
+
+test("cropToView/viewToCrop: identity mapping with no crop", () => {
+  const img = { x: 10, y: 20, w: 200, h: 100 };
+  assert.deepEqual(S.cropToView({ x: 0.5, y: 0.5 }, img, null), [110, 70]);
+  assert.deepEqual(S.viewToCrop(110, 70, img, null), { x: 0.5, y: 0.5 });
+});
+
+test("cropToView: a point at the crop's corners lands on the image box corners", () => {
+  const img = { x: 0, y: 0, w: 400, h: 300 };
+  const crop = { x: 0.25, y: 0.25, w: 0.5, h: 0.5 };
+  assert.deepEqual(S.cropToView({ x: 0.25, y: 0.25 }, img, crop), [0, 0]);
+  assert.deepEqual(S.cropToView({ x: 0.75, y: 0.75 }, img, crop), [400, 300]);
+  assert.deepEqual(S.cropToView({ x: 0.5, y: 0.5 }, img, crop), [200, 150]);
+});
+
+test("viewToCrop: inverse of cropToView, clamped to the crop window", () => {
+  const img = { x: 50, y: 60, w: 400, h: 300 };
+  const crop = { x: 0.2, y: 0.1, w: 0.6, h: 0.8 };
+  const [px, py] = S.cropToView({ x: 0.5, y: 0.5 }, img, crop);
+  const back = S.viewToCrop(px, py, img, crop);
+  assert.ok(Math.abs(back.x - 0.5) < 1e-9 && Math.abs(back.y - 0.5) < 1e-9);
+  // a pointer outside the image box clamps to the crop bounds, not 0..1
+  assert.deepEqual(S.viewToCrop(-999, -999, img, crop), { x: 0.2, y: 0.1 });
+  const hi = S.viewToCrop(9999, 9999, img, crop);
+  assert.ok(Math.abs(hi.x - 0.8) < 1e-9 && Math.abs(hi.y - 0.9) < 1e-9);
+});

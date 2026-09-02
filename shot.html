@@ -34,7 +34,7 @@
       </div>
     </div>
     <span class="meta" id="metaLine"></span>
-    <div class="recent" id="recent"><span class="overline">Recent</span></div>
+    <div class="recent" id="recent" title="Your earlier shots — every site, newest first. This strip is history, not part of the current capture."><span class="overline">History</span></div>
   </header>
   <div class="notebar" id="noteBar" hidden></div>
 
@@ -49,10 +49,12 @@
           <button class="anntool" data-tool="text" title="Text">T</button>
           <button class="anntool" data-tool="arrow" title="Arrow">&#x2197;</button>
           <button class="anntool" data-tool="rect" title="Rectangle">&#x25AD;</button>
+          <button class="anntool" id="annCrop" data-tool="crop" title="Crop — drag the area to keep">&#x26F6;</button>
         </div>
         <div class="annotbar__colors" id="annColors"></div>
         <label class="annotbar__size" title="Thickness"><input type="range" id="annSize" min="2" max="20" value="5" /></label>
         <div class="annotbar__acts">
+          <button class="anntool wide" id="annUncrop" title="Remove the crop — show the full image again" hidden>Uncrop</button>
           <button class="anntool" id="annUndo" title="Undo">&#x21B6;</button>
           <button class="anntool" id="annClear" title="Clear all">&#x1F5D1;</button>
         </div>

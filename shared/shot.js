@@ -173,9 +173,40 @@
     return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8).padEnd(6, "0");
   }
 
+  // ── crop ──────────────────────────────────────────────────────────────────
+  // A crop is non-destructive: {x,y,w,h} normalized to the FULL image, stored
+  // on the record; views and exports draw only that window, the blobs and the
+  // annotations (also full-image coords) stay untouched.
+  function normCrop(crop) {
+    const full = { x: 0, y: 0, w: 1, h: 1 };
+    if (!crop) return full;
+    const x = Math.min(Math.max(+crop.x || 0, 0), 1), y = Math.min(Math.max(+crop.y || 0, 0), 1);
+    const w = Math.min(Math.max(+crop.w || 0, 0), 1 - x), h = Math.min(Math.max(+crop.h || 0, 0), 1 - y);
+    if (w < 0.01 || h < 0.01) return full; // degenerate → full image
+    return { x, y, w, h };
+  }
+  const isFullCrop = (c) => !c || normCrop(c).w === 1 && normCrop(c).h === 1 && normCrop(c).x === 0 && normCrop(c).y === 0;
+  // Source-pixel rect drawImage reads from the bitmap.
+  function cropSrc(crop, bmpW, bmpH) {
+    const c = normCrop(crop);
+    return { sx: c.x * bmpW, sy: c.y * bmpH, sw: Math.max(1, c.w * bmpW), sh: Math.max(1, c.h * bmpH) };
+  }
+  // Full-image fraction → px inside the on-screen image box (which shows only the crop).
+  function cropToView(n, img, crop) {
+    const c = normCrop(crop);
+    return [img.x + ((n.x - c.x) / c.w) * img.w, img.y + ((n.y - c.y) / c.h) * img.h];
+  }
+  // Inverse: pointer px inside the image box → full-image fraction, clamped to the crop.
+  function viewToCrop(px, py, img, crop) {
+    const c = normCrop(crop);
+    const x = c.x + ((px - img.x) / img.w) * c.w, y = c.y + ((py - img.y) / img.h) * c.h;
+    return { x: Math.min(Math.max(x, c.x), c.x + c.w), y: Math.min(Math.max(y, c.y), c.y + c.h) };
+  }
+
   g.SV_SHOT = {
     MAX_BLOCKS, MAX_CHARS, MAX_TILES, MIN_WORDS_BILINGUAL, CAPTURE_GAP_MS,
     planTiles, stitchLayout, prepBlocks, mapTranslations, isBilingualBlock, isRtl, splitSentences,
     frameLayout, filename, exportScale, validateRecord, newId,
+    normCrop, isFullCrop, cropSrc, cropToView, viewToCrop,
   };
 })(globalThis);
