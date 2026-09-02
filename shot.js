@@ -418,8 +418,15 @@
   // `rec.views` is the per-view cache; the original/variant fields are the
   // fallback for shots stored before the cache existed.
   function viewBlob(v) {
-    if (rec.views && rec.views[v] instanceof Blob) return rec.views[v];
-    if (v === "original") return rec.original instanceof Blob ? rec.original : null;
+    if (rec.views && typeof rec.views === "object") {
+      // The per-view cache is authoritative: a language change deletes the
+      // stale translated/bilingual entries, and the legacy `variant` (still the
+      // OLD language) must not stand in for them — that showed a Persian page
+      // under an "English" caption in Side by side.
+      if (rec.views[v] instanceof Blob) return rec.views[v];
+      return v === "original" && rec.original instanceof Blob ? rec.original : null;
+    }
+    if (v === "original") return rec.original instanceof Blob ? rec.original : null; // records from before the cache
     if (v === rec.layout) return rec.variant instanceof Blob ? rec.variant : null;
     return null;
   }
@@ -578,8 +585,11 @@
   async function retranslate(newTarget, layout) {
     if (reshooting || !rec || !newTarget) return;
     if (newTarget === rec.target && isTranslated() && (!layout || viewBlob(layout))) return; // already there
-    const want = layout === "bilingual" ? "bilingual" : "translated";
-    reshooting = true; markViewButton(want);
+    let want = layout === "bilingual" ? "bilingual" : "translated";
+    // Side by side needs the translated PAGE in the new language, not just the
+    // pairs: render it on the tab in the same round trip, then come back.
+    if (want === "bilingual" && biLayout === "S" && tabAlive) { want = "translated"; resumeView = "bilingual"; }
+    reshooting = true; markViewButton(layout === "bilingual" ? "bilingual" : want);
     showBusy("Translating to " + langName(newTarget) + "…");
     const res = await new Promise((r) => chrome.runtime.sendMessage({ type: "SHOT_RETRANSLATE", id: rec.id, target: newTarget, layout: want }, (x) => r(chrome.runtime.lastError ? null : x)));
     reshooting = false;

@@ -335,3 +335,21 @@ test("moveAnnot shifts every stored point; renumber restores 1, 2, 3", () => {
   S.renumber(list);
   assert.deepEqual(list.map((a) => a.n), [1, undefined, 2]);
 });
+
+// ── distributeTranslation ────────────────────────────────────────────────────
+test("distributeTranslation: each sentence's translation lands on the node where the sentence starts", () => {
+  // a tweet: four paragraphs = four text nodes; pairs derived per paragraph
+  const nodes = ["Erster Absatz hier.", "Zweiter Absatz:", "Dritter Absatz!", "Vierter."];
+  const pairs = [{ o: "Erster Absatz hier.", t: "First paragraph here." }, { o: "Zweiter Absatz:", t: "Second paragraph:" }, { o: "Dritter Absatz!", t: "Third paragraph!" }, { o: "Vierter.", t: "Fourth." }];
+  assert.deepEqual(S.distributeTranslation(nodes, pairs), ["First paragraph here.", "Second paragraph:", "Third paragraph!", "Fourth."]);
+  // a sentence split across nodes by inline formatting (a <b> run): its translation goes to the
+  // node where it STARTS, the bold run is emptied, and the next sentence stays in its own node
+  assert.deepEqual(S.distributeTranslation(["Das ist ", "wichtig", " für alle. Ende."], [{ o: "Das ist wichtig für alle.", t: "This matters to all." }, { o: "Ende.", t: "End." }]),
+    ["This matters to all.", "", "End."]);
+  // two sentences in one node, one in the next
+  assert.deepEqual(S.distributeTranslation(["A one. B two.", "C three."], [{ o: "A one.", t: "1" }, { o: "B two.", t: "2" }, { o: "C three.", t: "3" }]), ["1 2", "3"]);
+  // a pair that can't be located rides with the previous one; nothing placeable → null
+  assert.deepEqual(S.distributeTranslation(["Hallo.", "Welt."], [{ o: "Hallo.", t: "Hello." }, { o: "???", t: "stray" }, { o: "Welt.", t: "World." }]), ["Hello. stray", "World."]);
+  assert.equal(S.distributeTranslation(["Hallo."], [{ o: "Hallo.", t: "" }]), null);
+  assert.equal(S.distributeTranslation([], [{ o: "x", t: "y" }]), null);
+});

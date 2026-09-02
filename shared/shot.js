@@ -138,6 +138,34 @@
     return out.length ? out : [t];
   }
 
+  // Spread a block's sentence pairs back over its text nodes so a swapped
+  // translation keeps the block's structure (paragraph breaks, a bold run in
+  // the middle of a sentence). Each pair's original is located in the nodes'
+  // joined text; its translation goes to the node where the sentence starts,
+  // nodes that only carry the tail of a sentence are emptied. A pair that
+  // can't be found rides with the previous one. Returns one string per node,
+  // or null when there is nothing to place.
+  function distributeTranslation(nodeTexts, pairs) {
+    const texts = (nodeTexts || []).map(normText);
+    const out = texts.map(() => "");
+    if (!texts.length || !Array.isArray(pairs) || !pairs.length) return null;
+    const starts = []; let full = "";
+    for (const t of texts) { starts.push(full.length + (full && t ? 1 : 0)); full += (full && t ? " " : "") + t; }
+    const nodeAt = (i) => { let k = 0; for (let j = 0; j < starts.length; j++) if (texts[j] && starts[j] <= i) k = j; return k; };
+    let pos = 0, last = 0, placed = 0;
+    for (const p of pairs) {
+      const o = normText(p && p.o), t = normText(p && p.t);
+      let k = last;
+      if (o) {
+        let i = full.indexOf(o, pos); if (i < 0) i = full.indexOf(o);
+        if (i >= 0) { k = nodeAt(i); pos = i + o.length; }
+      }
+      if (t) { out[k] = out[k] ? out[k] + " " + t : t; placed++; }
+      last = k;
+    }
+    return placed ? out : null;
+  }
+
   // Geometry (device px) of the exported picture: the bare capture, or a
   // padded card with rounded corners and a small badge under the image.
   // "window" = card plus a browser title bar (`bar`) sitting on the image; the
@@ -329,6 +357,6 @@
     planTiles, stitchLayout, prepBlocks, mapTranslations, isBilingualBlock, isRtl, splitSentences,
     frameLayout, filename, exportScale, validateRecord, newId,
     normCrop, isFullCrop, cropSrc, cropToView, viewToCrop,
-    sideBySide, layoutNotes, annBounds, hitAnnot, moveAnnot, renumber,
+    sideBySide, layoutNotes, annBounds, hitAnnot, moveAnnot, renumber, distributeTranslation,
   };
 })(globalThis);
