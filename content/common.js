@@ -841,6 +841,7 @@
     if (window.__svDub) try { window.__svDub.detach(); } catch {}
     const el = document.getElementById("copilot-subs");
     if (el) el.remove();
+    { const b = document.getElementById("sv-board"); if (b) b.remove(); }
   }
 
   // ─── track engine (YouTube) ──────────────────────────────────────────────────
@@ -1975,129 +1976,304 @@
       }
     };
 
-    // ── "Explain this line" card (the ﹖ hint button) ────────────────────────
-    // Stacked, labeled sections — sentence, Translation, Grammar, Words — from
-    // one cached VOCAB_EXPLAIN call. Reuses the pinned bubble + close/resume.
-    const renderLineCard = (anchor, content) => {
+    // ── Chunks: the unit tips are given for ──────────────────────────────────
+    // A chunk is a passage of a few sentences cut at natural breaks (a long
+    // silence, a sentence cap). Sentence units come from the groups that
+    // partition the cues; chunks are recomputed on demand (cheap) so a
+    // still-growing cue list never goes stale.
+    const sentenceUnits = () => {
+      const units = []; const seen = new Set();
+      for (let i = 0; i < cues.length; i++) {
+        const c = cues[i]; if (!c) continue;
+        if (c.grp) {
+          if (seen.has(c.grp)) continue; seen.add(c.grp);
+          const gc = c.grp.cues || [c];
+          units.push({ startMs: gc[0].startMs, endMs: gc[gc.length - 1].endMs || gc[gc.length - 1].startMs + 2500, original: c.grp.orig || gc.map((q) => q.original || "").join(" ").trim(), grp: c.grp, cue: gc[0] });
+        } else units.push({ startMs: c.startMs, endMs: c.endMs || c.startMs + 2500, original: c.original || "", grp: null, cue: c });
+      }
+      return units;
+    };
+    const unitTr = (u, tg) => (u.grp ? (u.grp.t && u.grp.t[tg]) || (u.grp.cues || []).map((q) => (q.t && q.t[tg]) || "").join(" ").trim() : (u.cue.t && u.cue.t[tg]) || "");
+    const chunksNow = () => {
+      const units = sentenceUnits();
+      const C = globalThis.SV_CUES;
+      const ranges = C && C.chunkCues ? C.chunkCues(units, { maxSents: 4, maxChars: 300 }) : units.map((u, i) => ({ from: i, to: i, startMs: u.startMs, endMs: u.endMs }));
+      const tg = vocabTg || (settings.targets && settings.targets[0]) || "";
+      return ranges.map((r, k) => {
+        const us = units.slice(r.from, r.to + 1);
+        // ASR stage tags ("[Music]", "[Applause]") are not language — keep them out of the tips.
+        const clean = (t) => String(t || "").replace(/\[[^\]]{1,24}\]/g, " ").replace(/\s+/g, " ").trim();
+        const sentences = us.map((u) => ({ s: clean(u.original), tr: clean(unitTr(u, tg)) })).filter((x) => x.s);
+        return { k, from: r.from, to: r.to, startMs: r.startMs, endMs: r.endMs, units: us, text: sentences.map((x) => x.s).join(" "), sentences };
+      });
+    };
+    const chunkOfCue = (list, cue) => list.findIndex((ch) => ch.units.some((u) => u.cue === cue || (u.grp && u.grp === cue.grp)));
+    // A sample of the whole video's lines — the background infers the video's
+    // kind from it once (cached per video), so every later tip knows whether
+    // this is an interview, a lesson, a match or a game stream.
+    const sampleLines = () => { const us = sentenceUnits(); if (us.length <= 40) return us.map((u) => u.original); const step = us.length / 40; const out = []; for (let i = 0; i < 40; i++) out.push(us[Math.floor(i * step)].original); return out; };
+    const explainPayload = (ch, list) => ({ type: "VOCAB_EXPLAIN", base, s: ch.text, lang: vocabPoolLang, title: document.title,
+      before: list[ch.k - 1] ? [list[ch.k - 1].text] : [], after: list[ch.k + 1] ? [list[ch.k + 1].text] : [], sample: sampleLines() });
+
+    const chunkFetching = new Map(); // chunk text → pending explain promise (deduped)
+    const explainChunk = (ch, list) => {
+      const hit = lineExplainCache.get(ch.text); if (hit) return Promise.resolve(hit);
+      if (!chunkFetching.has(ch.text)) chunkFetching.set(ch.text, send(explainPayload(ch, list)).then((r) => {
+        chunkFetching.delete(ch.text);
+        if (r && r.tr) { const ex = { tr: r.tr, g: r.g, lang: r.lang || "", words: r.words || [] }; lineExplainCache.set(ch.text, ex); return ex; }
+        return { error: r && r.error ? "couldn't explain — check the provider key in the popup" : "no explanation — try again" };
+      }));
+      return chunkFetching.get(ch.text);
+    };
+    const fmtT = (ms) => { const t = Math.max(0, Math.round(ms / 1000)); return Math.floor(t / 60) + ":" + String(t % 60).padStart(2, "0"); };
+    const mk = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+
+    // ── Shared pieces: a chunk's sentences, its tips, the actions row ────────
+    // Used by the ﹖ card over the video and by the story board beside it.
+    const buildSents = (ch, startNo, cls) => {
+      const box = mk("div", cls || "wt-line wt-sents"); box.dir = "auto";
+      ch.sentences.forEach((x, i) => { const r = mk("div", "wt-sent"); r.appendChild(mk("i", "wt-sn", String(startNo + i))); const t = mk("span", null, x.s); t.dir = "auto"; r.appendChild(t); box.appendChild(r); });
+      return box;
+    };
+    const buildTips = (ex) => {
+      const body = mk("div", "wt-body");
+      const addSect = (label, node) => { const sc = mk("div", "wt-sect"); sc.appendChild(mk("div", "wt-lbl", label)); sc.appendChild(node); body.appendChild(sc); };
+      const line = (text) => { const v = mk("div", "wt-val", text); v.dir = "auto"; return v; };
+      if (!ex) { body.appendChild(line("…")); return body; }
+      if (ex.error) { body.appendChild(line(ex.error)); return body; }
+      if (ex.tr) addSect("Translation", line(ex.tr));
+      if (ex.g) {
+        const parts = String(ex.g).split(/\s*•\s*/).map((x) => x.trim()).filter(Boolean);
+        const gbox = mk("div", "wt-val wt-grambox"); gbox.dir = "auto";
+        if (parts.length > 1) { for (const pt of parts) gbox.appendChild(mk("div", "wt-gpt", pt)); } else gbox.textContent = ex.g;
+        addSect("Grammar", gbox);
+      }
+      if (ex.words && ex.words.length) {
+        const list = mk("div", "wt-words");
+        for (const x of ex.words) {
+          const b = mk("b", null, x.w); b.dir = "auto";
+          const tag = [x.pos, x.level].filter(Boolean).join(" · ");
+          if (tag) b.appendChild(mk("i", "wt-tag", tag));
+          const m = mk("span", null, x.m); m.dir = "auto";
+          if (x.forms) m.appendChild(mk("i", "wt-forms", x.forms));
+          list.appendChild(b); list.appendChild(m);
+        }
+        addSect("Words", list);
+      }
+      return body;
+    };
+    // Snap: the current video frame as a Shot, with N whole chunks under it.
+    // The frame comes straight from the <video> at its native size — no player
+    // UI, no overlay, no tab-capture permission. Media-source players (YouTube)
+    // allow it; a DRM stream taints the canvas, and the popup's Screenshot is
+    // the way there (it attaches the first chunk via window.__svOverlayLine).
+    const snapChunksNow = async (list, k0, n, anchor, status) => {
+      const picked = [];
+      for (let k = k0; k < Math.min(list.length, k0 + n); k++) {
+        const ch = list[k]; status("Explaining chunk " + (k - k0 + 1) + "/" + n + "…");
+        const ex = await explainChunk(ch, list); if (!ex || ex.error) continue;
+        picked.push({ s: ch.text, tr: ex.tr, g: ex.g, lang: ex.lang || "", words: ex.words || [], sentences: ch.sentences });
+      }
+      if (!picked.length) return { ok: false, error: "explain" };
+      status("Snapping…");
+      const v = liveVideoEl(video) || video;
+      const vr = v.getBoundingClientRect(), lr = (anchor || els.__orig).getBoundingClientRect();
+      const w = v.videoWidth || Math.round(vr.width), h = v.videoHeight || Math.round(vr.height);
+      let frame = null;
+      try { const cv = document.createElement("canvas"); cv.width = w; cv.height = h; cv.getContext("2d").drawImage(v, 0, 0, w, h); frame = cv.toDataURL("image/jpeg", 0.92); } catch (e) { frame = null; }
+      if (!frame || w < 8 || h < 8) return { ok: false, error: "drm" };
+      const kx = w / (vr.width || 1), ky = h / (vr.height || 1);
+      const lineRect = { x: (lr.left - vr.left) * kx, y: (lr.top - vr.top) * ky, w: lr.width * kx, h: lr.height * ky };
+      return send({ type: "TIPS_SNAP", base, lang: picked[0].lang || vocabPoolLang, title: document.title, url: location.href, frame, w, h, lineRect, line: picked[0], chunks: picked });
+    };
+    // The actions row: 1 · 2 · 3 chunks, Frame + chunks, All explained lines.
+    const buildActions = (ctx) => {
+      const act = mk("div", "wt-actions");
+      const nsel = mk("span", "wt-nsel"); nsel.title = "How many chunks to show and to put on the frame — this one, then the following ones";
+      const btns = [1, 2, 3].map((m) => { const b = mk("button", m === ctx.n ? "on" : "", String(m)); b.type = "button"; b.addEventListener("click", (ev) => { ev.stopPropagation(); ctx.setN(m); }); nsel.appendChild(b); return b; });
+      const snap = mk("button", "wt-sheet wt-snap", "Frame + " + (ctx.n === 1 ? "this chunk" : ctx.n + " chunks")); snap.type = "button";
+      snap.title = "Capture this video frame as a Shot, with the chunk's sentences, translation, grammar and words under it";
+      snap.addEventListener("click", async (ev) => {
+        ev.stopPropagation(); snap.disabled = true; for (const b of btns) b.disabled = true;
+        const r = await snapChunksNow(ctx.list, ctx.k0, ctx.n, ctx.anchor(), (t) => { snap.textContent = t; });
+        snap.disabled = false; for (const b of btns) b.disabled = false;
+        snap.textContent = r && r.ok ? "Snapped ↗" : r && r.error === "drm" ? "Protected video — use the popup's Screenshot" : r && r.error === "explain" ? "Couldn't explain" : "Couldn't snap";
+      });
+      const sheet = mk("button", "wt-sheet", "All explained lines ↗"); sheet.type = "button";
+      sheet.title = "Every chunk you explained on this video, gathered as one Study sheet";
+      sheet.addEventListener("click", (ev) => {
+        ev.stopPropagation(); sheet.disabled = true;
+        send({ type: "TIPS_SHEET", base, lang: vocabPoolLang, title: document.title, url: location.href }).then((r) => {
+          sheet.disabled = false;
+          if (!r || !r.ok) sheet.textContent = r && r.error === "empty" ? "No tips saved yet" : "Couldn't open the sheet";
+        });
+      });
+      act.append(nsel, snap, sheet);
+      return act;
+    };
+    let snapChunks = 1; // how many chunks the card shows and a snap carries (1 · 2 · 3)
+
+    // ── "Explain this chunk" card (the ﹖ hint button) ───────────────────────
+    // Over the video: a pager (‹ chunk k / n ›), the shown chunks' sentences
+    // (numbered straight through), each chunk's Translation · Grammar · Words,
+    // and the actions row. One cached VOCAB_EXPLAIN call per chunk. Reuses the
+    // pinned bubble + close/resume.
+    const card = { k0: -1, n: 1, list: [] };
+    const renderChunkCard = (anchor) => {
+      const list = card.list, k0 = card.k0;
+      const first = list[k0]; if (!first) return;
+      const n = Math.max(1, Math.min(card.n, list.length - k0));
       wtip.textContent = "";
       wtip.classList.add("pinned", "wt-explain");
-      if (!content.loading && !content.error && content.sentence) {
-        // A Shot taken from the popup on this page attaches this line and its
+      const ex0 = lineExplainCache.get(first.text);
+      if (ex0 && !ex0.error) {
+        // A Shot taken from the popup on this page attaches this chunk and its
         // tips (content/shot-capture.js reads it) — the DRM-safe route to a snap.
         const lr = anchor.getBoundingClientRect();
-        window.__svOverlayLine = { s: content.sentence, tr: content.translation || "", g: content.grammar || "", words: content.words || [], lang: content.lang || vocabPoolLang,
+        window.__svOverlayLine = { s: first.text, tr: ex0.tr || "", g: ex0.g || "", words: ex0.words || [], lang: ex0.lang || vocabPoolLang, sentences: first.sentences,
           rect: { x: lr.left + scrollX, y: lr.top + scrollY, w: lr.width, h: lr.height }, at: Date.now() };
       }
-      const sent = document.createElement("div");
-      sent.className = "wt-line"; sent.dir = "auto"; sent.textContent = content.sentence || "";
-      wtip.appendChild(sent);
-      const body = document.createElement("div"); body.className = "wt-body"; wtip.appendChild(body);
-      const addSect = (label, node) => {
-        const s = document.createElement("div"); s.className = "wt-sect";
-        const lb = document.createElement("div"); lb.className = "wt-lbl"; lb.textContent = label; s.appendChild(lb);
-        s.appendChild(node); body.appendChild(s);
-      };
-      const line = (text) => { const v = document.createElement("div"); v.className = "wt-val"; v.dir = "auto"; v.textContent = text; return v; };
-      if (content.loading) { body.appendChild(line("…")); }
-      else if (content.error) { body.appendChild(line(content.error)); }
-      else {
-        if (content.translation) addSect("Translation", line(content.translation));
-        if (content.grammar) {
-          const parts = String(content.grammar).split(/\s*•\s*/).map((x) => x.trim()).filter(Boolean);
-          const gbox = document.createElement("div"); gbox.className = "wt-val wt-grambox"; gbox.dir = "auto";
-          if (parts.length > 1) { for (const pt of parts) { const li = document.createElement("div"); li.className = "wt-gpt"; li.textContent = pt; gbox.appendChild(li); } }
-          else gbox.textContent = content.grammar;
-          addSect("Grammar", gbox);
-        }
-        if (content.words && content.words.length) {
-          const list = document.createElement("div"); list.className = "wt-words";
-          for (const x of content.words) {
-            const b = document.createElement("b"); b.textContent = x.w; b.dir = "auto";
-            const m = document.createElement("span"); m.textContent = x.m; m.dir = "auto";
-            list.appendChild(b); list.appendChild(m);
-          }
-          addSect("Words", list);
-        }
+      const pager = mk("div", "wt-pager");
+      const prev = mk("button", "wt-pg", "‹"); prev.type = "button"; prev.title = "Previous chunk (the video jumps there)"; prev.disabled = k0 <= 0;
+      const next = mk("button", "wt-pg", "›"); next.type = "button"; next.title = "Next chunk (the video jumps there)"; next.disabled = k0 + n >= list.length;
+      const lbl = mk("span", "wt-chunk", "chunk " + (k0 + 1) + (n > 1 ? "–" + (k0 + n) : "") + " / " + list.length + " · " + fmtT(first.startMs));
+      prev.addEventListener("click", (ev) => { ev.stopPropagation(); goChunk(k0 - 1, anchor); });
+      next.addEventListener("click", (ev) => { ev.stopPropagation(); goChunk(k0 + n, anchor); });
+      pager.append(prev, lbl, next); wtip.appendChild(pager);
+      const scroller = mk("div", "wt-scroll"); // sentences + tips of every shown chunk scroll together
+      let no = 1;
+      for (let k = k0; k < k0 + n; k++) {
+        const ch = list[k]; const ex = lineExplainCache.get(ch.text);
+        if (k > k0) scroller.appendChild(mk("div", "wt-div", "chunk " + (k + 1) + " · " + fmtT(ch.startMs)));
+        scroller.appendChild(buildSents(ch, no)); no += ch.sentences.length;
+        scroller.appendChild(buildTips(ex));
+        if (!ex) explainChunk(ch, list).then(() => { if (wtip._pinned && card.k0 === k0 && card.list === list) renderChunkCard(anchor); });
       }
-      const act = document.createElement("div"); act.className = "wt-actions";
-      if (!content.loading && !content.error) {
-        // Snap: this video frame as a Shot, with this line and its tips attached —
-        // the editor then offers the frame, the translation painted onto it, the
-        // margin notes and the Study card. The overlay hides for the capture.
-        const snap = document.createElement("button"); snap.type = "button"; snap.className = "wt-sheet wt-snap"; snap.textContent = "Frame + this line";
-        snap.title = "Capture this video frame as a Shot, with this line's translation, grammar and words under it";
-        snap.addEventListener("click", async (ev) => {
-          ev.stopPropagation(); snap.disabled = true; snap.textContent = "Snapping…";
-          // The frame comes straight from the <video> at its native size — no
-          // player UI, no overlay, no tab-capture permission. Media-source
-          // players (YouTube) allow it; a DRM stream taints the canvas, and the
-          // popup's Screenshot (which may capture the tab) is the way there —
-          // it attaches this line too (window.__svOverlayLine).
-          const v = liveVideoEl(video) || video;
-          const vr = v.getBoundingClientRect(), lr = anchor.getBoundingClientRect();
-          const w = v.videoWidth || Math.round(vr.width), h = v.videoHeight || Math.round(vr.height);
-          let frame = null;
-          try { const cv = document.createElement("canvas"); cv.width = w; cv.height = h; cv.getContext("2d").drawImage(v, 0, 0, w, h); frame = cv.toDataURL("image/jpeg", 0.92); } catch (e) { frame = null; }
-          if (!frame || w < 8 || h < 8) { snap.disabled = false; snap.textContent = "Protected video — use the popup's Screenshot"; return; }
-          const kx = w / (vr.width || 1), ky = h / (vr.height || 1);
-          const lineRect = { x: (lr.left - vr.left) * kx, y: (lr.top - vr.top) * ky, w: lr.width * kx, h: lr.height * ky };
-          const r = await send({ type: "TIPS_SNAP", base, lang: content.lang || vocabPoolLang, title: document.title, url: location.href, frame, w, h, lineRect,
-            line: { s: content.sentence, tr: content.translation, g: content.grammar, lang: content.lang || "", words: content.words || [] } });
-          snap.disabled = false;
-          snap.textContent = r && r.ok ? "Snapped ↗" : "Couldn't snap";
-        });
-        act.appendChild(snap);
-        // Every line explained on this video is kept with the video; the sheet
-        // opens them all as one Study card in the Shot editor.
-        const sheet = document.createElement("button"); sheet.type = "button"; sheet.className = "wt-sheet"; sheet.textContent = "All explained lines ↗";
-        sheet.title = "Every line you explained on this video, gathered as one Study sheet";
-        sheet.addEventListener("click", (ev) => {
-          ev.stopPropagation(); sheet.disabled = true;
-          send({ type: "TIPS_SHEET", base, lang: vocabPoolLang, title: document.title, url: location.href }).then((r) => {
-            sheet.disabled = false;
-            if (!r || !r.ok) sheet.textContent = r && r.error === "empty" ? "No tips saved yet" : "Couldn't open the sheet";
-          });
-        });
-        act.appendChild(sheet);
-      }
-      const close = document.createElement("button"); close.type = "button"; close.className = "wt-close"; close.title = "Close"; close.textContent = "×";
+      wtip.appendChild(scroller);
+      const act = buildActions({ list, k0, n, setN: (m) => { card.n = m; snapChunks = m; renderChunkCard(anchor); }, anchor: () => anchor });
+      const close = mk("button", "wt-close", "×"); close.type = "button"; close.title = "Close";
       close.addEventListener("click", (ev) => { ev.stopPropagation(); closeWtip(true); });
       act.appendChild(close); wtip.appendChild(act);
       wtip.dir = "auto";
       positionWtip(anchor);
     };
-
+    const goChunk = (k, anchor) => {
+      if (k < 0 || k >= card.list.length) return;
+      card.k0 = k; wtip._lineSig = card.list[k].text;
+      const v = liveVideoEl(video) || video;
+      try { v.currentTime = card.list[k].startMs / 1000 + 0.05; } catch (e) {}
+      renderChunkCard(anchor);
+    };
     const openLineCard = (row) => {
       const cue = curCue;
       if (!cue) return;
-      // The line's own sentence group: groups partition the cues, so two
-      // explained lines never share text (the old cross-cue walk did).
-      const sentence = (cue.grp ? cue.grp.orig : cue.original) || (row && row.textContent) || "";
-      if (!sentence) return;
+      // The tips belong to the CHUNK holding this line — a passage of a few
+      // sentences — shown once for the whole chunk, with the neighbouring
+      // chunks handed over as context only.
+      const list = chunksNow();
+      if (!list.length) return;
+      let ki = chunkOfCue(list, cue); if (ki < 0) ki = 0;
       const anchor = row || els.__orig;
       const v = liveVideoEl(video) || video;
+      // With the story board beside the video, the tips go there and the
+      // picture stays clean; the floating card is for sites without a board
+      // (and for fullscreen).
+      if (boardVisible()) { if (v && !v.paused) v.pause(); boardFocus(ki, true); return; }
       wtip._resume = !!(v && !v.paused);
       if (v && !v.paused) v.pause();
-      wtip._pinned = true; wtip._word = null; wtip._lineSig = sentence;
-      const cached = lineExplainCache.get(sentence);
-      renderLineCard(anchor, cached ? { sentence, translation: cached.tr, grammar: cached.g, lang: cached.lang || "", words: cached.words } : { sentence, loading: true });
+      wtip._pinned = true; wtip._word = null; wtip._lineSig = list[ki].text;
+      card.list = list; card.k0 = ki; card.n = snapChunks;
+      renderChunkCard(anchor);
       setTimeout(() => {
         document.addEventListener("click", onDocClick, true);
         document.addEventListener("keydown", onKey, true);
       }, 0);
-      if (!cached && !lineExplainFetching.has(sentence)) {
-        lineExplainFetching.add(sentence);
-        send({ type: "VOCAB_EXPLAIN", base, s: sentence, lang: vocabPoolLang })
-          .then((r) => {
-            lineExplainFetching.delete(sentence);
-            if (r && r.tr) lineExplainCache.set(sentence, { tr: r.tr, g: r.g, lang: r.lang || "", words: r.words || [] });
-            if (wtip._pinned && wtip._lineSig === sentence) {
-              renderLineCard(anchor, (r && r.tr)
-                ? { sentence, translation: r.tr, grammar: r.g, lang: r.lang || "", words: r.words || [] }
-                : { sentence, error: (r && r.error) ? "couldn't explain — check the provider key in the popup" : "no explanation — close & click ﹖ again to retry" });
-            }
-          });
-      }
+    };
+
+    // ── Story board: the chunks beside the video (YouTube's side column) ─────
+    // Docked above the suggested videos, so the picture carries only the
+    // subtitles: every chunk in order with its translation, the playing one
+    // highlighted and followed, the explained ones marked; the open chunk
+    // shows its Translation · Grammar · Words and the actions row.
+    const board = { el: null, list: [], ki: -1, open: -1, sig: "", at: 0, collapsed: false };
+    try { board.collapsed = localStorage.getItem("sv-board-collapsed") === "1"; } catch (e) {}
+    const boardVisible = () => !!(board.el && board.el.isConnected && !board.collapsed && !document.fullscreenElement && board.el.offsetParent !== null);
+    const ensureBoard = () => {
+      if (board.el && board.el.isConnected) return board.el;
+      if (!(adapter && adapter.site === "youtube")) return null;
+      const host = document.querySelector("ytd-watch-flexy #secondary-inner") || document.querySelector("ytd-watch-flexy #secondary");
+      if (!host) return null;
+      const b = mk("div", "sv-board" + (board.collapsed ? " collapsed" : "")); b.id = "sv-board"; b.dir = "auto";
+      const head = mk("div", "svb-head");
+      const toggle = mk("button", "svb-toggle", board.collapsed ? "Show" : "Hide"); toggle.type = "button";
+      toggle.addEventListener("click", () => { board.collapsed = !board.collapsed; try { localStorage.setItem("sv-board-collapsed", board.collapsed ? "1" : ""); } catch (e) {} b.classList.toggle("collapsed", board.collapsed); toggle.textContent = board.collapsed ? "Show" : "Hide"; board.sig = ""; });
+      head.append(mk("span", "svb-logo", "S"), mk("b", null, "Story board"), mk("span", "svb-count", ""), toggle);
+      b.appendChild(head); b.appendChild(mk("div", "svb-list"));
+      host.insertBefore(b, host.firstChild);
+      board.el = b; return b;
+    };
+    const boardRow = (ch, k) => {
+      const row = mk("div", "svb-chunk" + (k === board.ki ? " on" : "") + (k === board.open ? " open" : "")); row.dataset.k = String(k);
+      const time = mk("button", "svb-time", fmtT(ch.startMs)); time.type = "button"; time.title = "Play from here";
+      time.addEventListener("click", (ev) => { ev.stopPropagation(); const v = liveVideoEl(video) || video; try { v.currentTime = ch.startMs / 1000 + 0.05; const pr = v.play(); if (pr && pr.catch) pr.catch(() => {}); } catch (e) {} });
+      const main = mk("div", "svb-main");
+      ch.sentences.forEach((x, i) => {
+        const r = mk("div", "svb-sent"); r.appendChild(mk("i", "svb-sn", String(i + 1))); const t = mk("span", null, x.s); t.dir = "auto"; r.appendChild(t); main.appendChild(r);
+        if (x.tr) { const tr = mk("div", "svb-tr", x.tr); tr.dir = "auto"; main.appendChild(tr); }
+      });
+      const ex = lineExplainCache.get(ch.text);
+      if (k === board.open) {
+        main.appendChild(buildTips(ex));
+        main.appendChild(buildActions({ list: board.list, k0: k, n: snapChunks, setN: (m) => { snapChunks = m; board.sig = ""; boardTick(true); }, anchor: () => els.__orig }));
+      } else if (ex && !ex.error) row.appendChild(mk("i", "svb-mark", "✓ tips"));
+      else if (k === board.ki) { const b = mk("button", "svb-explain", "Explain"); b.type = "button"; b.addEventListener("click", (ev) => { ev.stopPropagation(); boardFocus(k, false); }); row.appendChild(b); }
+      row.addEventListener("click", () => { if (board.open === k) { board.open = -1; board.sig = ""; boardTick(true); } else boardFocus(k, false); });
+      row.append(time, main);
+      return row;
+    };
+    const boardScrollTo = (k, smooth) => {
+      const listEl = board.el && board.el.querySelector(".svb-list"); const row = listEl && listEl.querySelector('.svb-chunk[data-k="' + k + '"]');
+      if (!row) return;
+      const target = Math.max(0, row.offsetTop - listEl.clientHeight / 3);
+      try { listEl.scrollTo({ top: target, behavior: smooth ? "smooth" : "auto" }); } catch (e) { listEl.scrollTop = target; }
+    };
+    const renderBoard = () => {
+      const b = ensureBoard(); if (!b) return;
+      const listEl = b.querySelector(".svb-list"); const st = listEl.scrollTop;
+      b.querySelector(".svb-count").textContent = board.list.length + (board.list.length === 1 ? " chunk" : " chunks");
+      listEl.textContent = "";
+      board.list.forEach((ch, k) => listEl.appendChild(boardRow(ch, k)));
+      listEl.scrollTop = st;
+    };
+    // Open a chunk on the board: explain it (cached), show its tips, follow it.
+    const boardFocus = (k, flash) => {
+      const list = board.list.length ? board.list : chunksNow(); board.list = list;
+      const ch = list[k]; if (!ch) return;
+      board.open = k; board.sig = ""; boardTick(true); boardScrollTo(k, true);
+      if (flash) { const row = board.el && board.el.querySelector('.svb-chunk[data-k="' + k + '"]'); if (row) { row.classList.add("flash"); setTimeout(() => row.classList.remove("flash"), 1200); } }
+      if (!lineExplainCache.get(ch.text)) explainChunk(ch, list).then(() => { board.sig = ""; boardTick(true); });
+    };
+    // Called every frame from tick; does real work at most every 600 ms and
+    // re-renders only when something changed (a new line, a translation, the
+    // playing chunk, an explanation).
+    const boardTick = (force) => {
+      const now = performance.now();
+      if (!force && now - board.at < 600) return;
+      board.at = now;
+      const b = ensureBoard(); if (!b || board.collapsed) return;
+      const list = chunksNow();
+      const ki = curCue ? chunkOfCue(list, curCue) : -1;
+      // Tips at the start of each chunk: when the playing chunk changes and it
+      // is already explained, it opens by itself.
+      if (ki !== board.ki && ki >= 0 && lineExplainCache.get(list[ki].text)) board.open = ki;
+      const trN = list.reduce((n, ch) => n + ch.sentences.filter((x) => x.tr).length, 0);
+      const exN = list.filter((ch) => lineExplainCache.has(ch.text)).length;
+      const sig = [list.length, trN, ki, exN, board.open, snapChunks].join(":");
+      if (sig === board.sig) return;
+      const follow = ki !== board.ki;
+      board.sig = sig; board.list = list; board.ki = ki;
+      renderBoard();
+      if (follow && ki >= 0) boardScrollTo(ki, true);
     };
 
     // No hover handler — a word's card opens on CLICK only (openWordCard above),
@@ -2111,6 +2287,7 @@
     // video you've never started (e.g. a muted autoplay promo on a browse page).
     let engaged = false;
     const tick = () => {
+      boardTick(); // the story board follows the playhead (YouTube's side column)
       video = liveVideoEl(video); // DW's video.js can swap the <video> element mid-play
       if (video && !video.paused && (video.currentTime || 0) > 0.5) engaged = true;
       // Latched live detection. Infinity ⇒ live; a real finite duration ⇒ VOD;
@@ -2563,6 +2740,7 @@
     audioCues = null;
     const el = document.getElementById("copilot-subs");
     if (el) el.remove();
+    { const b = document.getElementById("sv-board"); if (b) b.remove(); }
     currentRunKey = null;
     schedule(); // resume caption scraping if the page has its own captions
   }

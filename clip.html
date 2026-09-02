@@ -39,6 +39,10 @@
         <div class="rowf"><span>In</span><button class="chip" id="setIn">Set to playhead</button><b id="inT">0:00</b></div>
         <div class="rowf"><span>Out</span><button class="chip" id="setOut">Set to playhead</button><b id="outT">0:00</b></div>
         <div class="note" id="trimNote">Whole clip. Drag the two handles on the bar, or use these buttons.</div>
+        <div class="rowf" id="chunkRow" hidden><span>Chunks</span>
+          <span class="seg2" id="chunkSel" title="Trim to whole chunks — passages of a few sentences — starting at the in-point, so no passage is cut in the middle"><button data-n="1">1</button><button data-n="2">2</button><button data-n="3">3</button></span>
+          <span class="note" id="chunkNote"></span>
+        </div>
       </div>
       <div class="grp">
         <h3 class="ov">Crop</h3>
@@ -51,6 +55,8 @@
         <div class="rowf"><span>Show</span>
           <span class="seg2" id="subSel"><button data-s="target" class="on">Translation</button><button data-s="both">Both</button><button data-s="off">Off</button></span>
         </div>
+        <button class="btn" id="clipTipsBtn" title="Explain every line inside the trim range and open them as one Study sheet — Slides for Instagram there makes the carousel pages">Tips for this clip</button>
+        <div class="note" id="clipTipsNote"></div>
       </div>
       <div class="grp">
         <h3 class="ov">Dub — translated voice</h3>
@@ -63,7 +69,10 @@
       </div>
       <div class="grp">
         <h3 class="ov">Export</h3>
-        <div class="note" id="fmtNote">WebM · re-cut to your in/out and crop.</div>
+        <div class="rowf"><span>Layout</span>
+          <span class="seg2" id="layoutSel"><button data-l="orig" class="on">Original</button><button data-l="ig45">Instagram 4:5</button><button data-l="reel">Reel 9:16</button></span>
+        </div>
+        <div class="note" id="fmtNote">Re-cut to your in/out and crop.</div>
         <button class="btn-primary" id="exportBtn"><span id="exportLbl">Export &amp; download</span></button>
         <div class="prog" id="prog" hidden><i id="progBar"></i></div>
         <button class="btn" id="dlOrig">Download the full recording</button>
@@ -76,6 +85,7 @@
   <div class="cempty" id="empty" hidden>No clip to show.</div>
   <div class="ctoast" id="toast" hidden></div>
   <script src="shared/voices.js"></script>
+  <script src="shared/cues.js"></script>
   <script src="clip.js"></script>
 </body>
 </html>

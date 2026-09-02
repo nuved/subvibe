@@ -370,24 +370,33 @@ test("studySentences: one side of the pairs in reading order, the other side as 
   assert.equal(S.studyKey("de", "fa"), "de|fa");
 });
 
-test("buildStudy: marks are kept only when valid, notes referenced only when they exist, skipped sentences fall back to plain tokens", () => {
+test("buildStudy (v2): tips live on the chunk, marks on the sentences; invalid marks and unknown notes are dropped; skipped sentences fall back", () => {
   const input = { blocks: [{ b: "b0", sentences: [{ i: 0, text: "Das Modell hat gebrochen.", meaning: "مدل شکست." }, { i: 1, text: "Zweiter Satz.", meaning: "دوم." }] }] };
-  const out = { sentences: [{ i: 0, simple: "Das Modell brach.", tokens: [
-      { w: "Das", g: "n", v: 0, n: [1] }, { w: "Modell", g: "n", v: 0, n: [1] }, { w: "hat", g: "", v: 1, n: [] }, { w: "gebrochen.", g: "x", v: 1, n: [2, 9] } ],
-    notes: [{ n: 1, term: "Das Modell", text: "فاعل، خنثی." }, { n: 2, term: "hat … gebrochen", text: "Perfekt." }, { n: 3, term: "", text: "" }] }],
-    summaries: [{ b: "b0", text: "Ein Rekord." }] };
-  const blocks = S.buildStudy(input, out);
-  assert.equal(blocks.length, 1); assert.equal(blocks[0].summary, "Ein Rekord.");
-  const s0 = blocks[0].sentences[0];
+  const out = { blocks: [{ b: "b0", grammar: "Perfekt • Verbklammer", simple: "Das Modell brach. Zweiter Satz.",
+    notes: [{ n: 1, term: "Das Modell", pos: "noun", level: "A2", forms: "das Modell · die Modelle", text: "فاعل، خنثی." }, { n: 2, term: "hat … gebrochen", pos: "verb", level: "B1", forms: "brechen · brach · gebrochen · irregular", text: "Perfekt." }, { n: 3, term: "", pos: "x", level: "Z9", forms: "", text: "" }],
+    sentences: [{ i: 0, tokens: [{ w: "Das", g: "n", v: 0, n: [1], p: "art" }, { w: "Modell", g: "n", v: 0, n: [1], p: "n" }, { w: "hat", g: "", v: 1, n: [], p: "aux" }, { w: "gebrochen.", g: "x", v: 1, n: [2, 9], p: "v" }] }] }] };
+  const blocks = S.buildStudy(input, out, "de");
+  assert.equal(blocks.length, 1);
+  const b0 = blocks[0];
+  assert.equal(b0.grammar, "Perfekt • Verbklammer"); assert.equal(b0.simple, "Das Modell brach. Zweiter Satz.");
+  assert.deepEqual(b0.notes.map((x) => [x.n, x.pos, x.level, x.forms]), [[1, "noun", "A2", "das Modell · die Modelle"], [2, "verb", "B1", "brechen · brach · gebrochen · irregular"]], "empty note dropped; pos/level/forms kept");
+  const s0 = b0.sentences[0];
   assert.deepEqual(s0.tokens.map((t) => t.g), ["n", "n", "", ""], "invalid gender x dropped");
-  assert.deepEqual(s0.tokens.map((t) => t.v), [0, 0, 1, 1]);
+  assert.deepEqual(s0.tokens.map((t) => t.p), ["art", "n", "aux", "v"], "per-word character kept");
   assert.deepEqual(s0.tokens[3].n, [2], "note 9 does not exist → dropped");
-  assert.equal(s0.notes.length, 2, "empty note dropped"); assert.equal(s0.simple, "Das Modell brach."); assert.equal(s0.meaning, "مدل شکست."); assert.equal(s0.grammar, "");
-  const s1 = blocks[0].sentences[1];
-  assert.deepEqual(s1.tokens.map((t) => t.w), ["Zweiter", "Satz."]); assert.equal(s1.notes.length, 0); assert.equal(s1.simple, "");
+  assert.equal(s0.meaning, "مدل شکست."); assert.equal(s0.simple, undefined, "no per-sentence tips in v2");
+  const s1 = b0.sentences[1];
+  assert.deepEqual(s1.tokens.map((t) => t.w), ["Zweiter", "Satz."]);
   assert.deepEqual(S.studyMarks(blocks), { m: false, f: false, n: true, v: true, notes: true });
 });
 
+test("normalizeStudy: a v1 analysis (tips per sentence) becomes one block per sentence; v2 passes through", () => {
+  const v1 = [{ b: "b0", summary: "x", sentences: [{ text: "A.", meaning: "آ.", tokens: [{ w: "A.", g: "", v: 0, n: [1] }], notes: [{ n: 1, term: "A", text: "first" }], simple: "A!", grammar: "g" }, { text: "B.", meaning: "ب.", tokens: [], notes: [], simple: "", grammar: "" }] }];
+  const n = S.normalizeStudy(v1);
+  assert.equal(n.length, 2); assert.equal(n[0].b, "b0.0"); assert.equal(n[0].simple, "A!"); assert.equal(n[0].grammar, "g"); assert.deepEqual(n[0].notes.map((x) => x.term), ["A"]); assert.equal(n[0].sentences[0].text, "A.");
+  const v2 = [{ b: "c0", grammar: "", simple: "", notes: [], sentences: [{ text: "C.", meaning: "", tokens: [] }] }];
+  assert.deepEqual(S.normalizeStudy(v2).map((b) => b.b), ["c0"]);
+});
 test("tipsSheet: explained lines become sentence pairs and a ready-made study card, word notes attached to their tokens", () => {
   const r = S.tipsSheet([
     { s: "Ich muss nach Hause gehen.", tr: "باید برم خونه.", g: "Modal + Infinitiv am Ende.", words: [{ w: "nach Hause", m: "به خانه" }, { w: "gehen", m: "رفتن" }] },
@@ -396,12 +405,15 @@ test("tipsSheet: explained lines become sentence pairs and a ready-made study ca
   ]);
   assert.equal(r.blocks.length, 2);
   assert.deepEqual(r.blocks[0].pairs, [{ o: "Ich muss nach Hause gehen.", t: "باید برم خونه." }]);
-  const s0 = r.study[0].sentences[0];
-  assert.deepEqual(s0.notes.map((x) => [x.n, x.term]), [[1, "nach Hause"], [2, "gehen"]], "words are numbered from 1");
-  assert.equal(s0.grammar, "Modal + Infinitiv am Ende.", "the grammar note is its own box, not note 1");
+  const b0 = r.study[0], s0 = b0.sentences[0];
+  assert.deepEqual(b0.notes.map((x) => [x.n, x.term]), [[1, "nach Hause"], [2, "gehen"]], "words are numbered from 1, on the chunk");
+  assert.equal(b0.grammar, "Modal + Infinitiv am Ende.", "the grammar note is the chunk's box");
   assert.deepEqual(s0.tokens.map((t) => t.n), [[], [], [], [1], [2]], "phrase note on its last word, punctuation ignored");
   assert.equal(s0.meaning, "باید برم خونه.");
-  assert.equal(r.study[1].sentences[0].notes.length, 0); assert.equal(r.study[1].sentences[0].grammar, "");
+  assert.equal(r.study[1].notes.length, 0); assert.equal(r.study[1].grammar, "");
+  // a chunk entry with its own sentences keeps them apart, notes on the chunk
+  const c = S.tipsSheet([{ s: "Hallo. Wie geht es?", tr: "سلام. چطوری؟", g: "", words: [{ w: "geht", m: "می‌رود", pos: "verb", level: "A1", forms: "gehen · ging · gegangen · irregular" }], sentences: [{ s: "Hallo.", tr: "سلام." }, { s: "Wie geht es?", tr: "چطوری؟" }] }]);
+  assert.equal(c.study[0].sentences.length, 2); assert.deepEqual(c.study[0].sentences[1].tokens.map((t) => t.n), [[], [1], []]); assert.equal(c.study[0].notes[0].forms, "gehen · ging · gegangen · irregular");
 });
 
 test("tipsSheet: a line contained in a longer explained line is dropped (pre-sentence-cut overlaps)", () => {
@@ -414,7 +426,7 @@ test("tipsSheet: a line contained in a longer explained line is dropped (pre-sen
 
 test("gender marks exist only for languages that have grammatical gender; the legend article comes from the language", () => {
   const input = { blocks: [{ b: "b0", sentences: [{ i: 0, text: "The cat sleeps.", meaning: "گربه می‌خوابد." }] }] };
-  const out = { sentences: [{ i: 0, simple: "", grammar: "", tokens: [{ w: "The", g: "f", v: 0, n: [] }, { w: "cat", g: "f", v: 0, n: [] }, { w: "sleeps.", g: "", v: 0, n: [] }], notes: [] }], summaries: [] };
+  const out = { blocks: [{ b: "b0", grammar: "", simple: "", notes: [], sentences: [{ i: 0, tokens: [{ w: "The", g: "f", v: 0, n: [] }, { w: "cat", g: "f", v: 0, n: [] }, { w: "sleeps.", g: "", v: 0, n: [] }] }] }] };
   assert.deepEqual(S.buildStudy(input, out, "en")[0].sentences[0].tokens.map((t) => t.g), ["", "", ""], "English: a model's gender slip is dropped");
   assert.deepEqual(S.buildStudy(input, out, "de")[0].sentences[0].tokens.map((t) => t.g), ["f", "f", ""], "German keeps it");
   assert.equal(S.isGendered("en"), false); assert.equal(S.isGendered("fa"), false); assert.equal(S.isGendered("de-DE"), true); assert.equal(S.isGendered("fr"), true);

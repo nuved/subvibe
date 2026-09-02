@@ -103,7 +103,55 @@
   }
 
   // ── export: replay in→out through a cropped canvas, record to WebM ──
-  function pickMime() { return ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"].find((m) => MediaRecorder.isTypeSupported(m)) || ""; }
+  // MP4 (H.264 + AAC) when the browser can record it — Instagram takes MP4,
+  // not WebM; the original layout stays WebM unless MP4 is the only option.
+  const MP4S = ["video/mp4;codecs=avc1.42E01E,mp4a.40.2", "video/mp4;codecs=avc1,mp4a.40.2", "video/mp4"];
+  const WEBMS = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"];
+  function pickMime(preferMp4) { return (preferMp4 ? [...MP4S, ...WEBMS] : [...WEBMS, ...MP4S]).find((m) => MediaRecorder.isTypeSupported(m)) || ""; }
+  const extOf = (mime) => (/mp4/.test(mime || "") ? "mp4" : "webm");
+  // ── Instagram layouts: the video on a card, the lines in a band BELOW it ──
+  // (never over the picture, so a creator's own burned-in captions stay clear).
+  let layoutMode = "orig"; // orig | ig45 | reel
+  const LAYOUTS = { ig45: { W: 1080, H: 1350, top: 60, videoMax: 0.6 }, reel: { W: 1080, H: 1920, top: 200, videoMax: 0.52 } };
+  const BG = ["#D8F1D3", "#CFECE1", "#E1EDC9"]; // Meadow — the Shot editor's gradient family
+  function layoutGeom(sw, sh) {
+    const L = LAYOUTS[layoutMode]; if (!L) return null;
+    const EDGE = 48, maxW = L.W - EDGE * 2, maxH = Math.round(L.H * L.videoMax);
+    const k = Math.min(maxW / sw, maxH / sh);
+    const bw = Math.round(sw * k) & ~1, bh = Math.round(sh * k) & ~1;
+    return { W: L.W, H: L.H, box: { x: Math.round((L.W - bw) / 2), y: L.top, w: bw, h: bh }, bandY: L.top + bh + 44, bandH: L.H - (L.top + bh + 44) - 90, EDGE };
+  }
+  function wrapLines(ctx, text, maxW, max) {
+    const words = String(text || "").split(/\s+/).filter(Boolean), out = []; let cur = "";
+    for (const w of words) { const t = cur ? cur + " " + w : w; if (!cur || ctx.measureText(t).width <= maxW) cur = t; else { out.push(cur); cur = w; if (out.length === max - 1) break; } }
+    if (cur && out.length < max) out.push(cur);
+    return out;
+  }
+  function composeFrame(ctx, src, geom, sx, sy, sw, sh, clipMs) {
+    const { W, H, box, EDGE } = geom;
+    const grad = ctx.createLinearGradient(0, 0, W, H); grad.addColorStop(0, BG[0]); grad.addColorStop(0.55, BG[1]); grad.addColorStop(1, BG[2]);
+    ctx.fillStyle = grad; ctx.fillRect(0, 0, W, H);
+    ctx.save(); ctx.shadowColor = "rgba(40,20,10,.3)"; ctx.shadowBlur = 30; ctx.shadowOffsetY = 10; ctx.fillStyle = "#000";
+    ctx.beginPath(); ctx.roundRect(box.x, box.y, box.w, box.h, 24); ctx.fill(); ctx.restore();
+    ctx.save(); ctx.beginPath(); ctx.roundRect(box.x, box.y, box.w, box.h, 24); ctx.clip();
+    try { ctx.drawImage(src, sx, sy, sw, sh, box.x, box.y, box.w, box.h); } catch (e) {}
+    ctx.restore();
+    const c = subsMode !== "off" ? cueAt(clipMs) : null;
+    if (c) {
+      const lines = [];
+      if (subsMode === "both" && c.o) lines.push({ t: c.o, font: "600 44px system-ui, -apple-system, 'Segoe UI', sans-serif", lh: 56, color: "#241F1A" });
+      if (c.text) lines.push({ t: c.text, font: (subsMode === "both" ? "500 40px" : "600 44px") + " system-ui, -apple-system, 'Segoe UI', sans-serif", lh: subsMode === "both" ? 52 : 56, color: subsMode === "both" ? "#2c6a64" : "#241F1A" });
+      let y = geom.bandY + 8;
+      ctx.textAlign = "center"; ctx.textBaseline = "top";
+      for (const ln of lines) {
+        ctx.font = ln.font; ctx.fillStyle = ln.color; ctx.direction = RTL_RE.test(ln.t) ? "rtl" : "ltr";
+        for (const row of wrapLines(ctx, ln.t, W - EDGE * 2, 2)) { ctx.fillText(row, W / 2, y); y += ln.lh; }
+        y += 10;
+      }
+    }
+    ctx.font = "700 20px ui-monospace, Menlo, Consolas, monospace"; ctx.textAlign = "right"; ctx.textBaseline = "alphabetic"; ctx.direction = "ltr"; ctx.fillStyle = "#A93521";
+    ctx.fillText("SUBVIBE · " + ((rec.target || "").split("-")[0] || "").toUpperCase(), W - EDGE, H - 36);
+  }
   function downloadBlob(blob, name) {
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
     document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 10000);
@@ -136,6 +184,37 @@
       .map((c) => ({ tMs: c.startMs - from, endMs: (c.endMs || c.startMs + 2500) - from, absStart: c.startMs, text: c.text || "", o: c.o || "", dt: c.dt || "" }))
       .sort((a, b) => a.tMs - b.tMs));
     return cues;
+  }
+  // Chunks — passages of a few sentences, cut at natural breaks — over this
+  // clip's lines. The unit tips are given for, and the unit "Trim to chunks"
+  // snaps to, so a passage is never cut in the middle.
+  function chunksOfClip() {
+    const list = cues || [];
+    const C = window.SV_CUES;
+    // Consecutive cues that share one translation are the windows of one
+    // sentence (the group translation is stamped on each of them) — one unit.
+    const units = [];
+    for (const c of list) {
+      const last = units[units.length - 1];
+      if (last && c.text && last.cue.text === c.text) { last.endMs = Math.max(last.endMs, c.endMs); last.original = (last.original + " " + (c.o || "")).replace(/\s+/g, " ").trim(); continue; }
+      units.push({ startMs: c.tMs, endMs: c.endMs, original: c.o || c.text, cue: c });
+    }
+    const ranges = C && C.chunkCues ? C.chunkCues(units, { maxSents: 4, maxChars: 300 }) : units.map((u, i) => ({ from: i, to: i, startMs: u.startMs, endMs: u.endMs }));
+    return ranges.map((r, k) => { const us = units.slice(r.from, r.to + 1); return { k, startMs: r.startMs, endMs: r.endMs, cues: us.map((u) => u.cue),
+      text: us.map((u) => u.original).join(" ").replace(/\s+/g, " ").trim(), sentences: us.map((u) => ({ s: u.original, tr: u.cue.text })) }; });
+  }
+  // Trim to n whole chunks from the in-point.
+  function trimToChunks(n) {
+    const list = chunksOfClip(); if (!list.length) return false;
+    let k0 = list.findIndex((ch) => ch.endMs > inMs); if (k0 < 0) k0 = list.length - 1;
+    const k1 = Math.min(list.length - 1, k0 + n - 1);
+    inMs = Math.max(0, list[k0].startMs - 150); outMs = Math.min(durMs, list[k1].endMs + 300);
+    if (outMs - inMs < 200) outMs = Math.min(durMs, inMs + 200);
+    paintTrim();
+    const sents = list.slice(k0, k1 + 1).reduce((s, ch) => s + ch.sentences.length, 0);
+    $("chunkNote").textContent = "Chunk " + (k0 + 1) + (k1 > k0 ? "–" + (k1 + 1) : "") + " of " + list.length + " · " + sents + (sents === 1 ? " sentence" : " sentences");
+    for (const b of $("chunkSel").querySelectorAll("button")) b.className = +b.dataset.n === n ? "on" : "";
+    return true;
   }
   function cueAt(ms) {
     if (!cues || !cues.length) return null;
@@ -243,7 +322,8 @@
       const cr = crop || { x: 0, y: 0, w: 1, h: 1 };
       const sx = Math.round(cr.x * vw), sy = Math.round(cr.y * vh);
       const sw = Math.max(2, Math.round(cr.w * vw)) & ~1, sh = Math.max(2, Math.round(cr.h * vh)) & ~1; // even dims
-      const canvas = document.createElement("canvas"); canvas.width = sw; canvas.height = sh;
+      const geom = layoutGeom(sw, sh);
+      const canvas = document.createElement("canvas"); canvas.width = geom ? geom.W : sw; canvas.height = geom ? geom.H : sh;
       const ctx = canvas.getContext("2d");
       const cstream = canvas.captureStream(30);
       const dub = audioMode === "dub" && !!dubSegs;
@@ -256,7 +336,7 @@
       } else {
         try { const ss = src.captureStream ? src.captureStream() : src.mozCaptureStream(); audio = ss.getAudioTracks(); } catch (e) {}
       }
-      const mime = pickMime();
+      const mime = pickMime(!!geom);
       const mixed = new MediaStream([...cstream.getVideoTracks(), ...audio]);
       const chunks = []; const mr = new MediaRecorder(mixed, mime ? { mimeType: mime } : undefined);
       mr.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
@@ -270,7 +350,10 @@
       await new Promise((res) => {
         const step = () => {
           if (src.currentTime >= outS || src.ended) { res(); return; }
-          try { ctx.drawImage(src, sx, sy, sw, sh, 0, 0, sw, sh); drawSubOnCanvas(ctx, sw, sh, src.currentTime * 1000); } catch (e) {}
+          try {
+            if (geom) composeFrame(ctx, src, geom, sx, sy, sw, sh, src.currentTime * 1000);
+            else { ctx.drawImage(src, sx, sy, sw, sh, 0, 0, sw, sh); drawSubOnCanvas(ctx, sw, sh, src.currentTime * 1000); }
+          } catch (e) {}
           $("progBar").style.width = Math.min(100, ((src.currentTime - inS) / Math.max(0.1, outS - inS)) * 100) + "%";
           requestAnimationFrame(step);
         };
@@ -280,7 +363,7 @@
       mr.stop(); await stopped;
       const blob = new Blob(chunks, { type: (mime || "video/webm").split(";")[0] });
       if (!blob.size) toast("Export was empty — keep this tab in front while exporting.");
-      else { downloadBlob(blob, "subvibe-clip-" + (rec.host || "video") + "-" + Date.now() + ".webm"); toast("Exported · " + (blob.size / 1048576).toFixed(1) + " MB"); }
+      else { downloadBlob(blob, "subvibe-clip-" + (rec.host || "video") + "-" + Date.now() + (geom ? "-" + layoutMode : "") + "." + extOf(mime)); toast("Exported · " + (blob.size / 1048576).toFixed(1) + " MB · " + extOf(mime).toUpperCase()); }
     } catch (e) { toast("Export failed — " + ((e && e.message) || e)); }
     finally { stopLiveDub(); exporting = false; $("exportBtn").disabled = false; $("exportLbl").textContent = "Export & download"; $("prog").hidden = true; $("progBar").style.width = "0"; }
   }
@@ -341,17 +424,42 @@
     $("meta").textContent = (r.w ? r.w + "×" + r.h + " · " : "") + fmt(durMs) + " · " + mb + " MB · " + new Date(r.ts).toLocaleString();
     setupScrub(); setupCrop();
     paintTrim();
-    ensureCues().then(() => { renderSub(); if (!cues.length) $("subNote").textContent = "No cached subtitles found for this video — turn SubVibe subtitles on while watching, then re-record."; });
+    ensureCues().then(() => { renderSub(); if (!cues.length) $("subNote").textContent = "No cached subtitles found for this video — turn SubVibe subtitles on while watching, then re-record."; else { const n = chunksOfClip().length; $("chunkRow").hidden = !n; $("chunkNote").textContent = n + (n === 1 ? " chunk" : " chunks") + " in this recording"; } });
     renderRecent();
   }
 
   $("setIn").addEventListener("click", () => { inMs = Math.min(curMs(), outMs - 200); paintTrim(); });
+  $("chunkSel").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b || exporting) return; trimToChunks(+b.dataset.n); });
   $("setOut").addEventListener("click", () => { outMs = Math.max(curMs(), inMs + 200); paintTrim(); });
   $("cropDrawBtn").addEventListener("click", () => setCropDraw(!cropDraw));
   $("cropReset").addEventListener("click", () => { crop = null; setCropDraw(false); paintCrop(); });
   $("dubBtn").addEventListener("click", generateDub);
   $("audioSel").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b || !dubSegs) return; audioMode = b.dataset.a; applyAudioMode(); });
   $("subSel").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; subsMode = b.dataset.s; for (const x of $("subSel").querySelectorAll("button")) x.classList.toggle("on", x === b); renderSub(); });
+  function syncLayout() {
+    for (const b of $("layoutSel").querySelectorAll("button")) b.classList.toggle("on", b.dataset.l === layoutMode);
+    const L = LAYOUTS[layoutMode], mime = pickMime(!!L);
+    $("fmtNote").textContent = L ? (extOf(mime).toUpperCase() + " · " + L.W + "×" + L.H + " · the video on a card, the subtitle lines in the band below it — nothing over the picture." + (extOf(mime) !== "mp4" ? " (This browser can't record MP4; Instagram needs a conversion.)" : ""))
+      : (extOf(mime).toUpperCase() + " · re-cut to your in/out and crop.");
+  }
+  $("layoutSel").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b || exporting) return; layoutMode = b.dataset.l; syncLayout(); });
+  syncLayout();
+  // Tips for this clip: every line in the trim range, explained (cached per line), as one sheet.
+  $("clipTipsBtn").addEventListener("click", async () => {
+    if (!rec) return;
+    const base = clipBase(rec.url); if (!base) { $("clipTipsNote").textContent = "Tips aren't available for this site."; return; }
+    await ensureCues();
+    // Tips are given once per CHUNK (a passage), for every chunk the trim range touches.
+    const lines = chunksOfClip().filter((ch) => ch.text && ch.startMs < outMs && ch.endMs > inMs).map((ch) => ({ s: ch.text, tr: ch.sentences.map((x) => x.tr).join(" ").trim(), sentences: ch.sentences }));
+    if (!lines.length) { $("clipTipsNote").textContent = "No subtitle lines in this range — turn SubVibe subtitles on while watching, then re-record."; return; }
+    const sample = (cues || []).map((c) => c.o || c.text).filter(Boolean).slice(0, 40);
+    $("clipTipsBtn").disabled = true; $("clipTipsNote").textContent = "Explaining " + lines.length + (lines.length === 1 ? " chunk" : " chunks") + "… (a few seconds each, cached afterwards)";
+    const r = await send({ type: "CLIP_TIPS", clipId: rec.id, base, lines, sample, title: rec.title, url: rec.url, target: rec.target });
+    $("clipTipsBtn").disabled = false;
+    $("clipTipsNote").textContent = r && r.ok ? r.count + (r.count === 1 ? " chunk" : " chunks") + " explained — opened as a sheet. Use Slides for Instagram there for the carousel pages."
+      : r && r.error === "no-key" ? "Add an API key in the popup (or connect Claude Code) first." : "Couldn't explain the lines. Try again.";
+  });
+  window.__svClipDebug = { layoutGeom, composeFrame, LAYOUTS, setLayout: (l) => { layoutMode = l; syncLayout(); }, chunksOfClip, trimToChunks, range: () => ({ inMs, outMs, durMs }) }; // harness / verification hook (extension page only)
   $("exportBtn").addEventListener("click", doExport);
   $("dlOrig").addEventListener("click", () => { if (rec) downloadBlob(rec.blob, "subvibe-clip-full-" + Date.now() + ".webm"); });
   $("delBtn").addEventListener("click", async () => {

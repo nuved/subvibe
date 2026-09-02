@@ -430,7 +430,13 @@
     const fM = "400 " + px(15) + "px " + fontStack(rtlE), lhM = px(15 * 1.6);
     const fSimple = "400 " + px(14.5) + "px " + fontStack(rtlS), lhSimple = px(14.5 * 1.55);
     const fNote = "400 " + px(13.5) + "px " + fontStack(rtlE), fTerm = "600 " + px(13.5) + "px " + fontStack(rtlS), lhNote = px(13.5 * 1.55);
+    const blocksV2 = S.normalizeStudy(d.blocks); // v1 analyses (tips per sentence) become one chunk per sentence
     const fLbl = "600 " + px(10) + "px ui-monospace, Menlo, Consolas, monospace";
+    const fPos = "600 " + px(8.5) + "px ui-monospace, Menlo, Consolas, monospace", posH = px(11); // the word's character under it
+    const fNum = "700 " + px(10) + "px ui-monospace, Menlo, Consolas, monospace"; // sentence numbers inside a chunk (grey badge)
+    const POSLBL = { n: "n", v: "v", aux: "aux", adj: "adj", adv: "adv", prep: "prep", conj: "conj", pron: "pron", art: "art", num: "num", int: "int", part: "part" };
+    const showPos = blocksV2.some((b) => (b.sentences || []).some((snt) => (snt.tokens || []).some((t) => t.p)));
+    const lhTok = lhS + (showPos ? posH : 0);
     const fLegend = "600 " + px(11) + "px ui-monospace, Menlo, Consolas, monospace";
     const INK = "#1f1c18", INK2 = "#3d362f", MUTED = "#8a7d6f", TEAL = "#2c6a64", CORAL = "#C93F2B", LINE = "#ebe4d9";
     const ops = []; let y = 0;
@@ -439,7 +445,7 @@
     if (frameBmp) { const fh = Math.round(innerW * frameBmp.height / frameBmp.width); ops.push({ frame: true, y, h: fh }); y += fh + px(18); brk(); }
     // legend: only the marks that occur
     const gendered = S.isGendered(lang);
-    const marks = S.studyMarks(d.blocks);
+    const marks = S.studyMarks(blocksV2);
     const legend = [];
     if (gendered) for (const g of ["m", "f", "n"]) if (marks[g]) { const art = S.articleFor(lang, g); legend.push({ dot: GENDER[g][0], text: (art ? art + " · " : "") + L[g] }); }
     if (marks.v) legend.push({ bar: CORAL, text: (lang || "").split("-")[0] === "de" ? L.vDe : L.v });
@@ -453,24 +459,31 @@
       }
       y += px(18); ops.push({ rule: true, y, h: 1 }); y += px(14);
     }
-    d.blocks.forEach((blk, bi) => {
+    blocksV2.forEach((blk, bi) => {
+      brk();
+      if (bi) { ops.push({ rule: true, y: y - px(6), h: 1 }); }
+      const many = blk.sentences.length > 1;
       blk.sentences.forEach((snt, si) => {
-        brk();
-        if (bi || si) { ops.push({ rule: true, y: y - px(6), h: 1 }); }
-        // 1) the marked sentence — wrap by tokens (a token = word + its superscript)
+        if (si) brk();
+        // 1) the marked sentence — wrap by tokens (a token = word + its superscript); numbered inside a chunk
         mc.font = fS;
-        const toks = snt.tokens.map((t) => { mc.font = fS; const tw = mc.measureText(t.w).width; mc.font = fSup; const sup = t.n && t.n.length ? t.n.join(",") : ""; const sw = sup ? mc.measureText(sup).width + px(2) : 0; return { w: t.w, g: t.g, v: t.v, tw, sup, sw }; });
+        const toks = snt.tokens.map((t) => { mc.font = fS; const tw = mc.measureText(t.w).width; mc.font = fSup; const sup = t.n && t.n.length ? t.n.join(",") : ""; const sw = sup ? mc.measureText(sup).width + px(2) : 0; return { w: t.w, g: t.g, v: t.v, p: t.p || "", tw, sup, sw }; });
         mc.font = fS; const sp = mc.measureText(" ").width;
-        let x = 0; let line = [];
-        const flush = () => { if (!line.length) return; ops.push({ tokens: line, y, rtl: rtlS, h: lhS }); box(0, y, innerW, lhS); y += lhS; line = []; x = 0; };
-        for (const t of toks) { const need = t.tw + t.sw; if (x + need > innerW && line.length) flush(); line.push({ ...t, x }); x += need + sp; }
+        const numW = many ? px(22) : 0;
+        let x = numW; let line = [];
+        const flush = () => { if (!line.length) return; ops.push({ tokens: line, y, rtl: rtlS, h: lhTok, num: many && line[0].x === numW && line === firstLine ? si + 1 : 0 }); box(0, y, innerW, lhTok); y += lhTok; line = []; x = numW; };
+        let firstLine = null;
+        for (const t of toks) { const need = t.tw + t.sw; if (x + need > innerW && line.length) flush(); if (!line.length && !firstLine) firstLine = line; line.push({ ...t, x }); x += need + sp; }
         flush(); y += px(4);
         // 2) meaning (the other side of the pair), teal
         if (snt.meaning && expl !== lang) {
           mc.font = fM; const rtlM = BI_RTL.test(snt.meaning);
-          for (const ln of wrapText(mc, snt.meaning, innerW)) { ops.push({ text: ln, font: fM, color: TEAL, x: rtlM ? innerW : 0, y, align: rtlM ? "right" : "left", dir: rtlM ? "rtl" : "ltr", h: lhM }); box(0, y, innerW, lhM); y += lhM; }
+          for (const ln of wrapText(mc, snt.meaning, innerW - numW)) { ops.push({ text: ln, font: fM, color: TEAL, x: rtlM ? innerW : numW, y, align: rtlM ? "right" : "left", dir: rtlM ? "rtl" : "ltr", h: lhM }); box(numW, y, innerW - numW, lhM); y += lhM; }
           y += px(6);
         }
+      });
+      const snt = blk; // the chunk's tips (grammar · simple · notes) follow its sentences
+      {
         brk();
         // 3a) the grammar note (tips sheets and snaps), in a soft box like the simpler version
         if (snt.grammar) {
@@ -510,10 +523,12 @@
           for (const nt of snt.notes) {
             brk();
             const maxW = innerW - numW - px(6), x0 = rtlE ? innerW - numW - px(6) : numW + px(6);
-            const nl = wrapNote(mc, nt.term, nt.text, fTerm, fNote, maxW);
+            const tag = [nt.pos, nt.level].filter(Boolean).join(" · ");
+            const termText = nt.term ? nt.term + (tag ? "  ·  " + tag : "") + " —" : "";
+            const nl = wrapNote(mc, termText ? termText.replace(/ —$/, "") : "", nt.text, fTerm, fNote, maxW);
             ops.push({ text: String(nt.n), font: fSup, color: CORAL, x: rtlE ? innerW - numW / 2 : numW / 2, y: y + px(1), align: "center", dir: "ltr", h: lhNote });
             if (nt.term) {
-              ops.push({ text: nt.term + " —", font: fTerm, color: INK, x: x0, y: y + px(2), align: rtlE ? "right" : "left", dir: "ltr", h: lhNote });
+              ops.push({ term: true, text: nt.term, tag, font: fTerm, tagFont: fLbl, color: INK, x: x0, y: y + px(2), align: rtlE ? "right" : "left", dir: "ltr", h: lhNote });
               if (nl.termAlone) { box(numW, y, innerW - numW, lhNote); y += lhNote; }
             }
             nl.lines.forEach((ln, i) => {
@@ -521,29 +536,22 @@
               ops.push({ text: ln, font: fNote, color: INK2, x: rtlE ? x0 - off : x0 + off, y: y + px(2), align: rtlE ? "right" : "left", dir: rtlE ? "rtl" : "ltr", h: lhNote });
               box(numW, y, innerW - numW, lhNote); y += lhNote;
             });
+            if (nt.forms) { // a verb's forms, a noun's plural — one quiet line under the note
+              ops.push({ text: nt.forms, font: fLbl, color: MUTED, x: rtlE ? x0 : x0, y: y + px(1), align: rtlE ? "right" : "left", dir: "ltr", h: px(14) });
+              y += px(14);
+            }
             y += px(2);
           }
           y += px(4);
         }
         y += px(10);
-      });
-      // A one-sentence block's summary repeats its simpler version — skip it.
-      if (blk.summary && blk.sentences.length > 1) {
-        brk();
-        mc.font = fM; const lines = wrapText(mc, blk.summary, innerW - px(24));
-        const h = px(8) + px(14) + lines.length * lhM + px(8);
-        ops.push({ softbox: true, y, h, fill: "#F3EDE4" });
-        ops.push({ text: L.summary.toUpperCase(), font: fLbl, color: MUTED, x: rtlE ? innerW - px(12) : px(12), y: y + px(8), align: rtlE ? "right" : "left", dir: "ltr", h: px(14) });
-        let yy = y + px(8) + px(14);
-        for (const ln of lines) { ops.push({ text: ln, font: fM, color: INK, x: rtlE ? innerW - px(12) : px(12), y: yy, align: rtlE ? "right" : "left", dir: rtlE ? "rtl" : "ltr", h: lhM }); box(px(12), yy, innerW - px(24), lhM); yy += lhM; }
-        y += h + px(16);
       }
     });
-    return { ops, boxes, height: Math.max(y, lhS), innerW, PAD, paperW, fonts: { fS, fSup, fLegend }, lhS, px, gendered };
+    return { ops, boxes, height: Math.max(y, lhS), innerW, PAD, paperW, fonts: { fS, fSup, fLegend, fPos, fNum }, lhS, px, gendered, showPos, POSLBL };
   }
   // Paint ops at (ox, oy); `clipY` = [from, to) in op space for a slide page.
   function paintStudyOps(g, L, ox, oy, frameBmp, clipY) {
-    const { ops, innerW, lhS, px, fonts } = L; const { fS, fSup, fLegend } = fonts;
+    const { ops, innerW, lhS, px, fonts, POSLBL } = L; const { fS, fSup, fLegend, fPos, fNum } = fonts;
     const CORAL = "#C93F2B", LINE = "#ebe4d9", INK = "#1f1c18", MUTED = "#8a7d6f";
     const from = clipY ? clipY[0] : -Infinity, to = clipY ? clipY[1] : Infinity;
     const dashUnder = (x, yy, w) => { g.save(); g.strokeStyle = CORAL; g.lineWidth = Math.max(1.5, px(1.5)); g.setLineDash([px(2.5), px(2.5)]); g.beginPath(); g.moveTo(ox + x, oy + yy); g.lineTo(ox + x + w, oy + yy); g.stroke(); g.restore(); };
@@ -563,6 +571,12 @@
         continue;
       }
       if (op.tokens) {
+        if (op.num) { // a sentence's place in its chunk: a quiet grey badge, unlike the coral note numbers
+          const cx0 = ox + (op.rtl ? innerW - px(9) : px(9)), cy0 = oy + op.y + px(12);
+          g.fillStyle = "#EFE9E0"; g.beginPath(); g.arc(cx0, cy0, px(9), 0, Math.PI * 2); g.fill();
+          g.font = fNum; g.fillStyle = MUTED; g.textBaseline = "middle"; g.textAlign = "center"; g.direction = "ltr"; g.fillText(String(op.num), cx0, cy0 + px(0.5));
+          g.textBaseline = "top"; g.textAlign = "left";
+        }
         // RTL study language: lay the same line out from the right edge.
         for (const t of op.tokens) {
           const tx = op.rtl ? innerW - t.x - t.tw - t.sw : t.x, ty = op.y;
@@ -573,7 +587,14 @@
           g.fillText(t.w, ox + wordX, oy + ty + px(4));
           if (t.v) dashUnder(wordX, ty + lhS - px(8), t.tw);
           if (t.sup) { g.font = fSup; g.fillStyle = CORAL; g.fillText(t.sup, ox + (op.rtl ? tx : tx + t.tw + px(2)), oy + ty + px(1)); }
+          if (t.p && L.showPos) { g.font = fPos; g.fillStyle = MUTED; g.textAlign = "center"; g.direction = "ltr"; g.fillText(POSLBL[t.p] || t.p, ox + wordX + t.tw / 2, oy + ty + lhS - px(2)); g.textAlign = "left"; }
         }
+        continue;
+      }
+      if (op.term) { // bold term, then its part of speech · level in the label face
+        g.font = op.font; g.fillStyle = op.color; g.textBaseline = "top"; g.textAlign = op.align; g.direction = "ltr";
+        g.fillText(op.text, ox + op.x, oy + op.y);
+        if (op.tag) { const tw = g.measureText(op.text).width; g.font = op.tagFont; g.fillStyle = MUTED; g.fillText(op.tag, ox + (op.align === "right" ? op.x - tw - px(8) : op.x + tw + px(8)), oy + op.y + px(4)); }
         continue;
       }
       g.font = op.font; g.fillStyle = op.color; g.textBaseline = "top"; g.textAlign = op.align; g.direction = op.dir;
@@ -974,7 +995,7 @@
     chip.title = (rec.source && rec.source !== "xx" ? langName(rec.source) : "Detected language") + " → " + langName(rec.target);
     setupLangPick();
     const d = new Date(rec.ts);
-    const modeName = { visible: "Visible area", full: "Full page", area: "Select area", element: "Pick element", snap: "Video frame · one line", tips: "Tips sheet · " + rec.blocks.length + (rec.blocks.length === 1 ? " line" : " lines") }[rec.mode] || rec.mode;
+    const modeName = { visible: "Visible area", full: "Full page", area: "Select area", element: "Pick element", snap: "Video frame · " + (rec.blocks.length > 1 ? rec.blocks.length + " chunks · " : "") + (() => { const n = rec.blocks.reduce((k, b) => k + ((b.pairs || []).length || 1), 0); return n + (n === 1 ? " line" : " sentences"); })(), tips: "Tips sheet · " + rec.blocks.length + (rec.blocks.length === 1 ? " chunk" : " chunks") + (() => { const n = rec.blocks.reduce((k, b) => k + ((b.pairs || []).length || 1), 0); return n > rec.blocks.length ? " · " + n + " sentences" : ""; })() }[rec.mode] || rec.mode;
     $("metaLine").textContent = d.toLocaleDateString() + " " + d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) + " · " + modeName + " · " + Math.round(rec.w) + " × " + Math.round(rec.h);
     const notes = [];
     if (rec.noKey) notes.push("Captured without translation — add an API key in the SubVibe popup to translate.");
