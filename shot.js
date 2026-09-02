@@ -307,12 +307,23 @@
   // Default side: the language you're learning if it is one of the two, else
   // the translation. Default explanation: your language when studying the
   // translation, the same language (immersion) when studying the original.
+  const fixedSide = () => isTips() || (rec && rec.mode === "snap"); // a snap / sheet studies its lines' own language
   function effStudySide() {
+    if (fixedSide()) return "source";
     if (studySide) return studySide;
     if (learnLang && studyLangOf("source") === learnLang) return "source";
     return "target";
   }
-  function effStudyExpl() { return studyExpl || (effStudySide() === "source" ? "same" : "other"); }
+  // Default explanation language: the same language when the shot's target IS
+  // the studied language (the user picked "English" for an English video =
+  // immersion), else your language when studying the translation, the same
+  // language when studying the original.
+  function effStudyExpl() {
+    if (studyExpl && !fixedSide()) return studyExpl;
+    const side = effStudySide(), lang = (studyLangOf(side) || "").split("-")[0];
+    if (fixedSide()) { if (lang && (rec.target || "").split("-")[0] === lang) return studyExpl === "other" ? "other" : "same"; return studyExpl || "other"; }
+    return side === "source" ? "same" : "other";
+  }
   function studyExplainLang() {
     const side = effStudySide(), lang = studyLangOf(side);
     if (effStudyExpl() === "same") return lang;
@@ -324,7 +335,6 @@
   const isTips = () => !!(rec && rec.mode === "tips");
   const studyData = () => {
     if (!rec || !rec.study || typeof rec.study !== "object") return null;
-    if (isTips() || rec.mode === "snap") { const k = Object.keys(rec.study)[0]; return k ? rec.study[k] : null; } // one ready-made analysis, no side/explain choice
     return rec.study[studyKeyNow()] || null;
   };
   let studying = false;
@@ -333,7 +343,7 @@
     const vn = $("viewNote");
     if (!lang) { vn.className = "note warn"; vn.textContent = "The original's language isn't known — translate first, or study the translation."; await ensureBiFont(); const lay = drawPairsCard($("stage"), 1); finishBilingual(lay); return; }
     studying = true; syncStudyRow();
-    showBusy("Analysing " + langName(lang) + " grammar…");
+    showBusy("Analysing " + langName(lang) + " grammar" + (studyExplainLang() === lang ? " in " + langName(lang) : "") + "…");
     const res = await new Promise((r) => chrome.runtime.sendMessage({ type: "SHOT_STUDY", id: rec.id, side, explain: studyExplainLang() }, (x) => r(chrome.runtime.lastError ? null : x)));
     studying = false;
     hideBusy();
@@ -360,9 +370,12 @@
   }
   function syncStudyRow() {
     const row = $("studyRow"); if (!row) return;
-    row.hidden = biLayout !== "G" || isTips() || rec.mode === "snap";
+    row.hidden = biLayout !== "G";
     if (row.hidden || !rec) return;
     const side = effStudySide(), lang = studyLangOf(side);
+    // A snap / sheet has one language to study: hide that choice, keep "Explain in".
+    const sideBar = $("studySideBar"); sideBar.hidden = fixedSide(); if (sideBar.previousElementSibling) sideBar.previousElementSibling.hidden = fixedSide();
+    const d = studyData(); const deeper = $("studyDeeper"); if (deeper) { deeper.hidden = !(d && d.provider === "tips"); deeper.disabled = studying; }
     for (const b of $("studySideBar").querySelectorAll("button")) {
       const l = studyLangOf(b.dataset.side);
       b.textContent = l ? langName(l) : (b.dataset.side === "source" ? "Original" : "Translation");
@@ -376,11 +389,12 @@
       b.disabled = studying || (b.dataset.expl === "other" && !other);
     }
   }
+  $("studyDeeper") && $("studyDeeper").addEventListener("click", () => { if (rec && !studying && view === "bilingual") fetchStudy(); });
   const GENDER = { m: ["#2F6FE4", "#E8F0FD"], f: ["#D64550", "#FCE9EB"], n: ["#2E9E5B", "#E6F5EC"] };
   const STUDY_LABELS = {
-    de: { m: "der · maskulin", f: "die · feminin", n: "das · neutrum", v: "zweiteiliges Verb", note: "Hinweis", simple: "Einfacher gesagt", grammar: "Grammatik", notes: "Hinweise", summary: "Kurz gesagt" },
-    fa: { m: "der · مذکر", f: "die · مؤنث", n: "das · خنثی", v: "فعل دوبخشی", note: "نکته", simple: "ساده‌تر", grammar: "دستور زبان", notes: "نکته‌ها", summary: "خلاصه" },
-    en: { m: "der · masculine", f: "die · feminine", n: "das · neuter", v: "two-part verb", note: "note", simple: "Put simply", grammar: "Grammar", notes: "Notes", summary: "In short" },
+    de: { m: "maskulin", f: "feminin", n: "neutrum", v: "Verbgruppe", vDe: "zweiteiliges Verb", note: "Hinweis", simple: "Einfacher gesagt", grammar: "Grammatik", notes: "Hinweise", summary: "Kurz gesagt" },
+    fa: { m: "مذکر", f: "مؤنث", n: "خنثی", v: "گروه فعلی", vDe: "فعل دوبخشی", note: "نکته", simple: "ساده‌تر", grammar: "دستور زبان", notes: "نکته‌ها", summary: "خلاصه" },
+    en: { m: "masculine", f: "feminine", n: "neuter", v: "verb group", vDe: "two-part verb", note: "note", simple: "Put simply", grammar: "Grammar", notes: "Notes", summary: "In short" },
   };
   const studyLabels = (lang) => STUDY_LABELS[(lang || "").split("-")[0]] || STUDY_LABELS.en;
   // A note = bold term + explanation. The term is its own run on the first
@@ -403,16 +417,13 @@
   // The study card: per sentence the marked text, its meaning, a simpler
   // version and the numbered notes; per block a summary. Returns the frame
   // layout, or null when this side/language has no analysis yet.
-  async function drawStudyCard(canvas, scale) {
-    const d = studyData(); if (!d) return null;
-    const dpr = (rec.dpr || 1) * scale;
-    // A snapped video frame sits on top of its own tips.
-    const frameBmp = rec.mode === "snap" ? await bitmapFor("original") : null;
+  // Layout pass: every op carries its height and safe page breaks (`brk`) are
+  // marked, so the same ops paint the card and the Instagram slides.
+  function layoutStudy(mc, d, frameBmp, paperW, dpr) {
     const lang = d.lang, expl = d.explain || lang;
     const L = studyLabels(expl), Ls = studyLabels(lang);
     const rtlS = S.isRtl(lang), rtlE = S.isRtl(expl);
-    const baseCss = frameBmp ? 880 : Math.min(880, Math.max(640, Math.round((rec.rect && rec.rect.w) || 640)));
-    const paperW = Math.round(baseCss * dpr), PAD = Math.round(28 * dpr), innerW = paperW - PAD * 2;
+    const PAD = Math.round(28 * dpr), innerW = paperW - PAD * 2;
     const px = (n) => Math.round(n * dpr);
     const fS = "400 " + px(17.5) + "px " + fontStack(rtlS), lhS = px(17.5 * 1.75);
     const fSup = "700 " + px(10.5) + "px ui-monospace, Menlo, Consolas, monospace";
@@ -422,78 +433,92 @@
     const fLbl = "600 " + px(10) + "px ui-monospace, Menlo, Consolas, monospace";
     const fLegend = "600 " + px(11) + "px ui-monospace, Menlo, Consolas, monospace";
     const INK = "#1f1c18", INK2 = "#3d362f", MUTED = "#8a7d6f", TEAL = "#2c6a64", CORAL = "#C93F2B", LINE = "#ebe4d9";
-    const mc = canvas.getContext("2d");
     const ops = []; let y = 0;
-    biLineBoxes = [];
     const boxes = []; const box = (x, yy, w, h) => boxes.push({ x, y: yy, w, h }); // text lines for the text-highlight tool
-    if (frameBmp) { const fh = Math.round(innerW * frameBmp.height / frameBmp.width); ops.push({ frame: true, y, h: fh }); y += fh + px(18); }
+    const brk = () => ops.push({ brk: true, y, h: 0 });
+    if (frameBmp) { const fh = Math.round(innerW * frameBmp.height / frameBmp.width); ops.push({ frame: true, y, h: fh }); y += fh + px(18); brk(); }
     // legend: only the marks that occur
+    const gendered = S.isGendered(lang);
     const marks = S.studyMarks(d.blocks);
     const legend = [];
-    for (const g of ["m", "f", "n"]) if (marks[g]) legend.push({ dot: GENDER[g][0], text: L[g] });
-    if (marks.v) legend.push({ bar: CORAL, text: L.v });
+    if (gendered) for (const g of ["m", "f", "n"]) if (marks[g]) { const art = S.articleFor(lang, g); legend.push({ dot: GENDER[g][0], text: (art ? art + " · " : "") + L[g] }); }
+    if (marks.v) legend.push({ bar: CORAL, text: (lang || "").split("-")[0] === "de" ? L.vDe : L.v });
     if (marks.notes) legend.push({ sup: "1", text: L.note });
     if (legend.length) {
       let x = 0; mc.font = fLegend;
       for (const it of legend) {
         const w = mc.measureText(it.text).width + px(14) + px(16);
         if (x + w > innerW) { x = 0; y += px(18); }
-        ops.push({ legend: it, x, y }); x += w;
+        ops.push({ legend: it, x, y, h: px(18) }); x += w;
       }
-      y += px(18); ops.push({ rule: true, y }); y += px(14);
+      y += px(18); ops.push({ rule: true, y, h: 1 }); y += px(14);
     }
     d.blocks.forEach((blk, bi) => {
       blk.sentences.forEach((snt, si) => {
-        if (bi || si) { ops.push({ rule: true, y: y - px(6) }); }
+        brk();
+        if (bi || si) { ops.push({ rule: true, y: y - px(6), h: 1 }); }
         // 1) the marked sentence — wrap by tokens (a token = word + its superscript)
         mc.font = fS;
         const toks = snt.tokens.map((t) => { mc.font = fS; const tw = mc.measureText(t.w).width; mc.font = fSup; const sup = t.n && t.n.length ? t.n.join(",") : ""; const sw = sup ? mc.measureText(sup).width + px(2) : 0; return { w: t.w, g: t.g, v: t.v, tw, sup, sw }; });
         mc.font = fS; const sp = mc.measureText(" ").width;
         let x = 0; let line = [];
-        const flush = () => { if (!line.length) return; ops.push({ tokens: line, y, rtl: rtlS }); box(0, y, innerW, lhS); y += lhS; line = []; x = 0; };
+        const flush = () => { if (!line.length) return; ops.push({ tokens: line, y, rtl: rtlS, h: lhS }); box(0, y, innerW, lhS); y += lhS; line = []; x = 0; };
         for (const t of toks) { const need = t.tw + t.sw; if (x + need > innerW && line.length) flush(); line.push({ ...t, x }); x += need + sp; }
         flush(); y += px(4);
         // 2) meaning (the other side of the pair), teal
         if (snt.meaning && expl !== lang) {
           mc.font = fM; const rtlM = BI_RTL.test(snt.meaning);
-          for (const ln of wrapText(mc, snt.meaning, innerW)) { ops.push({ text: ln, font: fM, color: TEAL, x: rtlM ? innerW : 0, y, align: rtlM ? "right" : "left", dir: rtlM ? "rtl" : "ltr" }); box(0, y, innerW, lhM); y += lhM; }
+          for (const ln of wrapText(mc, snt.meaning, innerW)) { ops.push({ text: ln, font: fM, color: TEAL, x: rtlM ? innerW : 0, y, align: rtlM ? "right" : "left", dir: rtlM ? "rtl" : "ltr", h: lhM }); box(0, y, innerW, lhM); y += lhM; }
           y += px(6);
         }
+        brk();
         // 3a) the grammar note (tips sheets and snaps), in a soft box like the simpler version
         if (snt.grammar) {
-          mc.font = fM; const rtlG = BI_RTL.test(snt.grammar); const lines = wrapText(mc, snt.grammar, innerW - px(26));
-          const h = px(8) + px(14) + lines.length * lhM + px(8);
+          mc.font = fM; const rtlG = BI_RTL.test(snt.grammar);
+          const pts = String(snt.grammar).split(/\s*•\s*/).map((x) => x.trim()).filter(Boolean);
+          const bullet = pts.length > 1, indent = bullet ? px(14) : 0;
+          const paras = pts.map((pt) => wrapText(mc, pt, innerW - px(26) - indent));
+          const nLines = paras.reduce((a, l) => a + l.length, 0);
+          const h = px(8) + px(14) + nLines * lhM + (bullet ? (paras.length - 1) * px(3) : 0) + px(8);
           ops.push({ softbox: true, y, h, bar: "#E7B27C", fill: "#FBF7F0", rtl: rtlG });
-          ops.push({ text: L.grammar.toUpperCase(), font: fLbl, color: MUTED, x: rtlG ? innerW - px(12) : px(12), y: y + px(8), align: rtlG ? "right" : "left", dir: "ltr" });
+          ops.push({ text: L.grammar.toUpperCase(), font: fLbl, color: MUTED, x: rtlG ? innerW - px(12) : px(12), y: y + px(8), align: rtlG ? "right" : "left", dir: "ltr", h: px(14) });
           let yy = y + px(8) + px(14);
-          for (const ln of lines) { ops.push({ text: ln, font: fM, color: INK, x: rtlG ? innerW - px(12) : px(12), y: yy, align: rtlG ? "right" : "left", dir: rtlG ? "rtl" : "ltr" }); box(px(12), yy, innerW - px(24), lhM); yy += lhM; }
-          y += h + px(8);
+          paras.forEach((lines) => {
+            lines.forEach((ln, k) => {
+              if (bullet && k === 0) ops.push({ text: "•", font: fM, color: CORAL, x: rtlG ? innerW - px(12) : px(12), y: yy, align: rtlG ? "right" : "left", dir: "ltr", h: lhM });
+              ops.push({ text: ln, font: fM, color: INK, x: rtlG ? innerW - px(12) - indent : px(12) + indent, y: yy, align: rtlG ? "right" : "left", dir: rtlG ? "rtl" : "ltr", h: lhM });
+              box(px(12), yy, innerW - px(24), lhM); yy += lhM;
+            });
+            if (bullet) yy += px(3);
+          });
+          y += h + px(8); brk();
         }
         // 3) simpler version, in a soft box with a bar on the reading-start side
         if (snt.simple) {
           mc.font = fSimple; const lines = wrapText(mc, snt.simple, innerW - px(26));
           const h = px(8) + px(14) + lines.length * lhSimple + px(8);
           ops.push({ softbox: true, y, h, bar: "#E7B27C", fill: "#FBF7F0", rtl: rtlS });
-          ops.push({ text: Ls.simple.toUpperCase(), font: fLbl, color: MUTED, x: rtlS ? innerW - px(12) : px(12), y: y + px(8), align: rtlS ? "right" : "left", dir: "ltr" });
+          ops.push({ text: Ls.simple.toUpperCase(), font: fLbl, color: MUTED, x: rtlS ? innerW - px(12) : px(12), y: y + px(8), align: rtlS ? "right" : "left", dir: "ltr", h: px(14) });
           let yy = y + px(8) + px(14);
-          for (const ln of lines) { ops.push({ text: ln, font: fSimple, color: INK, x: rtlS ? innerW - px(12) : px(12), y: yy, align: rtlS ? "right" : "left", dir: rtlS ? "rtl" : "ltr" }); box(px(12), yy, innerW - px(24), lhSimple); yy += lhSimple; }
-          y += h + px(8);
+          for (const ln of lines) { ops.push({ text: ln, font: fSimple, color: INK, x: rtlS ? innerW - px(12) : px(12), y: yy, align: rtlS ? "right" : "left", dir: rtlS ? "rtl" : "ltr", h: lhSimple }); box(px(12), yy, innerW - px(24), lhSimple); yy += lhSimple; }
+          y += h + px(8); brk();
         }
         // 4) notes: number, bold term, explanation
         if (snt.notes.length) {
-          ops.push({ text: L.notes.toUpperCase(), font: fLbl, color: MUTED, x: rtlE ? innerW : 0, y, align: rtlE ? "right" : "left", dir: "ltr" }); y += px(14);
+          ops.push({ text: L.notes.toUpperCase(), font: fLbl, color: MUTED, x: rtlE ? innerW : 0, y, align: rtlE ? "right" : "left", dir: "ltr", h: px(14) }); y += px(14);
           const numW = px(16);
           for (const nt of snt.notes) {
+            brk();
             const maxW = innerW - numW - px(6), x0 = rtlE ? innerW - numW - px(6) : numW + px(6);
             const nl = wrapNote(mc, nt.term, nt.text, fTerm, fNote, maxW);
-            ops.push({ text: String(nt.n), font: fSup, color: CORAL, x: rtlE ? innerW - numW / 2 : numW / 2, y: y + px(1), align: "center", dir: "ltr" });
+            ops.push({ text: String(nt.n), font: fSup, color: CORAL, x: rtlE ? innerW - numW / 2 : numW / 2, y: y + px(1), align: "center", dir: "ltr", h: lhNote });
             if (nt.term) {
-              ops.push({ text: nt.term + " —", font: fTerm, color: INK, x: x0, y: y + px(2), align: rtlE ? "right" : "left", dir: "ltr" });
+              ops.push({ text: nt.term + " —", font: fTerm, color: INK, x: x0, y: y + px(2), align: rtlE ? "right" : "left", dir: "ltr", h: lhNote });
               if (nl.termAlone) { box(numW, y, innerW - numW, lhNote); y += lhNote; }
             }
             nl.lines.forEach((ln, i) => {
               const off = i === 0 ? nl.termW : 0;
-              ops.push({ text: ln, font: fNote, color: INK2, x: rtlE ? x0 - off : x0 + off, y: y + px(2), align: rtlE ? "right" : "left", dir: rtlE ? "rtl" : "ltr" });
+              ops.push({ text: ln, font: fNote, color: INK2, x: rtlE ? x0 - off : x0 + off, y: y + px(2), align: rtlE ? "right" : "left", dir: rtlE ? "rtl" : "ltr", h: lhNote });
               box(numW, y, innerW - numW, lhNote); y += lhNote;
             });
             y += px(2);
@@ -502,31 +527,32 @@
         }
         y += px(10);
       });
-      if (blk.summary) {
+      // A one-sentence block's summary repeats its simpler version — skip it.
+      if (blk.summary && blk.sentences.length > 1) {
+        brk();
         mc.font = fM; const lines = wrapText(mc, blk.summary, innerW - px(24));
         const h = px(8) + px(14) + lines.length * lhM + px(8);
         ops.push({ softbox: true, y, h, fill: "#F3EDE4" });
-        ops.push({ text: L.summary.toUpperCase(), font: fLbl, color: MUTED, x: rtlE ? innerW - px(12) : px(12), y: y + px(8), align: rtlE ? "right" : "left", dir: "ltr" });
+        ops.push({ text: L.summary.toUpperCase(), font: fLbl, color: MUTED, x: rtlE ? innerW - px(12) : px(12), y: y + px(8), align: rtlE ? "right" : "left", dir: "ltr", h: px(14) });
         let yy = y + px(8) + px(14);
-        for (const ln of lines) { ops.push({ text: ln, font: fM, color: INK, x: rtlE ? innerW - px(12) : px(12), y: yy, align: rtlE ? "right" : "left", dir: rtlE ? "rtl" : "ltr" }); box(px(12), yy, innerW - px(24), lhM); yy += lhM; }
+        for (const ln of lines) { ops.push({ text: ln, font: fM, color: INK, x: rtlE ? innerW - px(12) : px(12), y: yy, align: rtlE ? "right" : "left", dir: rtlE ? "rtl" : "ltr", h: lhM }); box(px(12), yy, innerW - px(24), lhM); yy += lhM; }
         y += h + px(16);
       }
     });
-    const paperH = PAD * 2 + Math.max(y, lhS);
-    const lay = S.frameLayout({ w: paperW, h: paperH, frame: frame.frame, badge: frame.badge, dpr });
-    canvas.width = lay.width; canvas.height = lay.height;
-    const g = canvas.getContext("2d");
-    paintBg(g, lay);
-    const outer = lay.bar ? { x: lay.bar.x, y: lay.bar.y, w: lay.bar.w, h: lay.bar.h + lay.img.h } : lay.img;
-    paintPaper(g, outer, lay.img.radius, dpr);
-    if (lay.bar) paintBar(g, lay.bar, lay.img.radius, lay.img.h, dpr);
-    paintBadge(g, lay, dpr);
-    g.save(); roundRect(g, outer.x, outer.y, outer.w, outer.h, lay.img.radius); g.clip();
-    const ox = lay.img.x + PAD, oy = lay.img.y + PAD;
+    return { ops, boxes, height: Math.max(y, lhS), innerW, PAD, paperW, fonts: { fS, fSup, fLegend }, lhS, px, gendered };
+  }
+  // Paint ops at (ox, oy); `clipY` = [from, to) in op space for a slide page.
+  function paintStudyOps(g, L, ox, oy, frameBmp, clipY) {
+    const { ops, innerW, lhS, px, fonts } = L; const { fS, fSup, fLegend } = fonts;
+    const CORAL = "#C93F2B", LINE = "#ebe4d9", INK = "#1f1c18", MUTED = "#8a7d6f";
+    const from = clipY ? clipY[0] : -Infinity, to = clipY ? clipY[1] : Infinity;
     const dashUnder = (x, yy, w) => { g.save(); g.strokeStyle = CORAL; g.lineWidth = Math.max(1.5, px(1.5)); g.setLineDash([px(2.5), px(2.5)]); g.beginPath(); g.moveTo(ox + x, oy + yy); g.lineTo(ox + x + w, oy + yy); g.stroke(); g.restore(); };
-    for (const op of ops) {
-      if (op.frame) { g.save(); roundRect(g, ox, oy + op.y, innerW, op.h, px(8)); g.clip(); g.drawImage(frameBmp, ox, oy + op.y, innerW, op.h); g.restore(); continue; }
-      if (op.rule) { g.strokeStyle = LINE; g.lineWidth = Math.max(1, dpr); g.beginPath(); g.moveTo(ox, oy + op.y + 0.5); g.lineTo(ox + innerW, oy + op.y + 0.5); g.stroke(); continue; }
+    for (const op0 of ops) {
+      if (op0.brk) continue;
+      if (op0.y < from || op0.y >= to) continue;
+      const op = { ...op0, y: op0.y - (clipY ? from : 0) };
+      if (op.frame) { if (frameBmp) { g.save(); roundRect(g, ox, oy + op.y, innerW, op.h, px(8)); g.clip(); g.drawImage(frameBmp, ox, oy + op.y, innerW, op.h); g.restore(); } continue; }
+      if (op.rule) { g.strokeStyle = LINE; g.lineWidth = Math.max(1, px(1)); g.beginPath(); g.moveTo(ox, oy + op.y + 0.5); g.lineTo(ox + innerW, oy + op.y + 0.5); g.stroke(); continue; }
       if (op.softbox) { g.fillStyle = op.fill; roundRect(g, ox, oy + op.y, innerW, op.h, px(6)); g.fill(); if (op.bar) { g.fillStyle = op.bar; g.fillRect(op.rtl ? ox + innerW - px(3) : ox, oy + op.y, px(3), op.h); } continue; }
       if (op.legend) {
         let x = ox + op.x; const yy = oy + op.y + px(6);
@@ -541,8 +567,9 @@
         for (const t of op.tokens) {
           const tx = op.rtl ? innerW - t.x - t.tw - t.sw : t.x, ty = op.y;
           const wordX = op.rtl ? tx + t.sw : tx; // in RTL the superscript sits to the LEFT of the word
-          if (t.g && GENDER[t.g]) { g.fillStyle = GENDER[t.g][1]; roundRect(g, ox + wordX - px(3), oy + ty + px(2), t.tw + px(6), lhS - px(6), px(4)); g.fill(); }
-          g.font = fS; g.fillStyle = t.g && GENDER[t.g] ? GENDER[t.g][0] : INK; g.textBaseline = "top"; g.textAlign = "left"; g.direction = "ltr";
+          const gm = L.gendered && t.g && GENDER[t.g] ? t.g : "";
+          if (gm) { g.fillStyle = GENDER[gm][1]; roundRect(g, ox + wordX - px(3), oy + ty + px(2), t.tw + px(6), lhS - px(6), px(4)); g.fill(); }
+          g.font = fS; g.fillStyle = gm ? GENDER[gm][0] : INK; g.textBaseline = "top"; g.textAlign = "left"; g.direction = "ltr";
           g.fillText(t.w, ox + wordX, oy + ty + px(4));
           if (t.v) dashUnder(wordX, ty + lhS - px(8), t.tw);
           if (t.sup) { g.font = fSup; g.fillStyle = CORAL; g.fillText(t.sup, ox + (op.rtl ? tx : tx + t.tw + px(2)), oy + ty + px(1)); }
@@ -552,10 +579,89 @@
       g.font = op.font; g.fillStyle = op.color; g.textBaseline = "top"; g.textAlign = op.align; g.direction = op.dir;
       g.fillText(op.text, ox + op.x, oy + op.y);
     }
+  }
+  // The study card on the editor's paper (and for export).
+  async function drawStudyCard(canvas, scale) {
+    const d = studyData(); if (!d) return null;
+    const dpr = (rec.dpr || 1) * scale;
+    const frameBmp = rec.mode === "snap" ? await bitmapFor("original") : null; // a snapped frame sits on top of its tips
+    const baseCss = frameBmp ? 880 : Math.min(880, Math.max(640, Math.round((rec.rect && rec.rect.w) || 640)));
+    const L = layoutStudy(canvas.getContext("2d"), d, frameBmp, Math.round(baseCss * dpr), dpr);
+    const paperH = L.PAD * 2 + L.height;
+    const lay = S.frameLayout({ w: L.paperW, h: paperH, frame: frame.frame, badge: frame.badge, dpr });
+    canvas.width = lay.width; canvas.height = lay.height;
+    const g = canvas.getContext("2d");
+    paintBg(g, lay);
+    const outer = lay.bar ? { x: lay.bar.x, y: lay.bar.y, w: lay.bar.w, h: lay.bar.h + lay.img.h } : lay.img;
+    paintPaper(g, outer, lay.img.radius, dpr);
+    if (lay.bar) paintBar(g, lay.bar, lay.img.radius, lay.img.h, dpr);
+    paintBadge(g, lay, dpr);
+    g.save(); roundRect(g, outer.x, outer.y, outer.w, outer.h, lay.img.radius); g.clip();
+    paintStudyOps(g, L, lay.img.x + L.PAD, lay.img.y + L.PAD, frameBmp, null);
     g.restore();
-    biLineBoxes = boxes.map((b) => ({ x: (PAD + b.x) / lay.img.w, y: (PAD + b.y) / lay.img.h, w: b.w / lay.img.w, h: b.h / lay.img.h }));
+    biLineBoxes = L.boxes.map((b) => ({ x: (L.PAD + b.x) / lay.img.w, y: (L.PAD + b.y) / lay.img.h, w: b.w / lay.img.w, h: b.h / lay.img.h }));
     return lay;
   }
+  // Instagram slides (1080×1350, 4:5): the same card paginated at safe breaks,
+  // the frame first, a page counter and the badge on every slide.
+  async function buildSlides() {
+    const d = studyData(); if (!d) return [];
+    const W = 1080, H = 1350, EDGE = 28, RADIUS = 28;
+    const frameBmp = rec.mode === "snap" ? await bitmapFor("original") : null;
+    const paperW = W - EDGE * 2;
+    const probe = document.createElement("canvas").getContext("2d");
+    const L = layoutStudy(probe, d, frameBmp, paperW, 1.35); // 1.35× the editor's type — slides are read on phones
+    const pageInner = H - EDGE * 2 - L.PAD * 2 - 44; // 44: the footer strip (page counter + badge)
+    const breaks = L.ops.filter((o) => o.brk).map((o) => o.y).concat([L.height]);
+    const pages = []; let start = 0;
+    while (start < L.height - 1) {
+      const limit = start + pageInner;
+      let end = L.height;
+      if (end > limit) { const cands = breaks.filter((b) => b > start + pageInner * 0.25 && b <= limit); end = cands.length ? cands[cands.length - 1] : limit; }
+      pages.push([start, end]); start = end;
+      if (pages.length > 30) break;
+    }
+    const out = [];
+    pages.forEach(([from, to], i) => {
+      const c = document.createElement("canvas"); c.width = W; c.height = H; const g = c.getContext("2d");
+      const [a, b, cc] = bgStops(); const grad = g.createLinearGradient(0, 0, W, H); grad.addColorStop(0, a); grad.addColorStop(0.55, b); grad.addColorStop(1, cc);
+      g.fillStyle = grad; g.fillRect(0, 0, W, H);
+      g.save(); g.shadowColor = "rgba(40,20,10,.3)"; g.shadowBlur = 30; g.shadowOffsetY = 10; g.fillStyle = "#fff"; roundRect(g, EDGE, EDGE, paperW, H - EDGE * 2, RADIUS); g.fill(); g.restore();
+      g.save(); roundRect(g, EDGE, EDGE, paperW, H - EDGE * 2, RADIUS); g.clip();
+      g.beginPath(); g.rect(EDGE, EDGE, paperW, H - EDGE * 2 - 44); g.clip();
+      paintStudyOps(g, L, EDGE + L.PAD, EDGE + L.PAD, frameBmp, [from, to]);
+      g.restore();
+      // footer: page counter and the badge
+      g.font = "700 15px ui-monospace, Menlo, Consolas, monospace"; g.textBaseline = "middle"; g.direction = "ltr";
+      g.fillStyle = "#8a7d6f"; g.textAlign = "left"; g.fillText((i + 1) + " / " + pages.length, EDGE + L.PAD, H - EDGE - 24);
+      const label = "SUBVIBE · " + code(rec.source === "xx" ? "" : rec.source) + (rec.source === "xx" ? "" : " → ") + code(rec.target);
+      g.fillStyle = "#A93521"; g.textAlign = "right"; g.fillText(label, W - EDGE - L.PAD, H - EDGE - 24);
+      out.push(c);
+    });
+    return out;
+  }
+  async function exportSlides() {
+    if (!rec || view !== "bilingual" || biLayout !== "G") return;
+    const btn = $("slidesBtn"); if (btn) btn.disabled = true;
+    try {
+      await ensureBiFont();
+      const pages = await buildSlides();
+      if (!pages.length) { toast("Nothing to slice yet — open the Study card first."); return; }
+      const base = S.filename({ host: rec.host, ts: rec.ts, view: "study", size: "native", format: "png" }).replace(/\.png$/, "");
+      // One download, not one per slide: a store-only ZIP (shared/zip.js).
+      const files = [];
+      for (let i = 0; i < pages.length; i++) {
+        const blob = await new Promise((res) => pages[i].toBlob(res, "image/png"));
+        files.push({ name: base + "-slide-" + String(i + 1).padStart(2, "0") + ".png", bytes: new Uint8Array(await blob.arrayBuffer()) });
+      }
+      const zip = new Blob([SV_ZIP.build(files)], { type: "application/zip" });
+      const a = document.createElement("a"); a.href = URL.createObjectURL(zip); a.download = base + "-slides.zip";
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+      toast(pages.length + (pages.length === 1 ? " slide" : " slides") + " · 1080×1350 · one zip");
+    } finally { if (btn) btn.disabled = false; }
+  }
+  if (location.protocol === "file:") window.__svShotDebug = { buildSlides }; // harness hook
 
   let sideBySidePainted = false; // last drawSideBySide used the painted page (set the note)
   // One entry for every bilingual layout; null when an ingredient is missing.
@@ -812,7 +918,7 @@
     else { vn.className = "note"; vn.textContent = ""; } // the busy overlay signals in-progress renders
     updateReshoot();
     for (const id of ["dlBtn", "copyBtn", "shareBtn"]) { const el = $(id); if (el) el.disabled = !captured; }
-    $("biPick").hidden = true;
+    $("biPick").hidden = true; syncSlidesBtn();
     $("fileNote").textContent = S.filename({ host: rec.host, ts: rec.ts, view, size: exp.size, format: exp.format });
   }
   // Bilingual view: a generated pairs card (no blob, no tab). Switching the A/B/C
@@ -828,12 +934,16 @@
     }
     sideBySidePainted = false;
     if (biLayout === "G" && !studyData()) { // first look at this side/language: analyse once, cache on the record
-      if (!studying) { fetchStudy(); return; }
+      if (!studying) { await fetchStudy(); return; } // awaited: a language change keeps its busy state until the card is ready
     }
     let lay = await drawBilingual(canvas, 1);
     if (!lay) { await ensureBiFont(); lay = drawPairsCard(canvas, 1); }
     else if (biLayout === "S" && sideBySidePainted) { vn.className = "note"; vn.textContent = PAINTED_NOTE; }
-    else if (biLayout === "G") { const d = studyData(); if (d && d.truncated) { vn.className = "note"; vn.textContent = "Grammar hints cover the first " + d.count + " sentences."; } }
+    else if (biLayout === "G") {
+      const d = studyData();
+      if (d && d.provider === "tips") { vn.className = "note"; vn.textContent = "Quick tips from the video card. Analyse grammar in depth for gender colours, numbered notes that say why, and a simpler version."; }
+      else if (d && d.truncated) { vn.className = "note"; vn.textContent = "Grammar hints cover the first " + d.count + " sentences."; }
+    }
     curLay = lay;
     canvas.style.width = Math.round(lay.width / (rec.dpr || 1)) + "px";
     canvas.style.opacity = "1";
@@ -848,7 +958,7 @@
     for (const b of $("biPick").querySelectorAll("[data-bi]")) b.classList.toggle("on", b.dataset.bi === biLayout);
     for (const b of $("biStyleBar").querySelectorAll("button")) b.classList.toggle("on", b.dataset.bistyle === biStyle);
     $("biStyleRow").hidden = biLayout === "S" || biLayout === "G";
-    syncStudyRow();
+    syncStudyRow(); syncSlidesBtn();
     $("biPick").hidden = false;
     updateReshoot();
     for (const id of ["dlBtn", "copyBtn", "shareBtn"]) { const el = $(id); if (el) el.disabled = false; }
@@ -889,8 +999,7 @@
   }
   function setupLangPick() {
     const wrap = $("langPick"); if (!wrap) return;
-    wrap.hidden = isTips(); // a sheet's lines are already translated; nothing to re-render
-    if (isTips()) return;
+    wrap.hidden = false;
     const btn = $("langBtn"), pop = $("langPop"), search = $("langSearch"), list = $("langList");
     const m = langMeta(rec.target);
     $("langBtnLabel").textContent = m[1];
@@ -963,7 +1072,7 @@
     view = want;
     if (resumeView) { view = resumeView; resumeView = null; }
     renderHeader(); renderBlocks(); await render();
-    hideBusy();
+    if (!studying) hideBusy();
     toast("Now in " + langName(rec.target));
   }
   // Show a view, translating first if the shot has no translation yet.
@@ -1074,7 +1183,7 @@
     clearBitmaps();
     if (resumeView) { view = resumeView; resumeView = null; }
     renderHeader(); renderBlocks(); await render();
-    hideBusy();
+    if (!studying) hideBusy();
     toast(res.missing ? "Rendered · " + res.missing + " block" + (res.missing === 1 ? "" : "s") + " no longer on the page"
       : hadEdits ? "Applied" : "Rendered");
   }
@@ -1527,6 +1636,8 @@
     if (view === "original") view = rec.layout === "original" ? "translated" : rec.layout;
     pendingFont = f; setNote("Applying " + (f ? "Vazirmatn" : "the site font") + "\u2026", ""); reshoot();
   });
+  function syncSlidesBtn() { const b = $("slidesBtn"); if (b) b.hidden = !(rec && view === "bilingual" && biLayout === "G" && studyData()); }
+  $("slidesBtn") && $("slidesBtn").addEventListener("click", exportSlides);
   $("reshootBtn").addEventListener("click", reshoot);
   $("dlBtn").addEventListener("click", download);
   $("copyBtn").addEventListener("click", copy);

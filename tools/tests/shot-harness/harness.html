@@ -70,7 +70,7 @@
           <div class="note" id="viewNote"></div>
           <div class="bi-pick" id="biPick" hidden>
             <div class="bi-row"><span class="bi-pick__lbl">Reading card</span><div class="seg seg-sm" id="biBar"><button data-bi="A">Blocks</button><button data-bi="B">Pairs</button><button data-bi="C">Columns</button><button data-bi="G">Study</button></div></div>
-            <div class="bi-row" id="studyRow" hidden><div class="seg seg-sm" id="studySideBar"><button data-side="target">Translation</button><button data-side="source">Original</button></div><div class="seg seg-sm" id="studyExplBar"><button data-expl="other">Your language</button><button data-expl="same">Same language</button></div></div>
+            <div class="bi-row" id="studyRow" hidden><div class="seg seg-sm" id="studySideBar"><button data-side="target">Translation</button><button data-side="source">Original</button></div><div class="seg seg-sm" id="studyExplBar"><button data-expl="other">Your language</button><button data-expl="same">Same language</button></div><button class="btn-secondary" id="studyDeeper" hidden>Analyse grammar in depth</button></div>
             <div class="bi-row"><span class="bi-pick__lbl">On the page</span><div class="seg seg-sm" id="biPageBar"><button data-bi="N">Notes</button><button data-bi="S">Side by side</button></div></div>
             <div class="bi-row" id="biStyleRow"><span class="bi-pick__lbl">Translation line</span><div class="seg seg-sm" id="biStyleBar"><button data-bistyle="quiet">Quiet</button><button data-bistyle="balanced">Balanced</button><button data-bistyle="equal">Equal</button></div></div>
             <div class="note" id="biHint"></div>
@@ -100,6 +100,7 @@
           <button class="btn-primary" id="dlBtn">Download</button>
           <button class="btn-secondary" id="copyBtn">Copy</button>
           <button class="btn-secondary" id="shareBtn" hidden>Share</button>
+          <button class="btn-secondary slides" id="slidesBtn" hidden>Slides for Instagram</button>
         </div>
         <div class="foot__meta"><span class="note" id="fileNote"></span><button class="btn-quiet danger" id="delBtn">Delete shot</button></div>
       </div>
@@ -175,7 +176,7 @@
       await new Promise((res, rej) => { const q = d.transaction("shots", "readwrite").objectStore("shots").put(rec, rec.id); q.onsuccess = res; q.onerror = () => rej(q.error); });
       d.close();
       if (!/\bid=t1\b/.test(location.search)) { location.search = "?id=t1"; return; } // shot.js needs ?id
-      for (const src of ["../../../shared/shot.js", "../../../shot.js"]) {
+      for (const src of ["../../../shared/shot.js", "../../../shared/zip.js", "../../../shot.js"]) {
         await new Promise((res, rej) => { const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = rej; document.body.appendChild(s); });
       }
 
@@ -313,6 +314,13 @@
       await until(() => /couldn|try again|key|analys/i.test($("viewNote").textContent) && !$("stageBusy").classList.contains("on"), 5000);
       check("Unanalysed side: refused analysis leaves a warning and a usable card", $("viewNote").className.includes("warn") && stage.width > 0 && !$("dlBtn").disabled,
         "note=" + $("viewNote").textContent.slice(0, 80) + " class=" + $("viewNote").className);
+
+      // 17) Instagram slides: the seeded study card paginates into 1080×1350 pages.
+      document.querySelector('#studySideBar [data-side="target"]').click();
+      await until(() => document.querySelector('#biPick [data-bi="G"].on') && !$("stageBusy").classList.contains("on") && !$("slidesBtn").hidden, 4000);
+      const pages = await window.__svShotDebug.buildSlides();
+      check("Study card slices into 1080×1350 slides, button shown", pages.length >= 1 && pages.every((c) => c.width === 1080 && c.height === 1350) && !$("slidesBtn").hidden,
+        "pages=" + pages.length + " size=" + (pages[0] && pages[0].width + "x" + pages[0].height) + " btnHidden=" + $("slidesBtn").hidden);
 
       const pass = results.filter((r) => r.ok).length;
       document.title = (pass === results.length ? "PASS " : "FAIL ") + pass + "/" + results.length;
