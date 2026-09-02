@@ -164,7 +164,7 @@
       const rec = { id: "t1", ts: Date.now(), url: "https://example.com/tall", title: "Tall test page", host: "example.com",
         source: "en", target: "fa", mode: "full", layout: "original", dpr: 1,
         rect: { x: 0, y: 0, w: 400, h: 6000 }, w: 400, h: 6000,
-        original: blob, variant: blob, blocks, views: { original: blob, translated: blob }, annots: [],
+        original: blob, variant: blob, blocks, views: { original: blob }, annots: [],
         partial: false, truncated: "", sameLang: false, noKey: false, font: "" };
       const d = await openDb();
       await new Promise((res, rej) => { const q = d.transaction("shots", "readwrite").objectStore("shots").put(rec, rec.id); q.onsuccess = res; q.onerror = () => rej(q.error); });
@@ -280,8 +280,20 @@
       // 13) Side by side: both pages in one picture (400 + 28 gap + 400) with a caption line.
       document.querySelector('#biPick [data-bi="S"]').click();
       await until(() => stage.width === 400 + 28 + 400 + 96, 2000);
-      check("Side by side = two pages + gap, translation-line row hidden", stage.width === 924 && stage.height === 6000 + 18 + 96 && $("biStyleRow").hidden,
-        stage.width + "x" + stage.height + " styleRowHidden=" + $("biStyleRow").hidden);
+      check("Side by side without a translated raster = two pages (painted) + gap, note says so", stage.width === 924 && stage.height === 6000 + 18 + 96 && $("biStyleRow").hidden && /drawn onto the screenshot/.test($("viewNote").textContent),
+        stage.width + "x" + stage.height + " note=" + $("viewNote").textContent.slice(0, 60));
+
+      // 14) Translated view with no re-shoot possible (tab gone): the translation is painted onto the screenshot.
+      document.querySelector('#viewSeg [data-view="translated"]').click();
+      await until(() => document.querySelector('#viewSeg .on')?.dataset.view === "translated" && stage.width === w0 && /drawn onto the screenshot/.test($("viewNote").textContent), 4000);
+      await sleep(150);
+      const ctx = stage.getContext("2d");
+      // block b0 sits at doc (20,600) 360×40 → canvas (48+20, 48+600); count pixels that differ from the sampled fill (the painted text)
+      const px = ctx.getImageData(48 + 20, 48 + 600, 360, 40).data;
+      const ref = [px[0], px[1], px[2]]; let diff = 0;
+      for (let i = 0; i < px.length; i += 4) if (Math.abs(px[i] - ref[0]) + Math.abs(px[i + 1] - ref[1]) + Math.abs(px[i + 2] - ref[2]) > 120) diff++;
+      check("Translated without a raster paints the translation onto the page", stage.style.opacity === "1" && !$("annotBar").hidden && !$("dlBtn").disabled && diff > 40,
+        "opacity=" + stage.style.opacity + " bar=" + !$("annotBar").hidden + " dl=" + !$("dlBtn").disabled + " textPixels=" + diff);
 
       const pass = results.filter((r) => r.ok).length;
       document.title = (pass === results.length ? "PASS " : "FAIL ") + pass + "/" + results.length;
