@@ -115,10 +115,17 @@ Two layouts next to the reading card, under "On the page":
   translated sentence as a hint written in the free space, like a note".
 - **Side by side** — the original page and the translated page in one
   framed picture, tops aligned, a 28 px gap, a small language caption above
-  each page (card/window only), one badge. Needs the translated raster: if
-  it's missing and the source tab is open, the editor renders it first and
-  comes back (`resumeView`); if the tab is gone, the reading card shows with
-  a note saying to open the tab and pick Translated once.
+  each page (card/window only), one badge. Prefers the real translated
+  raster: if it's missing and the source tab is open, the editor renders it
+  first and comes back (`resumeView`). If the tab is gone, the translated
+  page is **drawn onto the screenshot** (`paintedBitmap`): each block's box
+  is filled with the colour sampled around it and its translation is set
+  inside, sized to fit, paragraphs kept when the shot remembers its text
+  nodes; a note says a true re-render needs the tab. The same painted page
+  serves the **Translated** view when no re-shoot is possible, at full
+  opacity with export enabled — never stored on the record, memoised per
+  target/font/translations. (Operator playtest 2026-09-02: the old
+  "open the tab" warning was the wrong answer for a screenshot tool.)
 - Follow-up, not built: notes whose content is a **same-language
   paraphrase** (learn the language with itself) — needs the Simplify
   pipeline per block; the Notes renderer takes its text from the block, so

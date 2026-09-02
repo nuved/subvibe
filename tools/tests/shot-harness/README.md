@@ -10,7 +10,7 @@ Three files, all runnable from `file://` in any Chromium browser:
 
 IndexedDB is shared across `file://` pages in Chrome, so the seeder and the editor see the same `copilot-subs` database.
 
-## What `harness.html` pins (18 checks)
+## What `harness.html` pins (19 checks)
 
 1. **Toolbar reachability** (the ed4e237 regression): `.stage` became `flex-direction: column` but kept `justify-content: center`; vertically-centred overflow in an `overflow: auto` box is unreachable above the scrollport. Visible at `scrollTop 0`, sticky after scrolling 2000 px. With the old CSS the bar measures at −2575 px.
 2. **Crop**: drag → `rec.crop` in full-image fractions, canvas resized, Uncrop revealed, tool reset; a rect drawn on the cropped view stores full-image coords; Uncrop restores size and clears the record.
@@ -18,7 +18,8 @@ IndexedDB is shared across `file://` pages in Chrome, so the seeder and the edit
 4. **Blur**: stored as a rect; the overlay has opaque pixels inside the box and none outside.
 5. **Number badges**: count 1, 2; deleting badge 1 renumbers the other to 1.
 6. **Window frame** adds the 36 px title bar; **Export footer** is visible without scrolling the panel.
-7. **Bilingual on the page**: Notes = page + 220 px margin column (crop stays available); Side by side = two pages + 28 px gap + caption row, the translation-line control hidden.
+7. **Bilingual on the page**: Notes = page + 220 px margin column (crop stays available); Side by side = two pages + 28 px gap + caption row, the translation-line control hidden — with NO translated raster in the seed, so the right page is the **painted** one (translation drawn onto the screenshot) and the note says so.
+8. **Painted Translated view**: with the tab gone and no raster, Translated renders the painted page at full opacity, toolbar and Download enabled, and the block area carries painted text pixels.
 
 ## When to run
 

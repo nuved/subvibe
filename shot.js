@@ -194,8 +194,10 @@
   // Original | translated page in one picture. Needs both rasters; returns
   // null when the translated page hasn't been rendered yet.
   async function drawSideBySide(canvas, scale) {
-    const o = await bitmapFor("original"), t = await bitmapFor("translated");
+    const o = await bitmapFor("original");
+    const pt = await pageBitmap("translated"); const t = pt.bmp;
     if (!o || !t) return null;
+    sideBySidePainted = pt.painted;
     const dpr = (rec.dpr || 1) * scale;
     const crop = curCrop();
     const so = S.cropSrc(crop, o.width, o.height), st = S.cropSrc(crop, t.width, t.height);
@@ -294,6 +296,7 @@
     paintBadge(g, lay, dpr);
     return lay;
   }
+  let sideBySidePainted = false; // last drawSideBySide used the painted page (set the note)
   // One entry for every bilingual layout; null when an ingredient is missing.
   async function drawBilingual(canvas, scale) {
     if (biLayout === "S") return drawSideBySide(canvas, scale);
@@ -413,6 +416,87 @@
     });
     return lay;
   }
+  // ── translated page WITHOUT the source tab ──────────────────────────────
+  // A true Translated view is a re-shoot of the page; when the tab is gone
+  // (or not yet re-shot) we draw the translations onto the original raster:
+  // each text block's box is filled with the colour sampled around it and the
+  // translation is set inside it, sized to fit. Flat backgrounds (tweets,
+  // articles) read cleanly; text over photos looks patched — the note says so.
+  // Memoised per target/font/translations; never stored on the record.
+  const paintedCache = { key: "", bmp: null };
+  function sampleBg(g, x, y, w, h, W, H) {
+    const x0 = Math.max(0, x - 2), y0 = Math.max(0, y - 2), x1 = Math.min(W, x + w + 2), y1 = Math.min(H, y + h + 2);
+    if (x1 - x0 < 1 || y1 - y0 < 1) return { css: "#fff", lum: 1 };
+    const d = g.getImageData(x0, y0, x1 - x0, y1 - y0), rw = x1 - x0, rh = y1 - y0;
+    const rs = [], gs = [], bs = [];
+    const take = (px, py) => { const i = (Math.min(rh - 1, Math.max(0, py)) * rw + Math.min(rw - 1, Math.max(0, px))) * 4; rs.push(d.data[i]); gs.push(d.data[i + 1]); bs.push(d.data[i + 2]); };
+    for (let i = 0; i < 24; i++) { const t = i / 24; take(Math.round(t * (rw - 1)), 0); take(Math.round(t * (rw - 1)), rh - 1); take(0, Math.round(t * (rh - 1))); take(rw - 1, Math.round(t * (rh - 1))); }
+    const med = (a) => a.sort((p, q) => p - q)[a.length >> 1];
+    const r = med(rs), gg = med(gs), bb = med(bs);
+    return { css: "rgb(" + r + "," + gg + "," + bb + ")", lum: (0.2126 * r + 0.7152 * gg + 0.0722 * bb) / 255 };
+  }
+  // `paras` = the block's paragraphs (one string each); a blank line separates
+  // them on the canvas. Largest size whose wrapped lines fit the box.
+  function fitText(g, paras, w, h, k, rtl) {
+    const stack = fontStack(rtl);
+    const maxFs = Math.max(8, Math.min(h, Math.round(30 * k))), minFs = Math.max(6, Math.round(9 * k));
+    const step = Math.max(1, Math.round(k));
+    const layout = (fs) => {
+      g.font = "400 " + fs + "px " + stack; const lh = Math.round(fs * 1.32);
+      const lines = []; paras.forEach((p, i) => { if (i) lines.push(""); lines.push(...wrapText(g, p, w)); });
+      return { font: g.font, lh, lines, height: lines.reduce((a, l) => a + (l ? lh : Math.round(lh * 0.5)), 0) };
+    };
+    for (let fs = maxFs; fs >= minFs; fs -= step) {
+      const L = layout(fs);
+      if (L.height <= h + Math.round(2 * k) && L.lines.every((l) => g.measureText(l).width <= w + 1)) return L;
+    }
+    return layout(minFs); // overflows at the floor size
+  }
+  async function paintedBitmap() {
+    if (!rec || !isTranslated()) return null;
+    const o = await bitmapFor("original"); if (!o) return null;
+    const key = rec.target + "|" + (rec.font || "") + "|" + rec.blocks.map((b) => b.id + ":" + (b.tr || "")).join("\u0001");
+    if (paintedCache.key === key && paintedCache.bmp) return paintedCache.bmp;
+    await ensureBiFont();
+    const c = document.createElement("canvas"); c.width = o.width; c.height = o.height;
+    const g = c.getContext("2d"); g.drawImage(o, 0, 0);
+    const k = o.width / ((rec.rect && rec.rect.w) || rec.w || o.width); // device px per CSS px, same on both axes
+    const rtl = S.isRtl(rec.target);
+    for (const b of rec.blocks) {
+      const tr = String(b.tr || "").replace(/\s+/g, " ").trim();
+      if (!tr || !b.rect || !rec.rect) continue;
+      const x = Math.round((b.rect.x - rec.rect.x) * k), y = Math.round((b.rect.y - rec.rect.y) * k), w = Math.round(b.rect.w * k), h = Math.round(b.rect.h * k);
+      if (w < 4 || h < 4 || x >= c.width || y >= c.height || x + w <= 0 || y + h <= 0) continue;
+      const bg = sampleBg(g, x, y, w, h, c.width, c.height);
+      const pad = Math.round(2 * k);
+      g.fillStyle = bg.css; g.fillRect(x - pad, y - pad, w + 2 * pad, h + 2 * pad);
+      // Paragraphs: shots that remember their text nodes (segs) get the
+      // translation spread back per node, so a four-paragraph tweet paints as four.
+      let paras = [tr];
+      if (Array.isArray(b.segs) && b.segs.length > 1 && Array.isArray(b.pairs) && b.pairs.length) {
+        const d = S.distributeTranslation(b.segs, b.pairs);
+        if (d) { const ps = d.filter(Boolean); if (ps.length > 1) paras = ps; }
+      }
+      const f = fitText(g, paras, w, h, k, rtl);
+      g.font = f.font; g.fillStyle = bg.lum > 0.5 ? "#141414" : "#F4F4F4";
+      g.textBaseline = "top"; g.direction = rtl ? "rtl" : "ltr"; g.textAlign = rtl ? "right" : "left";
+      let ly = y;
+      for (const ln of f.lines) { if (ln) { g.fillText(ln, rtl ? x + w : x, ly); ly += f.lh; } else ly += Math.round(f.lh * 0.5); }
+    }
+    const bmp = await createImageBitmap(c);
+    if (paintedCache.bmp) { try { paintedCache.bmp.close(); } catch (e) {} }
+    paintedCache.key = key; paintedCache.bmp = bmp;
+    return bmp;
+  }
+  // The raster for a page view: the real one, else (Translated only) the painted one.
+  async function pageBitmap(v) {
+    const real = await bitmapFor(v);
+    if (real) return { bmp: real, painted: false };
+    if (v === "translated") { const p = await paintedBitmap(); if (p) return { bmp: p, painted: true }; }
+    return { bmp: null, painted: false };
+  }
+  const PAINTED_NOTE = "Translation drawn onto the screenshot — open the original tab and pick Translated for a true re-render.";
+
   // The stored blob that renders a view, or null when it hasn't been rendered
   // yet (fills in on first visit via re-shoot, then it's cached here forever).
   // `rec.views` is the per-view cache; the original/variant fields are the
@@ -434,15 +518,17 @@
     if (!bitmaps[v]) { const b = viewBlob(v); if (!(b instanceof Blob)) return null; bitmaps[v] = await createImageBitmap(b); }
     return bitmaps[v];
   }
-  function clearBitmaps() { for (const k of Object.keys(bitmaps)) { try { bitmaps[k].close(); } catch (e) {} delete bitmaps[k]; } }
+  function clearBitmaps() { for (const k of Object.keys(bitmaps)) { try { bitmaps[k].close(); } catch (e) {} delete bitmaps[k]; } paintedCache.key = ""; }
 
   const viewLabel = (v) => ({ translated: "Translated", bilingual: "Bilingual", original: "Original" }[v] || v);
   async function render() {
     if (view === "bilingual" && hasPairs()) return renderBilingual();
-    const captured = !!viewBlob(view);
-    // Show the view's own image if we have it, else a dimmed placeholder while
-    // it renders (fall back to the primary layout, then Original).
+    let captured = !!viewBlob(view), painted = false;
+    // Show the view's own image if we have it; for Translated with no re-shoot
+    // possible (tab gone) draw the translation onto the screenshot instead;
+    // else a dimmed placeholder while it renders (primary layout, then Original).
     let bmp = await bitmapFor(view);
+    if (!bmp && view === "translated" && !tabAlive) { const p = await paintedBitmap(); if (p) { bmp = p; painted = true; captured = true; } }
     if (!bmp) bmp = (await bitmapFor(rec.layout)) || (await bitmapFor("original"));
     const canvas = $("stage");
     if (bmp) {
@@ -458,7 +544,8 @@
     selected = -1; syncAnnot();
     for (const b of $("viewSeg").querySelectorAll("button")) b.classList.toggle("on", b.dataset.view === view);
     const vn = $("viewNote");
-    if (captured && view === "original" && !isTranslated()) { vn.className = "note"; vn.textContent = "Original page — pick Translated or Bilingual to translate (uses your API key)."; }
+    if (painted) { vn.className = "note"; vn.textContent = PAINTED_NOTE; }
+    else if (captured && view === "original" && !isTranslated()) { vn.className = "note"; vn.textContent = "Original page — pick Translated or Bilingual to translate (uses your API key)."; }
     else if (!captured && !tabAlive) { vn.className = "note warn"; vn.textContent = "Open the original tab to add the " + viewLabel(view) + " view."; }
     else { vn.className = "note"; vn.textContent = ""; } // the busy overlay signals in-progress renders
     updateReshoot();
@@ -471,18 +558,16 @@
   async function renderBilingual() {
     const canvas = $("stage");
     const vn = $("viewNote"); vn.className = "note"; vn.textContent = "";
-    let lay = await drawBilingual(canvas, 1);
-    if (!lay) {
-      // Side by side without a translated page yet: render it (needs the tab),
-      // then come back here; without the tab, show the card and say why.
-      if (biLayout === "S" && tabAlive && !reshooting) {
-        resumeView = "bilingual"; view = "translated";
-        if (!isTranslated()) retranslate(rec.target, "translated"); else reshoot();
-        return;
-      }
-      if (biLayout === "S") { vn.className = "note warn"; vn.textContent = "Side by side needs the translated page — open the original tab and pick Translated once."; }
-      await ensureBiFont(); lay = drawPairsCard(canvas, 1);
+    // Side by side with the tab open and no translated page yet: render the
+    // real one first (a re-shoot), then come back here. Without the tab, the
+    // translation is drawn onto the screenshot instead.
+    if (biLayout === "S" && !viewBlob("translated") && isTranslated() && tabAlive && !reshooting) {
+      resumeView = "bilingual"; view = "translated"; reshoot(); return;
     }
+    sideBySidePainted = false;
+    let lay = await drawBilingual(canvas, 1);
+    if (!lay) { await ensureBiFont(); lay = drawPairsCard(canvas, 1); }
+    else if (biLayout === "S" && sideBySidePainted) { vn.className = "note"; vn.textContent = PAINTED_NOTE; }
     curLay = lay;
     canvas.style.width = Math.round(lay.width / (rec.dpr || 1)) + "px";
     canvas.style.opacity = "1";
@@ -732,7 +817,7 @@
     const scale = S.exportScale(exp.size, rec.dpr || 1);
     let lay;
     if (view === "bilingual" && hasPairs()) { lay = await drawBilingual(c, scale); if (!lay) { await ensureBiFont(); lay = drawPairsCard(c, scale); } }
-    else { const bmp = await bitmapFor(view); if (!bmp) return null; lay = drawFramed(c, bmp, scale); }
+    else { const bmp = view === "translated" ? (await pageBitmap("translated")).bmp : await bitmapFor(view); if (!bmp) return null; lay = drawFramed(c, bmp, scale); }
     renderAnnots(c.getContext("2d"), lay.img, c);
     const type = format === "jpeg" ? "image/jpeg" : "image/png";
     return new Promise((res) => c.toBlob((b) => res(b), type, 0.9));
