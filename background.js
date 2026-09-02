@@ -11,7 +11,7 @@
 // exists); the Firefox build runs it as an EVENT PAGE (importScripts is a
 // worker-only API) where build.sh lists these files in background.scripts
 // instead — same globalThis globals either way, so guard rather than crash.
-if (typeof importScripts === "function") importScripts("shared/pricing.js", "shared/leitner.js", "shared/stopwords.js", "shared/vocab.js", "shared/simplify.js", "shared/shot.js");
+if (typeof importScripts === "function") importScripts("shared/pricing.js", "shared/leitner.js", "shared/stopwords.js", "shared/vocab.js", "shared/simplify.js", "shared/shot.js", "shared/cli.js");
 
 const OPENAI_CHAT = "https://api.openai.com/v1/chat/completions";
 const TRANSLATE_MODEL = "gpt-4o-mini";
@@ -24,7 +24,7 @@ const ANTHROPIC_VERSION = "2023-06-01";
 // The Claude model is user-selectable (popup → storage key `claudeModel`).
 // Resolve through an allowlist so corrupted/stale storage can never put an
 // unknown model id on the wire — unknown values fall back to Sonnet 5.
-const CLAUDE_MODELS = ["claude-sonnet-5", "claude-haiku-4-5"];
+const CLAUDE_MODELS = ["claude-sonnet-5", "claude-haiku-4-5", "claude-opus-5"];
 const resolveClaudeModel = (v) => (CLAUDE_MODELS.includes(v) ? v : CLAUDE_MODELS[0]);
 // max_tokens is REQUIRED on /v1/messages. 16k, not 8k: a 60-cue batch answers
 // with FOUR arrays (t + the condensed dub "d" ≈ two full Persian renditions),
@@ -789,21 +789,53 @@ async function translateChunkClaude(lines, source, target, apiKey, context, keep
   throw new Error(`Claude ${lastStatus}: ${detail}`);
 }
 
+// Three translation engines: "openai" and "claude" over the user's API key,
+// "claude-cli" = Claude Code on this machine through the native-messaging
+// bridge (bridge/), on the user's own subscription — no key, the bridge's
+// presence is the key.
+const providerOf = (tp) => (tp === "claude" ? "claude" : tp === "claude-cli" ? "claude-cli" : "openai");
+const keyFor = (provider, keys) => (provider === "claude-cli" ? "cli" : provider === "claude" ? (keys && keys.anthropicKey) : (keys && keys.apiKey));
+const modelFor = (provider, claudeModel) => (provider === "openai" ? TRANSLATE_MODEL : resolveClaudeModel(claudeModel));
+function cliSend(msg) {
+  return new Promise((resolve, reject) => {
+    try {
+      chrome.runtime.sendNativeMessage(SV_CLI.HOST, msg, (reply) => {
+        if (chrome.runtime.lastError) return reject(new Error(SV_CLI.connectError(chrome.runtime.lastError.message)));
+        resolve(reply);
+      });
+    } catch (e) { reject(new Error(SV_CLI.connectError(String((e && e.message) || e)))); }
+  });
+}
+// One structured answer from Claude Code — the same {content, parsed, usage}
+// shape the API paths produce, so callers don't care which road it took.
+async function cliChat(system, user, schema, model) {
+  const reply = await cliSend({ type: "chat", system, prompt: user, model: SV_CLI.cliModel(model), schema: schema ? schema.schema : null, effort: "low" });
+  return SV_CLI.parseEnvelope(reply);
+}
+async function translateChunkCli(lines, source, target, _key, context, keepTerms, keepNames, model, kind) {
+  const userPayload = context && context.length ? { count: lines.length, context, lines } : { count: lines.length, lines };
+  const r = await cliChat(systemPrompt(source, target, keepTerms, keepNames, kind), JSON.stringify(userPayload), TRANSLATE_SCHEMA, model);
+  let parsed = r.parsed;
+  if (!parsed) { try { parsed = SV_VOCAB.parseLooseJSON(r.content); } catch { throw new Error("the model returned malformed JSON"); } }
+  const arr = parsed.t || parsed.translations || parsed.lines || [];
+  return { lines: Array.isArray(arr) ? arr : [], spk: Array.isArray(parsed.s) ? parsed.s : [], gen: Array.isArray(parsed.g) ? parsed.g : [], dub: Array.isArray(parsed.d) ? parsed.d : [], usage: r.usage };
+}
+
 // opts.kind = "page" switches to the page-text prompt (Shot); opts.batch overrides BATCH.
 async function translateAll(lines, source, target, context, opts) {
   const kind = (opts && opts.kind) || undefined;
   const batch = (opts && opts.batch) || BATCH;
   const { apiKey, anthropicKey, keepTerms, keepNames, translationProvider, claudeModel } =
     await chrome.storage.local.get(["apiKey", "anthropicKey", "keepTerms", "keepNames", "translationProvider", "claudeModel"]);
-  const provider = translationProvider === "claude" ? "claude" : "openai";
-  const key = provider === "claude" ? anthropicKey : apiKey;
+  const provider = providerOf(translationProvider);
+  const key = keyFor(provider, { anthropicKey, apiKey });
   if (!key) {
     throw new Error(provider === "claude"
       ? "No Anthropic API key yet — open the SubVibe popup and paste your key."
       : "No OpenAI API key yet — open the SubVibe popup and paste your key.");
   }
-  const chunkFn = provider === "claude" ? translateChunkClaude : translateChunk;
-  const model = provider === "claude" ? resolveClaudeModel(claudeModel) : TRANSLATE_MODEL;
+  const chunkFn = provider === "claude-cli" ? translateChunkCli : provider === "claude" ? translateChunkClaude : translateChunk;
+  const model = modelFor(provider, claudeModel);
   const keepN = keepNames !== false; // default ON
   const out = new Array(lines.length), spk = new Array(lines.length), gen = new Array(lines.length), dub = new Array(lines.length);
   let lastErr = null, failedBatches = 0, totalBatches = 0, inTok = 0, outTok = 0, cacheR = 0, cacheW = 0;
@@ -996,15 +1028,21 @@ function conjPrompt(source) {
 async function llmJSON(system, userPayload, schema) {
   const { apiKey, anthropicKey, translationProvider, claudeModel } =
     await chrome.storage.local.get(["apiKey", "anthropicKey", "translationProvider", "claudeModel"]);
-  const provider = translationProvider === "claude" ? "claude" : "openai";
-  const key = provider === "claude" ? anthropicKey : apiKey;
+  const provider = providerOf(translationProvider);
+  const key = keyFor(provider, { anthropicKey, apiKey });
   if (!key) {
     throw new Error(provider === "claude"
       ? "No Anthropic API key yet — open the SubVibe popup and paste your key."
       : "No OpenAI API key yet — open the SubVibe popup and paste your key.");
   }
-  const model = provider === "claude" ? resolveClaudeModel(claudeModel) : TRANSLATE_MODEL;
+  const model = modelFor(provider, claudeModel);
   const user = JSON.stringify(userPayload);
+  if (provider === "claude-cli") {
+    const r = await cliChat(system, user, schema, model);
+    let parsed;
+    try { parsed = r.parsed || SV_VOCAB.parseLooseJSON(r.content); } catch { throw new Error("the model returned malformed JSON"); }
+    return { parsed, usage: r.usage, provider, model };
+  }
   let body, url, headers;
   if (provider === "claude") {
     url = ANTHROPIC_MESSAGES;
@@ -1319,8 +1357,8 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 async function simplifyText(rawText) {
   const { apiKey, anthropicKey, translationProvider, claudeModel, readerLevel } =
     await chrome.storage.local.get(["apiKey", "anthropicKey", "translationProvider", "claudeModel", "readerLevel"]);
-  const provider = translationProvider === "claude" ? "claude" : "openai";
-  const key = provider === "claude" ? anthropicKey : apiKey;
+  const provider = providerOf(translationProvider);
+  const key = keyFor(provider, { anthropicKey, apiKey });
   if (!key) return { ok: false, error: "no-key" };
 
   const { text, truncated } = SV_SIMPLIFY.prep(rawText);
@@ -1328,12 +1366,15 @@ async function simplifyText(rawText) {
   const messages = SV_SIMPLIFY.buildMessages(text, readerLevel || "B1");
 
   const started = Date.now();
-  const model = provider === "claude" ? resolveClaudeModel(claudeModel) : TRANSLATE_MODEL;
+  const model = modelFor(provider, claudeModel);
   const meta = { ts: started, site: "reader", title: "Simplify: " + text.slice(0, 40), kind: "simplify", lines: 1, provider, model };
 
   let raw, usage;
   try {
-    if (provider === "claude") {
+    if (provider === "claude-cli") {
+      const r = await cliChat(messages[0].content, messages[1].content, null, model);
+      raw = r.content; usage = r.usage;
+    } else if (provider === "claude") {
       const res = await fetch(ANTHROPIC_MESSAGES, {
         method: "POST",
         headers: { "x-api-key": key, "anthropic-version": ANTHROPIC_VERSION, "content-type": "application/json", "anthropic-dangerous-direct-browser-access": "true" },
@@ -1478,15 +1519,15 @@ async function shotTranslate(msg, sender) {
   const lines = (Array.isArray(msg.lines) ? msg.lines : []).map((l) => String(l || ""));
   const { apiKey, anthropicKey, translationProvider, claudeModel } =
     await chrome.storage.local.get(["apiKey", "anthropicKey", "translationProvider", "claudeModel"]);
-  const provider = translationProvider === "claude" ? "claude" : "openai";
-  if (!(provider === "claude" ? anthropicKey : apiKey)) return { ok: false, error: "no-key" };
+  const provider = providerOf(translationProvider);
+  if (!keyFor(provider, { anthropicKey, apiKey })) return { ok: false, error: "no-key" };
   if (!sess.target) return { ok: false, error: "no-target" };
   const source = await detectClipLang(lines.map((o) => ({ o })));
   sess.source = source;
   if (source !== "xx" && source === sess.target.split("-")[0]) return { ok: true, sameLang: true, source };
   const started = Date.now();
   const meta = { ts: started, site: "shot", title: "Shot: " + sess.title.slice(0, 60), kind: "shot", lines: lines.length,
-    provider, model: provider === "claude" ? resolveClaudeModel(claudeModel) : TRANSLATE_MODEL };
+    provider, model: modelFor(provider, claudeModel) };
   try {
     const r = await translateAll(lines, source === "xx" ? "auto" : source, sess.target, null, { kind: "page", batch: 20 });
     await logCall({ ...meta, provider: r.provider, model: r.model, ms: Date.now() - started,
@@ -1847,8 +1888,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             sendResponse({ lines: r.out, spk: r.spk, gen: r.gen, dub: r.dub });
           } catch (e) {
             const { translationProvider, claudeModel } = await chrome.storage.local.get(["translationProvider", "claudeModel"]);
-            const provider = translationProvider === "claude" ? "claude" : "openai";
-            await logCall({ ...meta, ms: Date.now() - started, inTok: 0, outTok: 0, ok: false, err: String((e && e.message) || e), provider, model: provider === "claude" ? resolveClaudeModel(claudeModel) : TRANSLATE_MODEL });
+            const provider = providerOf(translationProvider);
+            await logCall({ ...meta, ms: Date.now() - started, inTok: 0, outTok: 0, ok: false, err: String((e && e.message) || e), provider, model: modelFor(provider, claudeModel) });
             throw e; // let the outer catch send the {error} response
           }
           break;
@@ -2491,7 +2532,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             if (enriched) { cached0.target = target; cached0.at = Date.now(); await idbVocabPut("clipenrich:" + base, cached0); }
             if (!provider) {
               const { translationProvider } = await chrome.storage.local.get("translationProvider");
-              provider = translationProvider === "claude" ? "claude" : "openai";
+              provider = providerOf(translationProvider);
             }
             await logCall({ ts: started, site: "learn", title: "Words: " + (data.title || base), kind: "enrich", lines: todo.length,
               ms: Date.now() - started, inTok, outTok, cacheR, cacheW, ok: !lastErr,
@@ -2534,7 +2575,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           }
           if (!provider) {
             const { translationProvider } = await chrome.storage.local.get("translationProvider");
-            provider = translationProvider === "claude" ? "claude" : "openai";
+            provider = providerOf(translationProvider);
           }
           await logCall({ ts: started, site: "learn", title: "Vocabulary enrichment", kind: "enrich", lines: loaded.length,
             ms: Date.now() - started, inTok, outTok, cacheR, cacheW, ok: !lastErr,
@@ -2568,7 +2609,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             const { translationProvider } = await chrome.storage.local.get("translationProvider");
             await logCall({ ts: started, site: "learn", title: label, kind: "enrich", lines: 1, ms: Date.now() - started,
               inTok: 0, outTok: 0, ok: false, err: String((e && e.message) || e),
-              provider: translationProvider === "claude" ? "claude" : "openai" });
+              provider: providerOf(translationProvider) });
             sendResponse({ error: String((e && e.message) || e) });
           }
           break;
@@ -2576,6 +2617,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         case "SIMPLIFY_TEXT":
           sendResponse(await simplifyText(msg.text));
           break;
+        case "CLI_PING": { // popup → Keys → Claude Code on this Mac → Test
+          try { const r = await cliSend({ type: "ping" }); sendResponse(r && r.ok ? { ok: true, claude: r.claude || "", bin: r.bin || "" } : { ok: false, error: (r && r.error) || "no reply from the bridge" }); }
+          catch (e) { sendResponse({ ok: false, error: String((e && e.message) || e) }); }
+          break;
+        }
         case "SHOT_START": {
           let shotTab = null;
           if (msg.tabId != null) { try { shotTab = await chrome.tabs.get(msg.tabId); } catch (e) { shotTab = null; } }

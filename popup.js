@@ -12,7 +12,7 @@ const LIVE_ALIAS = window.SV_LIVE_ALIAS || {};
 // Coerce a code to one Gemini's live model accepts, or null if it can't voice it.
 const normLiveCode = (code) => (LIVE_CODES.has(code) ? code : (LIVE_CODES.has(LIVE_ALIAS[code]) ? LIVE_ALIAS[code] : null));
 
-const DEFAULTS = { enabled: true, translateOn: true, targets: ["en"], showOriginal: true, hideNative: true, karaokeHl: true, karaokeStyle: "classic", learnLang: "", apiKey: "", translationProvider: "openai", claudeModel: "claude-sonnet-5", anthropicKey: "", keepNames: true, keepTerms: "", position: "bottom", size: "md", stylePreset: "classic", styleCustom: {}, syncOffset: 0, dubEnabled: false, ttsProvider: "openai", geminiKey: "", dubVoice: "marin", dubGeminiVoice: "Kore", dubMultiVoice: false, dubDuckLevel: 0.12, dubPace: 1, liveModel: "gemini-3.5-live-translate-preview", audioDeviceId: "", liveTarget: "", debugHud: false, uiTheme: "light" };
+const DEFAULTS = { enabled: true, translateOn: true, targets: ["en"], showOriginal: true, hideNative: true, karaokeHl: true, karaokeStyle: "classic", learnLang: "", apiKey: "", translationProvider: "openai", claudeModel: "claude-sonnet-5", anthropicKey: "", cliBridgeOk: false, cliBridgeInfo: "", keepNames: true, keepTerms: "", position: "bottom", size: "md", stylePreset: "classic", styleCustom: {}, syncOffset: 0, dubEnabled: false, ttsProvider: "openai", geminiKey: "", dubVoice: "marin", dubGeminiVoice: "Kore", dubMultiVoice: false, dubDuckLevel: 0.12, dubPace: 1, liveModel: "gemini-3.5-live-translate-preview", audioDeviceId: "", liveTarget: "", debugHud: false, uiTheme: "light" };
 const el = (id) => document.getElementById(id);
 // Promise wrapper for chrome.runtime.sendMessage — same shape as learn.js's
 // helper, used by the word-game wiring below (async/await reads cleaner than
@@ -148,6 +148,7 @@ function setKeyDot(id, color) { el(id).className = "keydot" + (color ? " " + col
 const KEY_PROVIDERS = [
   { input: "apiKey", failed: () => keyVerifyFailed, name: "OpenAI" },
   { input: "anthropicKey", failed: () => anthropicKeyVerifyFailed, name: "Anthropic" },
+  { input: "cliBridge", failed: () => cliBridgeFailed, name: "Claude Code" },
   { input: "geminiKey", failed: () => geminiKeyVerifyFailed, name: "Google" },
 ];
 function refreshKeysSummary() {
@@ -230,7 +231,7 @@ async function initTabs() {
 // current input values — `state`'s key fields are only ever set at load,
 // see load(), so re-reading the inputs is what actually stays current).
 function updateSetupHero(s) {
-  const hasKey = !!(s.apiKey || s.anthropicKey || s.geminiKey);
+  const hasKey = !!(s.apiKey || s.anthropicKey || s.geminiKey || s.cliBridgeOk || (state && state.cliBridgeOk));
   el("setupCard").hidden = hasKey;
   el("liveBtn").hidden = !hasKey;
   el("livePerm").hidden = !hasKey;
@@ -278,6 +279,36 @@ el("verify").addEventListener("click", async () => {
   refreshKeyDot();
 });
 
+// ── Claude Code on this Mac (the native-messaging bridge, bridge/) ──────────
+let cliBridgeFailed = false;
+function setCliStatus(text, cls) { const s = el("cliBridgeStatus"); s.textContent = text; s.className = cls || ""; }
+function cliBridgeHint() {
+  setKeyDot("cliBridgeDot", keyDotColor(el("cliBridge").value, cliBridgeFailed));
+  if (el("cliBridge").value) setCliStatus("Connected · " + (state.cliBridgeInfo || "Claude Code") + " · translations run on your Claude subscription, no key needed.", "ok");
+  else if (!cliBridgeFailed) setCliStatus("Needs Claude Code installed and logged in on this Mac. Run the command once in a terminal from the SubVibe folder, then Test.", "");
+}
+el("cliBridgeCmd").textContent = "bash bridge/install.sh " + chrome.runtime.id;
+el("cliBridgeCopy").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText(el("cliBridgeCmd").textContent); el("cliBridgeCopy").textContent = "Copied"; setTimeout(() => { el("cliBridgeCopy").textContent = "Copy"; }, 1500); } catch (e) { /* clipboard blocked */ }
+});
+el("cliBridgeTest").addEventListener("click", () => {
+  el("cliBridgeTest").disabled = true; setCliStatus("Testing…", "");
+  chrome.runtime.sendMessage({ type: "CLI_PING" }, (r) => {
+    el("cliBridgeTest").disabled = false;
+    const err = chrome.runtime.lastError ? chrome.runtime.lastError.message : (!r || !r.ok) ? ((r && r.error) || "No reply from the bridge.") : "";
+    if (err) {
+      cliBridgeFailed = true; el("cliBridge").value = ""; state.cliBridgeOk = false; persist({ cliBridgeOk: false });
+      setCliStatus(err, "err");
+    } else {
+      cliBridgeFailed = false; el("cliBridge").value = "ok"; state.cliBridgeOk = true; state.cliBridgeInfo = r.claude || "";
+      persist({ cliBridgeOk: true, cliBridgeInfo: state.cliBridgeInfo });
+      cliBridgeHint();
+    }
+    setKeyDot("cliBridgeDot", keyDotColor(el("cliBridge").value, cliBridgeFailed));
+    updateProviderAvailability(); updateClaudeModelUI();
+    updateSetupHero({ ...liveKeyInputs(), cliBridgeOk: state.cliBridgeOk });
+  });
+});
 function setAnthropicKeyStatus(text, cls) { const s = el("anthropicKeyStatus"); s.textContent = text; s.className = cls || ""; }
 function anthropicKeyHint() {
   if (!el("anthropicKey").value.trim()) setAnthropicKeyStatus("Paste your key above to start — it's stored only on this device.", "warn");
@@ -337,13 +368,15 @@ el("verifyGemini").addEventListener("click", async () => {
 
 // ── Translation + TTS engine selects: options disabled/labeled by key availability ──
 // Base labels are constants so rebuilding never accumulates " — add key" suffixes.
-const TRANSLATION_OPTIONS = [["openai", "OpenAI GPT-4o-mini"], ["claude", "Claude"]];
+const TRANSLATION_OPTIONS = [["openai", "OpenAI GPT-4o-mini"], ["claude", "Claude (API key)"], ["claude-cli", "Claude Code on this Mac"]];
 const TTS_OPTIONS = [["openai", "OpenAI gpt-4o-mini-tts"], ["gemini", "Gemini 2.5 Flash TTS (native Persian voices)"]];
 // Which stored key (input id) each engine option requires, and the two display
 // names used in the missing-key warning ("<engine> selected but no <provider> key…").
-const ENGINE_KEY = { openai: "apiKey", claude: "anthropicKey", gemini: "geminiKey" };
-const ENGINE_KEY_LABEL = { openai: "OpenAI", claude: "Anthropic", gemini: "Gemini" };
-const ENGINE_NAME = { openai: "OpenAI", claude: "Claude", gemini: "Gemini" };
+// "claude-cli" has no key: the hidden #cliBridge input holds "ok" once the
+// bridge answered a Test, so the same availability logic applies.
+const ENGINE_KEY = { openai: "apiKey", claude: "anthropicKey", "claude-cli": "cliBridge", gemini: "geminiKey" };
+const ENGINE_KEY_LABEL = { openai: "OpenAI", claude: "Anthropic", "claude-cli": "Claude Code bridge", gemini: "Gemini" };
+const ENGINE_NAME = { openai: "OpenAI", claude: "Claude", "claude-cli": "Claude Code", gemini: "Gemini" };
 
 function rebuildEngineSelect(selectEl, baseOptions, warnEl) {
   const current = selectEl.value;
@@ -352,14 +385,16 @@ function rebuildEngineSelect(selectEl, baseOptions, warnEl) {
     const hasKey = !!el(ENGINE_KEY[value]).value.trim();
     const o = document.createElement("option");
     o.value = value;
-    o.textContent = hasKey ? label : label + " — add key";
+    o.textContent = hasKey ? label : label + (value === "claude-cli" ? " — install the bridge" : " — add key");
     o.disabled = !hasKey && value !== current; // never disable the persisted selection itself
     selectEl.appendChild(o);
   }
   selectEl.value = current; // restore selection — never auto-switch away from it
   const stillHasKey = !!el(ENGINE_KEY[current]).value.trim();
   if (!stillHasKey) {
-    warnEl.textContent = `${ENGINE_NAME[current]} selected but no ${ENGINE_KEY_LABEL[current]} key — falls back to errors until you add one.`;
+    warnEl.textContent = current === "claude-cli"
+      ? "Claude Code selected but the bridge isn't connected — install it under Keys and press Test."
+      : `${ENGINE_NAME[current]} selected but no ${ENGINE_KEY_LABEL[current]} key — falls back to errors until you add one.`;
     warnEl.hidden = false;
   } else {
     warnEl.hidden = true;
@@ -377,7 +412,7 @@ el("translationProvider").addEventListener("change", () => {
 
 // ── Claude model picker: always visible; dim+inert unless the engine is Claude ──
 function updateClaudeModelUI() {
-  const isClaude = el("translationProvider").value === "claude";
+  const isClaude = el("translationProvider").value === "claude" || el("translationProvider").value === "claude-cli";
   const row = el("claudeModelRow");
   row.classList.toggle("dim", !isClaude);
   // `inert` (not pointer-events): keyboard focus must not reach a dimmed
@@ -1467,14 +1502,15 @@ function renderLearnWords() {
       // a clip enriched when the pool was smaller offers just the missing words.
       const nW = r.enrichable;
       const batches = Math.ceil(nW / 50);
+      const prov = state.translationProvider === "claude" ? "claude" : state.translationProvider === "claude-cli" ? "claude-cli" : "openai";
       const usd = window.SV_PRICING.estCost({
-        provider: state.translationProvider === "claude" ? "claude" : "openai",
-        model: state.translationProvider === "claude" ? (state.claudeModel || "claude-sonnet-5") : "gpt-4o-mini",
+        provider: prov,
+        model: prov === "openai" ? "gpt-4o-mini" : (state.claudeModel || "claude-sonnet-5"),
         inTok: nW * 35 + batches * 260, outTok: nW * 45,
       });
       enrich.hidden = false;
       enrich.disabled = false;
-      enrich.textContent = `Translate & level ${r.enriched ? nW + " more" : "these " + nW} words · ~$${usd < 0.005 ? usd.toFixed(4) : usd.toFixed(2)}`;
+      enrich.textContent = `Translate & level ${r.enriched ? nW + " more" : "these " + nW} words · ${prov === "claude-cli" ? "on your Claude subscription" : "~$" + (usd < 0.005 ? usd.toFixed(4) : usd.toFixed(2))}`;
       enrich.onclick = () => {
         enrich.disabled = true;
         enrich.textContent = "Translating…";
@@ -1978,10 +2014,12 @@ async function load() {
   if (!(state.targets && state.targets.length)) state.targets = ["en"];
   renderMode();
   el("apiKey").value = state.apiKey || "";
-  el("translationProvider").value = state.translationProvider === "claude" ? "claude" : "openai";
+  el("translationProvider").value = ["claude", "claude-cli"].includes(state.translationProvider) ? state.translationProvider : "openai";
   updateClaudeModelUI();
   el("anthropicKey").value = state.anthropicKey || "";
   anthropicKeyHint();
+  el("cliBridge").value = state.cliBridgeOk ? "ok" : "";
+  cliBridgeHint();
   el("keepNames").checked = state.keepNames !== false;
   el("keepTerms").value = state.keepTerms || "";
   el("showOriginal").checked = state.showOriginal;

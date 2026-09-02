@@ -21,6 +21,7 @@
       const perMin = c.provider === "gemini" ? GEMINI_TTS_USD_PER_MIN : 0.015; // gpt-4o-mini-tts ≈ $0.015/min too
       return ((c.durMs || 0) / 60000) * perMin;
     }
+    if (c && c.provider === "claude-cli") return 0; // Claude Code bridge: covered by the user's subscription, not metered
     const isClaude = c && c.provider === "claude";
     // Two Claude tiers since the model became selectable; rows without a model
     // field predate the picker and were all Sonnet — keep Sonnet rates for them.
