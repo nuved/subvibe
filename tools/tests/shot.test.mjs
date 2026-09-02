@@ -387,3 +387,18 @@ test("buildStudy: marks are kept only when valid, notes referenced only when the
   assert.deepEqual(s1.tokens.map((t) => t.w), ["Zweiter", "Satz."]); assert.equal(s1.notes.length, 0); assert.equal(s1.simple, "");
   assert.deepEqual(S.studyMarks(blocks), { m: false, f: false, n: true, v: true, notes: true });
 });
+
+test("tipsSheet: explained lines become sentence pairs and a ready-made study card, word notes attached to their tokens", () => {
+  const r = S.tipsSheet([
+    { s: "Ich muss nach Hause gehen.", tr: "باید برم خونه.", g: "Modal + Infinitiv am Ende.", words: [{ w: "nach Hause", m: "به خانه" }, { w: "gehen", m: "رفتن" }] },
+    { s: "", tr: "x" }, // dropped
+    { s: "Die Tasse ist rot.", tr: "فنجان قرمز است.", g: "", words: [] },
+  ]);
+  assert.equal(r.blocks.length, 2);
+  assert.deepEqual(r.blocks[0].pairs, [{ o: "Ich muss nach Hause gehen.", t: "باید برم خونه." }]);
+  const s0 = r.study[0].sentences[0];
+  assert.deepEqual(s0.notes.map((x) => [x.n, x.term]), [[1, ""], [2, "nach Hause"], [3, "gehen"]]);
+  assert.deepEqual(s0.tokens.map((t) => t.n), [[], [], [], [2], [3]], "phrase note on its last word, punctuation ignored");
+  assert.equal(s0.meaning, "باید برم خونه.");
+  assert.equal(r.study[1].sentences[0].notes.length, 0);
+});

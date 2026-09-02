@@ -239,6 +239,16 @@ function updateSetupHero(s) {
 }
 const liveKeyInputs = () => ({ apiKey: el("apiKey").value, anthropicKey: el("anthropicKey").value, geminiKey: el("geminiKey").value });
 el("finishSetup").addEventListener("click", () => selectTab("keys"));
+// Learn tab: every line explained with ? on this video, gathered as one Study sheet in the Shot editor.
+el("lnTipsSheet").addEventListener("click", () => {
+  const st = el("lnTipsStatus");
+  if (!clipBase) { st.textContent = "Open a video with subtitles first."; return; }
+  st.textContent = "Opening…";
+  chrome.runtime.sendMessage({ type: "TIPS_SHEET", base: clipBase }, (r) => {
+    if (chrome.runtime.lastError || !r || !r.ok) st.textContent = r && r.error === "empty" ? "No tips yet — press ? on a subtitle line first." : "Couldn't open the sheet.";
+    else st.textContent = r.count + (r.count === 1 ? " line" : " lines") + " — opened in the Shot editor.";
+  });
+});
 
 function updateFoldSummaries() {
   const txt = (id, v) => { const n = el(id); if (n) n.textContent = v; };
