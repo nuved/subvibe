@@ -433,7 +433,7 @@
     const blocksV2 = S.normalizeStudy(d.blocks); // v1 analyses (tips per sentence) become one chunk per sentence
     const fLbl = "600 " + px(10) + "px ui-monospace, Menlo, Consolas, monospace";
     const fPos = "600 " + px(8.5) + "px ui-monospace, Menlo, Consolas, monospace", posH = px(11); // the word's character under it
-    const fNum = "700 " + px(11) + "px ui-monospace, Menlo, Consolas, monospace"; // sentence numbers inside a chunk
+    const fNum = "700 " + px(10) + "px ui-monospace, Menlo, Consolas, monospace"; // sentence numbers inside a chunk (grey badge)
     const POSLBL = { n: "n", v: "v", aux: "aux", adj: "adj", adv: "adv", prep: "prep", conj: "conj", pron: "pron", art: "art", num: "num", int: "int", part: "part" };
     const showPos = blocksV2.some((b) => (b.sentences || []).some((snt) => (snt.tokens || []).some((t) => t.p)));
     const lhTok = lhS + (showPos ? posH : 0);
@@ -571,7 +571,12 @@
         continue;
       }
       if (op.tokens) {
-        if (op.num) { g.font = fNum; g.fillStyle = CORAL; g.textBaseline = "top"; g.textAlign = "left"; g.direction = "ltr"; g.fillText(String(op.num), ox + (op.rtl ? innerW - px(16) : 0), oy + op.y + px(6)); }
+        if (op.num) { // a sentence's place in its chunk: a quiet grey badge, unlike the coral note numbers
+          const cx0 = ox + (op.rtl ? innerW - px(9) : px(9)), cy0 = oy + op.y + px(12);
+          g.fillStyle = "#EFE9E0"; g.beginPath(); g.arc(cx0, cy0, px(9), 0, Math.PI * 2); g.fill();
+          g.font = fNum; g.fillStyle = MUTED; g.textBaseline = "middle"; g.textAlign = "center"; g.direction = "ltr"; g.fillText(String(op.num), cx0, cy0 + px(0.5));
+          g.textBaseline = "top"; g.textAlign = "left";
+        }
         // RTL study language: lay the same line out from the right edge.
         for (const t of op.tokens) {
           const tx = op.rtl ? innerW - t.x - t.tw - t.sw : t.x, ty = op.y;

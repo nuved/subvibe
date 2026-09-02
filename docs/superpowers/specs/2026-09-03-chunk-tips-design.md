@@ -52,6 +52,35 @@ sentences:[{s, tr}]}]}`. The record has one block per chunk (pairs per
 sentence) and a v2 study entry (`tipsSheet`), so the Study card shows the
 chunk's sentences numbered, then the chunk's grammar box and its notes.
 
+### Pager and multi-chunk view
+
+The card's band is a pager: `‹ chunk k / n · m:ss ›` moves to the previous
+or next chunk and jumps the video there (paused). The `1 · 2 · 3` selector
+extends the card itself to that many chunks (sentences numbered straight
+through, each chunk's Translation · Grammar · Words under a "chunk k" divider),
+so the card shows exactly what "Frame + N chunks" will put on the frame.
+
+## Story board (YouTube's side column)
+
+On youtube.com the tips leave the picture: `#sv-board` is docked as the first
+child of `#secondary-inner`, above the suggested videos. It lists every chunk
+in order (time · numbered sentences · translation under each), highlights and
+follows the playing chunk, marks explained ones "✓ tips", and offers
+"Explain" on the current row. An open chunk shows its Translation · Grammar ·
+Words and the same actions row (1 · 2 · 3, Frame + chunks, All explained
+lines). Clicking a row opens it (explaining it if needed); the time button
+plays from there. When the playing chunk changes and is already explained it
+opens by itself, so the tips appear at the start of each chunk. With the board
+visible, ﹖ pauses the video and opens the current chunk on the board — no
+floating card; "Hide" collapses the board (remembered in localStorage), and
+the floating card takes over again (also in fullscreen). The board re-renders
+only when its signature changes (chunk count, translations, playing chunk,
+explanations, N), checked at most every 600 ms from the overlay's tick, and
+is removed with the overlay on teardown.
+
+The Study card draws a sentence's number in its chunk as a grey badge, so
+it cannot be read as one of the coral note numbers.
+
 ## Video context (background.js)
 
 `videoContext(base, title, sample, lang)` asks the model once per video what
@@ -72,8 +101,8 @@ part`). `SV_SHOT.buildStudy(input, out, lang)` validates it; `normalizeStudy`
 turns a stored v1 analysis (tips per sentence) into one block per sentence, so
 old records still render. Records store `v: 2`.
 
-`shot.js` `layoutStudy`: inside a chunk each sentence gets a coral number in
-a 22 px gutter; when any token has `p`, its character is drawn in a small
+`shot.js` `layoutStudy`: inside a chunk each sentence gets a grey number badge
+in a 22 px gutter (the coral superscripts stay note numbers); when any token has `p`, its character is drawn in a small
 mono label under the word; after the chunk's sentences come the grammar box,
 the simpler version and the notes ("term  ·  pos · level — text", forms
 underneath). Slides paginate at the same break points as before.

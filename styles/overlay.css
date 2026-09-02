@@ -289,7 +289,7 @@
    transient hover bubble. */
 #copilot-subs .copilot-subs__wtip.pinned { pointer-events: auto; border-color: rgba(244, 93, 72, 0.45); }
 #copilot-subs .copilot-subs__wtip .wt-word { font-size: 16px; font-weight: 700; color: #241F1A; margin-bottom: 2px; }
-#copilot-subs .copilot-subs__wtip .wt-actions { display: flex; gap: 6px; align-items: center; justify-content: center; margin-top: 7px; }
+#copilot-subs .copilot-subs__wtip .wt-actions, #sv-board .wt-actions { display: flex; gap: 6px; align-items: center; justify-content: center; margin-top: 7px; }
 #copilot-subs .copilot-subs__wtip .wt-save { flex: 1; padding: 5px 10px; border: 0; border-radius: 8px; background: #C93F2B; color: #fff;
   font: 600 12px/1.3 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; cursor: pointer; }
 #copilot-subs .copilot-subs__wtip .wt-save:hover { background: #A93521; }
@@ -313,38 +313,38 @@
    Grammar box, the Words grid, and the actions row (Tips sheet · close). */
 #copilot-subs .copilot-subs__wtip.wt-explain { text-align: start; max-width: 400px; padding: 0; overflow: hidden; border-radius: 14px; }
 #copilot-subs .copilot-subs__wtip.wt-explain.show { display: flex; flex-direction: column; }
-#copilot-subs .copilot-subs__wtip .wt-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-bottom: 4px; }
+#copilot-subs .copilot-subs__wtip .wt-body, #sv-board .wt-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-bottom: 4px; }
 #copilot-subs .copilot-subs__wtip .wt-line, #copilot-subs .copilot-subs__wtip.wt-explain .wt-actions { flex: none; }
 #copilot-subs .copilot-subs__wtip .wt-line { font-size: 13.5px; font-weight: 650; color: #241F1A; line-height: 1.45;
   background: #FDE8E4; border-bottom: 1px solid #F6C9C0; padding: 9px 13px 8px; margin: 0 0 4px; }
-#copilot-subs .copilot-subs__wtip .wt-sect { margin-top: 7px; padding: 0 13px; }
-#copilot-subs .copilot-subs__wtip .wt-lbl { font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+#copilot-subs .copilot-subs__wtip .wt-sect, #sv-board .wt-sect { margin-top: 7px; padding: 0 13px; }
+#copilot-subs .copilot-subs__wtip .wt-lbl, #sv-board .wt-lbl { font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
   color: #0D9488; margin-bottom: 2px; border-left: 2px solid #0D9488; padding-left: 6px; }
-#copilot-subs .copilot-subs__wtip .wt-val { font-size: 12.5px; color: #5B5348; line-height: 1.5; }
-#copilot-subs .copilot-subs__wtip .wt-grambox { background: #FBF7F0; border-left: 3px solid #E7B27C; border-radius: 0 6px 6px 0; padding: 6px 9px; color: #3D362F; }
-#copilot-subs .copilot-subs__wtip .wt-gpt { position: relative; padding-inline-start: 12px; margin: 2px 0; }
-#copilot-subs .copilot-subs__wtip .wt-gpt::before { content: "•"; position: absolute; inset-inline-start: 0; color: #C93F2B; font-weight: 700; }
-#copilot-subs .copilot-subs__wtip .wt-words { display: grid; grid-template-columns: max-content 1fr; gap: 2px 10px; align-items: baseline; font-size: 12.5px; }
-#copilot-subs .copilot-subs__wtip .wt-words b { color: #241F1A; font-weight: 700; }
-#copilot-subs .copilot-subs__wtip .wt-words span { color: #5B5348; }
-#copilot-subs .copilot-subs__wtip .wt-words .wt-tag { display: block; font: 600 10px/1.3 ui-monospace, Menlo, Consolas, monospace; color: #8A7F72; font-style: normal; letter-spacing: .02em; }
-#copilot-subs .copilot-subs__wtip .wt-words .wt-forms { display: block; font: 500 10.5px/1.35 ui-monospace, Menlo, Consolas, monospace; color: #8A7F72; font-style: normal; margin-top: 1px; }
+#copilot-subs .copilot-subs__wtip .wt-val, #sv-board .wt-val { font-size: 12.5px; color: #5B5348; line-height: 1.5; }
+#copilot-subs .copilot-subs__wtip .wt-grambox, #sv-board .wt-grambox { background: #FBF7F0; border-left: 3px solid #E7B27C; border-radius: 0 6px 6px 0; padding: 6px 9px; color: #3D362F; }
+#copilot-subs .copilot-subs__wtip .wt-gpt, #sv-board .wt-gpt { position: relative; padding-inline-start: 12px; margin: 2px 0; }
+#copilot-subs .copilot-subs__wtip .wt-gpt::before, #sv-board .wt-gpt::before { content: "•"; position: absolute; inset-inline-start: 0; color: #C93F2B; font-weight: 700; }
+#copilot-subs .copilot-subs__wtip .wt-words, #sv-board .wt-words { display: grid; grid-template-columns: max-content 1fr; gap: 2px 10px; align-items: baseline; font-size: 12.5px; }
+#copilot-subs .copilot-subs__wtip .wt-words b, #sv-board .wt-words b { color: #241F1A; font-weight: 700; }
+#copilot-subs .copilot-subs__wtip .wt-words span, #sv-board .wt-words span { color: #5B5348; }
+#copilot-subs .copilot-subs__wtip .wt-words .wt-tag, #sv-board .wt-words .wt-tag { display: block; font: 600 10px/1.3 ui-monospace, Menlo, Consolas, monospace; color: #8A7F72; font-style: normal; letter-spacing: .02em; }
+#copilot-subs .copilot-subs__wtip .wt-words .wt-forms, #sv-board .wt-words .wt-forms { display: block; font: 500 10.5px/1.35 ui-monospace, Menlo, Consolas, monospace; color: #8A7F72; font-style: normal; margin-top: 1px; }
 #copilot-subs .copilot-subs__wtip .wt-line.wt-sents { display: grid; gap: 4px; }
-#copilot-subs .copilot-subs__wtip .wt-sent { display: grid; grid-template-columns: 18px 1fr; gap: 6px; align-items: baseline; }
-#copilot-subs .copilot-subs__wtip .wt-sn { font: 700 10px/1.4 ui-monospace, Menlo, Consolas, monospace; color: #C93F2B; background: #fff; box-shadow: 0 0 0 1px rgba(201,63,43,.25); border-radius: 999px; width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; font-style: normal; }
+#copilot-subs .copilot-subs__wtip .wt-sent, #sv-board .wt-sent { display: grid; grid-template-columns: 18px 1fr; gap: 6px; align-items: baseline; }
+#copilot-subs .copilot-subs__wtip .wt-sn, #sv-board .wt-sn { font: 700 10px/1.4 ui-monospace, Menlo, Consolas, monospace; color: #C93F2B; background: #fff; box-shadow: 0 0 0 1px rgba(201,63,43,.25); border-radius: 999px; width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; font-style: normal; }
 #copilot-subs .copilot-subs__wtip .wt-chunk { display: block; font: 600 10px/1.3 ui-monospace, Menlo, Consolas, monospace; color: #B24A3A; font-style: normal; margin-top: 4px; letter-spacing: .04em; text-transform: uppercase; }
-#copilot-subs .copilot-subs__wtip .wt-nsel { display: inline-flex; border: 1px solid #EDE5DA; border-radius: 8px; overflow: hidden; }
-#copilot-subs .copilot-subs__wtip .wt-nsel button { border: 0; background: #fff; color: #5B5348; font: 600 12px/1.3 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; padding: 5px 9px; cursor: pointer; }
-#copilot-subs .copilot-subs__wtip .wt-nsel button + button { border-left: 1px solid #EDE5DA; }
-#copilot-subs .copilot-subs__wtip .wt-nsel button.on { background: #FBEAE6; color: #C93F2B; }
-#copilot-subs .copilot-subs__wtip.wt-explain .wt-actions { justify-content: flex-start; gap: 8px; padding: 8px 13px 10px; margin-top: 4px; border-top: 1px solid #EDE5DA; background: #fff; }
-#copilot-subs .copilot-subs__wtip.wt-explain .wt-actions .wt-close { margin-left: auto; }
-#copilot-subs .copilot-subs__wtip .wt-snap { background: #C93F2B; color: #fff; border-color: #C93F2B; }
-#copilot-subs .copilot-subs__wtip .wt-snap:hover { background: #A93521; }
-#copilot-subs .copilot-subs__wtip .wt-sheet { border: 1px solid #EDE5DA; background: #fff; color: #C93F2B; font: 600 12px/1.3 -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+#copilot-subs .copilot-subs__wtip .wt-nsel, #sv-board .wt-nsel { display: inline-flex; border: 1px solid #EDE5DA; border-radius: 8px; overflow: hidden; }
+#copilot-subs .copilot-subs__wtip .wt-nsel button, #sv-board .wt-nsel button { border: 0; background: #fff; color: #5B5348; font: 600 12px/1.3 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; padding: 5px 9px; cursor: pointer; }
+#copilot-subs .copilot-subs__wtip .wt-nsel button + button, #sv-board .wt-nsel button + button { border-left: 1px solid #EDE5DA; }
+#copilot-subs .copilot-subs__wtip .wt-nsel button.on, #sv-board .wt-nsel button.on { background: #FBEAE6; color: #C93F2B; }
+#copilot-subs .copilot-subs__wtip.wt-explain .wt-actions, #sv-board .wt-actions { justify-content: flex-start; gap: 8px; padding: 8px 13px 10px; margin-top: 4px; border-top: 1px solid #EDE5DA; background: #fff; }
+#copilot-subs .copilot-subs__wtip.wt-explain .wt-actions .wt-close, #sv-board .wt-actions .wt-close { margin-left: auto; }
+#copilot-subs .copilot-subs__wtip .wt-snap, #sv-board .wt-snap { background: #C93F2B; color: #fff; border-color: #C93F2B; }
+#copilot-subs .copilot-subs__wtip .wt-snap:hover, #sv-board .wt-snap:hover { background: #A93521; }
+#copilot-subs .copilot-subs__wtip .wt-sheet, #sv-board .wt-sheet { border: 1px solid #EDE5DA; background: #fff; color: #C93F2B; font: 600 12px/1.3 -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
   padding: 5px 10px; border-radius: 8px; cursor: pointer; }
-#copilot-subs .copilot-subs__wtip .wt-sheet:hover { background: #FDE8E4; }
-#copilot-subs .copilot-subs__wtip .wt-sheet:disabled { opacity: 0.6; cursor: default; }
+#copilot-subs .copilot-subs__wtip .wt-sheet:hover, #sv-board .wt-sheet:hover { background: #FDE8E4; }
+#copilot-subs .copilot-subs__wtip .wt-sheet:disabled, #sv-board .wt-sheet:disabled { opacity: 0.6; cursor: default; }
 
 /* Original-line words are clickable — a click opens the word card (pointer
    cursor). The .saved pulse below is kept for any optimistic save confirmation. */
@@ -365,3 +365,43 @@
   border: 0; border-radius: 14px; background: rgba(8,10,14,.72); color: #e7ecf3; font: 600 12px/1.4 system-ui, sans-serif;
   cursor: pointer; opacity: .55; transition: opacity .15s; pointer-events: auto; }
 .copilot-subs__dubctl:hover { opacity: 1; }
+
+/* ── The chunk card's pager and the multi-chunk scroller ── */
+#copilot-subs .copilot-subs__wtip .wt-pager { flex: none; display: flex; align-items: center; gap: 6px; padding: 7px 10px 6px; background: #FBEAE6; border-bottom: 1px solid #F3D4CD; }
+#copilot-subs .copilot-subs__wtip .wt-pager .wt-chunk { flex: 1; text-align: center; margin: 0; }
+#copilot-subs .copilot-subs__wtip .wt-pg { width: 26px; height: 24px; padding: 0; border: 1px solid #F3D4CD; border-radius: 7px; background: #fff; color: #C93F2B; font: 700 15px/22px -apple-system, "Segoe UI", Roboto, Arial, sans-serif; cursor: pointer; }
+#copilot-subs .copilot-subs__wtip .wt-pg:hover:not(:disabled) { background: #FDE8E4; }
+#copilot-subs .copilot-subs__wtip .wt-pg:disabled { opacity: .35; cursor: default; }
+#copilot-subs .copilot-subs__wtip .wt-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+#copilot-subs .copilot-subs__wtip .wt-scroll .wt-body { overflow: visible; flex: none; }
+#copilot-subs .copilot-subs__wtip .wt-div { margin: 10px 13px 0; padding-top: 8px; border-top: 1px dashed #EDE5DA; font: 600 10px/1.3 ui-monospace, Menlo, Consolas, monospace; color: #B24A3A; letter-spacing: .04em; text-transform: uppercase; }
+
+/* ── Story board: the chunks beside the video, above the suggested videos ── */
+#sv-board { margin: 0 0 12px; background: #FAF6F0; color: #241F1A; border-radius: 12px; font: 13px/1.45 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; box-shadow: 0 1px 2px rgba(0,0,0,.14), 0 0 0 1px rgba(36,31,26,.06); overflow: hidden; }
+#sv-board * { box-sizing: border-box; }
+#sv-board .svb-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid #EDE5DA; }
+#sv-board .svb-head b { font-size: 13px; font-weight: 800; letter-spacing: .01em; }
+#sv-board .svb-logo { width: 20px; height: 20px; border-radius: 6px; background: #C93F2B; color: #fff; font: 800 12px/20px -apple-system, "Segoe UI", Roboto, Arial, sans-serif; text-align: center; }
+#sv-board .svb-count { margin-left: auto; color: #8A7F72; font: 600 10.5px/1.3 ui-monospace, Menlo, Consolas, monospace; letter-spacing: .04em; text-transform: uppercase; }
+#sv-board .svb-toggle { border: 1px solid #EDE5DA; background: #fff; color: #C93F2B; font: 600 11px/1.3 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; padding: 3px 8px; border-radius: 6px; cursor: pointer; }
+#sv-board.collapsed .svb-list { display: none; }
+#sv-board .svb-list { position: relative; max-height: min(72vh, 760px); overflow-y: auto; overscroll-behavior: contain; padding: 6px 0; scroll-behavior: smooth; } /* relative: rows measure offsetTop against the list, so following the playhead scrolls right */
+#sv-board .svb-chunk { display: grid; grid-template-columns: 44px 1fr; gap: 8px; padding: 8px 12px 8px 8px; border-left: 3px solid transparent; cursor: pointer; position: relative; }
+#sv-board .svb-chunk + .svb-chunk { border-top: 1px solid #EDE5DA; }
+#sv-board .svb-chunk:hover { background: #F3EDE4; }
+#sv-board .svb-chunk.on { background: #fff; border-left-color: #C93F2B; }
+#sv-board .svb-chunk.open { background: #fff; }
+#sv-board .svb-chunk.flash { animation: svb-flash 1.2s ease-out; }
+@keyframes svb-flash { 0% { background: #FBEAE6; } 100% { background: #fff; } }
+#sv-board .svb-time { border: 0; background: none; padding: 2px 0 0; color: #8A7F72; font: 600 10.5px/1.4 ui-monospace, Menlo, Consolas, monospace; cursor: pointer; text-align: left; }
+#sv-board .svb-time:hover { color: #C93F2B; }
+#sv-board .svb-main { min-width: 0; }
+#sv-board .svb-sent { display: grid; grid-template-columns: 16px 1fr; gap: 6px; align-items: baseline; font-size: 13px; font-weight: 600; color: #241F1A; }
+#sv-board .svb-sn { font: 700 9.5px/1.4 ui-monospace, Menlo, Consolas, monospace; color: #8A7F72; font-style: normal; }
+#sv-board .svb-tr { color: #1F7A6D; font-size: 12.5px; font-weight: 500; margin: 1px 0 5px 22px; }
+#sv-board .svb-mark { position: absolute; top: 8px; right: 10px; font: 600 10px/1.3 ui-monospace, Menlo, Consolas, monospace; color: #1F7A6D; font-style: normal; }
+#sv-board .svb-explain { position: absolute; top: 6px; right: 8px; border: 1px solid #F3D4CD; background: #fff; color: #C93F2B; font: 600 11px/1.3 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; padding: 3px 8px; border-radius: 6px; cursor: pointer; }
+#sv-board .svb-explain:hover { background: #FDE8E4; }
+#sv-board .wt-body { margin: 6px 0 0 -8px; border-top: 1px dashed #EDE5DA; padding-top: 2px; }
+#sv-board .wt-sect { padding: 0 4px 0 8px; }
+#sv-board .wt-actions { margin: 8px 0 0 -8px; padding: 8px 4px 2px 8px; border-top: 1px solid #EDE5DA; background: transparent; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
