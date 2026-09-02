@@ -18,7 +18,8 @@
     "tabCapture",
     "scripting",
     "contextMenus",
-    "activeTab"
+    "activeTab",
+    "nativeMessaging"
   ],
   "host_permissions": [
     "https://api.openai.com/*",

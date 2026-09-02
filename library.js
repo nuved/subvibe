@@ -497,7 +497,7 @@ let actMode = "clip";     // "clip" (grouped per video) | "flat" (every call, sc
 let actBase = null, actBaseTitle = ""; // set by a card's Activity button — shows one video only
 let actObserver = null;   // flat mode's scroll autoloader
 let titleByBase = new Map();
-const providerLabel = (p) => (p === "claude" ? "Claude" : p === "gemini" ? "Gemini" : "OpenAI");
+const providerLabel = (p) => (p === "claude" ? "Claude" : p === "claude-cli" ? "Claude Code" : p === "gemini" ? "Gemini" : "OpenAI");
 // Best available name for a call row: its own title, else the cached video's
 // title via base (streaming-path rows carry no title), else site, else base.
 function rowName(c) {
@@ -535,7 +535,7 @@ async function loadActivity() {
   // (openai/gemini) are independent axes — e.g. Claude translation + Gemini
   // dub both log here, each under their own key, and OpenAI is shared as the
   // default for BOTH axes so it nets out correctly either way.
-  const costByProvider = { openai: { all: 0, today: 0 }, claude: { all: 0, today: 0 }, gemini: { all: 0, today: 0 } };
+  const costByProvider = { openai: { all: 0, today: 0 }, claude: { all: 0, today: 0 }, "claude-cli": { all: 0, today: 0 }, gemini: { all: 0, today: 0 } };
   const startToday = new Date(); startToday.setHours(0, 0, 0, 0); const t0 = startToday.getTime();
   for (const c of shown) {
     inTok += c.inTok || 0; outTok += c.outTok || 0; ms += c.ms || 0; lines += c.lines || 0;

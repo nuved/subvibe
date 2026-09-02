@@ -268,10 +268,11 @@
     .btn:hover { background: var(--accent2); }
     .btn.ghost { background: var(--panel2); color: var(--text2); border: 1px solid var(--border); }
     .btn.ghost:hover { background: var(--hover); }
-    #keyStatus, #anthropicKeyStatus, #geminiKeyStatus { font-size: 11px; margin-top: 6px; min-height: 14px; color: var(--muted); }
-    #keyStatus.ok, #anthropicKeyStatus.ok, #geminiKeyStatus.ok { color: var(--green); }
-    #keyStatus.err, #anthropicKeyStatus.err, #geminiKeyStatus.err { color: var(--red); }
-    #keyStatus.warn, #anthropicKeyStatus.warn, #geminiKeyStatus.warn { color: var(--amber); }
+    #keyStatus, #anthropicKeyStatus, #geminiKeyStatus, #cliBridgeStatus { font-size: 11px; margin-top: 6px; min-height: 14px; color: var(--muted); }
+    #keyStatus.ok, #anthropicKeyStatus.ok, #geminiKeyStatus.ok, #cliBridgeStatus.ok { color: var(--green); }
+    #keyStatus.err, #anthropicKeyStatus.err, #geminiKeyStatus.err, #cliBridgeStatus.err { color: var(--red); }
+    #keyStatus.warn, #anthropicKeyStatus.warn, #geminiKeyStatus.warn, #cliBridgeStatus.warn { color: var(--amber); }
+    .clicmd { flex: 1; min-width: 0; font: 11px/1.4 var(--mono); background: var(--surface-2); color: var(--ink); padding: 7px 9px; border-radius: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; user-select: all; }
 
     /* API keys panel: per-provider row with status dot */
     .keysection + .keysection { margin-top: 14px; }
@@ -597,7 +598,8 @@
       <span class="rowlbl">Translation engine</span>
       <select id="translationProvider" style="flex:1;">
         <option value="openai">OpenAI GPT-4o-mini (cheapest)</option>
-        <option value="claude">Claude</option>
+        <option value="claude">Claude (Anthropic API key)</option>
+        <option value="claude-cli">Claude Code on this Mac (your subscription)</option>
       </select>
     </div>
     <div id="translationProviderWarn" class="selwarn" hidden></div>
@@ -606,6 +608,7 @@
       <div class="seg2" role="radiogroup" aria-label="Claude model">
         <button type="button" class="segopt" data-model="claude-sonnet-5"><b>Sonnet 5</b><small>best quality</small></button>
         <button type="button" class="segopt" data-model="claude-haiku-4-5"><b>Haiku 4.5</b><small>fastest, ~3× cheaper</small></button>
+        <button type="button" class="segopt" data-model="claude-opus-5"><b>Opus 5</b><small>strongest, slowest</small></button>
       </div>
     </div>
   </section>
@@ -848,6 +851,19 @@
           <button class="btn ghost" id="verifyAnthropic">Verify</button>
         </div>
         <div id="anthropicKeyStatus">Stored only on this device. Applies to newly translated lines — cached lines keep their existing translation.</div>
+      </div>
+      <!-- Claude Code on this Mac: no key — the local CLI on the user's own
+           subscription, reached through the native-messaging bridge (bridge/). -->
+      <div class="keysection">
+        <div class="keyhead"><span class="keyname"><span id="cliBridgeDot" class="keydot"></span>Claude Code on this Mac</span> <a id="cliBridgeHelp" href="https://github.com/nuved/subvibe/tree/main/bridge#readme" target="_blank" rel="noopener">How it works →</a></div>
+        <div class="keyused">used for: translation · Shots · word cards — on your Claude subscription, no key</div>
+        <div class="keyrow">
+          <code class="clicmd" id="cliBridgeCmd" title="Run once in a terminal, from the SubVibe folder">bash bridge/install.sh …</code>
+          <button class="btn ghost" id="cliBridgeCopy" title="Copy the install command">Copy</button>
+          <button class="btn ghost" id="cliBridgeTest">Test</button>
+        </div>
+        <div id="cliBridgeStatus">Needs Claude Code installed and logged in on this Mac. Run the command once in a terminal from the SubVibe folder, then Test.</div>
+        <input type="hidden" id="cliBridge" />
       </div>
       <div class="keysection">
         <div class="keyhead"><span class="keyname"><span id="geminiKeyDot" class="keydot"></span>Google</span> <a id="getGeminiKey" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Get a key →</a></div>
