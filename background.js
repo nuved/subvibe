@@ -1560,8 +1560,9 @@ async function shotComposePass(sess, tiles, rect) {
 function shotBlocks(raw) {
   return (Array.isArray(raw) ? raw : []).map((b) => {
     const r = (b && b.rect) || {};
+    const segs = Array.isArray(b && b.segs) ? b.segs.map((t) => String(t || "")).filter(Boolean) : null; // per-text-node text, for paragraph-true pairing
     return { id: String((b && b.id) || ""), text: String((b && b.text) || ""), tr: String((b && b.tr) || ""),
-      rect: { x: +r.x || 0, y: +r.y || 0, w: +r.w || 0, h: +r.h || 0 } };
+      rect: { x: +r.x || 0, y: +r.y || 0, w: +r.w || 0, h: +r.h || 0 }, ...(segs && segs.length ? { segs } : {}) };
   }).filter((b) => b.id && b.text);
 }
 
@@ -1713,8 +1714,10 @@ async function shotRetranslate(msg, sender) {
   if (!wantBilingual && !tabOk) return { ok: false, error: "tab-gone" };
   if (!(rec.blocks || []).length) { rec.target = newTarget; await shotPut(rec); return { ok: true, empty: true }; }
   // Split each block into sentences and translate per-sentence, so the bilingual
-  // card can pair each original sentence with its own translation.
-  const blockSents = rec.blocks.map((b) => SV_SHOT.splitSentences(b.text));
+  // card can pair each original sentence with its own translation. Blocks that
+  // remember their text nodes (`segs`) split per node first, so a paragraph
+  // break is always a pair boundary and the swap can keep the paragraphs.
+  const blockSents = rec.blocks.map((b) => (Array.isArray(b.segs) && b.segs.length ? b.segs.flatMap((t) => SV_SHOT.splitSentences(t)) : SV_SHOT.splitSentences(b.text)));
   const uniq = [...new Set(blockSents.flat())];
   if (!uniq.length) { rec.target = newTarget; await shotPut(rec); return { ok: true, empty: true }; }
   const started = Date.now();

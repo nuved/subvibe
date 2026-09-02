@@ -34,7 +34,16 @@
   // ── state ─────────────────────────────────────────────────────────────────
   let rec = null;
   let view = "translated";
-  let frame = { frame: "card", badge: true };
+  let frame = { frame: "card", badge: true, bg: "sunset" };
+  // Card/Window backgrounds — fixed colours, so an export looks the same in
+  // light and dark UI. Sunset is the original Daylight gradient.
+  const FRAME_BGS = {
+    sunset: ["#F7E6D6", "#E9D5F0", "#D4E9E4"], ocean: ["#D2ECF4", "#C3D9F7", "#DCD4F6"], ember: ["#FBD7C9", "#FCE3B9", "#F8D2DB"],
+    meadow: ["#D8F1D3", "#CFECE1", "#E1EDC9"], stone: ["#EEEAE3", "#E2DCD3", "#ECE6DE"], ink: ["#2A2522", "#1F1B24", "#172826"],
+  };
+  const FRAME_BG_NAMES = { sunset: "Sunset", ocean: "Ocean", ember: "Ember", meadow: "Meadow", stone: "Stone", ink: "Ink" };
+  const bgStops = () => FRAME_BGS[frame.bg] || FRAME_BGS.sunset;
+  const UI_FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
   let exp = { size: "native", format: "png" };
   const bitmaps = {};          // "original" | "variant" → ImageBitmap
   // ── annotation layer (pen / highlighter / text / arrow / rect) ──
@@ -42,6 +51,12 @@
   let annTool = "";            // "" = no drawing (select), else a tool
   let annColor = "#F45D48";
   let annSizeFrac = 0.006;
+  let selected = -1;           // index into annots picked with the Select tool (move / delete)
+  // A mark lives on the surface it was drawn on: a page view, the reading
+  // card, the notes sheet or the side-by-side pair have different geometry.
+  // Marks from before this rule (no `on`) show everywhere, as they always did.
+  const surface = () => (view === "bilingual" ? (biLayout === "N" ? "bi-notes" : biLayout === "S" ? "bi-pages" : "bi-card") : view);
+  const visibleAnnots = () => annots.filter((a) => a && (!a.on || a.on === surface()));
   let curLay = null;           // last drawFramed() layout (device px) for coord mapping
   const ANN_COLORS = ["#F45D48", "#FFC53D", "#22C55E", "#3B82F6", "#111827", "#FFFFFF"];
   // Non-destructive crop (rec.crop, full-image fractions) — applies to the page
@@ -52,7 +67,13 @@
   let lastRenderedView = null; // the view whose pixels are actually on the canvas
   let tabAlive = true; // re-set on load via SHOT_TAB_ALIVE
   let pendingFont = null; // set by the Font control to re-render with a new font
-  let biLayout = "B";     // bilingual pairing: A block-under-block · B stacked pairs · C side-by-side columns
+  let biLayout = "B";     // bilingual: A blocks · B pairs · C columns (reading card) · N margin notes · S pages side by side
+  let biStyle = "balanced"; // the translation line on the card / notes: quiet · balanced · equal
+  let resumeView = null;  // view to return to after a re-shoot that only served as an ingredient (side by side)
+  const BI_DESC = {
+    A: "Whole original, then the whole translation.", B: "Each sentence, then its translation.", C: "Original and translation side by side, sentence by sentence.",
+    N: "The original page, every translation as a numbered note in the margin.", S: "The original page and the translated page in one image.",
+  };
   let biLineBoxes = [];   // per-line boxes (normalized to the paper) for the text-highlight tool
   const BI_RTL = /[֐-ࣿיִ-﷿ﹰ-﻿]/; // Hebrew/Arabic/Persian ranges
   let biFontP = null;     // bundled Vazirmatn for pretty RTL text on the pairs canvas
@@ -70,8 +91,8 @@
   }
 
   const langName = (c) => (window.svLangMeta ? window.svLangMeta((c || "").split("-")[0])[1] : (c || "").toUpperCase());
+  const fontStack = (rtl) => (rtl || (rec && rec.font === "vazirmatn")) ? '"SubVibe Vazirmatn", system-ui, -apple-system, sans-serif' : UI_FONT;
   const code = (c) => (c || "").split("-")[0].toUpperCase();
-  const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
   let toastT = null;
   function toast(text) {
@@ -91,6 +112,61 @@
     ctx.moveTo(x + rr, y); ctx.arcTo(x + w, y, x + w, y + h, rr); ctx.arcTo(x + w, y + h, x, y + h, rr);
     ctx.arcTo(x, y + h, x, y, rr); ctx.arcTo(x, y, x + w, y, rr); ctx.closePath();
   }
+  // ── frame painters (shared by every view) ──
+  const framed = () => frame.frame !== "plain";
+  function paintBg(ctx, lay) {
+    if (!framed()) return;
+    const [a, b, c] = bgStops();
+    const g = ctx.createLinearGradient(0, 0, lay.width, lay.height);
+    g.addColorStop(0, a); g.addColorStop(0.55, b); g.addColorStop(1, c);
+    ctx.fillStyle = g; ctx.fillRect(0, 0, lay.width, lay.height);
+  }
+  // The raised white sheet a page sits on (card + window); `box` includes the
+  // title bar when there is one, so bar and page share one rounded outline.
+  function paintPaper(ctx, box, radius, dpr, fill) {
+    ctx.save();
+    if (framed()) { ctx.shadowColor = "rgba(40,20,10,.33)"; ctx.shadowBlur = 30 * dpr; ctx.shadowOffsetY = 10 * dpr; }
+    ctx.fillStyle = fill || "#fff"; roundRect(ctx, box.x, box.y, box.w, box.h, radius); ctx.fill();
+    ctx.restore();
+  }
+  // Browser title bar: traffic lights + the host in an address pill. `label`
+  // (optional) replaces the host — side by side names the language.
+  function paintBar(ctx, bar, radius, pageH, dpr, label) {
+    ctx.save();
+    roundRect(ctx, bar.x, bar.y, bar.w, bar.h + pageH, radius); ctx.clip();
+    ctx.fillStyle = "#F3F0EA"; ctx.fillRect(bar.x, bar.y, bar.w, bar.h);
+    ctx.fillStyle = "rgba(0,0,0,.09)"; ctx.fillRect(bar.x, bar.y + bar.h - Math.max(1, dpr), bar.w, Math.max(1, dpr));
+    const cy = bar.y + bar.h / 2, r = 5.5 * dpr;
+    ["#FF5F57", "#FEBC2E", "#28C840"].forEach((c, i) => { ctx.fillStyle = c; ctx.beginPath(); ctx.arc(bar.x + 16 * dpr + i * 18 * dpr, cy, r, 0, Math.PI * 2); ctx.fill(); });
+    const text = label || (rec.host || "").replace(/^www\./, "") || "";
+    ctx.font = "500 " + Math.round(12 * dpr) + "px " + UI_FONT;
+    const tw = ctx.measureText(text).width, ph = Math.round(22 * dpr);
+    const pw = Math.min(bar.w * 0.56, tw + 28 * dpr), px = bar.x + (bar.w - pw) / 2, py = cy - ph / 2;
+    ctx.fillStyle = "rgba(0,0,0,.055)"; roundRect(ctx, px, py, pw, ph, ph / 2); ctx.fill();
+    ctx.save(); roundRect(ctx, px, py, pw, ph, ph / 2); ctx.clip();
+    ctx.fillStyle = "#6B6259"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.direction = "ltr";
+    ctx.fillText(text, bar.x + bar.w / 2, cy + 0.5 * dpr); ctx.restore();
+    ctx.restore();
+  }
+  function paintBadge(ctx, lay, dpr) {
+    if (!lay.badge) return;
+    const label = "SUBVIBE · " + code(rec.source === "xx" ? "" : rec.source) + (rec.source === "xx" ? "" : " → ") + code(rec.target);
+    ctx.font = "600 " + Math.round(11 * dpr) + "px ui-monospace, Menlo, Consolas, monospace";
+    const tw = ctx.measureText(label).width, bw = tw + lay.badge.padX * 2, bh = lay.badge.h;
+    const bx = lay.badge.x - bw, by = lay.badge.y - bh / 2;
+    ctx.fillStyle = "rgba(255,255,255,.72)"; roundRect(ctx, bx, by, bw, bh, bh / 2); ctx.fill();
+    ctx.fillStyle = "#A93521"; ctx.textBaseline = "middle"; ctx.textAlign = "left";
+    ctx.fillText(label, bx + lay.badge.padX, by + bh / 2 + 0.5 * dpr);
+  }
+  // Small language caption above a page (side by side) in the card padding.
+  function paintCaption(ctx, x, y, w, text, dpr, rtl) {
+    ctx.save();
+    ctx.font = "700 " + Math.round(11 * dpr) + "px ui-monospace, Menlo, Consolas, monospace";
+    ctx.fillStyle = frame.bg === "ink" ? "rgba(255,255,255,.72)" : "rgba(36,31,26,.62)";
+    ctx.textBaseline = "alphabetic"; ctx.direction = "ltr"; ctx.textAlign = rtl ? "right" : "left";
+    ctx.fillText(text.toUpperCase(), rtl ? x + w : x, y);
+    ctx.restore();
+  }
   // Paints `bmp` framed per `frame` into `canvas`; `scale` is relative to the
   // capture's device pixels (1 = native).
   function drawFramed(canvas, bmp, scale) {
@@ -99,30 +175,131 @@
     const lay = S.frameLayout({ w: Math.round(sw * scale), h: Math.round(sh * scale), frame: frame.frame, badge: frame.badge, dpr });
     canvas.width = lay.width; canvas.height = lay.height;
     const ctx = canvas.getContext("2d");
-    if (frame.frame === "card") {
-      const g = ctx.createLinearGradient(0, 0, lay.width, lay.height);
-      g.addColorStop(0, cssVar("--frame-a")); g.addColorStop(0.55, cssVar("--frame-b")); g.addColorStop(1, cssVar("--frame-c"));
-      ctx.fillStyle = g; ctx.fillRect(0, 0, lay.width, lay.height);
-      ctx.save();
-      ctx.shadowColor = "rgba(40,20,10,.35)"; ctx.shadowBlur = 30 * dpr; ctx.shadowOffsetY = 10 * dpr;
-      ctx.fillStyle = "#fff"; roundRect(ctx, lay.img.x, lay.img.y, lay.img.w, lay.img.h, lay.img.radius); ctx.fill();
-      ctx.restore();
-      ctx.save(); roundRect(ctx, lay.img.x, lay.img.y, lay.img.w, lay.img.h, lay.img.radius); ctx.clip();
+    if (framed()) {
+      paintBg(ctx, lay);
+      const box = lay.bar ? { x: lay.bar.x, y: lay.bar.y, w: lay.bar.w, h: lay.bar.h + lay.img.h } : lay.img;
+      paintPaper(ctx, box, lay.img.radius, dpr);
+      if (lay.bar) paintBar(ctx, lay.bar, lay.img.radius, lay.img.h, dpr);
+      ctx.save(); roundRect(ctx, box.x, box.y, box.w, box.h, lay.img.radius); ctx.clip();
+      ctx.beginPath(); ctx.rect(lay.img.x, lay.img.y, lay.img.w, lay.img.h); ctx.clip();
       ctx.drawImage(bmp, sx, sy, sw, sh, lay.img.x, lay.img.y, lay.img.w, lay.img.h); ctx.restore();
-      if (lay.badge) {
-        const label = "SUBVIBE · " + code(rec.source === "xx" ? "" : rec.source) + (rec.source === "xx" ? "" : " → ") + code(rec.target);
-        ctx.font = "600 " + Math.round(11 * dpr) + "px ui-monospace, Menlo, Consolas, monospace";
-        const tw = ctx.measureText(label).width;
-        const bw = tw + lay.badge.padX * 2, bh = lay.badge.h;
-        const bx = lay.badge.x - bw, by = lay.badge.y - bh / 2;
-        ctx.fillStyle = "rgba(255,255,255,.72)"; roundRect(ctx, bx, by, bw, bh, bh / 2); ctx.fill();
-        ctx.fillStyle = "#A93521"; ctx.textBaseline = "middle"; ctx.textAlign = "left";
-        ctx.fillText(label, bx + lay.badge.padX, by + bh / 2 + 0.5 * dpr);
-      }
+      paintBadge(ctx, lay, dpr);
     } else {
       ctx.drawImage(bmp, sx, sy, sw, sh, 0, 0, lay.width, lay.height);
     }
     return lay;
+  }
+
+  // ── bilingual on the page: side by side / margin notes ──────────────────
+  // Original | translated page in one picture. Needs both rasters; returns
+  // null when the translated page hasn't been rendered yet.
+  async function drawSideBySide(canvas, scale) {
+    const o = await bitmapFor("original"), t = await bitmapFor("translated");
+    if (!o || !t) return null;
+    const dpr = (rec.dpr || 1) * scale;
+    const crop = curCrop();
+    const so = S.cropSrc(crop, o.width, o.height), st = S.cropSrc(crop, t.width, t.height);
+    const gap = Math.round(28 * dpr), barH = frame.frame === "window" ? Math.round(36 * dpr) : 0;
+    const A = { w: Math.round(so.sw * scale), h: Math.round(so.sh * scale) }, B = { w: Math.round(st.sw * scale), h: Math.round(st.sh * scale) };
+    const sb = S.sideBySide(A, B, gap);
+    const capH = framed() ? Math.round(18 * dpr) : 0; // caption line above each page
+    const lay = S.frameLayout({ w: sb.width, h: sb.height + barH + capH, frame: framed() ? "card" : "plain", badge: frame.badge, dpr });
+    canvas.width = lay.width; canvas.height = lay.height;
+    const ctx = canvas.getContext("2d");
+    paintBg(ctx, lay);
+    const top = lay.img.y + capH;
+    const pages = [[sb.a, o, so, langName(rec.source === "xx" ? "" : rec.source) || "Original", false], [sb.b, t, st, langName(rec.target), S.isRtl(rec.target)]];
+    for (const [box, bmp, src, caption, rtl] of pages) {
+      const x = lay.img.x + box.x, y = top + barH;
+      if (framed()) {
+        paintPaper(ctx, { x, y: top, w: box.w, h: barH + box.h }, lay.img.radius, dpr);
+        if (barH) paintBar(ctx, { x, y: top, w: box.w, h: barH }, lay.img.radius, box.h, dpr, caption);
+        paintCaption(ctx, x, lay.img.y + Math.round(12 * dpr), box.w, caption, dpr, rtl);
+      }
+      ctx.save(); roundRect(ctx, x, top, box.w, barH + box.h, framed() ? lay.img.radius : 0); ctx.clip();
+      ctx.beginPath(); ctx.rect(x, y, box.w, box.h); ctx.clip();
+      ctx.drawImage(bmp, src.sx, src.sy, src.sw, src.sh, x, y, box.w, box.h); ctx.restore();
+    }
+    paintBadge(ctx, lay, dpr);
+    // Annotations map over the whole two-page area.
+    return { ...lay, img: { x: lay.img.x, y: top + barH, w: sb.width, h: sb.height, radius: 0 } };
+  }
+  // The original page with a margin column of numbered notes: one per text
+  // block, level with the block when there's room, pushed down otherwise.
+  async function drawNotes(canvas, scale) {
+    const bmp = await bitmapFor("original"); if (!bmp) return null;
+    await ensureBiFont();
+    const dpr = (rec.dpr || 1) * scale;
+    const c = S.normCrop(curCrop());
+    const { sx, sy, sw, sh } = S.cropSrc(c, bmp.width, bmp.height);
+    const pw = Math.round(sw * scale), ph = Math.round(sh * scale);
+    const rtl = S.isRtl(rec.target);
+    const mw = Math.round(Math.max(220, Math.min(360, Math.round((rec.w || 640) * 0.42))) * dpr);
+    const PADN = Math.round(14 * dpr), GAPN = Math.round(10 * dpr), NR = Math.round(9 * dpr);
+    const fs = Math.round((biStyle === "quiet" ? 12.5 : biStyle === "equal" ? 15 : 13.5) * dpr), LH = Math.round(fs * 1.45);
+    const font = "400 " + fs + "px " + fontStack(rtl);
+    const mc = canvas.getContext("2d"); mc.font = font;
+    const textW = mw - PADN * 2 - NR * 2 - Math.round(6 * dpr);
+    const items = [];
+    for (const b of rec.blocks) {
+      const tr = ((Array.isArray(b.pairs) && b.pairs.length) ? b.pairs.map((p) => (p && p.t) || "").filter(Boolean).join(" ") : b.tr) || "";
+      if (!tr || !b.rect || !rec.rect) continue;
+      const fx = (b.rect.x - rec.rect.x) / rec.rect.w, fy = (b.rect.y - rec.rect.y) / rec.rect.h;
+      if (fy < c.y - 0.002 || fy > c.y + c.h || fx + b.rect.w / rec.rect.w < c.x || fx > c.x + c.w) continue; // outside the crop
+      const px = (fx - c.x) / c.w * pw, py = (fy - c.y) / c.h * ph;
+      const lines = wrapText(mc, tr, textW);
+      items.push({ px, py, lines, h: lines.length * LH + Math.round(4 * dpr) });
+    }
+    const placed = S.layoutNotes(items.map((it) => ({ y: it.py, h: it.h })), GAPN);
+    const contentH = Math.max(ph, placed.bottom + PADN);
+    const lay = S.frameLayout({ w: pw + mw, h: contentH, frame: frame.frame, badge: frame.badge, dpr });
+    canvas.width = lay.width; canvas.height = lay.height;
+    const g = canvas.getContext("2d");
+    paintBg(g, lay);
+    const box = lay.bar ? { x: lay.bar.x, y: lay.bar.y, w: lay.bar.w, h: lay.bar.h + lay.img.h } : lay.img;
+    if (framed()) paintPaper(g, box, lay.img.radius, dpr);
+    if (lay.bar) paintBar(g, lay.bar, lay.img.radius, lay.img.h, dpr);
+    g.save(); roundRect(g, box.x, box.y, box.w, box.h, framed() ? lay.img.radius : 0); g.clip();
+    g.beginPath(); g.rect(lay.img.x, lay.img.y, lay.img.w, lay.img.h); g.clip();
+    g.fillStyle = "#fff"; g.fillRect(lay.img.x, lay.img.y, pw, lay.img.h);
+    g.drawImage(bmp, sx, sy, sw, sh, lay.img.x, lay.img.y, pw, ph);
+    const mx = lay.img.x + pw;
+    g.fillStyle = "#FFFDF7"; g.fillRect(mx, lay.img.y, mw, lay.img.h);
+    g.fillStyle = "rgba(0,0,0,.09)"; g.fillRect(mx, lay.img.y, Math.max(1, dpr), lay.img.h);
+    const coral = "#C93F2B", INK = "#2c6a64";
+    const badge = (x, y, n) => {
+      g.beginPath(); g.arc(x, y, NR, 0, Math.PI * 2); g.fillStyle = coral; g.fill();
+      g.lineWidth = Math.max(1.5, 1.5 * dpr); g.strokeStyle = "rgba(255,255,255,.92)"; g.stroke();
+      g.fillStyle = "#fff"; g.font = "700 " + Math.round(NR * 1.2) + "px " + UI_FONT; g.textAlign = "center"; g.textBaseline = "middle"; g.direction = "ltr";
+      g.fillText(String(n), x, y + 0.5 * dpr);
+    };
+    biLineBoxes = [];
+    items.forEach((it, i) => {
+      const n = i + 1;
+      const bx = lay.img.x + it.px, by = lay.img.y + it.py;
+      badge(bx >= lay.img.x + NR * 2 ? bx - NR - 3 * dpr : bx + NR + 2 * dpr, by + NR + 2 * dpr, n);
+      const top = lay.img.y + placed.tops[i];
+      const nx = rtl ? mx + mw - PADN - NR : mx + PADN + NR;
+      badge(nx, top + NR + 2 * dpr, n);
+      g.font = font; g.fillStyle = INK; g.textBaseline = "top"; g.direction = rtl ? "rtl" : "ltr"; g.textAlign = rtl ? "right" : "left";
+      const tx = rtl ? mx + mw - PADN - NR * 2 - Math.round(6 * dpr) : mx + PADN + NR * 2 + Math.round(6 * dpr);
+      it.lines.forEach((ln, k) => {
+        const ly = top + k * LH;
+        g.fillText(ln, tx, ly);
+        const w = g.measureText(ln).width;
+        biLineBoxes.push({ x: ((rtl ? tx - w : tx) - lay.img.x) / lay.img.w, y: (ly - lay.img.y) / lay.img.h, w: w / lay.img.w, h: LH / lay.img.h });
+      });
+    });
+    g.restore();
+    paintBadge(g, lay, dpr);
+    return lay;
+  }
+  // One entry for every bilingual layout; null when an ingredient is missing.
+  async function drawBilingual(canvas, scale) {
+    if (biLayout === "S") return drawSideBySide(canvas, scale);
+    if (biLayout === "N") return drawNotes(canvas, scale);
+    await ensureBiFont();
+    return drawPairsCard(canvas, scale);
   }
 
   // ── bilingual pairs card (generated, not a page screenshot) ────────────────
@@ -158,12 +335,12 @@
     const paperW = Math.round(baseCss * dpr);
     const PAD = Math.round(28 * dpr);
     const innerW = paperW - PAD * 2;
-    const FS_O = Math.round(17 * dpr), FS_T = Math.round(15.5 * dpr);
+    const FS_O = Math.round(17 * dpr), FS_T = Math.round((biStyle === "quiet" ? 14.5 : biStyle === "equal" ? 17 : 15.5) * dpr);
     const LH_O = Math.round(FS_O * 1.58), LH_T = Math.round(FS_T * 1.5);
     const GAP_OT = Math.round(5 * dpr), GAP_PAIR = Math.round(18 * dpr), COL_GUT = Math.round(24 * dpr);
-    const INK = "#1f1c18", DE = "#2c6a64", LINE = "#ebe4d9"; // on the always-white paper
-    const useVazir = rec.font === "vazirmatn";
-    const stack = (rtl) => (rtl || useVazir) ? '"SubVibe Vazirmatn", system-ui, -apple-system, sans-serif' : 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+    const INK = "#1f1c18", LINE = "#ebe4d9"; // on the always-white paper
+    const DE = biStyle === "quiet" ? "#6b918c" : biStyle === "equal" ? "#1f5a54" : "#2c6a64"; // the translation's teal, lighter when quiet
+    const stack = fontStack;
     const oFont = (rtl) => "400 " + FS_O + "px " + stack(rtl);
     const tFont = (rtl) => "400 " + FS_T + "px " + stack(rtl);
 
@@ -213,25 +390,12 @@
     const lay = S.frameLayout({ w: paperW, h: paperH, frame: frame.frame, badge: frame.badge, dpr });
     canvas.width = lay.width; canvas.height = lay.height;
     const g = canvas.getContext("2d");
-    if (frame.frame === "card") {
-      const grad = g.createLinearGradient(0, 0, lay.width, lay.height);
-      grad.addColorStop(0, cssVar("--frame-a")); grad.addColorStop(0.55, cssVar("--frame-b")); grad.addColorStop(1, cssVar("--frame-c"));
-      g.fillStyle = grad; g.fillRect(0, 0, lay.width, lay.height);
-      g.save(); g.shadowColor = "rgba(40,20,10,.28)"; g.shadowBlur = 28 * dpr; g.shadowOffsetY = 10 * dpr;
-      g.fillStyle = "#fff"; roundRect(g, lay.img.x, lay.img.y, lay.img.w, lay.img.h, lay.img.radius); g.fill(); g.restore();
-    } else {
-      g.fillStyle = "#fff"; roundRect(g, lay.img.x, lay.img.y, lay.img.w, lay.img.h, lay.img.radius); g.fill();
-    }
-    if (lay.badge) {
-      const label = "SUBVIBE · " + code(rec.source === "xx" ? "" : rec.source) + (rec.source === "xx" ? "" : " → ") + code(rec.target);
-      g.font = "600 " + Math.round(11 * dpr) + "px ui-monospace, Menlo, Consolas, monospace";
-      const tw = g.measureText(label).width, bw = tw + lay.badge.padX * 2, bh = lay.badge.h;
-      const bx = lay.badge.x - bw, by = lay.badge.y - bh / 2;
-      g.fillStyle = "rgba(255,255,255,.72)"; roundRect(g, bx, by, bw, bh, bh / 2); g.fill();
-      g.fillStyle = "#A93521"; g.textBaseline = "middle"; g.textAlign = "left";
-      g.fillText(label, bx + lay.badge.padX, by + bh / 2 + 0.5 * dpr);
-    }
-    g.save(); roundRect(g, lay.img.x, lay.img.y, lay.img.w, lay.img.h, lay.img.radius); g.clip();
+    paintBg(g, lay);
+    const box = lay.bar ? { x: lay.bar.x, y: lay.bar.y, w: lay.bar.w, h: lay.bar.h + lay.img.h } : lay.img;
+    paintPaper(g, box, lay.img.radius, dpr);
+    if (lay.bar) paintBar(g, lay.bar, lay.img.radius, lay.img.h, dpr);
+    paintBadge(g, lay, dpr);
+    g.save(); roundRect(g, box.x, box.y, box.w, box.h, lay.img.radius); g.clip();
     const ox = lay.img.x + PAD, oy = lay.img.y + PAD;
     for (const it of items) {
       if (it.divider) { g.strokeStyle = LINE; g.lineWidth = Math.max(1, dpr); g.beginPath(); g.moveTo(ox + it.x1, oy + it.y + 0.5); g.lineTo(ox + it.x2, oy + it.y + 0.5); g.stroke(); continue; }
@@ -254,8 +418,15 @@
   // `rec.views` is the per-view cache; the original/variant fields are the
   // fallback for shots stored before the cache existed.
   function viewBlob(v) {
-    if (rec.views && rec.views[v] instanceof Blob) return rec.views[v];
-    if (v === "original") return rec.original instanceof Blob ? rec.original : null;
+    if (rec.views && typeof rec.views === "object") {
+      // The per-view cache is authoritative: a language change deletes the
+      // stale translated/bilingual entries, and the legacy `variant` (still the
+      // OLD language) must not stand in for them — that showed a Persian page
+      // under an "English" caption in Side by side.
+      if (rec.views[v] instanceof Blob) return rec.views[v];
+      return v === "original" && rec.original instanceof Blob ? rec.original : null;
+    }
+    if (v === "original") return rec.original instanceof Blob ? rec.original : null; // records from before the cache
     if (v === rec.layout) return rec.variant instanceof Blob ? rec.variant : null;
     return null;
   }
@@ -284,7 +455,7 @@
     setupAnnot(); $("annotBar").hidden = !captured;
     $("annTextmark").hidden = true; if (annTool === "textmark") setTool("");
     $("annCrop").hidden = false; $("annUncrop").hidden = !curCrop();
-    syncAnnot();
+    selected = -1; syncAnnot();
     for (const b of $("viewSeg").querySelectorAll("button")) b.classList.toggle("on", b.dataset.view === view);
     const vn = $("viewNote");
     if (captured && view === "original" && !isTranslated()) { vn.className = "note"; vn.textContent = "Original page — pick Translated or Bilingual to translate (uses your API key)."; }
@@ -298,21 +469,35 @@
   // Bilingual view: a generated pairs card (no blob, no tab). Switching the A/B/C
   // layout just redraws — instant.
   async function renderBilingual() {
-    await ensureBiFont();
     const canvas = $("stage");
-    const lay = drawPairsCard(canvas, 1); curLay = lay;
+    const vn = $("viewNote"); vn.className = "note"; vn.textContent = "";
+    let lay = await drawBilingual(canvas, 1);
+    if (!lay) {
+      // Side by side without a translated page yet: render it (needs the tab),
+      // then come back here; without the tab, show the card and say why.
+      if (biLayout === "S" && tabAlive && !reshooting) {
+        resumeView = "bilingual"; view = "translated";
+        if (!isTranslated()) retranslate(rec.target, "translated"); else reshoot();
+        return;
+      }
+      if (biLayout === "S") { vn.className = "note warn"; vn.textContent = "Side by side needs the translated page — open the original tab and pick Translated once."; }
+      await ensureBiFont(); lay = drawPairsCard(canvas, 1);
+    }
+    curLay = lay;
     canvas.style.width = Math.round(lay.width / (rec.dpr || 1)) + "px";
     canvas.style.opacity = "1";
     lastRenderedView = "bilingual";
     $("stageSkel").hidden = true; $("canvasWrap").hidden = false;
     setupAnnot(); $("annotBar").hidden = false;
-    $("annTextmark").hidden = false;
-    $("annCrop").hidden = true; $("annUncrop").hidden = true; if (annTool === "crop") setTool("");
-    syncAnnot();
+    const onPage = biLayout === "N" || biLayout === "S";
+    $("annTextmark").hidden = biLayout === "S" || !biLineBoxes.length; if ($("annTextmark").hidden && annTool === "textmark") setTool("");
+    $("annCrop").hidden = !onPage; $("annUncrop").hidden = !onPage || !curCrop(); if (!onPage && annTool === "crop") setTool("");
+    selected = -1; syncAnnot();
     markViewButton("bilingual");
-    for (const b of $("biBar").querySelectorAll("button")) b.classList.toggle("on", b.dataset.bi === biLayout);
+    for (const b of $("biPick").querySelectorAll("[data-bi]")) b.classList.toggle("on", b.dataset.bi === biLayout);
+    for (const b of $("biStyleBar").querySelectorAll("button")) b.classList.toggle("on", b.dataset.bistyle === biStyle);
+    $("biStyleRow").hidden = biLayout === "S";
     $("biPick").hidden = false;
-    const vn = $("viewNote"); vn.className = "note"; vn.textContent = "";
     updateReshoot();
     for (const id of ["dlBtn", "copyBtn", "shareBtn"]) { const el = $(id); if (el) el.disabled = false; }
     $("fileNote").textContent = S.filename({ host: rec.host, ts: rec.ts, view, size: exp.size, format: exp.format });
@@ -400,8 +585,11 @@
   async function retranslate(newTarget, layout) {
     if (reshooting || !rec || !newTarget) return;
     if (newTarget === rec.target && isTranslated() && (!layout || viewBlob(layout))) return; // already there
-    const want = layout === "bilingual" ? "bilingual" : "translated";
-    reshooting = true; markViewButton(want);
+    let want = layout === "bilingual" ? "bilingual" : "translated";
+    // Side by side needs the translated PAGE in the new language, not just the
+    // pairs: render it on the tab in the same round trip, then come back.
+    if (want === "bilingual" && biLayout === "S" && tabAlive) { want = "translated"; resumeView = "bilingual"; }
+    reshooting = true; markViewButton(layout === "bilingual" ? "bilingual" : want);
     showBusy("Translating to " + langName(newTarget) + "…");
     const res = await new Promise((r) => chrome.runtime.sendMessage({ type: "SHOT_RETRANSLATE", id: rec.id, target: newTarget, layout: want }, (x) => r(chrome.runtime.lastError ? null : x)));
     reshooting = false;
@@ -410,6 +598,7 @@
       const msg = err === "tab-gone" ? "Open the original tab to translate, then try again."
         : err === "no-key" ? "Add an API key in the SubVibe popup to translate."
         : "Couldn't translate (" + err + "). Try again.";
+      resumeView = null;
       if (lastRenderedView) view = lastRenderedView; // stay on the view that's showing
       hideBusy(); setNote(msg, "warn"); markViewButton(view);
       return;
@@ -419,6 +608,7 @@
     edits.clear();
     clearBitmaps();
     view = want;
+    if (resumeView) { view = resumeView; resumeView = null; }
     renderHeader(); renderBlocks(); await render();
     hideBusy();
     toast("Now in " + langName(rec.target));
@@ -516,6 +706,7 @@
     if (!res || !res.ok) {
       const err = (res && res.error) || "network";
       if (err === "tab-gone") tabAlive = false;
+      resumeView = null;
       if (lastRenderedView) view = lastRenderedView; // stay on the view still on screen
       hideBusy(); updateReshoot(); markViewButton(view);
       note.className = "note err";
@@ -528,6 +719,7 @@
     if (fresh) { rec = fresh; try { S.validateRecord(rec); } catch (e) { /* keep showing what we have */ } }
     if (layout !== "original") edits.clear(); // Original re-shoot doesn't consume translation edits
     clearBitmaps();
+    if (resumeView) { view = resumeView; resumeView = null; }
     renderHeader(); renderBlocks(); await render();
     hideBusy();
     toast(res.missing ? "Rendered · " + res.missing + " block" + (res.missing === 1 ? "" : "s") + " no longer on the page"
@@ -539,9 +731,9 @@
     const c = document.createElement("canvas");
     const scale = S.exportScale(exp.size, rec.dpr || 1);
     let lay;
-    if (view === "bilingual" && hasPairs()) { await ensureBiFont(); lay = drawPairsCard(c, scale); }
+    if (view === "bilingual" && hasPairs()) { lay = await drawBilingual(c, scale); if (!lay) { await ensureBiFont(); lay = drawPairsCard(c, scale); } }
     else { const bmp = await bitmapFor(view); if (!bmp) return null; lay = drawFramed(c, bmp, scale); }
-    renderAnnots(c.getContext("2d"), lay.img);
+    renderAnnots(c.getContext("2d"), lay.img, c);
     const type = format === "jpeg" ? "image/jpeg" : "image/png";
     return new Promise((res) => c.toBlob((b) => res(b), type, 0.9));
   }
@@ -578,13 +770,37 @@
   }
 
   function annPt(n, img) { return S.cropToView(n, img, curCrop()); }
-  function renderAnnots(ctx, img) {
+  // View px → full-image fraction, unclamped (boxes may straddle the crop edge).
+  function viewFrac(px, py, img) {
+    const c = S.normCrop(curCrop());
+    return { x: c.x + ((px - img.x) / img.w) * c.w, y: c.y + ((py - img.y) / img.h) * c.h };
+  }
+  // Pixelate the image under a blur rectangle. `src` holds the image pixels:
+  // the stage canvas for the on-screen overlay, the export canvas itself when
+  // exporting (same size, same coordinates either way).
+  function pixelate(ctx, src, a, img, iw) {
+    if (!src) return;
+    const [x1, y1] = annPt(a.a, img), [x2, y2] = annPt(a.b, img);
+    const x = Math.max(Math.min(x1, x2), img.x), y = Math.max(Math.min(y1, y2), img.y);
+    const w = Math.min(Math.max(x1, x2), img.x + img.w) - x, h = Math.min(Math.max(y1, y2), img.y + img.h) - y;
+    if (w < 1 || h < 1) return;
+    const block = Math.max(6, Math.round(iw * 0.014));
+    const tw = Math.max(1, Math.round(w / block)), th = Math.max(1, Math.round(h / block));
+    const tmp = document.createElement("canvas"); tmp.width = tw; tmp.height = th;
+    const tc = tmp.getContext("2d"); tc.imageSmoothingEnabled = true;
+    tc.drawImage(src, x, y, w, h, 0, 0, tw, th);
+    ctx.save(); ctx.imageSmoothingEnabled = false; ctx.drawImage(tmp, 0, 0, tw, th, x, y, w, h); ctx.restore();
+  }
+  function renderAnnots(ctx, img, src) {
     // A crop zooms the image: sizes stored as full-image fractions scale by the
     // same factor, and shapes outside the crop window are clipped away.
     const c = S.normCrop(curCrop());
     const iw = img.w / c.w, ih = img.h / c.h;
     ctx.save(); ctx.beginPath(); ctx.rect(img.x, img.y, img.w, img.h); ctx.clip();
-    for (const a of annots) {
+    const shown = visibleAnnots();
+    for (const a of shown) if (a.tool === "blur") pixelate(ctx, src || $("stage"), a, img, iw); // blurs sit under every other mark
+    for (const a of shown) {
+      if (a.tool === "blur") continue;
       ctx.save();
       const col = a.color || "#F45D48";
       const lw = Math.max(1, (a.size || 0.006) * iw);
@@ -619,6 +835,16 @@
         const bx = ctx.direction === "rtl" ? x - w : x;
         ctx.globalAlpha = 0.82; ctx.fillStyle = "#fff"; ctx.fillRect(bx - 4, y - 2, w + 8, fs + 6);
         ctx.globalAlpha = 1; ctx.fillStyle = col; ctx.fillText(a.text, x, y);
+        const tl = viewFrac(bx - 4, y - 2, img); a.box = { x: tl.x, y: tl.y, w: (w + 8) / iw, h: (fs + 6) / ih }; // for Select
+      } else if (a.tool === "num") {
+        const r = Math.max(9, (a.size || 0.006) * iw * 2.2);
+        const [x, y] = annPt(a.at, img);
+        ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+        ctx.lineWidth = Math.max(1.5, r * 0.12); ctx.strokeStyle = col === "#FFFFFF" ? "rgba(17,24,39,.6)" : "rgba(255,255,255,.9)"; ctx.stroke();
+        ctx.fillStyle = col === "#FFFFFF" ? "#111827" : "#fff";
+        ctx.font = "700 " + Math.round(r * 1.15) + "px " + UI_FONT; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.direction = "ltr";
+        ctx.fillText(String(a.n || 1), x, y + r * 0.06);
+        a.r = r / iw; delete a.box;
       } else if (a.tool === "textmark") {
         ctx.globalAlpha = 0.3; ctx.fillStyle = col;
         for (const bx of a.boxes || []) { const [x, y] = annPt(bx, img); ctx.fillRect(x - 2, y - 1, bx.w * iw + 4, bx.h * ih + 1); }
@@ -630,10 +856,36 @@
   function syncAnnot() {
     const stage = $("stage"), an = $("annot"); if (!an || !curLay) return;
     an.width = stage.width; an.height = stage.height;
-    an.style.pointerEvents = annTool ? "auto" : "none";
-    an.style.cursor = annTool === "text" ? "text" : annTool ? "crosshair" : "default";
+    an.style.pointerEvents = "auto";
+    an.style.cursor = annTool === "text" || annTool === "num" ? "text" : annTool ? "crosshair" : "default";
     const ctx = an.getContext("2d"); ctx.clearRect(0, 0, an.width, an.height);
-    renderAnnots(ctx, curLay.img);
+    if (selected >= annots.length) selected = -1;
+    renderAnnots(ctx, curLay.img, stage);
+    if (selected >= 0) drawSelection(ctx, curLay.img, annots[selected]);
+    const del = $("annDelete"); if (del) del.hidden = selected < 0;
+  }
+  // Dashed outline around the selected mark — the affordance for move / delete.
+  function drawSelection(ctx, img, a) {
+    const b = S.annBounds(a); if (!b) return;
+    const [x1, y1] = annPt({ x: b.x, y: b.y }, img), [x2, y2] = annPt({ x: b.x + b.w, y: b.y + b.h }, img);
+    const pad = Math.max(6, (rec.dpr || 1) * 6);
+    ctx.save(); ctx.strokeStyle = "#C93F2B"; ctx.lineWidth = Math.max(1.5, (rec.dpr || 1) * 1.25); ctx.setLineDash([6, 4]);
+    ctx.strokeRect(x1 - pad, y1 - pad, (x2 - x1) + pad * 2, (y2 - y1) + pad * 2); ctx.restore();
+  }
+  // Hit-test tolerance and the y-scale for it, in full-image fractions.
+  function hitOpts() {
+    const c = S.normCrop(curCrop()), iw = curLay.img.w / c.w, ih = curLay.img.h / c.h;
+    return { tol: (8 * (rec.dpr || 1)) / iw, ky: ih / iw };
+  }
+  function deleteSelected() {
+    if (selected < 0 || selected >= annots.length) return;
+    annots.splice(selected, 1); selected = -1; S.renumber(visibleAnnots());
+    syncAnnot(); saveAnnots();
+  }
+  // Global index of the visible mark under `p`, or -1.
+  function pick(p) {
+    const vis = visibleAnnots(), j = S.hitAnnot(vis, p, hitOpts());
+    return j >= 0 ? annots.indexOf(vis[j]) : -1;
   }
   async function saveAnnots() {
     if (!rec) return; rec.annots = annots;
@@ -652,7 +904,7 @@
   }
   let annBuilt = false, drawing = null;
   function setTool(t) {
-    annTool = t;
+    annTool = t; if (t) selected = -1;
     for (const x of $("annTools").querySelectorAll("button")) x.classList.toggle("on", (x.dataset.tool || "") === t);
     syncAnnot();
   }
@@ -697,33 +949,78 @@
       await render();
       toast("Full image restored");
     });
-    $("annUndo").addEventListener("click", () => { annots.pop(); syncAnnot(); saveAnnots(); });
-    $("annClear").addEventListener("click", () => { if (annots.length && confirm("Remove all annotations?")) { annots = []; syncAnnot(); saveAnnots(); } });
+    // Undo and Clear act on the marks of THIS view only.
+    const undo = () => { const vis = visibleAnnots(); if (!vis.length) return; annots.splice(annots.lastIndexOf(vis[vis.length - 1]), 1); selected = -1; S.renumber(visibleAnnots()); syncAnnot(); saveAnnots(); };
+    $("annUndo").addEventListener("click", undo);
+    $("annDelete").addEventListener("click", deleteSelected);
+    $("annClear").addEventListener("click", () => {
+      if (!visibleAnnots().length || !confirm("Remove all marks on this view?")) return;
+      const cur = surface(); annots = annots.filter((a) => a && a.on && a.on !== cur); selected = -1; syncAnnot(); saveAnnots();
+    });
+    // Hotkeys — never while typing (translation edits, the text mark, language search).
+    const HOTKEYS = { v: "", p: "pen", h: "highlight", m: "textmark", t: "text", a: "arrow", r: "rect", b: "blur", n: "num", c: "crop" };
+    document.addEventListener("keydown", (e) => {
+      const t = e.target, typing = t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable);
+      if (typing || !rec || $("annotBar").hidden) return;
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === "z") { e.preventDefault(); undo(); return; }
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === "Escape") { if (selected >= 0) { selected = -1; syncAnnot(); } else if (annTool) setTool(""); return; }
+      if ((e.key === "Delete" || e.key === "Backspace") && selected >= 0) { e.preventDefault(); deleteSelected(); return; }
+      const k = e.key.toLowerCase();
+      if (!(k in HOTKEYS)) return;
+      const btn = $("annTools").querySelector('[data-tool="' + HOTKEYS[k] + '"]');
+      if (btn && !btn.hidden) { e.preventDefault(); setTool(HOTKEYS[k]); }
+    });
     const an = $("annot");
     an.addEventListener("pointerdown", (e) => {
-      if (!annTool || !curLay) return; e.preventDefault(); an.setPointerCapture(e.pointerId);
+      if (!curLay || e.button !== 0) return; e.preventDefault(); an.setPointerCapture(e.pointerId);
       const p = evToNorm(e);
+      if (!annTool) { // Select: pick the mark under the pointer, drag moves it
+        const i = pick(p);
+        selected = i;
+        if (i >= 0) drawing = { tool: "move", idx: i, start: p, orig: annots[i] };
+        syncAnnot(); return;
+      }
       if (annTool === "text") { placeText(p); return; }
+      const on = surface();
+      if (annTool === "num") {
+        annots.push({ tool: "num", on, color: annColor, size: annSizeFrac, at: p, n: visibleAnnots().filter((x) => x.tool === "num").length + 1 });
+        syncAnnot(); saveAnnots(); return;
+      }
       if (annTool === "crop") { drawing = { tool: "crop", a: p, b: p }; return; }
-      if (annTool === "textmark") { drawing = { tool: "textmark", color: annColor, a: p, boxes: coveredBoxes(p, p) }; }
-      else if (annTool === "pen" || annTool === "highlight") drawing = { tool: annTool, color: annColor, size: annSizeFrac, pts: [p] };
-      else drawing = { tool: annTool, color: annColor, size: annSizeFrac, a: p, b: p };
+      if (annTool === "textmark") { drawing = { tool: "textmark", on, color: annColor, a: p, boxes: coveredBoxes(p, p) }; }
+      else if (annTool === "pen" || annTool === "highlight") drawing = { tool: annTool, on, color: annColor, size: annSizeFrac, pts: [p] };
+      else drawing = { tool: annTool, on, color: annColor, size: annSizeFrac, a: p, b: p };
     });
     an.addEventListener("pointermove", (e) => {
-      if (!drawing) return;
+      if (!drawing) {
+        if (!annTool && curLay) an.style.cursor = pick(evToNorm(e)) >= 0 ? "move" : "default";
+        return;
+      }
       const p = evToNorm(e);
+      if (drawing.tool === "move") {
+        annots[drawing.idx] = S.moveAnnot(drawing.orig, p.x - drawing.start.x, p.y - drawing.start.y);
+        syncAnnot(); return;
+      }
       if (drawing.tool === "crop") {
         drawing.b = p;
         const ctx = an.getContext("2d"); ctx.clearRect(0, 0, an.width, an.height);
-        renderAnnots(ctx, curLay.img); drawCropPreview(ctx, curLay.img, drawing.a, drawing.b);
+        renderAnnots(ctx, curLay.img, $("stage")); drawCropPreview(ctx, curLay.img, drawing.a, drawing.b);
         return;
       }
       if (drawing.tool === "textmark") drawing.boxes = coveredBoxes(drawing.a, p);
       else if (drawing.pts) drawing.pts.push(p); else drawing.b = p;
-      const ctx = an.getContext("2d"); ctx.clearRect(0, 0, an.width, an.height); renderAnnots(ctx, curLay.img);
-      annots.push(drawing); renderAnnots(ctx, curLay.img); annots.pop(); // preview the in-progress shape
+      const ctx = an.getContext("2d"); ctx.clearRect(0, 0, an.width, an.height);
+      annots.push(drawing); renderAnnots(ctx, curLay.img, $("stage")); annots.pop(); // preview the in-progress shape
     });
-    function finish() { if (!drawing) return; const d = drawing; drawing = null; if (d.tool === "crop") { applyCrop(d); return; } const ok = d.tool === "textmark" ? (d.boxes && d.boxes.length > 0) : d.pts ? d.pts.length > 1 : (Math.abs(d.a.x - d.b.x) + Math.abs(d.a.y - d.b.y)) > 0.005; if (ok) { annots.push(d); saveAnnots(); } syncAnnot(); }
+    function finish() {
+      if (!drawing) return; const d = drawing; drawing = null;
+      if (d.tool === "move") { syncAnnot(); saveAnnots(); return; }
+      if (d.tool === "crop") { applyCrop(d); return; }
+      const ok = d.tool === "textmark" ? (d.boxes && d.boxes.length > 0) : d.pts ? d.pts.length > 1 : (Math.abs(d.a.x - d.b.x) + Math.abs(d.a.y - d.b.y)) > 0.005;
+      if (ok) { annots.push(d); saveAnnots(); }
+      syncAnnot();
+    }
     an.addEventListener("pointerup", finish);
     an.addEventListener("pointercancel", finish);
   }
@@ -736,7 +1033,7 @@
     const commit = () => {
       inp.hidden = true; inp.onblur = null; inp.onkeydown = null;
       const t = inp.value.trim();
-      if (t) { annots.push({ tool: "text", color: annColor, at: p, fontSize: Math.max(0.02, annSizeFrac * 4), text: t }); saveAnnots(); }
+      if (t) { annots.push({ tool: "text", on: surface(), color: annColor, at: p, fontSize: Math.max(0.02, annSizeFrac * 4), text: t }); saveAnnots(); }
       syncAnnot();
     };
     inp.onblur = commit;
@@ -765,11 +1062,15 @@
   }
   async function load() {
     const id = new URLSearchParams(location.search).get("id") || "";
-    const prefs = await chrome.storage.local.get(["shotFrame", "shotExport", "shotBilingual"]);
-    if (prefs.shotFrame && typeof prefs.shotFrame === "object") frame = { frame: prefs.shotFrame.frame === "plain" ? "plain" : "card", badge: prefs.shotFrame.badge !== false };
-    if (["A", "B", "C"].includes(prefs.shotBilingual)) biLayout = prefs.shotBilingual;
+    const prefs = await chrome.storage.local.get(["shotFrame", "shotExport", "shotBilingual", "shotBiStyle"]);
+    if (prefs.shotFrame && typeof prefs.shotFrame === "object") {
+      const f = prefs.shotFrame;
+      frame = { frame: ["plain", "card", "window"].includes(f.frame) ? f.frame : "card", badge: f.badge !== false, bg: FRAME_BGS[f.bg] ? f.bg : "sunset" };
+    }
+    if (["A", "B", "C", "N", "S"].includes(prefs.shotBilingual)) biLayout = prefs.shotBilingual;
+    if (["quiet", "balanced", "equal"].includes(prefs.shotBiStyle)) biStyle = prefs.shotBiStyle;
+    buildSwatches();
     if (prefs.shotExport && typeof prefs.shotExport === "object") exp = { size: ["native", "2x", "1x", "half"].includes(prefs.shotExport.size) ? prefs.shotExport.size : "native", format: prefs.shotExport.format === "jpeg" ? "jpeg" : "png" };
-    for (const b of $("frameSeg").querySelectorAll("button")) b.classList.toggle("on", b.dataset.frame === frame.frame);
     $("badgeSw").checked = frame.badge; $("sizeSel").value = exp.size; $("fmtSel").value = exp.format;
     $("shareBtn").hidden = !shareSupported();
 
@@ -803,19 +1104,45 @@
   });
   // Bilingual pairing layout — switching just redraws the card (instant) and
   // saves the choice as the default for future shots.
-  $("biBar").addEventListener("click", (e) => {
-    const b = e.target.closest("button"); if (!b || !rec) return;
-    const v = b.dataset.bi; if (!["A", "B", "C"].includes(v) || v === biLayout) return;
-    biLayout = v;
-    try { chrome.storage.local.set({ shotBilingual: v }); } catch (er) {}
-    for (const x of $("biBar").querySelectorAll("button")) x.classList.toggle("on", x === b);
-    const hint = $("biHint"); if (hint) hint.textContent = "Saved as your default.";
+  $("biPick").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-bi], [data-bistyle]"); if (!b || !rec || reshooting) return;
+    if (b.dataset.bi) {
+      const v = b.dataset.bi; if (!BI_DESC[v] || v === biLayout) return;
+      biLayout = v;
+      try { chrome.storage.local.set({ shotBilingual: v }); } catch (er) {}
+      const hint = $("biHint"); if (hint) hint.textContent = BI_DESC[v] + " Saved as your default.";
+    } else {
+      const st = b.dataset.bistyle; if (!["quiet", "balanced", "equal"].includes(st) || st === biStyle) return;
+      biStyle = st;
+      try { chrome.storage.local.set({ shotBiStyle: st }); } catch (er) {}
+    }
     if (view === "bilingual") renderBilingual();
   });
+  function buildSwatches() {
+    const wrap = $("bgSwatches"); if (!wrap) return; wrap.textContent = "";
+    for (const key of Object.keys(FRAME_BGS)) {
+      const [a, b, c] = FRAME_BGS[key];
+      const s = document.createElement("button"); s.type = "button"; s.className = "bgswatch" + (key === frame.bg ? " on" : "");
+      s.dataset.bg = key; s.title = FRAME_BG_NAMES[key]; s.setAttribute("aria-label", FRAME_BG_NAMES[key] + " background");
+      s.style.background = "linear-gradient(135deg, " + a + ", " + b + " 55%, " + c + ")";
+      s.addEventListener("click", () => {
+        if (!rec || reshooting || frame.bg === key) return;
+        frame.bg = key;
+        for (const x of wrap.querySelectorAll(".bgswatch")) x.classList.toggle("on", x.dataset.bg === key);
+        chrome.storage.local.set({ shotFrame: frame }); render();
+      });
+      wrap.appendChild(s);
+    }
+    syncFrameUI();
+  }
+  function syncFrameUI() {
+    for (const b of $("frameSeg").querySelectorAll("button")) b.classList.toggle("on", b.dataset.frame === frame.frame);
+    const row = $("bgRow"); if (row) row.hidden = frame.frame === "plain";
+  }
   $("frameSeg").addEventListener("click", (e) => {
     const b = e.target.closest("button"); if (!b || !rec || reshooting) return;
-    frame.frame = b.dataset.frame === "plain" ? "plain" : "card";
-    for (const x of $("frameSeg").querySelectorAll("button")) x.classList.toggle("on", x === b);
+    frame.frame = ["plain", "card", "window"].includes(b.dataset.frame) ? b.dataset.frame : "card";
+    syncFrameUI();
     chrome.storage.local.set({ shotFrame: frame }); render();
   });
   $("badgeSw").addEventListener("change", () => { if (reshooting) return; frame.badge = $("badgeSw").checked; chrome.storage.local.set({ shotFrame: frame }); render(); });

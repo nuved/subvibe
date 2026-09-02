@@ -11,7 +11,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 var(-
 .brand__logo { width: 26px; height: 26px; border-radius: 7px; }
 .brand__name { font: 800 20px/1 var(--display); color: var(--coral-600); letter-spacing: -.01em; }
 .brand__sub { font: 600 11px/1 var(--mono); color: var(--muted); letter-spacing: .06em; text-transform: uppercase; margin-left: 4px; }
-.pagelink { color: var(--ink); text-decoration: none; font-weight: 600; max-width: 34ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pagelink { color: var(--ink); text-decoration: none; font-weight: 600; max-width: 34ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 3px 0; }
 .pagelink:hover { text-decoration: underline; }
 .meta { color: var(--muted); font-size: 12px; white-space: nowrap; }
 .langpick { position: relative; }
@@ -62,25 +62,40 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 var(-
 .annotbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center; background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 6px 10px; box-shadow: var(--shadow-rest); position: sticky; top: 8px; z-index: 5; flex: none; max-width: 100%; }
 .annotbar__tools, .annotbar__acts { display: flex; gap: 3px; }
 .annotbar__colors { display: flex; gap: 5px; padding: 0 4px; border-left: 1px solid var(--border); border-right: 1px solid var(--border); }
-.anntool { width: 30px; height: 30px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--ink-2); font: 600 15px/1 var(--ui); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.anntool { width: 32px; height: 32px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--ink-2); font: 600 15px/1 var(--ui); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.anntool svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.anntool svg .fill { fill: currentColor; opacity: .28; stroke: none; }
 .anntool.wide { width: auto; padding: 0 10px; font-size: 12.5px; }
+#annDelete { color: var(--red-600); }
 .anntool:hover { background: var(--surface-2); }
 .anntool.on { background: var(--coral-100); color: var(--coral-700); }
-.annswatch { width: 20px; height: 20px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; padding: 0; }
+.annswatch { width: 24px; height: 24px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; padding: 0; box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); }
 .annswatch.on { border-color: var(--ink); }
-.annotbar__size input { width: 84px; accent-color: var(--coral-600); }
-.bi-pick { margin-top: 10px; display: grid; gap: 7px; }
-.bi-pick__lbl { font: 600 10px/1 var(--mono, ui-monospace); letter-spacing: .08em; text-transform: uppercase; color: var(--faint); }
+.annotbar__size { display: inline-flex; align-items: center; }
+.annotbar__size input { width: 84px; height: 24px; margin: 0; accent-color: var(--coral-600); }
+.bi-pick { margin-top: 10px; display: grid; gap: 9px; }
+.bi-row { display: grid; gap: 5px; }
+.bi-pick__lbl { font: 600 10px/1 var(--mono, ui-monospace); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+/* frame background swatches — gradient dots, the chosen one ringed in ink */
+.bgs { display: flex; gap: 7px; flex-wrap: wrap; }
+.bgswatch { width: 26px; height: 26px; border-radius: 50%; border: 2px solid transparent; padding: 0; cursor: pointer; box-shadow: inset 0 0 0 1px rgba(0,0,0,.08); }
+.bgswatch.on { border-color: var(--ink); }
 .seg-sm button { padding: 6px 4px; font-size: 12px; }
 .stage canvas { max-width: 100%; height: auto; display: block; }
 .stage-skel { width: min(560px, 100%); height: 400px; }
 .stage .empty-state { margin: auto; font-size: 15px; }
 
-.panel { border-left: 1px solid var(--border); background: var(--surface); display: flex; flex-direction: column; overflow: auto; }
+.panel { border-left: 1px solid var(--border); background: var(--surface); display: flex; flex-direction: column; min-height: 0; }
+.panel__scroll { flex: 1; min-height: 0; overflow: auto; }
+/* Export never leaves the screen: the footer is pinned under the scrolling groups. */
+.panel__foot { flex: none; padding: 12px 16px 14px; border-top: 1px solid var(--border); background: var(--surface); display: grid; gap: 9px; box-shadow: 0 -6px 14px -10px rgba(93, 64, 35, .25); }
+.foot__meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+.foot__meta .note { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.btn-quiet.danger { color: var(--red-600); flex: none; font-size: 12.5px; padding: 5px 8px; }
+.btn-quiet.danger:hover { background: color-mix(in srgb, var(--red-600) 8%, var(--surface)); }
 .group { padding: 14px 16px; border-bottom: 1px solid var(--border); display: grid; gap: 10px; }
 .group h3 { margin: 0; display: flex; align-items: center; gap: 8px; }
-.group h3 .n { margin-left: auto; color: var(--faint); letter-spacing: 0; font-weight: 600; }
-.group.last { border-bottom: 0; margin-top: auto; }
+.group h3 .n { margin-left: auto; color: var(--muted); letter-spacing: 0; font-weight: 600; }
 .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; background: var(--surface-2); border-radius: var(--r-sm); padding: 3px; gap: 3px; }
 .seg button { border: 0; background: transparent; color: var(--ink-2); font: 600 13px/1 var(--ui); padding: 8px 6px; border-radius: 6px; cursor: pointer; }
 .seg button.on { background: var(--surface); color: var(--ink); box-shadow: var(--shadow-rest); }
@@ -92,7 +107,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 var(-
 
 .blocks { display: grid; gap: 8px; max-height: 320px; overflow: auto; padding-right: 2px; }
 .blk { border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; display: grid; gap: 6px; background: var(--bg); }
-.blk .k { font: 600 10px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--faint); }
+.blk .k { font: 600 10px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 .blk .o { color: var(--ink-2); font-size: 12.5px; line-height: 1.4; }
 .blk .t { font: 14px/1.5 var(--ui); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; color: var(--ink); min-height: 34px; white-space: pre-wrap; unicode-bidi: plaintext; }
 .blk .t:focus { outline: none; border-color: var(--coral-600); }
@@ -100,12 +115,13 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 var(-
 .blk .t:empty::before { content: "(no translation)"; color: var(--faint); }
 
 .opts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.opts label { display: grid; gap: 4px; font: 600 10px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--faint); }
+.opts label { display: grid; gap: 4px; font: 600 10px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 .opts select { font: 13px var(--ui); color: var(--ink); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
 .exports { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .exports .btn-primary { grid-column: 1 / -1; }
+.opts { grid-template-columns: 1fr 1fr; }
 .ico { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
 .toast { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 9px 14px; border-radius: 10px; font: 600 13px/1 var(--ui); box-shadow: var(--shadow-raised); }
 
-@media (max-width: 900px) { .body { grid-template-columns: 1fr; } .panel { border-left: 0; border-top: 1px solid var(--border); } }
+@media (max-width: 900px) { .body { grid-template-columns: 1fr; } .panel { border-left: 0; border-top: 1px solid var(--border); } .panel__scroll { overflow: visible; } }

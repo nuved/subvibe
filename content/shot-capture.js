@@ -265,7 +265,7 @@
       else b.rect = unionTwo(b.rect, r);
       b.nodes.push(n);
     }
-    for (const b of blocks) b.text = normText(b.nodes.map((t) => t.data).join(" "));
+    for (const b of blocks) { b.text = normText(b.nodes.map((t) => t.data).join(" ")); b.segs = b.nodes.map((t) => normText(t.data)); }
     return blocks;
   }
 
@@ -291,14 +291,26 @@
         inserted.push(span); b.trEl = span; // measured to grow area shots past the added line
         b.check = () => span.isConnected && span.textContent === b.tr;
       } else {
-        const main = nodes.reduce((a, x) => (x.data.length > a.data.length ? x : a));
-        for (const x of nodes) { saved.push({ node: x, data: x.data }); x.data = x === main ? b.tr : ""; }
+        // Sentence pairs (when they agree with the block's translation) let each
+        // paragraph / formatted run keep its own text, so a four-paragraph
+        // tweet stays four paragraphs. Otherwise the longest node takes it all.
+        const pairsOk = nodes.length > 1 && Array.isArray(b.pairs) && b.pairs.length
+          && normText(b.pairs.map((p) => (p && p.t) || "").filter(Boolean).join(" ")) === normText(b.tr);
+        const dist = pairsOk ? S().distributeTranslation(nodes.map((x) => x.data), b.pairs) : null;
+        let main = null;
+        if (dist) {
+          nodes.forEach((x, i) => { saved.push({ node: x, data: x.data }); x.data = dist[i]; if (!main && dist[i]) main = x; });
+        } else {
+          main = nodes.reduce((a, x) => (x.data.length > a.data.length ? x : a));
+          for (const x of nodes) { saved.push({ node: x, data: x.data }); x.data = x === main ? b.tr : ""; }
+        }
+        const mainText = main ? main.data : "";
         const e = b.el;
         attrSaved.push({ el: e, dir: e.getAttribute("dir"), align: e.style.getPropertyValue("text-align"), alignPrio: e.style.getPropertyPriority("text-align"), font: e.style.getPropertyValue("font-family"), fontPrio: e.style.getPropertyPriority("font-family") });
         e.setAttribute("dir", "auto");
         if (rtl) { const ta = getComputedStyle(e).textAlign; if (ta === "left" || ta === "start" || ta === "-webkit-left") e.style.setProperty("text-align", "start", "important"); }
         if (fontFamily) e.style.setProperty("font-family", fontFamily, "important");
-        b.check = () => main.isConnected && main.data === b.tr;
+        b.check = () => !!main && main.isConnected && main.data === mainText;
       }
     }
   }
@@ -424,7 +436,7 @@
     const prep = S().prepBlocks(raw.map((b) => ({ id: b.id, text: b.text, rect: b.rect })));
     const byId = new Map(raw.map((b) => [b.id, b]));
     const mapped = S().mapTranslations(prep.keep, prep.lineOf, []); // tr = "" for every block
-    const blocks = mapped.blocks.map((b) => { const live = byId.get(b.id); return { id: b.id, text: b.text, tr: "", rect: b.rect, el: live.el, nodes: live.nodes }; });
+    const blocks = mapped.blocks.map((b) => { const live = byId.get(b.id); return { id: b.id, text: b.text, tr: "", rect: b.rect, segs: live.segs, el: live.el, nodes: live.nodes }; });
     armEsc();
     let effRect = baseRect, effCut = false;
     try {
@@ -439,7 +451,7 @@
     } finally { restore(); }
     const truncated = prep.truncated || (effCut ? "height" : "");
     setPill("Saving…", 1);
-    const res = await send({ type: "SHOT_COMPOSE", rect: effRect, blocks: blocks.map((b) => ({ id: b.id, text: b.text, tr: b.tr, rect: b.rect })), partial: false, truncated, passes: ["original"], sameLang: false, noKey: false, font: font || "" });
+    const res = await send({ type: "SHOT_COMPOSE", rect: effRect, blocks: blocks.map((b) => ({ id: b.id, text: b.text, tr: b.tr, rect: b.rect, segs: b.segs })), partial: false, truncated, passes: ["original"], sameLang: false, noKey: false, font: font || "" });
     setPill("");
     if (!res || !res.ok) { toast("Couldn't save the shot. Try again.", 3500); return; }
     toast("Shot saved — opening editor…", 1800);
@@ -489,7 +501,7 @@
         const live = cands.find((c) => c.id === b.id) || cands[0];
         if (!live) { missing++; continue; }
         used.add(live);
-        blocks.push({ id: String(b.id), text: live.text, tr: String(b.tr || ""), rect: live.rect, el: live.el, nodes: live.nodes });
+        blocks.push({ id: String(b.id), text: live.text, tr: String(b.tr || ""), rect: live.rect, pairs: Array.isArray(b.pairs) ? b.pairs : null, el: live.el, nodes: live.nodes });
       }
       let partial = false;
       const original = msg.layout === "original"; // capture the page as-is, no swap

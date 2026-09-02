@@ -33,21 +33,24 @@
     <section class="stage" id="stageWrap">
       <div class="annotbar" id="annotBar" hidden>
         <div class="annotbar__tools" id="annTools">
-          <button class="anntool on" data-tool="" title="Move / select">&#x2715;</button>
-          <button class="anntool" data-tool="pen" title="Pen">&#x270E;</button>
-          <button class="anntool" data-tool="highlight" title="Highlighter">&#x25AC;</button>
-          <button class="anntool" id="annTextmark" data-tool="textmark" title="Highlight text" hidden>&#x1F58D;</button>
-          <button class="anntool" data-tool="text" title="Text">T</button>
-          <button class="anntool" data-tool="arrow" title="Arrow">&#x2197;</button>
-          <button class="anntool" data-tool="rect" title="Rectangle">&#x25AD;</button>
-          <button class="anntool" id="annCrop" data-tool="crop" title="Crop">&#x26F6;</button>
+          <button class="anntool on" data-tool="" title="Select (V)"><svg viewBox="0 0 24 24"><path d="M5 3l14 8.5-6.5 1.5-2.5 7z"/></svg></button>
+          <button class="anntool" data-tool="pen" title="Pen (P)"><svg viewBox="0 0 24 24"><path d="M12 20h9"/></svg></button>
+          <button class="anntool" data-tool="highlight" title="Highlighter (H)"><svg viewBox="0 0 24 24"><path d="M9 11l-6 6v3h9l3-3"/></svg></button>
+          <button class="anntool" id="annTextmark" data-tool="textmark" title="Highlight text (M)" hidden><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/></svg></button>
+          <button class="anntool" data-tool="text" title="Text (T)"><svg viewBox="0 0 24 24"><path d="M4 7V4h16v3"/></svg></button>
+          <button class="anntool" data-tool="arrow" title="Arrow (A)"><svg viewBox="0 0 24 24"><path d="M5 19 19 5"/></svg></button>
+          <button class="anntool" data-tool="rect" title="Rectangle (R)"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/></svg></button>
+          <button class="anntool" data-tool="blur" title="Blur (B)"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/></svg></button>
+          <button class="anntool" data-tool="num" title="Number (N)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/></svg></button>
+          <button class="anntool" id="annCrop" data-tool="crop" title="Crop (C)"><svg viewBox="0 0 24 24"><path d="M6 2v14a2 2 0 0 0 2 2h14"/></svg></button>
         </div>
         <div class="annotbar__colors" id="annColors"></div>
         <label class="annotbar__size"><input type="range" id="annSize" min="2" max="20" value="5" /></label>
         <div class="annotbar__acts">
           <button class="anntool wide" id="annUncrop" title="Remove the crop" hidden>Uncrop</button>
-          <button class="anntool" id="annUndo" title="Undo">&#x21B6;</button>
-          <button class="anntool" id="annClear" title="Clear all">&#x1F5D1;</button>
+          <button class="anntool" id="annDelete" title="Delete the selected mark" hidden><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12h8"/></svg></button>
+          <button class="anntool" id="annUndo" title="Undo"><svg viewBox="0 0 24 24"><path d="M3 7v6h6"/></svg></button>
+          <button class="anntool" id="annClear" title="Clear all"><svg viewBox="0 0 24 24"><path d="M3 6h18"/></svg></button>
         </div>
       </div>
       <div class="stage-canvaswrap" id="canvasWrap" hidden>
@@ -61,28 +64,33 @@
     </section>
 
     <aside class="panel">
-      <div class="group">
-        <div class="seg" id="viewSeg"><button data-view="translated">Translated</button><button data-view="bilingual">Bilingual</button><button data-view="original">Original</button></div>
-        <div class="note" id="viewNote"></div>
-        <div class="bi-pick" id="biPick" hidden>
-          <div class="seg seg-sm" id="biBar"><button data-bi="A">Blocks</button><button data-bi="B">Pairs</button><button data-bi="C">Columns</button></div>
-          <div class="note" id="biHint"></div>
+      <div class="panel__scroll">
+        <div class="group">
+          <div class="seg" id="viewSeg"><button data-view="translated">Translated</button><button data-view="bilingual">Bilingual</button><button data-view="original">Original</button></div>
+          <div class="note" id="viewNote"></div>
+          <div class="bi-pick" id="biPick" hidden>
+            <div class="bi-row"><span class="bi-pick__lbl">Reading card</span><div class="seg seg-sm" id="biBar"><button data-bi="A">Blocks</button><button data-bi="B">Pairs</button><button data-bi="C">Columns</button></div></div>
+            <div class="bi-row"><span class="bi-pick__lbl">On the page</span><div class="seg seg-sm" id="biPageBar"><button data-bi="N">Notes</button><button data-bi="S">Side by side</button></div></div>
+            <div class="bi-row" id="biStyleRow"><span class="bi-pick__lbl">Translation line</span><div class="seg seg-sm" id="biStyleBar"><button data-bistyle="quiet">Quiet</button><button data-bistyle="balanced">Balanced</button><button data-bistyle="equal">Equal</button></div></div>
+            <div class="note" id="biHint"></div>
+          </div>
+        </div>
+        <div class="group">
+          <div class="seg" id="frameSeg"><button data-frame="plain">Plain</button><button data-frame="card" class="on">Card</button><button data-frame="window">Window</button></div>
+          <div class="bi-row" id="bgRow"><span class="bi-pick__lbl">Background</span><div class="bgs" id="bgSwatches"></div></div>
+          <div class="row"><label class="switch"><input type="checkbox" id="badgeSw" checked /><span class="slider"></span></label></div>
+        </div>
+        <div class="group">
+          <div class="seg" id="fontSeg"><button data-font="" class="on">Site font</button><button data-font="vazirmatn">Vazirmatn</button></div>
+        </div>
+        <div class="group">
+          <h3 class="overline">Text <span class="n" id="blockCount"></span></h3>
+          <div class="blocks" id="blocks"></div>
+          <button class="btn-primary" id="reshootBtn" disabled>Apply text changes</button>
+          <div class="note" id="reshootNote"></div>
         </div>
       </div>
-      <div class="group">
-        <div class="seg" id="frameSeg"><button data-frame="plain">Plain</button><button data-frame="card" class="on">Card</button></div>
-        <div class="row"><label class="switch"><input type="checkbox" id="badgeSw" checked /><span class="slider"></span></label></div>
-      </div>
-      <div class="group">
-        <div class="seg" id="fontSeg"><button data-font="" class="on">Site font</button><button data-font="vazirmatn">Vazirmatn</button></div>
-      </div>
-      <div class="group">
-        <h3 class="overline">Text <span class="n" id="blockCount"></span></h3>
-        <div class="blocks" id="blocks"></div>
-        <button class="btn-primary" id="reshootBtn" disabled>Apply text changes</button>
-        <div class="note" id="reshootNote"></div>
-      </div>
-      <div class="group">
+      <div class="panel__foot">
         <div class="opts">
           <label>Size <select id="sizeSel"><option value="native">Native</option><option value="2x">2×</option><option value="1x">1×</option><option value="half">½</option></select></label>
           <label>Format <select id="fmtSel"><option value="png">PNG</option><option value="jpeg">JPEG</option></select></label>
@@ -92,9 +100,8 @@
           <button class="btn-secondary" id="copyBtn">Copy</button>
           <button class="btn-secondary" id="shareBtn" hidden>Share</button>
         </div>
-        <div class="note" id="fileNote"></div>
+        <div class="foot__meta"><span class="note" id="fileNote"></span><button class="btn-quiet danger" id="delBtn">Delete shot</button></div>
       </div>
-      <div class="group last"><button class="btn-danger" id="delBtn">Delete this shot</button></div>
     </aside>
   </main>
   <div class="toast" id="toast" hidden></div>
@@ -129,16 +136,19 @@
     });
     const dbGet = async (id) => { const d = await openDb(); const r = await new Promise((res, rej) => { const q = d.transaction("shots", "readonly").objectStore("shots").get(id); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); d.close(); return r; };
 
-    // Drag helper in DEVICE px of the annot canvas (evToNorm's own input space).
+    // Pointer helpers in DEVICE px of the annot canvas (evToNorm's own input space).
+    const toClient = (d) => { const an = $("annot"), r = an.getBoundingClientRect(); return { clientX: r.left + d[0] * (r.width / an.width), clientY: r.top + d[1] * (r.height / an.height) }; };
+    const pev = (type, d) => $("annot").dispatchEvent(new PointerEvent(type, { ...toClient(d), pointerId: 1, button: 0, bubbles: true }));
     function drag(devA, devB) {
-      const an = $("annot"), r = an.getBoundingClientRect();
-      const toClient = (d) => ({ clientX: r.left + d[0] * (r.width / an.width), clientY: r.top + d[1] * (r.height / an.height) });
-      const ev = (type, d) => an.dispatchEvent(new PointerEvent(type, { ...toClient(d), pointerId: 1, button: 0, bubbles: true }));
-      ev("pointerdown", devA);
-      ev("pointermove", [(devA[0] + devB[0]) / 2, (devA[1] + devB[1]) / 2]);
-      ev("pointermove", devB);
-      ev("pointerup", devB);
+      pev("pointerdown", devA);
+      pev("pointermove", [(devA[0] + devB[0]) / 2, (devA[1] + devB[1]) / 2]);
+      pev("pointermove", devB);
+      pev("pointerup", devB);
     }
+    const tap = (d) => { pev("pointerdown", d); pev("pointerup", d); };
+    const key = (k) => document.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true }));
+    const tool = (t) => document.querySelector('#annTools [data-tool="' + t + '"]').click();
+    const alpha = (canvas, x, y) => canvas.getContext("2d").getImageData(Math.round(x), Math.round(y), 1, 1).data[3];
 
     (async () => {
       // Seed a 400×6000 shot (a "full page" tall capture), then run the REAL scripts.
@@ -147,10 +157,14 @@
       const grad = cx.createLinearGradient(0, 0, 0, 6000); grad.addColorStop(0, "#4ade80"); grad.addColorStop(1, "#1e3a8a");
       cx.fillStyle = grad; cx.fillRect(0, 0, 400, 6000);
       const blob = await new Promise((r) => cv.toBlob(r, "image/png"));
+      const blocks = [
+        { id: "b0", text: "Hello world.", tr: "سلام دنیا.", rect: { x: 20, y: 600, w: 360, h: 40 }, pairs: [{ o: "Hello world.", t: "سلام دنیا." }] },
+        { id: "b1", text: "Second block here.", tr: "بلوک دوم اینجا.", rect: { x: 20, y: 1500, w: 360, h: 60 }, pairs: [{ o: "Second block here.", t: "بلوک دوم اینجا." }] },
+      ];
       const rec = { id: "t1", ts: Date.now(), url: "https://example.com/tall", title: "Tall test page", host: "example.com",
-        source: "xx", target: "fa", mode: "full", layout: "original", dpr: 1,
+        source: "en", target: "fa", mode: "full", layout: "original", dpr: 1,
         rect: { x: 0, y: 0, w: 400, h: 6000 }, w: 400, h: 6000,
-        original: blob, variant: blob, blocks: [], views: { original: blob }, annots: [],
+        original: blob, variant: blob, blocks, views: { original: blob, translated: blob }, annots: [],
         partial: false, truncated: "", sameLang: false, noKey: false, font: "" };
       const d = await openDb();
       await new Promise((res, rej) => { const q = d.transaction("shots", "readwrite").objectStore("shots").put(rec, rec.id); q.onsuccess = res; q.onerror = () => rej(q.error); });
@@ -194,7 +208,7 @@
       check("Uncrop revealed, tool back to select", !$("annUncrop").hidden && !!document.querySelector('#annTools [data-tool=""].on'));
 
       // 4) An annotation drawn on the cropped view stores FULL-image coords.
-      document.querySelector('#annTools [data-tool="rect"]').click();
+      tool("rect");
       drag([48, 48], [48 + 0.5 * 400, 48 + 0.25 * 6000]); // corner to corner of the visible crop
       await until(() => { const s = document.querySelector('#annTools [data-tool="rect"].on'); return !!s; }, 500);
       const saved2 = await dbGet("t1");
@@ -207,6 +221,67 @@
       const saved3 = await dbGet("t1");
       check("uncrop restores size and clears rec.crop", stage.width === w0 && stage.height === h0 && !(saved3 && saved3.crop),
         stage.width + "x" + stage.height + " crop=" + JSON.stringify(saved3 && saved3.crop));
+
+      // 6) Select: drag the rect (full-image centre 0.5,0.225 → view 248,1398) by +50,+300 px = +0.125,+0.05.
+      tool("");
+      drag([248, 1398], [298, 1698]);
+      await sleep(80);
+      const saved4 = await dbGet("t1");
+      const m0 = saved4 && (saved4.annots || [])[0];
+      check("select + drag moves the rect and persists", m0 && near(m0.a.x, 0.375) && near(m0.a.y, 0.15) && near(m0.b.x, 0.875) && near(m0.b.y, 0.40), JSON.stringify(m0));
+      check("selection shows the Delete button", !$("annDelete").hidden);
+
+      // 7) Delete key removes the selected mark.
+      key("Delete"); await sleep(80);
+      const saved5 = await dbGet("t1");
+      check("Delete removes the selected mark", saved5 && (saved5.annots || []).length === 0 && $("annDelete").hidden, "annots=" + JSON.stringify(saved5 && saved5.annots));
+
+      // 8) Blur: pixels appear on the overlay inside the dragged box, none outside.
+      tool("blur");
+      drag([100, 1000], [300, 1400]);
+      await sleep(80);
+      const saved6 = await dbGet("t1");
+      const b0 = saved6 && (saved6.annots || [])[0];
+      check("blur stored as a rect in full-image fractions", b0 && b0.tool === "blur" && near(b0.a.x, 0.13) && near(b0.b.x, 0.63), JSON.stringify(b0));
+      check("blur paints the overlay inside its box only", alpha(an, 200, 1200) === 255 && alpha(an, 60, 500) === 0,
+        "inside=" + alpha(an, 200, 1200) + " outside=" + alpha(an, 60, 500));
+
+      // 9) Number badges count up; deleting one renumbers the rest.
+      tool("num");
+      tap([200, 2000]); tap([200, 2400]); await sleep(80);
+      const saved7 = await dbGet("t1");
+      const nums = (saved7 && saved7.annots || []).filter((a) => a.tool === "num");
+      check("two number badges: 1 and 2", nums.length === 2 && nums[0].n === 1 && nums[1].n === 2, JSON.stringify(nums.map((a) => a.n)));
+      tool(""); tap([200, 2000]); await sleep(50); key("Backspace"); await sleep(80);
+      const saved8 = await dbGet("t1");
+      const nums2 = (saved8 && saved8.annots || []).filter((a) => a.tool === "num");
+      check("deleting badge 1 renumbers the other to 1", nums2.length === 1 && nums2[0].n === 1 && near(nums2[0].at.y, 2352 / 6000), JSON.stringify(nums2));
+
+      // 10) Window frame adds a 36px title bar; card is back to the plain height.
+      document.querySelector('#frameSeg [data-frame="window"]').click();
+      await until(() => stage.height === h0 + 36, 1500);
+      check("window frame adds the 36px bar", stage.height === h0 + 36 && stage.width === w0, stage.width + "x" + stage.height);
+      document.querySelector('#frameSeg [data-frame="card"]').click();
+      await until(() => stage.height === h0, 1500);
+
+      // 11) Export footer reachable without scrolling the panel.
+      const dl = $("dlBtn").getBoundingClientRect();
+      check("Download visible without scrolling the panel", dl.top >= 0 && dl.bottom <= innerHeight && $("dlBtn").offsetParent !== null && document.querySelector(".panel__scroll").scrollTop === 0,
+        "dl=" + Math.round(dl.top) + ".." + Math.round(dl.bottom) + " innerHeight=" + innerHeight);
+
+      // 12) Bilingual Notes: page + margin column, numbered blocks.
+      document.querySelector('#viewSeg [data-view="bilingual"]').click();
+      await until(() => !$("biPick").hidden, 2000);
+      document.querySelector('#biPick [data-bi="N"]').click();
+      await until(() => stage.width === 400 + 220 + 96, 2000);
+      check("Notes layout = page + 220px margin column", stage.width === 400 + 220 + 96 && stage.height >= h0 && !$("annCrop").hidden,
+        stage.width + "x" + stage.height + " crop=" + !$("annCrop").hidden);
+
+      // 13) Side by side: both pages in one picture (400 + 28 gap + 400) with a caption line.
+      document.querySelector('#biPick [data-bi="S"]').click();
+      await until(() => stage.width === 400 + 28 + 400 + 96, 2000);
+      check("Side by side = two pages + gap, translation-line row hidden", stage.width === 924 && stage.height === 6000 + 18 + 96 && $("biStyleRow").hidden,
+        stage.width + "x" + stage.height + " styleRowHidden=" + $("biStyleRow").hidden);
 
       const pass = results.filter((r) => r.ok).length;
       document.title = (pass === results.length ? "PASS " : "FAIL ") + pass + "/" + results.length;

@@ -1,37 +1,25 @@
-# Shot editor harness — toolbar reachability + non-destructive crop
+# Shot editor harness — the real `shot.js` against a seeded record
 
-Pins two things on the REAL `shot.js` + `shared/shot.js` (script-included, not
-a copy) against a chrome stub and a seeded IndexedDB record:
+Three files, all runnable from `file://` in any Chromium browser:
 
-1. **The ed4e237 regression.** `.stage` became `flex-direction: column` but kept
-   `justify-content: center` — in a column that centers VERTICALLY, and centered
-   overflow in an `overflow: auto` container is unreachable above the scrollport
-   start. On any shot taller than the window (every full-page capture) the
-   annotation toolbar sat thousands of px above the reachable area: "no tools".
-   The harness renders a 400×6000 shot and asserts the toolbar is visible at
-   `scrollTop 0` and stays pinned (sticky) after scrolling 2000px. With the old
-   CSS the toolbar measures at −2575px — the check fails.
+| File | What it is |
+|---|---|
+| `harness.html` | Judge. Mirrors the editor DOM (ids must match `shot.html` — `shot.js` runs unmodified), seeds a 400×6000 record, drives the real code with synthetic pointer/keyboard events and puts the verdict in the tab title (`PASS n/n`), the panel bottom-left and `window.__results`. |
+| `preview.html` | Seeder for design work. Paints a realistic German article to canvas (original + a Persian in-place translation), stores it as `preview1` (full page, translated, sentence pairs — one paragraph contains "Dr." and a "2. September" date, the abbreviation cases) and `preview2` (area shot, untranslated). Then open the REAL `shot.html?id=preview1`. |
+| `chrome-stub.js` | Just enough `chrome.*` for `shot.html` from `file://`: `SHOT_TAB_ALIVE` → closed tab, every re-shoot refused, prefs in `localStorage`. Inject before the page's scripts — chrome-devtools MCP `navigate_page` with `initScript`, or paste it in the console and reload with script blocking. |
 
-2. **Crop.** Drag with the crop tool → `rec.crop` stored as full-image
-   fractions, canvas resized to the crop window, Uncrop revealed, tool back to
-   select; a rectangle annotation drawn ON the cropped view stores full-image
-   coords (the crop↔view mapping, `S.cropToView`/`S.viewToCrop`); Uncrop
-   restores the full size and clears `rec.crop` in the DB.
+IndexedDB is shared across `file://` pages in Chrome, so the seeder and the editor see the same `copilot-subs` database.
 
-## Run
+## What `harness.html` pins (18 checks)
 
-Open in any Chromium browser (file:// is fine):
-
-    tools/tests/shot-harness/harness.html
-
-The first open navigates itself to `?id=t1` (the seeded record). Verdict lands
-in the tab title (`PASS 7/7` / `FAIL n/7`), details in the panel bottom-left
-and in `window.__results`. Re-runs re-seed the record, so state can't leak
-between runs.
+1. **Toolbar reachability** (the ed4e237 regression): `.stage` became `flex-direction: column` but kept `justify-content: center`; vertically-centred overflow in an `overflow: auto` box is unreachable above the scrollport. Visible at `scrollTop 0`, sticky after scrolling 2000 px. With the old CSS the bar measures at −2575 px.
+2. **Crop**: drag → `rec.crop` in full-image fractions, canvas resized, Uncrop revealed, tool reset; a rect drawn on the cropped view stores full-image coords; Uncrop restores size and clears the record.
+3. **Select** (2026-09-02): drag moves a mark and persists it; the Delete button appears; `Delete` removes it.
+4. **Blur**: stored as a rect; the overlay has opaque pixels inside the box and none outside.
+5. **Number badges**: count 1, 2; deleting badge 1 renumbers the other to 1.
+6. **Window frame** adds the 36 px title bar; **Export footer** is visible without scrolling the panel.
+7. **Bilingual on the page**: Notes = page + 220 px margin column (crop stays available); Side by side = two pages + 28 px gap + caption row, the translation-line control hidden.
 
 ## When to run
 
-Before pushing any change to `shot.js` (render/annotation/crop paths),
-`shared/shot.js` (crop helpers, `frameLayout`), or `styles/shot.css` (`.stage`
-/ `.annotbar` layout). The crop coordinate math is also unit-tested in
-`tools/tests/shot.test.mjs` — this harness covers the wiring on the live page.
+Before pushing any change to `shot.js` (render / annotation / crop / bilingual paths), `shared/shot.js` (geometry helpers, `frameLayout`), `styles/shot.css` (`.stage`, `.annotbar`, `.panel` layout) or `shot.html` (ids). The pure geometry is also unit-tested in `tools/tests/shot.test.mjs`; the harness covers the wiring on the live page.

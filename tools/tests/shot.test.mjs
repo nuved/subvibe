@@ -198,7 +198,9 @@ test("splitSentences: sentence-aligned pairing input", () => {
   assert.deepEqual(S.splitSentences("just one line"), ["just one line"]);
   assert.deepEqual(S.splitSentences("   "), []);
   // whitespace is normalized, terminators kept
-  assert.deepEqual(S.splitSentences("A.\n\nB."), ["A.", "B."]);
+  assert.deepEqual(S.splitSentences("Go.\n\nStop."), ["Go.", "Stop."]);
+  // inner dots never lose text (the old match-based regex dropped "Das gilt z.")
+  assert.deepEqual(S.splitSentences("Kostet 3.5 Euro. Siehe www.beispiel.de. Ende."), ["Kostet 3.5 Euro.", "Siehe www.beispiel.de.", "Ende."]);
 });
 
 // ── crop (non-destructive: rect normalized to the full image) ────────────────
@@ -245,4 +247,109 @@ test("viewToCrop: inverse of cropToView, clamped to the crop window", () => {
   assert.deepEqual(S.viewToCrop(-999, -999, img, crop), { x: 0.2, y: 0.1 });
   const hi = S.viewToCrop(9999, 9999, img, crop);
   assert.ok(Math.abs(hi.x - 0.8) < 1e-9 && Math.abs(hi.y - 0.9) < 1e-9);
+});
+
+// ── splitSentences: abbreviations, initials, ordinal dates ───────────────────
+test("splitSentences: a period after an abbreviation, an initial or a short number does not end the sentence", () => {
+  assert.deepEqual(S.splitSentences("Dr. Anna Meier vom Senat sagt, dass es geht. Die ersten Bäume kommen im Herbst."),
+    ["Dr. Anna Meier vom Senat sagt, dass es geht.", "Die ersten Bäume kommen im Herbst."]);
+  assert.deepEqual(S.splitSentences("Von Lena Hartmann · 2. September 2026"), ["Von Lena Hartmann · 2. September 2026"]);
+  assert.deepEqual(S.splitSentences("J. K. Rowling wrote it. It sold well."), ["J. K. Rowling wrote it.", "It sold well."]);
+  assert.deepEqual(S.splitSentences("Das gilt z.B. für Berlin, bzw. für Wien. Paris auch."), ["Das gilt z.B. für Berlin, bzw. für Wien.", "Paris auch."]);
+  assert.deepEqual(S.splitSentences("We met Mr. Smith at 5 p.m. today. He left."), ["We met Mr. Smith at 5 p.m. today.", "He left."]);
+  // sentence-ending cases stay split: years, etc., ordinary words
+  assert.deepEqual(S.splitSentences("It was founded in 1999. It grew fast."), ["It was founded in 1999.", "It grew fast."]);
+  assert.deepEqual(S.splitSentences("Bring pens, paper etc. We start at nine."), ["Bring pens, paper etc.", "We start at nine."]);
+  // a trailing abbreviation with nothing after it stays as it is
+  assert.deepEqual(S.splitSentences("Ask Dr."), ["Ask Dr."]);
+  // "?" and "!" are never joined
+  assert.deepEqual(S.splitSentences("Really, Dr.? Yes."), ["Really, Dr.?", "Yes."]);
+});
+
+// ── frameLayout: window chrome ───────────────────────────────────────────────
+test("frameLayout: window = card + a 36px title bar above the image, badge below", () => {
+  const win = S.frameLayout({ w: 560, h: 400, frame: "window" });
+  assert.equal(win.width, 560 + 96);
+  assert.equal(win.height, 400 + 96 + 36);
+  assert.deepEqual(win.bar, { x: 48, y: 48, w: 560, h: 36, radius: 16 });
+  assert.deepEqual(win.img, { x: 48, y: 48 + 36, w: 560, h: 400, radius: 16 });
+  assert.ok(win.badge && win.badge.y > win.img.y + win.img.h);
+  const hi = S.frameLayout({ w: 560, h: 400, frame: "window", dpr: 2 });
+  assert.equal(hi.bar.h, 72); assert.equal(hi.img.y, 96 + 72);
+  const card = S.frameLayout({ w: 560, h: 400, frame: "card" });
+  assert.equal(card.bar, null);
+  assert.equal(S.frameLayout({ w: 560, h: 400, frame: "plain" }).bar, undefined);
+});
+
+// ── bilingual page layouts ───────────────────────────────────────────────────
+test("sideBySide: tops aligned, gap between, height = the taller page", () => {
+  const l = S.sideBySide({ w: 700, h: 900 }, { w: 700, h: 1100 }, 40);
+  assert.equal(l.width, 1440); assert.equal(l.height, 1100);
+  assert.deepEqual(l.a, { x: 0, y: 0, w: 700, h: 900 });
+  assert.deepEqual(l.b, { x: 740, y: 0, w: 700, h: 1100 });
+});
+
+test("layoutNotes: notes sit level with their block unless the previous note is in the way", () => {
+  const r = S.layoutNotes([{ y: 0, h: 50 }, { y: 20, h: 40 }, { y: 200, h: 30 }], 10);
+  assert.deepEqual(r.tops, [0, 60, 200]);
+  assert.equal(r.bottom, 230);
+  assert.deepEqual(S.layoutNotes([], 10), { tops: [], bottom: 0 });
+});
+
+// ── annotation geometry ──────────────────────────────────────────────────────
+test("annBounds: every tool yields a box in full-image fractions", () => {
+  assert.deepEqual(S.annBounds({ tool: "rect", a: { x: 0.75, y: 0.75 }, b: { x: 0.25, y: 0.25 } }), { x: 0.25, y: 0.25, w: 0.5, h: 0.5 });
+  assert.deepEqual(S.annBounds({ tool: "pen", pts: [{ x: 0.25, y: 0.5 }, { x: 0.75, y: 0.125 }] }), { x: 0.25, y: 0.125, w: 0.5, h: 0.375 });
+  assert.deepEqual(S.annBounds({ tool: "num", at: { x: 0.5, y: 0.5 }, r: 0.03125 }), { x: 0.46875, y: 0.46875, w: 0.0625, h: 0.0625 });
+  assert.deepEqual(S.annBounds({ tool: "text", at: { x: 0.1, y: 0.1 }, box: { x: 0.1, y: 0.1, w: 0.2, h: 0.03 } }), { x: 0.1, y: 0.1, w: 0.2, h: 0.03 });
+  assert.deepEqual(S.annBounds({ tool: "textmark", boxes: [{ x: 0.125, y: 0.125, w: 0.5, h: 0.03125 }, { x: 0.125, y: 0.15625, w: 0.25, h: 0.03125 }] }), { x: 0.125, y: 0.125, w: 0.5, h: 0.0625 });
+  assert.equal(S.annBounds(null), null);
+});
+
+test("hitAnnot: strokes hit along the line, boxes inside, topmost wins", () => {
+  const rect = { tool: "rect", a: { x: 0.1, y: 0.1 }, b: { x: 0.3, y: 0.3 } };
+  const pen = { tool: "pen", size: 0.006, pts: [{ x: 0.1, y: 0.1 }, { x: 0.9, y: 0.9 }] };
+  const num = { tool: "num", at: { x: 0.5, y: 0.5 }, r: 0.02 };
+  const blur = { tool: "blur", a: { x: 0.6, y: 0.2 }, b: { x: 0.8, y: 0.4 } };
+  const annots = [rect, pen, num, blur];
+  assert.equal(S.hitAnnot(annots, { x: 0.2, y: 0.2 }), 1, "the diagonal pen crosses the rect and is on top");
+  assert.equal(S.hitAnnot(annots, { x: 0.12, y: 0.25 }), 0, "inside the rect, off the pen line");
+  assert.equal(S.hitAnnot(annots, { x: 0.5, y: 0.1 }), -1, "inside the pen's bounding box but far from its line");
+  assert.equal(S.hitAnnot(annots, { x: 0.505, y: 0.5 }), 2);
+  assert.equal(S.hitAnnot(annots, { x: 0.6, y: 0.5 }), -1);
+  assert.equal(S.hitAnnot(annots, { x: 0.7, y: 0.3 }), 3);
+  // ky: a tall image (h = 3w) makes a y-fraction three times longer — 0.01 in y is 0.03 on screen
+  assert.equal(S.hitAnnot([rect], { x: 0.2, y: 0.31 }, { tol: 0.012, ky: 3 }), -1);
+  assert.equal(S.hitAnnot([rect], { x: 0.2, y: 0.31 }, { tol: 0.012, ky: 1 }), 0);
+  assert.equal(S.hitAnnot([], { x: 0.2, y: 0.2 }), -1);
+});
+
+test("moveAnnot shifts every stored point; renumber restores 1, 2, 3", () => {
+  const m = S.moveAnnot({ tool: "pen", pts: [{ x: 0.1, y: 0.1 }, { x: 0.2, y: 0.2 }] }, 0.05, -0.05);
+  assert.deepEqual(m.pts, [{ x: 0.15000000000000002, y: 0.05 }, { x: 0.25, y: 0.15000000000000002 }]);
+  const r = S.moveAnnot({ tool: "rect", a: { x: 0.1, y: 0.1 }, b: { x: 0.3, y: 0.3 } }, 0.1, 0.1);
+  assert.deepEqual([r.a, r.b], [{ x: 0.2, y: 0.2 }, { x: 0.4, y: 0.4 }]);
+  const t = S.moveAnnot({ tool: "text", at: { x: 0.1, y: 0.1 }, box: { x: 0.1, y: 0.1, w: 0.2, h: 0.03 } }, 0.1, 0);
+  assert.deepEqual([t.at, t.box], [{ x: 0.2, y: 0.1 }, { x: 0.2, y: 0.1, w: 0.2, h: 0.03 }]);
+  const list = [{ tool: "num", n: 1 }, { tool: "rect" }, { tool: "num", n: 3 }];
+  S.renumber(list);
+  assert.deepEqual(list.map((a) => a.n), [1, undefined, 2]);
+});
+
+// ── distributeTranslation ────────────────────────────────────────────────────
+test("distributeTranslation: each sentence's translation lands on the node where the sentence starts", () => {
+  // a tweet: four paragraphs = four text nodes; pairs derived per paragraph
+  const nodes = ["Erster Absatz hier.", "Zweiter Absatz:", "Dritter Absatz!", "Vierter."];
+  const pairs = [{ o: "Erster Absatz hier.", t: "First paragraph here." }, { o: "Zweiter Absatz:", t: "Second paragraph:" }, { o: "Dritter Absatz!", t: "Third paragraph!" }, { o: "Vierter.", t: "Fourth." }];
+  assert.deepEqual(S.distributeTranslation(nodes, pairs), ["First paragraph here.", "Second paragraph:", "Third paragraph!", "Fourth."]);
+  // a sentence split across nodes by inline formatting (a <b> run): its translation goes to the
+  // node where it STARTS, the bold run is emptied, and the next sentence stays in its own node
+  assert.deepEqual(S.distributeTranslation(["Das ist ", "wichtig", " für alle. Ende."], [{ o: "Das ist wichtig für alle.", t: "This matters to all." }, { o: "Ende.", t: "End." }]),
+    ["This matters to all.", "", "End."]);
+  // two sentences in one node, one in the next
+  assert.deepEqual(S.distributeTranslation(["A one. B two.", "C three."], [{ o: "A one.", t: "1" }, { o: "B two.", t: "2" }, { o: "C three.", t: "3" }]), ["1 2", "3"]);
+  // a pair that can't be located rides with the previous one; nothing placeable → null
+  assert.deepEqual(S.distributeTranslation(["Hallo.", "Welt."], [{ o: "Hallo.", t: "Hello." }, { o: "???", t: "stray" }, { o: "Welt.", t: "World." }]), ["Hello. stray", "World."]);
+  assert.equal(S.distributeTranslation(["Hallo."], [{ o: "Hallo.", t: "" }]), null);
+  assert.equal(S.distributeTranslation([], [{ o: "x", t: "y" }]), null);
 });

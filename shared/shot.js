@@ -103,28 +103,177 @@
     return RTL.has(base);
   }
 
+  // Tokens whose trailing period does NOT end a sentence (lower-case, no dot).
+  // Sentence-ending abbreviations (etc., usw.) are deliberately absent, as are
+  // tokens that are also words (may, so, sat).
+  const ABBR = new Set(("dr prof mr mrs ms jr sr st nr no vs vol fig abs art bd hr fr str tel mio mrd tsd inkl exkl zzgl ggf evtl sog vgl bspw geb gest " +
+    "ca bzw approx dept inc ltd co corp univ ed eds pp cf al z.b u.a d.h e.g i.e u.s a.m p.m o.ä s.o s.u u.u z.t " +
+    "jan feb mar apr jun jul aug sep sept oct okt nov dec dez").split(" "));
+  // Does a sentence part ending in "." actually continue? Yes after a known
+  // abbreviation ("Dr."), an initial ("J. K. Rowling") or a 1–2 digit number
+  // (German ordinal dates: "2. September"). Four-digit years still end sentences.
+  function joinsNext(part) {
+    const m = /(\S+)\.$/.exec(part);
+    if (!m) return false;
+    const tok = m[1].replace(/^[("'„«‚]+/, "");
+    if (/^\p{L}$/u.test(tok) || /^\d{1,2}$/.test(tok)) return true;
+    return ABBR.has(tok.toLowerCase());
+  }
   // Split a paragraph into sentences for pair-by-pair bilingual rendering.
   // Keeps trailing terminators; handles Latin, Persian/Arabic and CJK marks.
   // Never returns empties; a paragraph with no terminator is one sentence.
   function splitSentences(text) {
     const t = normText(text);
     if (!t) return [];
-    const parts = t.match(/[^.!?…؟۔۔।。！？]+[.!?…؟۔।。！？]+(?=\s|$)|[^.!?…؟۔।。！？]+$/gu) || [t];
-    const out = parts.map((s) => s.trim()).filter(Boolean);
+    // Split AFTER a terminator run that is followed by whitespace. (A match-based
+    // regex silently dropped text before an inner dot — "Das gilt z.B. für" lost
+    // "Das gilt z." — so this is a split, never a match.)
+    const parts = t.split(/(?<=[.!?…؟۔।。！？])\s+/u).map((s) => s.trim()).filter(Boolean);
+    const out = [];
+    for (let i = 0; i < parts.length; i++) {
+      let cur = parts[i];
+      while (i + 1 < parts.length && joinsNext(cur)) cur += " " + parts[++i];
+      out.push(cur);
+    }
     return out.length ? out : [t];
+  }
+
+  // Spread a block's sentence pairs back over its text nodes so a swapped
+  // translation keeps the block's structure (paragraph breaks, a bold run in
+  // the middle of a sentence). Each pair's original is located in the nodes'
+  // joined text; its translation goes to the node where the sentence starts,
+  // nodes that only carry the tail of a sentence are emptied. A pair that
+  // can't be found rides with the previous one. Returns one string per node,
+  // or null when there is nothing to place.
+  function distributeTranslation(nodeTexts, pairs) {
+    const texts = (nodeTexts || []).map(normText);
+    const out = texts.map(() => "");
+    if (!texts.length || !Array.isArray(pairs) || !pairs.length) return null;
+    const starts = []; let full = "";
+    for (const t of texts) { starts.push(full.length + (full && t ? 1 : 0)); full += (full && t ? " " : "") + t; }
+    const nodeAt = (i) => { let k = 0; for (let j = 0; j < starts.length; j++) if (texts[j] && starts[j] <= i) k = j; return k; };
+    let pos = 0, last = 0, placed = 0;
+    for (const p of pairs) {
+      const o = normText(p && p.o), t = normText(p && p.t);
+      let k = last;
+      if (o) {
+        let i = full.indexOf(o, pos); if (i < 0) i = full.indexOf(o);
+        if (i >= 0) { k = nodeAt(i); pos = i + o.length; }
+      }
+      if (t) { out[k] = out[k] ? out[k] + " " + t : t; placed++; }
+      last = k;
+    }
+    return placed ? out : null;
   }
 
   // Geometry (device px) of the exported picture: the bare capture, or a
   // padded card with rounded corners and a small badge under the image.
+  // "window" = card plus a browser title bar (`bar`) sitting on the image; the
+  // image then starts below the bar and shares the card's rounded outline.
   function frameLayout(o) {
     const w = o.w, h = o.h, dpr = o.dpr || 1;
-    if (o.frame !== "card") return { width: w, height: h, img: { x: 0, y: 0, w, h, radius: 0 }, badge: null };
+    if (o.frame !== "card" && o.frame !== "window") return { width: w, height: h, img: { x: 0, y: 0, w, h, radius: 0 }, badge: null };
     const pad = Math.round((o.pad == null ? 48 : o.pad) * dpr);
     const radius = Math.round((o.radius == null ? 16 : o.radius) * dpr);
-    const width = w + 2 * pad, height = h + 2 * pad;
+    const barH = o.frame === "window" ? Math.round((o.bar == null ? 36 : o.bar) * dpr) : 0;
+    const width = w + 2 * pad, height = h + barH + 2 * pad;
     const badge = o.badge === false ? null
       : { x: width - pad, y: height - Math.round(pad / 2), h: Math.round(22 * dpr), padX: Math.round(9 * dpr), align: "right" };
-    return { width, height, img: { x: pad, y: pad, w, h, radius }, badge };
+    const bar = barH ? { x: pad, y: pad, w, h: barH, radius } : null;
+    return { width, height, img: { x: pad, y: pad + barH, w, h, radius }, bar, badge };
+  }
+
+  // ── bilingual page layouts ────────────────────────────────────────────────
+  // Two page images next to each other (original | translated), tops aligned.
+  function sideBySide(a, b, gap) {
+    const g = Math.max(0, Math.round(gap || 0));
+    return { width: a.w + g + b.w, height: Math.max(a.h, b.h),
+      a: { x: 0, y: 0, w: a.w, h: a.h }, b: { x: a.w + g, y: 0, w: b.w, h: b.h } };
+  }
+  // Margin notes: each note wants to sit level with its block (`y`), but never
+  // overlaps the previous one — greedy push-down. `items` are in reading order
+  // with `y` (wanted top) and `h` (note height); returns the placed tops and
+  // the bottom edge of the last note.
+  function layoutNotes(items, gap) {
+    const g = Math.max(0, gap || 0);
+    const tops = []; let bottom = -Infinity;
+    for (const it of items) {
+      const y = Math.max(it.y, bottom === -Infinity ? -Infinity : bottom + g);
+      tops.push(y); bottom = y + it.h;
+    }
+    return { tops, bottom: bottom === -Infinity ? 0 : bottom };
+  }
+
+  // ── annotation geometry (full-image fractions) ────────────────────────────
+  // Bounds of one annotation; text/num carry a `box` measured at render time
+  // (fractions), a num falls back to its radius before its first render.
+  function annBounds(a) {
+    if (!a) return null;
+    const rect = (p, q) => ({ x: Math.min(p.x, q.x), y: Math.min(p.y, q.y), w: Math.abs(q.x - p.x), h: Math.abs(q.y - p.y) });
+    if (a.box) return { x: a.box.x, y: a.box.y, w: a.box.w, h: a.box.h };
+    if (a.tool === "num" && a.at) { const r = a.r || 0.02; return { x: a.at.x - r, y: a.at.y - r, w: 2 * r, h: 2 * r }; }
+    if (a.tool === "text" && a.at) return { x: a.at.x, y: a.at.y, w: 0.1, h: 0.03 };
+    if (Array.isArray(a.pts) && a.pts.length) {
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (const p of a.pts) { x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y); x1 = Math.max(x1, p.x); y1 = Math.max(y1, p.y); }
+      return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+    }
+    if (Array.isArray(a.boxes) && a.boxes.length) {
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (const b of a.boxes) { x0 = Math.min(x0, b.x); y0 = Math.min(y0, b.y); x1 = Math.max(x1, b.x + b.w); y1 = Math.max(y1, b.y + b.h); }
+      return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+    }
+    if (a.a && a.b) return rect(a.a, a.b);
+    return null;
+  }
+  // Distances are measured in width-fractions: `ky` (= image h / w) converts
+  // y-fractions so a tolerance means the same on-screen length either way.
+  function segDist(p, a, b, ky) {
+    const ax = a.x, ay = a.y * ky, bx = b.x, by = b.y * ky, px = p.x, py = p.y * ky;
+    const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+    const t = l2 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l2)) : 0;
+    const qx = ax + t * dx, qy = ay + t * dy;
+    return Math.hypot(px - qx, py - qy);
+  }
+  // Topmost annotation under `p`, or -1. Strokes and arrows hit along their
+  // line (not their bounding box); boxes, blurs, text, marks hit inside.
+  function hitAnnot(annots, p, opt) {
+    const tol = (opt && opt.tol) || 0.012, ky = (opt && opt.ky) || 1;
+    for (let i = (annots || []).length - 1; i >= 0; i--) {
+      const a = annots[i]; if (!a) continue;
+      if (a.tool === "pen" || a.tool === "highlight" || a.tool === "arrow") {
+        const pts = a.pts || (a.a && a.b ? [a.a, a.b] : []);
+        const half = (a.size || 0.006) * (a.tool === "highlight" ? 1.6 : 0.5);
+        let best = Infinity;
+        if (pts.length === 1) best = segDist(p, pts[0], pts[0], ky);
+        for (let k = 0; k + 1 < pts.length; k++) best = Math.min(best, segDist(p, pts[k], pts[k + 1], ky));
+        if (best <= tol + half) return i;
+        continue;
+      }
+      if (a.tool === "num" && a.at && !a.box) {
+        if (segDist(p, a.at, a.at, ky) <= (a.r || 0.02) + tol) return i;
+        continue;
+      }
+      const b = annBounds(a); if (!b) continue;
+      const ty = tol / ky;
+      if (p.x >= b.x - tol && p.x <= b.x + b.w + tol && p.y >= b.y - ty && p.y <= b.y + b.h + ty) return i;
+    }
+    return -1;
+  }
+  // A copy of `a` shifted by (dx, dy) fractions — every stored point moves.
+  function moveAnnot(a, dx, dy) {
+    const sh = (p) => (p ? { ...p, x: p.x + dx, y: p.y + dy } : p);
+    const out = { ...a };
+    if (out.pts) out.pts = out.pts.map(sh);
+    if (out.boxes) out.boxes = out.boxes.map(sh);
+    for (const k of ["a", "b", "at", "box"]) if (out[k]) out[k] = sh(out[k]);
+    return out;
+  }
+  // Step markers count 1, 2, 3 … in stroke order; call after any removal.
+  function renumber(annots) {
+    let n = 0;
+    for (const a of annots || []) if (a && a.tool === "num") a.n = ++n;
+    return annots;
   }
 
   const SIZE_SUFFIX = { native: "", "2x": "-2x", "1x": "-1x", half: "-half" };
@@ -208,5 +357,6 @@
     planTiles, stitchLayout, prepBlocks, mapTranslations, isBilingualBlock, isRtl, splitSentences,
     frameLayout, filename, exportScale, validateRecord, newId,
     normCrop, isFullCrop, cropSrc, cropToView, viewToCrop,
+    sideBySide, layoutNotes, annBounds, hitAnnot, moveAnnot, renumber, distributeTranslation,
   };
 })(globalThis);
