@@ -2213,7 +2213,9 @@
       const loop = mk("button", "wt-sheet wt-loop" + (board.loop === ctx.k0 ? " on" : ""), board.loop === ctx.k0 ? "Repeating ↻" : "Repeat ↻"); loop.type = "button";
       loop.title = "Play this chunk again and again (click to stop)";
       loop.addEventListener("click", (ev) => { ev.stopPropagation(); if (board.loop === ctx.k0) { board.loop = -1; loop.classList.remove("on"); loop.textContent = "Repeat ↻"; } else { board.loop = ctx.k0; board.stopAt = null; loop.classList.add("on"); loop.textContent = "Repeating ↻"; const ch = ctx.list[ctx.k0]; if (ch) playFrom(ch.startMs); } });
-      act.append(nsel, snap, loop, sheet);
+      const share = mk("button", "wt-sheet wt-share", "Share ↗"); share.type = "button"; share.title = "One page with every chunk, its translation and the tips already explained — from the cache — to download and send to a friend";
+      share.addEventListener("click", (ev) => { ev.stopPropagation(); shareBoard(share); });
+      act.append(nsel, snap, loop, sheet, share);
       return act;
     };
     // Playback speed for listening slowly: 1× → 0.75× → 0.5× → 1×.
@@ -2253,6 +2255,7 @@
       const lang = mk("button", "wt-pg wt-lang", tipsLangLabel(true)); lang.type = "button"; lang.title = "Tips in " + tipsLangLabel(false) + " — click to switch between your language and the video's own language";
       lang.addEventListener("click", (ev) => { ev.stopPropagation(); setTipsExplain(tipsExplain === "same" ? "" : "same"); });
       pager.append(prev, lbl, speedButton("wt-pg wt-speed"), lang, next); wtip.appendChild(pager);
+      if (board.ctx && board.ctx.kind) { const cx = mk("div", "wt-ctx", ctxLine(board.ctx)); cx.title = [board.ctx.register ? "Register: " + board.ctx.register : "", board.ctx.speakers ? "Speakers: " + board.ctx.speakers : ""].filter(Boolean).join("\n"); wtip.appendChild(cx); }
       const scroller = mk("div", "wt-scroll"); // sentences + tips of every shown chunk scroll together
       let no = 1;
       for (let k = k0; k < k0 + n; k++) {
@@ -2396,6 +2399,7 @@
       send({ type: "SHARE_TIPS", base, explain: tipsExplain, title: SV_TITLE.clean(document.title), url: location.href, lang: vocabPoolLang,
         chunks: list.map((ch) => ({ k: ch.k, startMs: ch.startMs, text: ch.text, sentences: ch.sentences.map((x) => ({ s: x.s, tr: x.tr })) })) })
         .then((r) => { if (!(r && r.ok)) console.warn("[SubVibe] share failed:", r && (r.error || JSON.stringify(r).slice(0, 200))); if (btn) { btn.disabled = false; btn.textContent = r && r.ok ? "Shared ↗" : "Couldn't share"; setTimeout(() => { btn.textContent = "Share ↗"; }, 2500); } });
+    // Hoisted for the card's actions row (declared later in this closure; called at click time).
     };
     // Karaoke on the board (every frame): spoken words turn coral, the word
     // being spoken sits on a warm pill, its sentence is the one in focus.

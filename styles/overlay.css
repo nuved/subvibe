@@ -383,6 +383,7 @@
 #copilot-subs .copilot-subs__wtip .wt-pg:disabled { opacity: .35; cursor: default; }
 #copilot-subs .copilot-subs__wtip .wt-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 #copilot-subs .copilot-subs__wtip .wt-scroll .wt-body { overflow: visible; flex: none; }
+#copilot-subs .copilot-subs__wtip .wt-ctx { flex: none; padding: 4px 13px 0; font: 500 11px/1.4 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: #8A7F72; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #copilot-subs .copilot-subs__wtip .wt-div { margin: 10px 13px 0; padding-top: 8px; border-top: 1px dashed #EDE5DA; font: 600 10px/1.3 ui-monospace, Menlo, Consolas, monospace; color: #B24A3A; letter-spacing: .04em; text-transform: uppercase; }
 
 /* ── Story board: the chunks beside the video, above the suggested videos ── */
