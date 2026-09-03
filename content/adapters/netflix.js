@@ -35,6 +35,18 @@
     pause() { window.postMessage({ __sv: "netflix", op: "pause" }, "*"); },
     setRate(rate) { window.postMessage({ __sv: "netflix", op: "rate", rate }, "*"); },
 
+    // What Netflix says is playing — asked from the page world (cookies, the player API).
+    getMeta() {
+      const id = adapter.getVideoId();
+      return new Promise((resolve) => {
+        const done = (meta) => { window.removeEventListener("message", on); clearTimeout(t); resolve(Object.assign({ site: "netflix", url: location.href, title: "" }, meta || {})); };
+        const on = (ev) => { if (ev.source === window && ev.data && ev.data.__sv === "netflix" && ev.data.type === "META" && String(ev.data.id) === String(id)) done(ev.data.meta); };
+        window.addEventListener("message", on);
+        const t = setTimeout(() => done(null), 3000);
+        window.postMessage({ __sv: "netflix", op: "meta", id }, "*");
+      });
+    },
+
     getPlayerContainer() {
       return (
         document.querySelector(".watch-video--player-view") ||

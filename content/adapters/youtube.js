@@ -148,6 +148,19 @@
       return w ? w.innerText || w.textContent || "" : "";
     },
 
+    // Title, channel, description — from the page's own data when it is for this video, else the DOM.
+    getMeta() {
+      const dom = () => ({ site: "youtube", url: location.href, title: (document.querySelector("ytd-watch-metadata h1") || {}).textContent || document.title, channel: adapter.getChannel(),
+        description: ((document.querySelector("#description-inline-expander") || {}).innerText || "").slice(0, 1500) });
+      return new Promise((resolve) => {
+        const done = (m) => { window.removeEventListener("message", on); clearTimeout(t); const d = dom(); resolve(Object.assign(d, m || {}, { site: "youtube", url: location.href, title: (m && m.title) || d.title.trim() })); };
+        const on = (ev) => { if (ev.source === window && ev.data && ev.data.__copilotSubs && ev.data.type === "META") done(ev.data.meta); };
+        window.addEventListener("message", on);
+        const t = setTimeout(() => done(null), 1500);
+        window.postMessage({ __copilotSubs: true, type: "META_REQ" }, "*");
+      });
+    },
+
     getChannel() {
       try {
         let el = document.querySelector("#owner #channel-name a") || document.querySelector("ytd-channel-name a");

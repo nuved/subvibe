@@ -12,9 +12,32 @@
       return id ? vp.getVideoPlayerBySessionId(id) : null;
     } catch (e) { return null; }
   };
+  // Netflix's own words about what is playing: the member API's metadata
+  // (show, season/episode, titles, synopses); the player's title block is the fallback.
+  const netflixMeta = async (id) => {
+    const out = { site: "netflix", url: location.href, title: "", show: "", season: 0, episode: 0, epTitle: "", synopsis: "", year: 0, runtimeMin: 0 };
+    try {
+      const build = window.netflix.reactContext.models.serverDefs.data.BUILD_IDENTIFIER;
+      const r = await fetch("/nq/website/memberapi/" + build + "/metadata?movieid=" + encodeURIComponent(id), { credentials: "include" });
+      const v = (await r.json()).video || {};
+      if (v.type === "show") {
+        out.show = v.title || ""; out.year = v.year || 0; out.synopsis = v.synopsis || "";
+        for (const s of v.seasons || []) for (const e of s.episodes || []) if (String(e.id) === String(v.currentEpisode || id)) { out.season = s.seq || 0; out.episode = e.seq || 0; out.epTitle = e.title || ""; out.synopsis = e.synopsis || out.synopsis; out.runtimeMin = Math.round((e.runtime || 0) / 60); }
+      } else { out.title = v.title || ""; out.year = v.year || 0; out.synopsis = v.synopsis || ""; out.runtimeMin = Math.round((v.runtime || 0) / 60); }
+    } catch (e) {}
+    if (!out.show && !out.title) { // the player's title block (visible with the controls)
+      try {
+        const t = document.querySelector('[data-uia="video-title"]');
+        if (t) { const h = t.querySelector("h4"); const sp = [...t.querySelectorAll("span")].map((x) => x.textContent.trim()).filter(Boolean); if (h) { out.show = h.textContent.trim(); const m = (sp[0] || "").match(/E(\d+)/i); if (m) out.episode = +m[1]; out.epTitle = sp[1] || ""; } else out.title = t.textContent.trim(); }
+      } catch (e) {}
+    }
+    return out;
+  };
   window.addEventListener("message", (ev) => {
     if (ev.source !== window || !ev.data || ev.data.__sv !== "netflix") return;
     const p = player(); const d = ev.data;
+    // The board asks once per video for the site's identity; the answer goes back as META.
+    if (d.op === "meta") { netflixMeta(d.id).then((meta) => window.postMessage({ __sv: "netflix", type: "META", id: d.id, meta }, "*")); return; }
     try {
       if (d.op === "seek" && p && typeof p.seek === "function") p.seek(Math.max(0, Math.round(d.ms)));
       else if (d.op === "play" && p && typeof p.play === "function") p.play();

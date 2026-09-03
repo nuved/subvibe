@@ -2031,11 +2031,11 @@
     // A sample of the whole video's lines — the background infers the video's
     // kind from it once (cached per video), so every later tip knows whether
     // this is an interview, a lesson, a match or a game stream.
-    const sampleLines = () => { const us = sentenceUnits(); if (us.length <= 40) return us.map((u) => u.original); const step = us.length / 40; const out = []; for (let i = 0; i < 40; i++) out.push(us[Math.floor(i * step)].original); return out; };
+    const sampleLines = () => { const us = sentenceUnits().map((u) => u.original); return globalThis.SV_DOSSIER ? SV_DOSSIER.sampleLines(us, us.length >= 120 ? 300 : 40) : us.slice(0, 40); };
     // Tips language: "" = the popup's target, "same" = the video's own language.
     let tipsExplain = "";
     try { chrome.storage.local.get("tipsExplain", (r) => { tipsExplain = String((r && r.tipsExplain) || ""); if (board.el) { const sel = board.el.querySelector(".svb-lang"); if (sel) sel.value = tipsExplain; seedExplained(); board.sig = ""; } }); } catch (e) {}
-    const explainPayload = (ch, list) => ({ type: "VOCAB_EXPLAIN", base, s: ch.text, lang: vocabPoolLang, title: document.title, explain: tipsExplain,
+    const explainPayload = (ch, list) => ({ type: "VOCAB_EXPLAIN", base, s: ch.text, lang: vocabPoolLang, title: document.title, explain: tipsExplain, k: ch.k, n: list.length,
       before: list[ch.k - 1] ? [list[ch.k - 1].text] : [], after: list[ch.k + 1] ? [list[ch.k + 1].text] : [], sample: sampleLines() });
     // Seed the explanations already made on this video (for this tips language)
     // so marks and tips survive a page load.
@@ -2046,7 +2046,9 @@
         if (!r || !r.ok || seededFor !== tipsExplain) return;
         if (r.ctx) setCtx(r.ctx);
         const known = (r.entries || []).find((e) => e.lang && e.lang !== "xx"); if (known) refreshLangOption(known.lang);
-        for (const e of r.entries || []) if (!lineExplainCache.has(e.s)) lineExplainCache.set(e.s, { tr: e.tr, simple: e.simple || "", g: e.g, scene: e.scene || "", lang: e.lang || "", words: e.words || [] });
+        for (const e of r.entries || []) if (!lineExplainCache.has(e.s)) lineExplainCache.set(e.s, { tr: e.tr, simple: e.simple || "", g: e.g, scene: e.scene || "", who: e.who || [], lang: e.lang || "", words: e.words || [] });
+        // Last: painting the dossier must never cost the seeded tips above.
+        if (r.dossier) setDossier(r.dossier);
         board.sig = "";
       });
     };
@@ -2067,7 +2069,7 @@
         chunkFetching.delete(ch.text);
         if (r && r.ctx) setCtx(r.ctx);
         if (r && r.lang) refreshLangOption(r.lang);
-        if (r && r.tr) { const ex = { tr: r.tr, simple: r.simple || "", g: r.g, scene: r.scene || "", lang: r.lang || "", words: r.words || [] }; lineExplainCache.set(ch.text, ex); return ex; }
+        if (r && r.tr) { const ex = { tr: r.tr, simple: r.simple || "", g: r.g, scene: r.scene || "", who: r.who || [], lang: r.lang || "", words: r.words || [] }; lineExplainCache.set(ch.text, ex); return ex; }
         return { error: r && r.error ? "couldn't explain — check the provider key in the popup" : "no explanation — try again" };
       }));
       return chunkFetching.get(ch.text);
@@ -2349,10 +2351,34 @@
     // subtitles: every chunk in order with its translation, the playing one
     // highlighted and followed, the explained ones marked; the open chunk
     // shows its Translation · Grammar · Words and the actions row.
-    const board = { el: null, list: [], ki: -1, open: -1, sig: "", at: 0, collapsed: false, userScrollAt: 0, linesOff: false, loop: -1, stopAt: null, rate: 1, ctx: null };
+    const board = { el: null, list: [], ki: -1, open: -1, sig: "", at: 0, collapsed: false, userScrollAt: 0, linesOff: false, loop: -1, stopAt: null, rate: 1, ctx: null, dossier: null, dossierAsked: false };
     // "language lesson · walk & talk" — what kind of video the model took this for.
     const ctxLine = (cx) => cx && cx.kind ? [cx.kind, cx.about].filter(Boolean).join(" · ").slice(0, 90) : "";
     const setCtx = (cx) => { if (!cx || !cx.kind) return; board.ctx = cx; const el = board.el && board.el.querySelector(".svb-ctx"); if (el) { el.textContent = ctxLine(cx); el.title = [cx.kind, cx.about, cx.register ? "Register: " + cx.register : "", cx.speakers ? "Speakers: " + cx.speakers : ""].filter(Boolean).join("\n"); } };
+    // The dossier: what the site says this video IS (show/episode or channel +
+    // description), the cast, and the model's reading of it. It reaches the board
+    // once per video and names the video under the "Story board" title.
+    const setDossier = (d) => {
+      if (!d) return; board.dossier = d; if (d.kind) setCtx({ kind: d.kind, about: d.about, register: d.register, speakers: d.speakers });
+      // Under the title: "interview · Peak TV · Anna, Tom" (YouTube) or "crime drama series · The Block · S1 E3" (Netflix)
+      const el = board.el && board.el.querySelector(".svb-ctx");
+      if (el) { const who = (d.people || []).slice(0, 3).map((p) => p.character || p.name).filter(Boolean).join(", "); el.textContent = [d.kind, d.show ? SV_DOSSIER.identityLine(d) : d.channel, who].filter(Boolean).join(" · ").slice(0, 110); el.title = [d.kind, d.about, SV_DOSSIER.identityLine(d), d.channel, d.synopsis || d.description].filter(Boolean).join("\n"); }
+      board.sig = "";
+    };
+    // Asked ONCE per video (the background builds it once and caches it), before
+    // any explanation, so every tip is read in the light of what this video is.
+    const askDossier = () => {
+      if (board.dossierAsked || !adapter) return;
+      // A pre-roll ad carries its OWN caption track, so the lines on the board
+      // right now are the ad's. The dossier is frozen once per video — asking
+      // during an ad would freeze the model's reading on the ad. Wait; boardTick
+      // asks again on the next tick, and the flag is still unset.
+      try { if (document.querySelector(".ad-showing")) return; } catch (e) {}
+      board.dossierAsked = true;
+      const metaP = adapter.getMeta ? adapter.getMeta() : Promise.resolve({ site: adapter.site, url: location.href, title: SV_TITLE.clean(document.title) });
+      metaP.then((m) => { const meta = m || { site: adapter.site, url: location.href }; meta.title = SV_TITLE.clean(meta.title || ""); return send({ type: "DOSSIER", base, meta, sample: sampleLines(), lang: vocabPoolLang }); })
+        .then((r) => { if (r && r.ok) setDossier(r.dossier); }).catch(() => {});
+    };
     try { board.collapsed = localStorage.getItem("sv-board-collapsed") === "1"; board.linesOff = localStorage.getItem("sv-lines-off") === "1"; } catch (e) {}
     const boardVisible = () => !!(board.el && board.el.isConnected && !board.collapsed && !document.fullscreenElement && board.el.getClientRects().length > 0);
     // Drawer mode: the picture makes room instead of hiding behind the drawer.
@@ -2425,7 +2451,7 @@
       b.appendChild(listEl);
       if (host) host.insertBefore(b, host.firstChild); else document.body.appendChild(b);
       board.el = b;
-      applyLinesOff(); seedExplained();
+      applyLinesOff(); seedExplained(); askDossier();
       return b;
     };
     // Some players (Netflix) must be driven through their own API — the adapter says so.
@@ -2530,6 +2556,7 @@
       if (!force && now - board.at < 600) return;
       board.at = now;
       const b = ensureBoard(); if (!b) return;
+      askDossier(); // a no-op once asked — the retry for a board that was built during an ad
       b.classList.toggle("fs", !!document.fullscreenElement); // a drawer never sits over a fullscreen picture
       if (b.classList.contains("drawer")) fitPlayer(!board.collapsed && !document.fullscreenElement); // the picture makes room (re-applied if the player re-renders)
       if (board.collapsed) return;

@@ -90,6 +90,7 @@
         "shared/textslice.js",
         "shared/quotes.js",
         "shared/cues.js",
+        "shared/dossier.js",
         "content/common.js"
       ],
       "css": [
@@ -111,6 +112,7 @@
         "shared/textslice.js",
         "shared/quotes.js",
         "shared/cues.js",
+        "shared/dossier.js",
         "content/common.js"
       ],
       "css": [
@@ -132,6 +134,7 @@
         "shared/textslice.js",
         "shared/quotes.js",
         "shared/cues.js",
+        "shared/dossier.js",
         "content/common.js"
       ],
       "css": [
@@ -153,6 +156,7 @@
         "shared/textslice.js",
         "shared/quotes.js",
         "shared/cues.js",
+        "shared/dossier.js",
         "content/common.js"
       ],
       "css": [
@@ -175,6 +179,7 @@
         "shared/textslice.js",
         "shared/quotes.js",
         "shared/cues.js",
+        "shared/dossier.js",
         "content/common.js"
       ],
       "css": [
@@ -196,6 +201,7 @@
         "shared/textslice.js",
         "shared/quotes.js",
         "shared/cues.js",
+        "shared/dossier.js",
         "content/common.js"
       ],
       "css": [
