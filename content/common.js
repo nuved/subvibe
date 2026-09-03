@@ -2031,7 +2031,16 @@
     // A sample of the whole video's lines — the background infers the video's
     // kind from it once (cached per video), so every later tip knows whether
     // this is an interview, a lesson, a match or a game stream.
-    const sampleLines = () => { const us = sentenceUnits().map((u) => u.original); return globalThis.SV_DOSSIER ? SV_DOSSIER.sampleLines(us, us.length >= 120 ? 300 : 40) : us.slice(0, 40); };
+    const sampleLines = () => {
+      const us = sentenceUnits().map((u) => u.original).filter(Boolean);
+      if (globalThis.SV_DOSSIER) return SV_DOSSIER.sampleLines(us, us.length >= 120 ? 300 : 40);
+      // Without the shared module, still SPREAD 40 lines over the whole video — the
+      // first 40 are all opening titles and say nothing about what the video is.
+      if (us.length <= 40) return us;
+      const step = us.length / 40, out = [];
+      for (let i = 0; i < 40; i++) out.push(us[Math.floor(i * step)]);
+      return out;
+    };
     // Tips language: "" = the popup's target, "same" = the video's own language.
     let tipsExplain = "";
     try { chrome.storage.local.get("tipsExplain", (r) => { tipsExplain = String((r && r.tipsExplain) || ""); if (board.el) { const sel = board.el.querySelector(".svb-lang"); if (sel) sel.value = tipsExplain; seedExplained(); board.sig = ""; } }); } catch (e) {}
@@ -2041,7 +2050,10 @@
     try { chrome.storage.local.get("tipsAhead", (r) => { tipsAhead = String((r && r.tipsAhead) || "3"); }); } catch (e) {}
     try { chrome.storage.onChanged.addListener((ch, area) => { if (area === "local" && ch.tipsAhead) { tipsAhead = String(ch.tipsAhead.newValue || "3"); tips.stopped = false; tips.errors = 0; tips.pausedUntil = 0; board.sig = ""; } }); } catch (e) {}
     const explainPayload = (ch, list) => ({ type: "VOCAB_EXPLAIN", base, s: ch.text, lang: vocabPoolLang, title: document.title, explain: tipsExplain, k: ch.k, n: list.length,
-      before: list[ch.k - 1] ? [list[ch.k - 1].text] : [], after: list[ch.k + 1] ? [list[ch.k + 1].text] : [], sample: sampleLines() });
+      before: list[ch.k - 1] ? [list[ch.k - 1].text] : [], after: list[ch.k + 1] ? [list[ch.k + 1].text] : [],
+      // The background only needs the lines while the dossier is unknown or thin —
+      // sending 300 of them with every explanation was ~48 KB a call for nothing.
+      sample: !board.dossier || (board.dossier.sample || []).length < 40 ? sampleLines() : [] });
     // Seed the explanations already made on this video (for this tips language)
     // so marks and tips survive a page load.
     let seededFor = null;
@@ -2384,7 +2396,7 @@
     // subtitles: every chunk in order with its translation, the playing one
     // highlighted and followed, the explained ones marked; the open chunk
     // shows its Translation · Grammar · Words and the actions row.
-    const board = { el: null, list: [], ki: -1, open: -1, sig: "", at: 0, collapsed: false, userScrollAt: 0, linesOff: false, loop: -1, stopAt: null, rate: 1, ctx: null, dossier: null, dossierAsked: false, pinnedAt: 0, paneSig: "", stripHidden: false, stripSig: "" };
+    const board = { el: null, list: [], ki: -1, open: -1, sig: "", at: 0, collapsed: false, userScrollAt: 0, linesOff: false, loop: -1, stopAt: null, rate: 1, ctx: null, dossier: null, dossierAsked: false, dossierInFlight: false, dossierTries: 0, dossierRetryAt: 0, pinnedAt: 0, paneSig: "", stripHidden: false, stripSig: "" };
     // "language lesson · walk & talk" — what kind of video the model took this for.
     const ctxLine = (cx) => cx && cx.kind ? [cx.kind, cx.about].filter(Boolean).join(" · ").slice(0, 90) : "";
     const setCtx = (cx) => { if (!cx || !cx.kind) return; board.ctx = cx; const el = board.el && board.el.querySelector(".svb-ctx"); if (el) { el.textContent = ctxLine(cx); el.title = [cx.kind, cx.about, cx.register ? "Register: " + cx.register : "", cx.speakers ? "Speakers: " + cx.speakers : ""].filter(Boolean).join("\n"); } };
@@ -2395,22 +2407,28 @@
       if (!d) return; board.dossier = d; if (d.kind) setCtx({ kind: d.kind, about: d.about, register: d.register, speakers: d.speakers });
       // Under the title: "interview · Peak TV · Anna, Tom" (YouTube) or "crime drama series · The Block · S1 E3" (Netflix)
       const el = board.el && board.el.querySelector(".svb-ctx");
-      if (el) { const who = (d.people || []).slice(0, 3).map((p) => p.character || p.name).filter(Boolean).join(", "); el.textContent = [d.kind, d.show ? SV_DOSSIER.identityLine(d) : d.channel, who].filter(Boolean).join(" · ").slice(0, 110); el.title = [d.kind, d.about, SV_DOSSIER.identityLine(d), d.channel, d.synopsis || d.description].filter(Boolean).join("\n"); }
+      const idl = globalThis.SV_DOSSIER ? SV_DOSSIER.identityLine(d) : (d.show || d.title || "");
+      if (el) { const who = (d.people || []).slice(0, 3).map((p) => p.character || p.name).filter(Boolean).join(", "); el.textContent = [d.kind, d.show ? idl : d.channel, who].filter(Boolean).join(" · ").slice(0, 110); el.title = [d.kind, d.about, idl, d.channel, d.synopsis || d.description].filter(Boolean).join("\n"); }
       board.sig = "";
     };
     // Asked ONCE per video (the background builds it once and caches it), before
     // any explanation, so every tip is read in the light of what this video is.
     const askDossier = () => {
-      if (board.dossierAsked || !adapter) return;
-      // A pre-roll ad carries its OWN caption track, so the lines on the board
-      // right now are the ad's. The dossier is frozen once per video — asking
+      if (board.dossierAsked || board.dossierInFlight || !adapter) return;
+      if (board.dossierTries >= 5 || performance.now() < board.dossierRetryAt) return; // a failed ask waits 20 s, five tries at most
+      // A YouTube pre-roll ad carries its OWN caption track, so the lines on the
+      // board right now are the ad's. The dossier is frozen once per video — asking
       // during an ad would freeze the model's reading on the ad. Wait; boardTick
       // asks again on the next tick, and the flag is still unset.
-      try { if (document.querySelector(".ad-showing")) return; } catch (e) {}
-      board.dossierAsked = true;
+      try { if (adapter.site === "youtube" && document.querySelector(".ad-showing")) return; } catch (e) {}
+      board.dossierInFlight = true; board.dossierTries++;
+      const fail = () => { board.dossierInFlight = false; board.dossierRetryAt = performance.now() + 20000; };
       const metaP = adapter.getMeta ? adapter.getMeta() : Promise.resolve({ site: adapter.site, url: location.href, title: SV_TITLE.clean(document.title) });
       metaP.then((m) => { const meta = m || { site: adapter.site, url: location.href }; meta.title = SV_TITLE.clean(meta.title || ""); return send({ type: "DOSSIER", base, meta, sample: sampleLines(), lang: vocabPoolLang }); })
-        .then((r) => { if (r && r.ok) setDossier(r.dossier); }).catch(() => {});
+        // Only a real answer closes the question: a send that failed (worker asleep,
+        // error) must not cost this video its dossier for the whole run.
+        .then((r) => { if (r && r.ok) { board.dossierAsked = true; board.dossierInFlight = false; setDossier(r.dossier); } else fail(); })
+        .catch(() => fail());
     };
     try { board.collapsed = localStorage.getItem("sv-board-collapsed") === "1"; board.linesOff = localStorage.getItem("sv-lines-off") === "1"; board.stripHidden = localStorage.getItem("sv-strip-collapsed") === "1"; } catch (e) {}
     const boardVisible = () => !!(board.el && board.el.isConnected && !board.collapsed && !document.fullscreenElement && board.el.getClientRects().length > 0);

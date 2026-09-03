@@ -372,7 +372,7 @@ git commit -m "TMDb: pick the right title, shape cast and episode answers, build
 
 **Interfaces:**
 - Consumes: `SV_DOSSIER.sampleLines`, `SV_TMDB.*` (Tasks 1–2); `llmJSON`, `idbVocabGet/Put`, `logCall`.
-- Produces: `async ensureDossier(base, meta, sample, lang)` → `Dossier | null` (single-flight per base); `async tmdbLookup(meta, key)` → `{ tmdb, people, poster, epTitle, synopsis }`; message handlers `DOSSIER` and `TMDB_TEST`; `dossierLine(d)` (the old `contextLine`, now reading the dossier's `kind/about/register/speakers`).
+- Produces: `async ensureDossier(base, meta, sample, lang)` → `Dossier | null` (single-flight per base); `async tmdbLookup(meta, key)` → `{ tmdb, people, poster, epTitle, synopsis }`; message handlers `DOSSIER` and `TMDB_TEST`; `contextLine(ctx)` stays as is for `studyPrompt` (the explain path renders the dossier instead, Task 4). Built later (T3b): a title-only dossier is upgraded when site facts arrive; TMDb never runs from a bare title or on YouTube.
 
 - [ ] **Step 1: Add the host permissions and the imports**
 
