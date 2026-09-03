@@ -2706,13 +2706,27 @@
           if (cur.simple) { const sm = mk("div", "svs-text"); sm.textContent = cur.simple; sm.dir = dirOf(cur.lang || vocabPoolLang); more.appendChild(sm); }
           now.appendChild(more); }
       });
-      const people = (d && d.people) || []; const shown = new Set(who.map((f) => f.person).filter(Boolean));
-      part("svs-cast", [d ? d.at : 0, people.length, [...shown].map((p) => p.name).join("|")].join("\u0001"), (cast) => {
+      // The people of this video: the cast (TMDb) or the model's guesses, plus everyone the
+      // explained chunks have met so far, most-seen first — recounted only when a new explanation lands.
+      const dp = (d && d.people) || [];
+      if (!board.peopleSeen || board.peopleSeen.n !== st.doneN || board.peopleSeen.at !== (d ? d.at : 0)) {
+        const count = new Map();
+        for (const e of lineExplainCache.values()) for (const w of (e && e.who) || []) { const k = String(w).trim(); if (k) count.set(k, (count.get(k) || 0) + 1); }
+        const named = [...count.entries()].sort((a, b) => b[1] - a[1]).map(([label, n]) => ({ f: SV_DOSSIER.whoFaces([label], dp)[0], n }));
+        const list = dp.map((p) => ({ p, label: "", n: 0 }));
+        for (const { f, n } of named) { const hit = f.person && list.find((x) => x.p === f.person); if (hit) hit.n += n; else if (!/^(the |a |an )/i.test(f.label)) list.push({ p: null, label: f.label, n }); }
+        board.peopleSeen = { n: st.doneN, at: d ? d.at : 0, list: list.filter((x) => x.p || x.n > 0).sort((a, b) => (b.p && b.p.src === "tmdb" ? 1 : 0) - (a.p && a.p.src === "tmdb" ? 1 : 0) || b.n - a.n) };
+      }
+      const people = board.peopleSeen.list, shown = new Set(who.map((f) => f.person || f.label).filter(Boolean));
+      part("svs-cast", [d ? d.at : 0, people.length, people.map((x) => (x.p ? x.p.name : x.label) + x.n).join("|"), [...shown].map((p) => p.name || p).join("|")].join("\u0001"), (cast) => {
         if (!people.length) return;
-        cast.appendChild(mk("div", "svs-lbl", (people[0].src === "tmdb" ? "Cast" : "People (from the model)") + " · " + people.length));
-        const row = mk("div", "svs-faces"); for (const p of people.filter((p) => !shown.has(p)).slice(0, 8)) row.appendChild(face(p, "", false, false)); cast.appendChild(row);
-        if (people[0].src === "tmdb") cast.appendChild(mk("div", "svs-attr", "Cast & episode data · TMDB"));
-        const more = mk("div", "svs-more"); more.appendChild(mk("div", "svs-lbl", people[0].src === "tmdb" ? "Cast" : "People, as the model reads them")); const grid = mk("div", "svs-faces xl"); for (const p of people.slice(0, 12)) grid.appendChild(face(p, "", true, false)); more.appendChild(grid); cast.appendChild(more);
+        const tmdb = people.some((x) => x.p && x.p.src === "tmdb");
+        cast.appendChild(mk("div", "svs-lbl", (tmdb ? "Cast & people" : "People so far") + " · " + people.length));
+        const row = mk("div", "svs-faces"); for (const x of people.filter((x) => !shown.has(x.p || x.label)).slice(0, 8)) row.appendChild(face(x.p, x.label, false, false)); cast.appendChild(row);
+        if (tmdb) cast.appendChild(mk("div", "svs-attr", "Cast & episode data · TMDB"));
+        const more = mk("div", "svs-more"); more.appendChild(mk("div", "svs-lbl", tmdb ? "Cast, and the people the chunks have met" : "People the chunks have met so far")); const grid = mk("div", "svs-faces xl");
+        for (const x of people.slice(0, 16)) { const f = face(x.p, x.label, true, false); if (x.n) f.appendChild(mk("small", null, x.n + (x.n === 1 ? " scene" : " scenes"))); grid.appendChild(f); }
+        more.appendChild(grid); cast.appendChild(more);
       });
       // The bar is a timeline: explained chunks are drawn where they are in the video (a
       // viewer who starts at 20:00 sees the teal begin there), the busy ones amber, the playhead coral.

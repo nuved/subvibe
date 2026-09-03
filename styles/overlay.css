@@ -500,7 +500,7 @@
 #sv-board .svb-pb .wt-actions { margin: 8px 0 0; padding: 8px 12px 2px; }
 #sv-board .svb-empty { padding: 10px 12px; color: #8A7F72; }
 #sv-board .svb-scene { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin: 4px 0 0 22px; }
-#sv-board .svb-scene-txt { font: 500 11.5px/1.4 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: #5B5348; background: #F3EDE4; border-radius: 6px; padding: 2px 7px; }
+#sv-board .svb-scene-txt { font: 500 11.5px/1.4 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: #5B5348; background: #F3EDE4; border-radius: 6px; padding: 2px 7px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 #sv-board .svb-who { display: inline-flex; align-items: center; gap: 4px; font: 600 10.5px/1 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: #5B5348; background: #fff; border: 1px solid #EDE5DA; border-radius: 999px; padding: 2px 7px 2px 2px; }
 #sv-board .svb-who i { width: 16px; height: 16px; border-radius: 50%; background: #A39684 center / cover no-repeat; color: #fff; font: 700 8px/16px ui-monospace, Menlo, Consolas, monospace; text-align: center; font-style: normal; }
 #sv-board .svb-mark.busy { color: #B45309; }
