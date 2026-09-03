@@ -268,10 +268,10 @@
     .btn:hover { background: var(--accent2); }
     .btn.ghost { background: var(--panel2); color: var(--text2); border: 1px solid var(--border); }
     .btn.ghost:hover { background: var(--hover); }
-    #keyStatus, #anthropicKeyStatus, #geminiKeyStatus, #cliBridgeStatus { font-size: 11px; margin-top: 6px; min-height: 14px; color: var(--muted); }
-    #keyStatus.ok, #anthropicKeyStatus.ok, #geminiKeyStatus.ok, #cliBridgeStatus.ok { color: var(--green); }
-    #keyStatus.err, #anthropicKeyStatus.err, #geminiKeyStatus.err, #cliBridgeStatus.err { color: var(--red); }
-    #keyStatus.warn, #anthropicKeyStatus.warn, #geminiKeyStatus.warn, #cliBridgeStatus.warn { color: var(--amber); }
+    #keyStatus, #anthropicKeyStatus, #geminiKeyStatus, #cliBridgeStatus, #tmdbKeyStatus { font-size: 11px; margin-top: 6px; min-height: 14px; color: var(--muted); }
+    #keyStatus.ok, #anthropicKeyStatus.ok, #geminiKeyStatus.ok, #cliBridgeStatus.ok, #tmdbKeyStatus.ok { color: var(--green); }
+    #keyStatus.err, #anthropicKeyStatus.err, #geminiKeyStatus.err, #cliBridgeStatus.err, #tmdbKeyStatus.err { color: var(--red); }
+    #keyStatus.warn, #anthropicKeyStatus.warn, #geminiKeyStatus.warn, #cliBridgeStatus.warn, #tmdbKeyStatus.warn { color: var(--amber); }
     .clicmd { flex: 1; min-width: 0; font: 11px/1.4 var(--mono); background: var(--surface-2); color: var(--ink); padding: 7px 9px; border-radius: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; user-select: all; }
 
     /* API keys panel: per-provider row with status dot */
@@ -881,6 +881,17 @@
           <button class="btn ghost" id="verifyGemini">Verify</button>
         </div>
         <div id="geminiKeyStatus">Stored only on this device. Used for Live Translate audio and TTS dub, never for text translation.</div>
+      </div>
+      <!-- TMDb: optional. Never in KEY_PROVIDERS — an empty optional key must
+           not force the Keys panel open. -->
+      <div class="keysection">
+        <div class="keyhead"><span class="keyname"><span id="tmdbKeyDot" class="keydot"></span>TMDb</span> <a id="getTmdbKey" href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">Get a free key →</a></div>
+        <div class="keyused">used for: cast photos, character names and episode info on the story board — optional</div>
+        <div class="keyrow">
+          <input type="password" id="tmdbKey" placeholder="TMDb API key (v3)" autocomplete="off" spellcheck="false" />
+          <button class="btn ghost" id="verifyTmdb">Verify</button>
+        </div>
+        <div id="tmdbKeyStatus">Without it the board still shows Netflix's own episode data and names from the model, without photos.</div>
       </div>
     </details>
   </section>
