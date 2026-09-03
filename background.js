@@ -1557,7 +1557,9 @@ async function sceneFrame(msg, sender) {
   const have = await idbVocabGet(key); if (have && have.d) return { ok: true, k, frame: have.d, cached: true };
   let live = null; try { live = await chrome.tabs.get(tab.id); } catch (e) {}
   if (!live || !live.active) return { ok: false, error: "not-visible" };
-  let shot = null; try { shot = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "jpeg", quality: 88 }); } catch (e) { return { ok: false, error: "capture" }; }
+  // captureVisibleTab needs activeTab, which the user grants for this tab by opening the popup once
+  // (or pressing a SubVibe shortcut) — a plain host permission is not enough. Until then: "grant".
+  let shot = null; try { shot = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "jpeg", quality: 88 }); } catch (e) { return { ok: false, error: /activeTab|all_urls/i.test(String((e && e.message) || e)) ? "grant" : "capture" }; }
   if (!shot) return { ok: false, error: "capture" };
   const bmp = await createImageBitmap(await (await fetch(shot)).blob());
   const dpr = +msg.dpr || 1, r = msg.rect || { x: 0, y: 0, w: bmp.width / dpr, h: bmp.height / dpr };

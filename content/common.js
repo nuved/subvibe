@@ -2163,17 +2163,20 @@
     // Scene camera: one small frame of the video a second into each chunk, through the same screen
     // route as Frame-from-screen (protected video works). The subtitle overlay hides for the
     // capture's few frames so the picture is clean. Only while the strip is shown and the tab is visible.
-    const cam = { frames: new Map(), asked: new Set(), inflight: false, timer: 0 };
+    const cam = { frames: new Map(), asked: new Set(), inflight: false, timer: 0, needGrant: false, grantAt: 0 };
     const frameRect = () => { const v = liveVideoEl(video) || video; const r = v && v.getBoundingClientRect(); if (!r || r.width < 120 || r.height < 60) return null;
       // the box the picture really occupies (letterboxed inside the element): assume 16:9 inside the element's rect
       const ar = 16 / 9; let w = r.width, h = r.height; if (w / h > ar) { w = h * ar; } else { h = w / ar; } return { x: r.left + (r.width - w) / 2, y: r.top + (r.height - h) / 2, w, h }; };
     const snapChunkFrame = (k) => {
       if (cam.inflight || cam.asked.has(k) || document.visibilityState !== "visible" || !stripOn()) return;
+      if (cam.needGrant && performance.now() - cam.grantAt < 20000) return;
       const ch = board.list[k]; if (!ch) return;
       const r = frameRect(); if (!r) return;
       cam.asked.add(k); cam.inflight = true; overlay.classList.add("sv-snap-hide");
       setTimeout(() => send({ type: "SCENE_FRAME", base, k, ms: ch.startMs, dpr: devicePixelRatio, rect: r })
-        .then((res) => { if (res && res.ok && res.frame) { cam.frames.set(k, res.frame); board.stripSig = ""; } else if (res && res.error === "not-visible") cam.asked.delete(k); })
+        .then((res) => { if (res && res.ok && res.frame) { cam.frames.set(k, res.frame); if (cam.needGrant) { cam.needGrant = false; board.stripSig = ""; } board.stripSig = ""; }
+          else if (res && res.error === "not-visible") cam.asked.delete(k);
+          else if (res && res.error === "grant") { cam.asked.delete(k); if (!cam.needGrant) { cam.needGrant = true; board.stripSig = ""; } cam.grantAt = performance.now(); } })
         .catch(() => {}).finally(() => { overlay.classList.remove("sv-snap-hide"); cam.inflight = false; }), 70);
     };
     // Frames already taken on an earlier watch, for the chunks the strip is about to show.
@@ -2803,7 +2806,7 @@
       const waiting = busyHere(ch) ? "explaining this chunk…" : st.state === "stopped" || st.state === "paused" ? "tips paused — see the board" : ex ? "" : "tips follow the video as it plays";
       if (board.ki >= 0) wantFrames([board.ki]);
       const frameNow = board.ki >= 0 ? cam.frames.get(board.ki) : "";
-      part("svs-now", [ch ? ch.text : "", ex ? (ex.scene || "") + (ex.who || []).join("|") : "", busyHere(ch) ? 1 : 0, st.state, d ? d.at : 0, useRecap ? recap.k + recap.text.slice(0, 40) : "", last ? last.scene : "", board.facesV, frameNow ? frameNow.length : 0].join("|"), (now) => {
+      part("svs-now", [ch ? ch.text : "", ex ? (ex.scene || "") + (ex.who || []).join("|") : "", busyHere(ch) ? 1 : 0, st.state, d ? d.at : 0, useRecap ? recap.k + recap.text.slice(0, 40) : "", last ? last.scene : "", board.facesV, frameNow ? frameNow.length : 0, cam.needGrant ? 1 : 0].join("|"), (now) => {
         let facesList = [];
         if (ex && ex.scene) { now.appendChild(mk("div", "svs-lbl", "Now · " + fmtT(ch.startMs))); const sc = mk("div", "svs-scene", ex.scene); sc.dir = explainDir(ex); now.appendChild(sc); facesList = who; }
         else if (useRecap) { now.appendChild(mk("div", "svs-lbl", "Story so far · to " + fmtT(list[recap.k] ? list[recap.k].startMs : 0) + (busyHere(ch) ? " · explaining this chunk…" : ""))); const sc = mk("div", "svs-scene recap", recap.text); sc.dir = dirOf(vocabPoolLang); now.appendChild(sc); facesList = SV_DOSSIER.whoFaces(recap.who, d && d.people); }
@@ -2813,6 +2816,7 @@
         if (facesList.length > 4) { const more = mk("span", "svs-face md plus"); more.appendChild(mk("i", null, "+" + (facesList.length - 4))); more.appendChild(mk("b", null, "more")); faces.appendChild(more); }
         now.appendChild(faces);
         if (frameNow) { const img = mk("img", "svs-frame"); img.src = frameNow; img.alt = ""; img.title = "This moment — click to open it as a Shot"; img.addEventListener("click", () => { snapChunksNow(list, board.ki, 1, els.__orig, () => {}); }); now.appendChild(img); }
+        else if (cam.needGrant) { const g = mk("div", "svs-frame-note", "Pictures: click the SubVibe icon once on this tab to allow them"); now.appendChild(g); }
         now.classList.remove("svs-swap"); void now.offsetWidth; now.classList.add("svs-swap");
       });
       // ── people: in this scene first, then most seen — tiny at rest, named when the section is open ──

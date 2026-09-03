@@ -694,3 +694,4 @@
 #sv-strip .svs-album { display: flex; gap: 4px; margin-top: 4px; }
 #sv-strip .svs-thumb { width: 56px; height: 32px; border-radius: 4px; object-fit: cover; box-shadow: 0 0 0 1px rgba(36,31,26,.14); cursor: pointer; }
 #sv-strip .svs-thumb:hover { box-shadow: 0 0 0 2px #C93F2B; }
+#sv-strip .svs-frame-note { grid-column: 2; grid-row: 1 / span 2; align-self: start; max-width: 150px; font: 500 10.5px/1.35 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: #786D60; border: 1px dashed #EDE5DA; border-radius: 8px; padding: 6px 8px; }
