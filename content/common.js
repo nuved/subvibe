@@ -2681,6 +2681,8 @@
         else if (d && d.channel) idb.appendChild(mk("div", "svs-ep", d.channel));
         if (d && (d.synopsis || d.description)) { const sy = mk("div", "svs-syn", d.synopsis || d.description); sy.title = d.synopsis || d.description; idb.appendChild(sy); }
         ident.appendChild(idb);
+        // Hovering the section opens a sheet over the picture with everything, unclipped.
+        if (d) { const more = mk("div", "svs-more"); more.appendChild(mk("b", null, d.show || d.title || "")); if (d.show) more.appendChild(mk("div", "svs-ep", [d.season ? "S" + d.season + " · E" + d.episode : d.episode ? "E" + d.episode : "", d.epTitle, d.year ? String(d.year) : "", d.runtimeMin ? d.runtimeMin + " min" : ""].filter(Boolean).join(" · "))); else if (d.channel) more.appendChild(mk("div", "svs-ep", d.channel)); if (d.synopsis || d.description) more.appendChild(mk("div", "svs-text", d.synopsis || d.description)); if (d.kind) more.appendChild(mk("div", "svs-kind", [d.kind, d.about].filter(Boolean).join(" — "))); ident.appendChild(more); }
       });
       const who = ex ? SV_DOSSIER.whoFaces(ex.who, d && d.people) : [];
       // The Now box never goes blank between chunks: the last scene stays, dimmed, until the next one arrives.
@@ -2696,6 +2698,11 @@
         const faces = mk("div", "svs-faces" + (ex && ex.scene ? "" : " faded"));
         const list2 = ex && ex.scene ? who : last ? SV_DOSSIER.whoFaces(last.who, d && d.people) : [];
         list2.forEach((f, i) => faces.appendChild(face(f.person, f.label, true, i === 0 && !!(ex && ex.scene)))); now.appendChild(faces);
+        const cur = ex && ex.scene ? ex : last ? last.ex : null;
+        if (cur) { const more = mk("div", "svs-more"); const sc = mk("div", "svs-text big", cur.scene); sc.dir = explainDir(cur); more.appendChild(sc);
+          const fl = mk("div", "svs-faces xl"); list2.forEach((f, i) => fl.appendChild(face(f.person, f.label, true, i === 0))); more.appendChild(fl);
+          if (cur.simple) { const sm = mk("div", "svs-text"); sm.textContent = cur.simple; sm.dir = dirOf(cur.lang || vocabPoolLang); more.appendChild(sm); }
+          now.appendChild(more); }
       });
       const people = (d && d.people) || []; const shown = new Set(who.map((f) => f.person).filter(Boolean));
       part("svs-cast", [d ? d.at : 0, people.length, [...shown].map((p) => p.name).join("|")].join("\u0001"), (cast) => {
@@ -2703,6 +2710,7 @@
         cast.appendChild(mk("div", "svs-lbl", (people[0].src === "tmdb" ? "Cast" : "People (from the model)") + " · " + people.length));
         const row = mk("div", "svs-faces"); for (const p of people.filter((p) => !shown.has(p)).slice(0, 8)) row.appendChild(face(p, "", false, false)); cast.appendChild(row);
         if (people[0].src === "tmdb") cast.appendChild(mk("div", "svs-attr", "Cast & episode data · TMDB"));
+        const more = mk("div", "svs-more"); more.appendChild(mk("div", "svs-lbl", people[0].src === "tmdb" ? "Cast" : "People, as the model reads them")); const grid = mk("div", "svs-faces xl"); for (const p of people.slice(0, 12)) grid.appendChild(face(p, "", true, false)); more.appendChild(grid); cast.appendChild(more);
       });
       // The bar is a timeline: explained chunks are drawn where they are in the video (a
       // viewer who starts at 20:00 sees the teal begin there), the busy ones amber, the playhead coral.
