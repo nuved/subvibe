@@ -2319,7 +2319,7 @@
     const ctxLine = (cx) => cx && cx.kind ? [cx.kind, cx.about].filter(Boolean).join(" · ").slice(0, 90) : "";
     const setCtx = (cx) => { if (!cx || !cx.kind) return; board.ctx = cx; const el = board.el && board.el.querySelector(".svb-ctx"); if (el) { el.textContent = ctxLine(cx); el.title = [cx.kind, cx.about, cx.register ? "Register: " + cx.register : "", cx.speakers ? "Speakers: " + cx.speakers : ""].filter(Boolean).join("\n"); } };
     try { board.collapsed = localStorage.getItem("sv-board-collapsed") === "1"; board.linesOff = localStorage.getItem("sv-lines-off") === "1"; } catch (e) {}
-    const boardVisible = () => !!(board.el && board.el.isConnected && !board.collapsed && !document.fullscreenElement && board.el.offsetParent !== null);
+    const boardVisible = () => !!(board.el && board.el.isConnected && !board.collapsed && !document.fullscreenElement && board.el.getClientRects().length > 0);
     const setBoardCollapsed = (v) => {
       board.collapsed = !!v; try { localStorage.setItem("sv-board-collapsed", board.collapsed ? "1" : ""); } catch (e) {}
       if (board.el) { board.el.classList.toggle("collapsed", board.collapsed); const t = board.el.querySelector(".svb-toggle"); if (t) t.textContent = board.collapsed ? "Show" : "Hide"; }
@@ -2330,10 +2330,15 @@
     const ensureBoard = () => {
       if (settings.storyBoard === false) { if (board.el) { try { board.el.remove(); } catch (e) {} board.el = null; } return null; } // switched off in the popup
       if (board.el && board.el.isConnected) return board.el;
-      if (!(adapter && adapter.site === "youtube")) return null;
-      const host = document.querySelector("ytd-watch-flexy #secondary-inner") || document.querySelector("ytd-watch-flexy #secondary");
-      if (!host) return null;
-      const b = mk("div", "sv-board" + (board.collapsed ? " collapsed" : "")); b.id = "sv-board"; b.dir = "auto";
+      if (!adapter) return null;
+      // YouTube has a side column to dock into; other players fill the window,
+      // so the board becomes a drawer on the right edge (hidden in fullscreen).
+      let drawer = adapter.site !== "youtube";
+      try { if (localStorage.getItem("sv-board-drawer") === "1") drawer = true; } catch (e) {}
+      const host = drawer ? null : (document.querySelector("ytd-watch-flexy #secondary-inner") || document.querySelector("ytd-watch-flexy #secondary"));
+      if (!drawer && !host) return null;
+      if (drawer && !document.body) return null;
+      const b = mk("div", "sv-board" + (board.collapsed ? " collapsed" : "") + (drawer ? " drawer" : "")); b.id = "sv-board"; b.dir = "auto";
       const head = mk("div", "svb-head");
       const toggle = mk("button", "svb-toggle", board.collapsed ? "Show" : "Hide"); toggle.type = "button";
       toggle.addEventListener("click", () => { setBoardCollapsed(!board.collapsed); applyLinesOff(); });
@@ -2358,7 +2363,7 @@
       // the reader back while they scroll.
       for (const evn of ["wheel", "touchstart", "pointerdown"]) listEl.addEventListener(evn, () => { board.userScrollAt = performance.now(); }, { passive: true });
       b.appendChild(listEl);
-      host.insertBefore(b, host.firstChild);
+      if (host) host.insertBefore(b, host.firstChild); else document.body.appendChild(b);
       board.el = b;
       applyLinesOff(); seedExplained();
       return b;
@@ -2458,7 +2463,9 @@
       const now = performance.now();
       if (!force && now - board.at < 600) return;
       board.at = now;
-      const b = ensureBoard(); if (!b || board.collapsed) return;
+      const b = ensureBoard(); if (!b) return;
+      b.classList.toggle("fs", !!document.fullscreenElement); // a drawer never sits over a fullscreen picture
+      if (board.collapsed) return;
       const list = chunksNow();
       const ki = curCue ? chunkOfCue(list, curCue) : -1;
       // Tips at the start of each chunk: when the playing chunk changes and it
@@ -2577,11 +2584,15 @@
       // original line is on screen). It lives on the overlay, so this never
       // touches the line's own DOM.
       if (hintBtn) {
-        const ol = els.__orig;
-        if (ol && ol.style.display !== "none" && ol.textContent) {
-          const or = overlay.getBoundingClientRect(), lr = ol.getBoundingClientRect();
+        // The button sits at the end of the TEXT (a banner row spans the whole
+        // player); when the original line is hidden, the first visible line will do.
+        let ol = els.__orig;
+        if (!(ol && ol.style.display !== "none" && ol.textContent)) ol = defs.map((d) => els[d.key]).find((el) => el && el.style.display !== "none" && el.textContent) || null;
+        if (ol) {
+          const tx = ol.querySelector(".copilot-subs__text");
+          const or = overlay.getBoundingClientRect(), lr = (tx && tx.getBoundingClientRect().width > 0 ? tx : ol).getBoundingClientRect();
           hintBtn.style.display = "block";
-          hintBtn.style.left = Math.round(Math.min(lr.right - or.left + 4, or.width - 20)) + "px";
+          hintBtn.style.left = Math.round(Math.min(lr.right - or.left + 6, or.width - 30)) + "px";
           hintBtn.style.top = Math.round(lr.top - or.top) + "px";
         } else hintBtn.style.display = "none";
       }
