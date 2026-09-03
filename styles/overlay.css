@@ -639,8 +639,14 @@
 #sv-strip .svs-face.role-ally i { box-shadow: 0 0 0 2px #fff, 0 0 0 4px #1F5FBF; }
 #sv-strip .svs-face.role-minor i { opacity: .8; }
 #sv-strip .svs-people { position: relative; }
-#sv-strip .svs-card { position: absolute; top: 0; right: 0; bottom: 0; width: 0; opacity: 0; overflow: hidden; display: flex; gap: 10px; align-items: flex-start; padding: 28px 14px 8px 14px; background: #FAF6F0; border-left: 1px solid #EDE5DA; box-shadow: -10px 0 16px -8px rgba(36,31,26,.18); transition: width .3s ease, opacity .2s ease; pointer-events: none; }
-#sv-strip .svs-people[data-person] .svs-card { width: 360px; opacity: 1; pointer-events: auto; }
+/* The people section is a two-column grid: the row on the left, the card on the right. The card's column
+   is 0 wide until a face is under the pointer; then the row gives it the room — nothing overlaps. */
+#sv-strip .svs-people { display: grid; grid-template-columns: minmax(0,1fr) 0; grid-template-rows: auto minmax(0,1fr); column-gap: 0; transition: grid-template-columns .3s ease, column-gap .3s ease; }
+#sv-strip .svs-people > .svs-lbl { grid-column: 1 / -1; }
+#sv-strip .svs-people-row { grid-column: 1; grid-row: 2; }
+#sv-strip .svs-card { grid-column: 2; grid-row: 2; min-width: 0; opacity: 0; overflow: hidden; display: flex; gap: 10px; align-items: flex-start; padding: 0 0 0 14px; border-left: 1px solid #EDE5DA; transition: opacity .2s ease; pointer-events: none; }
+#sv-strip .svs-people[data-person] { grid-template-columns: minmax(0,1fr) 340px; column-gap: 12px; }
+#sv-strip .svs-people[data-person] .svs-card { opacity: 1; pointer-events: auto; }
 #sv-strip .svs-card .svs-face.md { width: 60px; }
 #sv-strip .svs-card .svs-face.md i { width: 56px; height: 72px; border-radius: 10px; background-position: top center; line-height: 72px; }
 #sv-strip .svs-card .svs-face.md b { display: none; }
