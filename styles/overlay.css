@@ -567,7 +567,8 @@
 #sv-strip[data-open="people"] .svs-face.sm i { width: 44px; height: 44px; font-size: 14px; line-height: 44px; }
 #sv-strip[data-open="people"] .svs-face.sm b { display: block; }
 #sv-strip[data-open="people"] .svs-face.sm small.n { display: block; color: #A39684; font-size: 9.5px; }
-#sv-strip .svs-people-row { flex-wrap: wrap; row-gap: 6px; }
+#sv-strip .svs-people-row { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+#sv-strip .svs-people-row::-webkit-scrollbar { display: none; }
 #sv-strip .svs-people .svs-attr { margin: 0; }
 #sv-strip .svs-face.here i { box-shadow: 0 0 0 2px #fff, 0 0 0 4px #1F7A6D; }
 #sv-strip .svs-face.plus i { background: #EDE5DA; color: #5B5348; font-size: 12px; }
