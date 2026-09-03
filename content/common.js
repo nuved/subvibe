@@ -850,7 +850,7 @@
     if (window.__svDub) try { window.__svDub.detach(); } catch {}
     const el = document.getElementById("copilot-subs");
     if (el) el.remove();
-    { const b = document.getElementById("sv-board"); if (b) b.remove(); for (const el of document.querySelectorAll("[data-sv-fit]")) { el.style.right = el.dataset.svFitRight || ""; el.style.width = el.dataset.svFitWidth || ""; delete el.dataset.svFit; } }
+    { const b = document.getElementById("sv-board"); if (b) b.remove(); const s = document.getElementById("sv-strip"); if (s) s.remove(); for (const el of document.querySelectorAll("[data-sv-fit]")) { el.style.right = el.dataset.svFitRight || ""; el.style.width = el.dataset.svFitWidth || ""; el.style.bottom = el.dataset.svFitBottom || ""; el.style.height = el.dataset.svFitHeight || ""; delete el.dataset.svFit; } }
   }
 
   // ─── track engine (YouTube) ──────────────────────────────────────────────────
@@ -2384,7 +2384,7 @@
     // subtitles: every chunk in order with its translation, the playing one
     // highlighted and followed, the explained ones marked; the open chunk
     // shows its Translation · Grammar · Words and the actions row.
-    const board = { el: null, list: [], ki: -1, open: -1, sig: "", at: 0, collapsed: false, userScrollAt: 0, linesOff: false, loop: -1, stopAt: null, rate: 1, ctx: null, dossier: null, dossierAsked: false, pinnedAt: 0, paneSig: "" };
+    const board = { el: null, list: [], ki: -1, open: -1, sig: "", at: 0, collapsed: false, userScrollAt: 0, linesOff: false, loop: -1, stopAt: null, rate: 1, ctx: null, dossier: null, dossierAsked: false, pinnedAt: 0, paneSig: "", stripHidden: false, stripSig: "" };
     // "language lesson · walk & talk" — what kind of video the model took this for.
     const ctxLine = (cx) => cx && cx.kind ? [cx.kind, cx.about].filter(Boolean).join(" · ").slice(0, 90) : "";
     const setCtx = (cx) => { if (!cx || !cx.kind) return; board.ctx = cx; const el = board.el && board.el.querySelector(".svb-ctx"); if (el) { el.textContent = ctxLine(cx); el.title = [cx.kind, cx.about, cx.register ? "Register: " + cx.register : "", cx.speakers ? "Speakers: " + cx.speakers : ""].filter(Boolean).join("\n"); } };
@@ -2412,7 +2412,7 @@
       metaP.then((m) => { const meta = m || { site: adapter.site, url: location.href }; meta.title = SV_TITLE.clean(meta.title || ""); return send({ type: "DOSSIER", base, meta, sample: sampleLines(), lang: vocabPoolLang }); })
         .then((r) => { if (r && r.ok) setDossier(r.dossier); }).catch(() => {});
     };
-    try { board.collapsed = localStorage.getItem("sv-board-collapsed") === "1"; board.linesOff = localStorage.getItem("sv-lines-off") === "1"; } catch (e) {}
+    try { board.collapsed = localStorage.getItem("sv-board-collapsed") === "1"; board.linesOff = localStorage.getItem("sv-lines-off") === "1"; board.stripHidden = localStorage.getItem("sv-strip-collapsed") === "1"; } catch (e) {}
     const boardVisible = () => !!(board.el && board.el.isConnected && !board.collapsed && !document.fullscreenElement && board.el.getClientRects().length > 0);
     // Drawer mode: the picture makes room instead of hiding behind the drawer.
     // The player's outermost viewport-sized box (Netflix: .watch-video) gets a
@@ -2427,15 +2427,20 @@
       }
       return best;
     };
+    const STRIP_H = 112;
+    const stripOn = () => !!(board.el && board.el.classList.contains("drawer") && !board.collapsed && !board.stripHidden && !document.fullscreenElement);
     const fitPlayer = (on) => {
       const w = board.el && board.el.classList.contains("drawer") ? Math.round(board.el.getBoundingClientRect().width) : 0;
+      const h = stripOn() ? STRIP_H : 0;
       if (on && w > 0) {
-        const el = playerBox(); if (!el) return;
-        if (fit.el !== el) { fitPlayer(false); fit.el = el; fit.prev = { right: el.style.right, width: el.style.width, transition: el.style.transition }; }
-        if (!el.dataset.svFit) { el.dataset.svFit = "1"; el.dataset.svFitRight = fit.prev.right || ""; el.dataset.svFitWidth = fit.prev.width || ""; }
-        el.style.transition = "right .2s ease"; el.style.right = w + "px"; el.style.width = "auto"; fit.on = true;
+        // Once inset, the box is no longer viewport-wide, so playerBox() cannot find
+        // it a second time — keep the one already held, or the strip's inset never lifts.
+        const el = (fit.el && fit.el.isConnected) ? fit.el : playerBox(); if (!el) return;
+        if (fit.el !== el) { fitPlayer(false); fit.el = el; fit.prev = { right: el.style.right, width: el.style.width, bottom: el.style.bottom, height: el.style.height, transition: el.style.transition }; }
+        if (!el.dataset.svFit) { el.dataset.svFit = "1"; el.dataset.svFitRight = fit.prev.right || ""; el.dataset.svFitWidth = fit.prev.width || ""; el.dataset.svFitBottom = fit.prev.bottom || ""; el.dataset.svFitHeight = fit.prev.height || ""; }
+        el.style.transition = "right .2s ease, bottom .2s ease"; el.style.right = w + "px"; el.style.width = "auto"; el.style.bottom = h + "px"; el.style.height = h ? "auto" : fit.prev.height; fit.on = true;
       } else if (fit.el) {
-        try { fit.el.style.right = fit.prev.right; fit.el.style.width = fit.prev.width; fit.el.style.transition = fit.prev.transition; delete fit.el.dataset.svFit; } catch (e) {}
+        try { fit.el.style.right = fit.prev.right; fit.el.style.width = fit.prev.width; fit.el.style.bottom = fit.prev.bottom; fit.el.style.height = fit.prev.height; fit.el.style.transition = fit.prev.transition; delete fit.el.dataset.svFit; } catch (e) {}
         fit.el = null; fit.prev = null; fit.on = false;
       }
     };
@@ -2475,7 +2480,10 @@
       sel.addEventListener("click", (ev) => ev.stopPropagation());
       const share = mk("button", "svb-share", "Share ↗"); share.type = "button"; share.title = "One page with every chunk, its translation and the tips already explained — from the cache, nothing is asked again — to download and send to a friend";
       share.addEventListener("click", (ev) => { ev.stopPropagation(); shareBoard(share); });
+      const sceneBtn = mk("button", "svb-scene-btn", "Scene"); sceneBtn.type = "button"; sceneBtn.title = "Show the scene strip under the picture";
+      sceneBtn.addEventListener("click", () => { board.stripHidden = false; try { localStorage.setItem("sv-strip-collapsed", ""); } catch (e) {} fitPlayer(true); board.sig = ""; boardTick(true); });
       tools.append(lines, speedButton("svb-speed"), share, sel);
+      if (drawer) tools.append(sceneBtn); board.sceneBtn = sceneBtn;
       b.appendChild(head); b.appendChild(tools);
       const listEl = mk("div", "svb-list");
       // A hand on the list pauses the follow for a while, so it never yanks
@@ -2599,6 +2607,56 @@
       body.appendChild(buildTips(ex, ch));
       body.appendChild(buildActions({ list: board.list, k0: k, n: snapChunks, setN: (m) => { snapChunks = m; board.sig = ""; boardTick(true); }, anchor: () => els.__orig }));
     };
+    // The scene strip under the picture (drawer players): what is playing, what
+    // is happening now and who is in it, the cast, and the tips pipeline.
+    const ensureStrip = () => {
+      if (!stripOn()) { const s = document.getElementById("sv-strip"); if (s) s.remove(); board.stripSig = ""; return null; }
+      let s = document.getElementById("sv-strip"); if (s) return s;
+      s = mk("div", "sv-strip"); s.id = "sv-strip"; s.dir = "auto";
+      s.append(mk("div", "svs-ident"), mk("div", "svs-now"), mk("div", "svs-cast"), mk("div", "svs-pump"));
+      document.body.appendChild(s); return s;
+    };
+    // One person: their photo (or initials), the character, and who plays them.
+    const face = (p, label, big, talk) => {
+      const f = mk("span", "svs-face" + (big ? "" : " small") + (talk ? " talk" : ""));
+      const av = mk("i", null, p && p.photo ? "" : SV_DOSSIER.initials((p && (p.character || p.name)) || label)); if (p && p.photo) av.style.backgroundImage = "url(" + p.photo + ")";
+      f.appendChild(av); f.appendChild(mk("b", null, (p && (p.character || p.name)) || label));
+      if (big) f.appendChild(mk("small", null, p ? (p.character ? p.name : p.role || "") : "")); f.title = p ? [p.character, p.name, p.role].filter(Boolean).join(" — ") : label;
+      return f;
+    };
+    const renderStrip = () => {
+      if (board.sceneBtn) board.sceneBtn.hidden = !board.stripHidden;
+      const s = ensureStrip(); if (!s) return;
+      s.style.right = Math.round(board.el.getBoundingClientRect().width) + "px";
+      const d = board.dossier, ch = board.list[board.ki], ex = ch ? lineExplainCache.get(ch.text) : null, st = tipsStatus(board.list, board.ki);
+      const sig = [d ? d.at : 0, ch ? ch.text : "", ex ? (ex.scene || "") + (ex.who || []).join("|") : "", st.state, st.doneN, st.readyToMs, st.k, st.all, st.reason].join("\u0001");
+      if (sig === board.stripSig) return; board.stripSig = sig;
+      const ident = s.querySelector(".svs-ident"); ident.textContent = "";
+      if (d && d.poster) { const img = mk("img", "svs-poster"); img.src = d.poster; img.alt = ""; ident.appendChild(img); }
+      const idb = mk("div", "svs-id"); idb.appendChild(mk("b", null, (d && (d.show || d.title)) || SV_TITLE.clean(document.title)));
+      if (d && d.show) idb.appendChild(mk("div", "svs-ep", ["S" + d.season + " · E" + d.episode, d.epTitle, d.runtimeMin ? d.runtimeMin + " min" : ""].filter((x) => x && x !== "S0 · E0").join(" · ")));
+      else if (d && d.channel) idb.appendChild(mk("div", "svs-ep", d.channel));
+      if (d && (d.synopsis || d.description)) { const sy = mk("div", "svs-syn", d.synopsis || d.description); sy.title = d.synopsis || d.description; idb.appendChild(sy); }
+      ident.appendChild(idb);
+      const now = s.querySelector(".svs-now"); now.textContent = "";
+      const scene = mk("div", "svs-scene", ex && ex.scene ? ex.scene : ex ? "" : ch && tips.k === board.ki ? "Explaining this chunk…" : ""); if (ex) scene.dir = explainDir(ex); now.appendChild(scene);
+      const faces = mk("div", "svs-faces"); const who = ex ? SV_DOSSIER.whoFaces(ex.who, d && d.people) : [];
+      who.forEach((f, i) => faces.appendChild(face(f.person, f.label, true, i === 0))); now.appendChild(faces);
+      const cast = s.querySelector(".svs-cast"); cast.textContent = "";
+      const people = (d && d.people) || []; const shown = new Set(who.map((f) => f.person).filter(Boolean));
+      if (people.length) { cast.appendChild(mk("div", "svs-lbl", (people[0].src === "tmdb" ? "Cast" : "People (from the model)") + " · " + people.length)); const row = mk("div", "svs-faces"); for (const p of people.filter((p) => !shown.has(p)).slice(0, 8)) row.appendChild(face(p, "", false, false)); cast.appendChild(row); if (people[0].src === "tmdb") cast.appendChild(mk("div", "svs-attr", "Cast & episode data · TMDB")); }
+      const pump = s.querySelector(".svs-pump"); pump.textContent = "";
+      const lbl = mk("div", "svs-lbl"); lbl.append(mk("span", null, "Tips ahead"), mk("span", null, st.doneN + " of " + st.totalN)); pump.appendChild(lbl);
+      const bar = mk("div", "svs-bar"); const done = mk("i"); done.style.width = (st.totalN ? (100 * st.doneN / st.totalN) : 0) + "%"; bar.appendChild(done); if (st.totalN && board.ki >= 0) { const u = mk("u"); u.style.left = (100 * board.ki / st.totalN) + "%"; bar.appendChild(u); } pump.appendChild(bar);
+      const txt = st.state === "off" ? "Off — set Tips ahead in the popup" : st.state === "stopped" ? "Tips paused — " + (st.reason || "couldn't explain") : (st.readyToMs ? "Ready to " + fmtT(st.readyToMs) : "Nothing ahead yet") + (st.k >= 0 && board.list[st.k] ? " · explaining " + fmtT(board.list[st.k].startMs) : "");
+      pump.appendChild(mk("div", "svs-st", txt));
+      const acts = mk("div", "svs-acts");
+      if (st.state === "stopped") { const r = mk("button", "svs-btn coral", "Retry"); r.type = "button"; r.addEventListener("click", tipsRetry); acts.appendChild(r); }
+      else if (st.all) { const b = mk("button", "svs-btn", "Stop"); b.type = "button"; b.addEventListener("click", () => tipsAll(false)); acts.appendChild(b); }
+      else if (st.doneN < st.totalN) { const b = mk("button", "svs-btn coral", "Explain all →"); b.type = "button"; b.title = "Explain every chunk of this video now, one after the other"; b.addEventListener("click", () => tipsAll(true)); acts.appendChild(b); }
+      const hide = mk("button", "svs-btn", "Hide"); hide.type = "button"; hide.title = "Hide this strip (the Scene button on the board brings it back)"; hide.addEventListener("click", () => { board.stripHidden = true; try { localStorage.setItem("sv-strip-collapsed", "1"); } catch (e) {} ensureStrip(); fitPlayer(true); board.sig = ""; boardTick(true); }); acts.appendChild(hide);
+      pump.appendChild(acts);
+    };
     // Open a chunk on the board: explain it (cached), show its tips, follow it.
     const boardFocus = (k, flash, pin) => {
       const list = board.list.length ? board.list : chunksNow(); board.list = list;
@@ -2619,6 +2677,7 @@
       askDossier(); // a no-op once asked — the retry for a board that was built during an ad
       b.classList.toggle("fs", !!document.fullscreenElement); // a drawer never sits over a fullscreen picture
       if (b.classList.contains("drawer")) fitPlayer(!board.collapsed && !document.fullscreenElement); // the picture makes room (re-applied if the player re-renders)
+      ensureStrip(); // collapsed, fullscreen or hidden: the strip leaves with the board
       if (board.collapsed) return;
       const list = chunksNow();
       const ki = curCue ? chunkOfCue(list, curCue) : -1;
@@ -2630,12 +2689,13 @@
       const trN = list.reduce((n, ch) => n + ch.sentences.filter((x) => x.tr).length, 0);
       const exN = list.filter((ch) => lineExplainCache.has(ch.text)).length;
       const sig = [list.length, trN, ki, exN, board.open, snapChunks, tipsExplain, tips.inflight ? 1 : 0, tips.stopped ? 1 : 0, tips.all ? 1 : 0].join(":");
-      if (sig === board.sig) { renderPane(); return; }
+      if (sig === board.sig) { renderPane(); renderStrip(); return; }
       const follow = ki !== board.ki;
       board.sig = sig; board.list = list; board.ki = ki;
       // A small state stamp for diagnosis from the page (the script's variables are not reachable there).
       try { document.documentElement.dataset.svBoard = JSON.stringify({ ki, open: board.open, loop: board.loop, stopAt: board.stopAt, rate: board.rate, tips: tipsStatus(list, ki).state, chunk: list[ki] ? [Math.round(list[ki].startMs), Math.round(list[ki].endMs)] : null }); } catch (e) {}
       renderBoard();
+      renderStrip();
       // Follow the playhead — unless the reader scrolled the list in the last 6 s.
       if (follow && ki >= 0 && now - board.userScrollAt > 6000) boardScrollTo(ki, true);
       applyLinesOff();
@@ -3110,7 +3170,7 @@
     audioCues = null;
     const el = document.getElementById("copilot-subs");
     if (el) el.remove();
-    { const b = document.getElementById("sv-board"); if (b) b.remove(); for (const el of document.querySelectorAll("[data-sv-fit]")) { el.style.right = el.dataset.svFitRight || ""; el.style.width = el.dataset.svFitWidth || ""; delete el.dataset.svFit; } }
+    { const b = document.getElementById("sv-board"); if (b) b.remove(); const s = document.getElementById("sv-strip"); if (s) s.remove(); for (const el of document.querySelectorAll("[data-sv-fit]")) { el.style.right = el.dataset.svFitRight || ""; el.style.width = el.dataset.svFitWidth || ""; el.style.bottom = el.dataset.svFitBottom || ""; el.style.height = el.dataset.svFitHeight || ""; delete el.dataset.svFit; } }
     currentRunKey = null;
     schedule(); // resume caption scraping if the page has its own captions
   }
