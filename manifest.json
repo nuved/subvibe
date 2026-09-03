@@ -34,15 +34,24 @@
     "https://*.udemy.com/*",
     "https://*.udemycdn.com/*"
   ],
-  "background": { "service_worker": "background.js" },
-  "options_ui": { "page": "library.html", "open_in_tab": true },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "options_ui": {
+    "page": "library.html",
+    "open_in_tab": true
+  },
   "commands": {
     "sv-shot-area": {
-      "suggested_key": { "default": "Alt+Shift+S" },
+      "suggested_key": {
+        "default": "Alt+Shift+S"
+      },
       "description": "SubVibe: screenshot an area of this page, translated"
     },
     "sv-clip-record": {
-      "suggested_key": { "default": "Alt+Shift+C" },
+      "suggested_key": {
+        "default": "Alt+Shift+C"
+      },
       "description": "SubVibe: start/stop recording a clip of this video (non-DRM)"
     }
   },
@@ -61,7 +70,9 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://*.youtube.com/*"],
+      "matches": [
+        "https://*.youtube.com/*"
+      ],
       "js": [
         "content/adapters/youtube.js",
         "shared/title.js",
@@ -73,12 +84,16 @@
         "shared/cues.js",
         "content/common.js"
       ],
-      "css": ["styles/overlay.css"],
+      "css": [
+        "styles/overlay.css"
+      ],
       "run_at": "document_idle",
       "all_frames": false
     },
     {
-      "matches": ["https://*.netflix.com/*"],
+      "matches": [
+        "https://*.netflix.com/*"
+      ],
       "js": [
         "content/adapters/netflix.js",
         "shared/title.js",
@@ -90,12 +105,16 @@
         "shared/cues.js",
         "content/common.js"
       ],
-      "css": ["styles/overlay.css"],
+      "css": [
+        "styles/overlay.css"
+      ],
       "run_at": "document_idle",
       "all_frames": false
     },
     {
-      "matches": ["https://*.zdf.de/*"],
+      "matches": [
+        "https://*.zdf.de/*"
+      ],
       "js": [
         "content/adapters/zdf.js",
         "shared/title.js",
@@ -107,12 +126,16 @@
         "shared/cues.js",
         "content/common.js"
       ],
-      "css": ["styles/overlay.css"],
+      "css": [
+        "styles/overlay.css"
+      ],
       "run_at": "document_idle",
       "all_frames": false
     },
     {
-      "matches": ["https://*.dw.com/*"],
+      "matches": [
+        "https://*.dw.com/*"
+      ],
       "js": [
         "content/adapters/dw.js",
         "shared/title.js",
@@ -124,12 +147,17 @@
         "shared/cues.js",
         "content/common.js"
       ],
-      "css": ["styles/overlay.css"],
+      "css": [
+        "styles/overlay.css"
+      ],
       "run_at": "document_idle",
       "all_frames": false
     },
     {
-      "matches": ["https://www.amazon.de/gp/video/*", "https://www.primevideo.com/*"],
+      "matches": [
+        "https://www.amazon.de/gp/video/*",
+        "https://www.primevideo.com/*"
+      ],
       "js": [
         "content/adapters/prime.js",
         "shared/title.js",
@@ -141,12 +169,16 @@
         "shared/cues.js",
         "content/common.js"
       ],
-      "css": ["styles/overlay.css"],
+      "css": [
+        "styles/overlay.css"
+      ],
       "run_at": "document_idle",
       "all_frames": false
     },
     {
-      "matches": ["https://*.udemy.com/*"],
+      "matches": [
+        "https://*.udemy.com/*"
+      ],
       "js": [
         "content/adapters/udemy.js",
         "shared/title.js",
@@ -158,30 +190,66 @@
         "shared/cues.js",
         "content/common.js"
       ],
-      "css": ["styles/overlay.css"],
+      "css": [
+        "styles/overlay.css"
+      ],
       "run_at": "document_idle",
       "all_frames": false
     },
     {
-      "matches": ["https://*.zdf.de/*", "https://*.dw.com/*", "https://*.youtube.com/*", "https://*.netflix.com/*", "https://www.amazon.de/gp/video/*", "https://www.primevideo.com/*", "https://*.udemy.com/*"],
-      "js": ["shared/tribute.js", "content/subs-intercept.js"],
+      "matches": [
+        "https://*.zdf.de/*",
+        "https://*.dw.com/*",
+        "https://*.youtube.com/*",
+        "https://*.netflix.com/*",
+        "https://www.amazon.de/gp/video/*",
+        "https://www.primevideo.com/*",
+        "https://*.udemy.com/*"
+      ],
+      "js": [
+        "shared/tribute.js",
+        "content/subs-intercept.js"
+      ],
       "run_at": "document_start",
       "world": "MAIN",
       "all_frames": false
+    },
+    {
+      "matches": [
+        "https://*.netflix.com/*"
+      ],
+      "js": [
+        "content/page/netflix-seek.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["fonts/*"],
-      "matches": ["<all_urls>"]
+      "resources": [
+        "fonts/*"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
     },
     {
-      "resources": ["marker.png"],
-      "matches": ["https://nimanou.com/*"]
+      "resources": [
+        "marker.png"
+      ],
+      "matches": [
+        "https://nimanou.com/*"
+      ]
     },
     {
-      "resources": ["styles/reader.css", "styles/shot-capture.css"],
-      "matches": ["<all_urls>"],
+      "resources": [
+        "styles/reader.css",
+        "styles/shot-capture.css"
+      ],
+      "matches": [
+        "<all_urls>"
+      ],
       "use_dynamic_url": true
     }
   ]
