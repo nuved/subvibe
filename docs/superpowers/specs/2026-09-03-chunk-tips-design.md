@@ -134,6 +134,15 @@ it cannot be read as one of the coral note numbers.
   (`overflow: visible`), so the wheel over them scrolls the board list; the
   card keeps its own scroll box.
 
+### Sharing (round 12)
+
+"Share ↗" on the board builds one page from the cache — every chunk with its
+translations and the tips already explained — and opens it in `share.html`,
+where "Download this page" saves a single self-contained HTML file for a
+friend without the extension, and Print / PDF does the obvious. No model
+call is made; chunks without tips say so. Explanations cached under the
+previous shape are served rather than re-bought.
+
 ## Video context (background.js)
 
 `videoContext(base, title, sample, lang)` asks the model once per video what
