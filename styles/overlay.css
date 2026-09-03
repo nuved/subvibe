@@ -509,15 +509,18 @@
 @media (prefers-reduced-motion: reduce) { #sv-board .svb-mark.busy::before { animation: none; } }
 
 /* ── The scene strip under the picture (drawer players) ── */
-#sv-strip { position: fixed; left: 0; bottom: 0; height: 136px; z-index: 2147483000; background: #FAF6F0; color: #241F1A; border-top: 1px solid #EDE5DA; box-shadow: 0 -6px 24px rgba(0,0,0,.3); display: grid; grid-template-columns: 380px minmax(0,1.1fr) minmax(0,1fr); transition: grid-template-columns .5s cubic-bezier(.2,.7,.2,1); font: 12.5px/1.4 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; }
+#sv-strip { position: fixed; left: 0; bottom: 0; height: 136px; z-index: 2147483000; background: #FAF6F0; color: #241F1A; border-top: 1px solid #EDE5DA; box-shadow: 0 -6px 24px rgba(0,0,0,.3); display: grid; grid-template-columns: 250px minmax(0,1fr) auto; transition: grid-template-columns .45s cubic-bezier(.2,.7,.2,1); font: 12.5px/1.4 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; }
 #sv-strip * { box-sizing: border-box; }
 #sv-strip > div { position: relative; padding: 9px 14px; min-width: 0; overflow: clip; border-right: 1px solid #EDE5DA; }
-#sv-strip.compact { grid-template-columns: 236px minmax(0,1fr) minmax(0,1.15fr); }
-#sv-strip > div:hover, #sv-strip > div:focus-within { overflow: visible; }
+#sv-strip[data-open="ident"] { grid-template-columns: minmax(360px, 1fr) minmax(0,1fr) auto; }
+#sv-strip[data-open="now"] { grid-template-columns: 220px minmax(0,2fr) auto; }
+#sv-strip[data-open="people"] { grid-template-columns: 220px minmax(0,1fr) minmax(0,1.6fr); }
+#sv-strip > div:focus-visible { outline: 2px solid #C93F2B; outline-offset: -2px; }
+
 #sv-strip .svs-id { min-width: 0; }
 /* The sheet: hovering a section opens its full content upward over the picture's bottom band — the strip itself stays small. A short hover intent keeps a mouse crossing the strip from flashing sheets. */
 #sv-strip .svs-more { position: absolute; left: -1px; right: -1px; bottom: 100%; min-width: 440px; max-width: min(720px, 60vw); max-height: 56vh; overflow: auto; background: #FAF6F0; color: #241F1A; border: 1px solid #EDE5DA; border-bottom: 0; border-radius: 12px 12px 0 0; box-shadow: 0 -10px 30px rgba(0,0,0,.28); padding: 14px 16px 12px; z-index: 3; visibility: hidden; opacity: 0; transform: translateY(6px); transition: opacity .15s ease, transform .15s ease, visibility 0s linear .15s; }
-#sv-strip > div:hover .svs-more, #sv-strip > div:focus-within .svs-more { visibility: visible; opacity: 1; transform: none; transition-delay: .35s; }
+
 #sv-strip .svs-more > b { display: block; font-size: 17px; font-weight: 800; line-height: 1.25; margin-bottom: 4px; }
 #sv-strip .svs-text { font: 400 13.5px/1.5 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: #3D362F; margin: 6px 0; }
 #sv-strip .svs-text.big { font-size: 16px; line-height: 1.5; color: #241F1A; }
@@ -529,12 +532,13 @@
 #sv-strip .svs-faces.xl .svs-face small { font-size: 11px; max-width: 96px; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 #sv-strip > div:last-child { border-right: 0; }
 #sv-strip .svs-ident { display: flex; align-items: flex-start; gap: 10px; }
-#sv-strip .svs-poster { width: 76px; height: 114px; border-radius: 6px; object-fit: cover; box-shadow: 0 0 0 1px rgba(36,31,26,.12); transition: width .5s cubic-bezier(.2,.7,.2,1), height .5s cubic-bezier(.2,.7,.2,1); flex: none; }
+#sv-strip .svs-poster { width: 44px; height: 66px; border-radius: 6px; object-fit: cover; box-shadow: 0 0 0 1px rgba(36,31,26,.12); transition: width .5s cubic-bezier(.2,.7,.2,1), height .5s cubic-bezier(.2,.7,.2,1); flex: none; }
 #sv-strip .svs-poster.ph { display: flex; align-items: center; justify-content: center; color: #fff; font: 800 18px/1 ui-monospace, Menlo, Consolas, monospace; }
-#sv-strip.compact .svs-poster { width: 44px; height: 66px; }
-#sv-strip.compact .svs-syn { max-height: 0; opacity: 0; margin: 0; }
-#sv-strip.compact .svs-id b { font-size: 13.5px; -webkit-line-clamp: 2; }
-#sv-strip .svs-syn { max-height: 80px; opacity: 1; transition: max-height .4s ease, opacity .3s ease; }
+#sv-strip[data-open="ident"] .svs-poster { width: 76px; height: 114px; }
+#sv-strip .svs-syn { max-height: 0; opacity: 0; margin: 0; transition: max-height .4s ease, opacity .3s ease .1s; }
+#sv-strip[data-open="ident"] .svs-syn { max-height: 80px; opacity: 1; margin-top: 4px; }
+#sv-strip .svs-id b { font-size: 13.5px; -webkit-line-clamp: 2; }
+#sv-strip[data-open="ident"] .svs-id b { font-size: 15px; }
 #sv-strip .svs-id b { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 15px; font-weight: 800; line-height: 1.2; }
 #sv-strip .svs-ep { font: 600 10.5px/1.4 ui-monospace, Menlo, Consolas, monospace; color: #C93F2B; margin: 2px 0 3px; }
 #sv-strip .svs-syn { color: #5B5348; font-size: 11.5px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
@@ -546,7 +550,7 @@
 #sv-strip .svs-now > .svs-scene { grid-column: 1; grid-row: 2; align-self: start; }
 #sv-strip .svs-now > .svs-faces { grid-column: 2; grid-row: 2; align-self: start; flex-wrap: nowrap; }
 #sv-strip .svs-now > .svs-more { grid-column: 1 / -1; }
-#sv-strip .svs-scene { font: 500 15px/1.4 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: #241F1A; background: transparent; border-radius: 0; padding: 0; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+#sv-strip .svs-scene { font: 500 14px/1.4 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: #241F1A; background: transparent; border-radius: 0; padding: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 /* Waiting, not empty: the muted pill is a line of text, no box around it. */
 #sv-strip .svs-scene.muted { color: #786D60; background: transparent; padding-left: 0; font-style: italic; }
 #sv-strip .svs-scene.faded, #sv-strip .svs-faces.faded { opacity: .55; }
@@ -556,9 +560,15 @@
 #sv-strip .svs-now .svs-lbl { margin-bottom: 2px; }
 #sv-strip .svs-faces { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
 #sv-strip .svs-face { display: grid; justify-items: center; gap: 3px; width: 78px; flex: none; }
-#sv-strip .svs-face.sm { width: 54px; gap: 2px; }
-#sv-strip .svs-face.sm i { width: 40px; height: 40px; font-size: 13px; line-height: 40px; }
-#sv-strip .svs-face.sm b { font-size: 10.5px; max-width: 54px; }
+#sv-strip .svs-face.sm { width: 34px; gap: 2px; transition: width .35s ease; }
+#sv-strip .svs-face.sm i { width: 30px; height: 30px; font-size: 11px; line-height: 30px; transition: width .35s ease, height .35s ease; }
+#sv-strip .svs-face.sm b, #sv-strip .svs-face.sm small.n { display: none; font-size: 10.5px; max-width: 56px; }
+#sv-strip[data-open="people"] .svs-face.sm { width: 58px; }
+#sv-strip[data-open="people"] .svs-face.sm i { width: 44px; height: 44px; font-size: 14px; line-height: 44px; }
+#sv-strip[data-open="people"] .svs-face.sm b { display: block; }
+#sv-strip[data-open="people"] .svs-face.sm small.n { display: block; color: #A39684; font-size: 9.5px; }
+#sv-strip .svs-people-row { flex-wrap: wrap; row-gap: 6px; }
+#sv-strip .svs-people .svs-attr { margin: 0; }
 #sv-strip .svs-face.here i { box-shadow: 0 0 0 2px #fff, 0 0 0 4px #1F7A6D; }
 #sv-strip .svs-face.plus i { background: #EDE5DA; color: #5B5348; font-size: 12px; }
 #sv-strip .svs-people-row { display: flex; gap: 8px; overflow: hidden; margin-top: 2px; -webkit-mask-image: linear-gradient(90deg, #000 86%, transparent); mask-image: linear-gradient(90deg, #000 86%, transparent); }
@@ -567,6 +577,7 @@
 #sv-strip .svs-grid .svs-face { width: auto; }
 #sv-strip .svs-grid .svs-face small.n { color: #A39684; font-size: 10.5px; }
 #sv-strip .svs-scene.recap { color: #241F1A; }
+#sv-strip[data-open="now"] .svs-scene { -webkit-line-clamp: 5; }
 #sv-strip .svs-face i { width: 48px; height: 48px; border-radius: 50%; background: #A39684 center / cover no-repeat; color: #fff; font: 700 16px/48px ui-monospace, Menlo, Consolas, monospace; text-align: center; font-style: normal; box-shadow: 0 0 0 2px #fff, 0 0 0 4px #EDE5DA; }
 #sv-strip .svs-face.talk i { box-shadow: 0 0 0 2px #fff, 0 0 0 4px #C93F2B; }
 #sv-strip .svs-face b { font-size: 12px; line-height: 1.15; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 78px; }

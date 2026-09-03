@@ -1350,7 +1350,7 @@ const RECAP_SCHEMA = { name: "story_so_far", strict: true, schema: { type: "obje
 function recapPrompt(source, dossier) {
   return `You catch a viewer up on the video they are watching, in ${langName(source)}, with simple words (B1). The user message carries {"scenes":[…one line per passage so far, in order…],"lines":[…the latest subtitle lines…],"upTo":"m:ss"}.\n` +
     (dossierFacts(dossier) ? SV_DOSSIER.block(dossier) : "") +
-    `Return STRICT JSON {"recap":"…","who":["…"]}: recap = what has happened so far, up to this point ONLY — never guess, hint at or foreshadow what comes next — 3 to 5 short plain sentences in ${langName(source)}, using the people's names as they appear in the scenes; who = the 2 to 5 people who matter so far, by those names.`;
+    `Return STRICT JSON {"recap":"…","who":["…"]}: recap = what has happened so far, up to this point ONLY — never guess, hint at or foreshadow what comes next — 2 or 3 short plain sentences (at most 55 words) in ${langName(source)}, the essentials only, using the people's names as they appear in the scenes; who = the 2 to 5 people who matter so far, by those names.`;
 }
 async function storyRecap(msg) {
   const base = String(msg.base || ""), k = msg.k | 0; if (!base) return { ok: false, error: "empty" };

@@ -2688,8 +2688,12 @@
       let s = document.getElementById("sv-strip"); if (s) return s;
       s = mk("div", "sv-strip"); s.id = "sv-strip"; s.dir = "auto";
       s.append(mk("div", "svs-ident"), mk("div", "svs-now"), mk("div", "svs-people"));
+      // An accordion, not a pop-up: the section under the pointer (or with keyboard focus) widens in
+      // place and the others make room; a short hover intent keeps a crossing mouse from flapping.
+      let openT = 0; const setOpen = (v) => { clearTimeout(openT); openT = setTimeout(() => { if (v) s.dataset.open = v; else delete s.dataset.open; }, v ? 220 : 380); };
+      for (const el of s.children) { const key = el.className.replace("svs-", ""); el.tabIndex = 0; el.addEventListener("mouseenter", () => setOpen(key)); el.addEventListener("focusin", () => setOpen(key)); }
+      s.addEventListener("mouseleave", () => setOpen("")); s.addEventListener("focusout", (e) => { if (!s.contains(e.relatedTarget)) setOpen(""); });
       document.body.appendChild(s);
-      board.stripShownAt = performance.now(); // the identity shows in full for a few seconds, then folds and the people get the room
       return s;
     };
     // Without a photo, each name gets its own steady colour — R and J stay apart across the strip and the rows.
@@ -2710,21 +2714,19 @@
       const s = ensureStrip(); if (!s) return;
       s.style.right = Math.round(board.el.getBoundingClientRect().width) + "px";
       const d = board.dossier, list = board.list, ch = list[board.ki], ex = ch ? lineExplainCache.get(ch.text) : null, st = tipsStatus(list, board.ki);
-      s.classList.toggle("compact", performance.now() - (board.stripShownAt || 0) > 6000);
       // Each section repaints only when its own facts change.
       const part = (cls, sig, fill) => { const el = s.querySelector("." + cls); if (!el || el.dataset.sig === sig) return; el.dataset.sig = sig; el.textContent = ""; fill(el); };
       const title = (d && (d.show || d.title)) || SV_TITLE.clean(document.title);
       const epLine = d && d.show ? [d.season ? "S" + d.season + " · E" + d.episode : d.episode ? "E" + d.episode : "", d.epTitle].filter(Boolean).join(" · ") : d && d.channel ? d.channel : "";
-      // ── identity: poster + title (+ synopsis while expanded); the sheet has everything ──
-      part("svs-ident", [d ? d.at : 0, d ? d.poster : "", title, epLine, d ? (d.synopsis || d.description || "") + (d.kind || "") : ""].join("|"), (ident) => {
+      // ── identity: a small poster and the title; the synopsis unfolds when the section is open ──
+      part("svs-ident", [d ? d.at : 0, d ? d.poster : "", title, epLine, d ? (d.synopsis || d.description || "") : ""].join("|"), (ident) => {
         if (d && d.poster) { const img = mk("img", "svs-poster"); img.src = d.poster; img.alt = ""; ident.appendChild(img); }
         else { const ph = mk("div", "svs-poster ph", SV_DOSSIER.initials(title)); ph.style.background = "hsl(" + nameHue(title) + " 30% 42%)"; ident.appendChild(ph); }
         const idb = mk("div", "svs-id"); idb.appendChild(mk("b", null, title)); if (epLine) idb.appendChild(mk("div", "svs-ep", epLine));
         if (d && (d.synopsis || d.description)) idb.appendChild(mk("div", "svs-syn", d.synopsis || d.description));
         ident.appendChild(idb);
-        if (d) { const more = mk("div", "svs-more"); more.appendChild(mk("b", null, title)); const meta = [epLine, d.year ? String(d.year) : "", d.runtimeMin ? d.runtimeMin + " min" : ""].filter(Boolean).join(" · "); if (meta) more.appendChild(mk("div", "svs-ep", meta)); if (d.synopsis || d.description) more.appendChild(mk("div", "svs-text", d.synopsis || d.description)); if (d.kind) more.appendChild(mk("div", "svs-kind", [d.kind, d.about].filter(Boolean).join(" — "))); ident.appendChild(more); }
       });
-      // ── now: the scene and who is in it; a catch-up when the chunk has no tips yet ──
+      // ── now: the scene and who is in it; the story so far when the chunk has no tips yet ──
       if (ex && ex.scene) board.lastScene = { scene: ex.scene, who: ex.who || [], ex };
       const who = ex ? SV_DOSSIER.whoFaces(ex.who, d && d.people) : [];
       askFaces(who.map((f) => (f.person && (f.person.character || f.person.name)) || f.label));
@@ -2733,23 +2735,15 @@
       part("svs-now", [ch ? ch.text : "", ex ? (ex.scene || "") + (ex.who || []).join("|") : "", busyHere(ch) ? 1 : 0, st.state, d ? d.at : 0, useRecap ? recap.k + recap.text.slice(0, 40) : "", last ? last.scene : "", board.facesV].join("|"), (now) => {
         let facesList = [];
         if (ex && ex.scene) { now.appendChild(mk("div", "svs-lbl", "Now · " + fmtT(ch.startMs))); const sc = mk("div", "svs-scene", ex.scene); sc.dir = explainDir(ex); now.appendChild(sc); facesList = who; }
-        else if (useRecap) { now.appendChild(mk("div", "svs-lbl", "So far · up to " + fmtT(list[recap.k] ? list[recap.k].startMs : 0) + (busyHere(ch) ? " · explaining this chunk…" : ""))); const sc = mk("div", "svs-scene recap", recap.text); sc.dir = dirOf(vocabPoolLang); now.appendChild(sc); facesList = SV_DOSSIER.whoFaces(recap.who, d && d.people); }
+        else if (useRecap) { now.appendChild(mk("div", "svs-lbl", "Story so far · to " + fmtT(list[recap.k] ? list[recap.k].startMs : 0) + (busyHere(ch) ? " · explaining this chunk…" : ""))); const sc = mk("div", "svs-scene recap", recap.text); sc.dir = dirOf(vocabPoolLang); now.appendChild(sc); facesList = SV_DOSSIER.whoFaces(recap.who, d && d.people); }
         else if (last) { now.appendChild(mk("div", "svs-lbl", "Earlier" + (waiting ? " · " + waiting : ""))); const sc = mk("div", "svs-scene faded", last.scene); sc.dir = explainDir(last.ex); now.appendChild(sc); facesList = SV_DOSSIER.whoFaces(last.who, d && d.people); }
         else if (waiting) { now.appendChild(mk("div", "svs-lbl", "Now")); now.appendChild(mk("div", "svs-scene muted", waiting[0].toUpperCase() + waiting.slice(1))); }
         const faces = mk("div", "svs-faces" + (ex && ex.scene ? "" : " faded")); facesList.slice(0, 4).forEach((f, i) => faces.appendChild(face(f.person, f.label, "md", i === 0 && !!(ex && ex.scene))));
         if (facesList.length > 4) { const more = mk("span", "svs-face md plus"); more.appendChild(mk("i", null, "+" + (facesList.length - 4))); more.appendChild(mk("b", null, "more")); faces.appendChild(more); }
         now.appendChild(faces);
-        // the sheet: the scene in full with its retelling, then the story so far
-        const cur = ex && ex.scene ? ex : last ? last.ex : null;
-        if (cur || recap.text) {
-          const more = mk("div", "svs-more");
-          if (cur) { more.appendChild(mk("div", "svs-lbl", cur === ex ? "Now" : "Earlier")); const sc = mk("div", "svs-text big", cur.scene); sc.dir = explainDir(cur); more.appendChild(sc); if (cur.simple) { const sm = mk("div", "svs-text"); sm.textContent = cur.simple; sm.dir = dirOf(cur.lang || vocabPoolLang); more.appendChild(sm); } }
-          if (recap.text) { more.appendChild(mk("div", "svs-lbl", "So far · up to " + fmtT(list[recap.k] ? list[recap.k].startMs : 0))); const rc = mk("div", "svs-text"); rc.textContent = recap.text; rc.dir = dirOf(vocabPoolLang); more.appendChild(rc); }
-          now.appendChild(more);
-        }
         now.classList.remove("svs-swap"); void now.offsetWidth; now.classList.add("svs-swap");
       });
-      // ── people: in this scene first, then most seen; a row that fades out, a sheet of cards ──
+      // ── people: in this scene first, then most seen — tiny at rest, named when the section is open ──
       const dp = (d && d.people) || [];
       if (!board.peopleSeen || board.peopleSeen.n !== st.doneN || board.peopleSeen.at !== (d ? d.at : 0)) {
         const count = new Map();
@@ -2765,16 +2759,12 @@
       const ordered = people.slice().sort((a, b) => (inScene.has(keyOf(b)) ? 1 : 0) - (inScene.has(keyOf(a)) ? 1 : 0));
       part("svs-people", [d ? d.at : 0, ordered.map((x) => (x.p ? x.p.name : x.label) + x.n + (inScene.has(keyOf(x)) ? "*" : "")).join("|"), board.facesV].join("|"), (pe) => {
         const tmdb = people.some((x) => x.p && x.p.src === "tmdb");
-        const head = mk("div", "svs-lbl"); head.append(mk("span", null, "People · " + people.length), mk("span", null, tmdb ? "Cast & episode data · TMDB" : "")); pe.appendChild(head);
+        const head = mk("div", "svs-lbl"); head.append(mk("span", null, "People · " + people.length), mk("span", "svs-attr", tmdb ? "TMDB" : "")); pe.appendChild(head);
         if (!people.length) { pe.appendChild(mk("div", "svs-scene muted", "People appear here as the chunks meet them")); return; }
-        const row = mk("div", "svs-people-row"); const MAX = 9;
-        ordered.slice(0, MAX).forEach((x) => { const f = face(x.p, x.label, "sm", false); if (inScene.has(keyOf(x))) f.classList.add("here"); row.appendChild(f); });
+        const row = mk("div", "svs-people-row"); const MAX = 12;
+        ordered.slice(0, MAX).forEach((x) => { const f = face(x.p, x.label, "sm", false); if (inScene.has(keyOf(x))) f.classList.add("here"); if (x.n) f.appendChild(mk("small", "n", String(x.n))); row.appendChild(f); });
         if (ordered.length > MAX) { const more = mk("span", "svs-face sm plus"); more.appendChild(mk("i", null, "+" + (ordered.length - MAX))); more.appendChild(mk("b", null, "more")); row.appendChild(more); }
         pe.appendChild(row);
-        const sheet = mk("div", "svs-more wide"); sheet.appendChild(mk("div", "svs-lbl", tmdb ? "Cast, and the people the chunks have met" : "People the chunks have met so far"));
-        const grid = mk("div", "svs-grid");
-        for (const x of ordered.slice(0, 24)) { const f = face(x.p, x.label, "lg", false); if (inScene.has(keyOf(x))) f.classList.add("here"); if (x.n) f.appendChild(mk("small", "n", x.n + (x.n === 1 ? " scene" : " scenes"))); grid.appendChild(f); }
-        sheet.appendChild(grid); pe.appendChild(sheet);
       });
     };
     // The tips pipeline lives on the board, under its tools: how far the tips reach, what is being explained, Explain all / Stop / Retry.
