@@ -292,12 +292,11 @@ function startLivePipe() {
   }
   lvCtxIn = new AudioContext({ sampleRate: 16000 });
   lvSrc = lvCtxIn.createMediaStreamSource(lvStream);
-  lvProc = lvCtxIn.createScriptProcessor(4096, 1, 1);
   const mute = lvCtxIn.createGain();
   mute.gain.value = 0;
-  lvProc.onaudioprocess = (e) => {
+  // One block of 16 kHz float samples → PCM16 → the socket.
+  const sendPcm = (f32) => {
     if (!lvWs || lvWs.readyState !== WebSocket.OPEN) return;
-    const f32 = e.inputBuffer.getChannelData(0);
     const i16 = new Int16Array(f32.length);
     for (let i = 0; i < f32.length; i++) {
       const s = Math.max(-1, Math.min(1, f32[i]));
@@ -306,9 +305,16 @@ function startLivePipe() {
     if (lvStats) lvStats.upSamples += i16.length;
     lvWs.send(JSON.stringify({ realtimeInput: { audio: { mimeType: "audio/pcm;rate=16000", data: pcmToBase64(i16) } } }));
   };
-  lvSrc.connect(lvProc);
-  lvProc.connect(mute);
-  mute.connect(lvCtxIn.destination);
+  const wire = (node) => { lvProc = node; lvSrc.connect(lvProc); lvProc.connect(mute); mute.connect(lvCtxIn.destination); };
+  // The deprecated ScriptProcessorNode only when a worklet can't be had (Chrome lists the
+  // deprecation on the extension's Errors page, so the worklet is the normal road).
+  const legacy = () => { if (!lvCtxIn || lvProc) return; const sp = lvCtxIn.createScriptProcessor(4096, 1, 1); sp.onaudioprocess = (e) => sendPcm(e.inputBuffer.getChannelData(0)); wire(sp); };
+  const ctx = lvCtxIn;
+  if (ctx.audioWorklet && typeof AudioWorkletNode === "function") {
+    ctx.audioWorklet.addModule(chrome.runtime.getURL("offscreen-live-worklet.js"))
+      .then(() => { if (lvCtxIn !== ctx || lvProc) return; const node = new AudioWorkletNode(ctx, "sv-live-pcm", { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1] }); node.port.onmessage = (e) => sendPcm(e.data); wire(node); })
+      .catch(() => { if (lvCtxIn === ctx) legacy(); });
+  } else legacy();
 }
 
 // Output side: sequential scheduling of 24kHz PCM16 chunks.
@@ -415,6 +421,7 @@ function liveStop(reason) {
   clearTimeout(lvPartialT); lvPartialT = 0;
   clearInterval(lvStatsT); lvStatsT = 0; lvStats = null; lvLastActivityAt = 0;
   clearLiveAudio();
+  try { lvProc && lvProc.port && lvProc.port.close(); } catch {}
   try { lvProc && lvProc.disconnect(); } catch {}
   try { lvSrc && lvSrc.disconnect(); } catch {}
   try { lvCtxIn && lvCtxIn.close(); } catch {}
