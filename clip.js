@@ -194,14 +194,16 @@
     // Consecutive cues that share one translation are the windows of one
     // sentence (the group translation is stamped on each of them) — one unit.
     const units = [];
+    const strip = (t) => (C && C.stripSpeakerMarks ? C.stripSpeakerMarks(t) : String(t || ""));
     for (const c of list) {
       const last = units[units.length - 1];
       if (last && c.text && last.cue.text === c.text) { last.endMs = Math.max(last.endMs, c.endMs); last.original = (last.original + " " + (c.o || "")).replace(/\s+/g, " ").trim(); continue; }
       units.push({ startMs: c.tMs, endMs: c.endMs, original: c.o || c.text, cue: c });
     }
+    // speaker marks are read as a boundary (chunkCues) and then dropped from the text
     const ranges = C && C.chunkCues ? C.chunkCues(units, { maxSents: 4, maxChars: 300 }) : units.map((u, i) => ({ from: i, to: i, startMs: u.startMs, endMs: u.endMs }));
     return ranges.map((r, k) => { const us = units.slice(r.from, r.to + 1); return { k, startMs: r.startMs, endMs: r.endMs, cues: us.map((u) => u.cue),
-      text: us.map((u) => u.original).join(" ").replace(/\s+/g, " ").trim(), sentences: us.map((u) => ({ s: u.original, tr: u.cue.text })) }; });
+      text: strip(us.map((u) => u.original).join(" ")), sentences: us.map((u) => ({ s: strip(u.original), tr: strip(u.cue.text) })) }; });
   }
   // Trim to n whole chunks from the in-point.
   function trimToChunks(n) {

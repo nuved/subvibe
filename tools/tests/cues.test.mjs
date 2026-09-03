@@ -91,3 +91,12 @@ test("chunkCues: lines group into passages at long silences or the caps, never i
   assert.deepEqual(C.chunkCues(long, { maxChars: 300, maxSents: 10 }).map((c) => [c.from, c.to]), [[0, 1], [2, 2]]);
   assert.deepEqual(C.chunkCues([]), []);
 });
+
+test("chunkCues: a speaker change (>>) starts a new chunk; stripSpeakerMarks cleans the text", () => {
+  const mk = (i, t) => ({ startMs: i * 2000, endMs: i * 2000 + 1500, original: t });
+  const list = [mk(0, "I think so."), mk(1, "Really."), mk(2, ">> I don't think so."), mk(3, "&gt;&gt; It's like you can do it."), mk(4, "Sure.")];
+  const ch = C.chunkCues(list, { maxSents: 10, maxChars: 900, silenceMs: 60000 });
+  assert.deepEqual(ch.map((c) => [c.from, c.to]), [[0, 1], [2, 2], [3, 4]]);
+  assert.equal(C.stripSpeakerMarks(">> I don't think so."), "I don't think so.");
+  assert.equal(C.stripSpeakerMarks("Yes. >> No. » Maybe."), "Yes. No. Maybe.");
+});

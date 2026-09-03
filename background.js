@@ -1007,7 +1007,7 @@ function explainPrompt(source, target, ctx) {
     `Return STRICT JSON {"tr":"…","simple":"…","g":"…","words":[{"w":"…","m":"…","pos":"…","level":"…","forms":"…","parts":["…"]}]}:\n` +
     (same ? `- tr: the whole passage said more simply in ${langName(source)}: A2 vocabulary, short clauses, same meaning.\n`
           : `- tr: a natural ${langName(target)} translation of the whole passage.\n`) +
-    `- simple: the whole passage said more simply in ${langName(source)} itself — A2 vocabulary, short clauses, the same meaning and the same speaker's voice — so a learner grasps the context without leaving the language.\n` +
+    `- simple: RETELL the passage in ${langName(source)} for an A2 learner — what is being said, in 1–3 short plain sentences, only very common words, no idioms, no fillers ("like", "you know", "whatever"), no speaker marks; the idea, not the wording; clearly shorter and easier than the original. Never copy sentences from the passage.\n` +
     `- g: a plain-${langName(target)} grammar note as 2–4 short points separated by " • ": (1) how the sentence is built — tense/mood, clauses, word order, any separable or phrasal verb; (2) WHY it takes that form, naming the rule with the everyday word next to it; (3) a watch-out for learners (a false friend, an ending, a word that moves) or the everyday way to say it. Concrete, about THIS sentence's words; no bare jargon.\n` +
     `- words: the 3–8 most useful/learnable words or phrases in this passage, each {w: the ${langName(source)} word or phrase as it appears (the FULL reunited separable verb if one applies, e.g. "anschauen"), m: ${same ? "a short " + langName(source) + " definition or everyday synonym" : "its concise " + langName(target) + " meaning"}, pos: one of noun|verb|phrasal verb|adjective|adverb|idiom|expression|preposition|conjunction|pronoun|other, level: CEFR A1–C2 for a learner, forms: for a verb its base · past · participle plus "regular"/"irregular" (e.g. "say · said · said · irregular"), for a noun its plural (and article, where the language has one), for an adjective its comparative if irregular, else "", parts: the exact surface words of this term as they appear in the passage, in order — for a separable or phrasal verb BOTH parts even when apart (["gibt","auf"], ["hat","gebrochen"], ["pick","up"]), one element for a single word}. Skip trivial function words.` +
     (fa ? `\nفارسیِ سادهٔ روزمره؛ هرگز واژه‌های دستوریِ سنگین. STANDARD IRANIAN FARSI — no Urdu letters/words.` : "");
@@ -1119,7 +1119,7 @@ async function explainLine(base, sent, langHint, opts) {
   // serve it rather than paying for it again; it only lacks "Put simply" and parts.
   const e2key = "e2" + (h >>> 0).toString(36) + (explainPref ? "|" + explainPref : "");
   if (!(cx.e[skey] && cx.e[skey].tr) && cx.e[e2key] && cx.e[e2key].tr && !o.fresh) cx.e[skey] = Object.assign({}, cx.e[e2key], { explain: explainPref });
-  if (cx.e[skey] && cx.e[skey].tr) {
+  if (!o.fresh && cx.e[skey] && cx.e[skey].tr) {
     const c = cx.e[skey];
     fa = ((c.explain && c.explain !== "same" ? c.explain : c.explain === "same" ? c.lang : target) || "").split("-")[0] === "fa";
     return { ok: true, tr: faS(c.tr), simple: c.simple || "", g: faS(c.g), lang: c.lang || "", explain: c.explain || "", ctx: cx.ctx || null, words: (c.words || []).map((x) => ({ w: x.w, m: faS(x.m), pos: x.pos || "", level: x.level || "", forms: cleanForms(x.forms), parts: x.parts || [] })), cached: true };
@@ -2802,7 +2802,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           // words) for the on-video ﹖ button. Cached per sentence forever.
           const base = String(msg.base || ""), sent = String(msg.s || "").slice(0, 700);
           if (!sent) { sendResponse({ error: "missing sentence" }); break; }
-          try { sendResponse(await explainLine(base, sent, msg.lang, { before: msg.before, after: msg.after, title: msg.title, sample: msg.sample, explain: msg.explain })); }
+          try { sendResponse(await explainLine(base, sent, msg.lang, { before: msg.before, after: msg.after, title: msg.title, sample: msg.sample, explain: msg.explain, fresh: !!msg.fresh })); }
           catch (e2) { sendResponse({ error: String((e2 && e2.message) || e2) }); }
           break;
         }

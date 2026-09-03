@@ -2010,8 +2010,8 @@
       const tg = vocabTg || (settings.targets && settings.targets[0]) || "";
       return ranges.map((r, k) => {
         const us = units.slice(r.from, r.to + 1);
-        // ASR stage tags ("[Music]", "[Applause]") are not language — keep them out of the tips.
-        const clean = (t) => String(t || "").replace(/\[[^\]]{1,24}\]/g, " ").replace(/\s+/g, " ").trim();
+        // ASR stage tags ("[Music]") and speaker marks (">>") are not language — keep them out of the tips.
+        const clean = (t) => String(t || "").replace(/\[[^\]]{1,24}\]/g, " ").replace(/(?:^|\s)(?:>>|&gt;&gt;|»)+\s*/g, " ").replace(/\s+/g, " ").trim();
         const sentences = us.map((u) => ({ s: clean(u.original), tr: clean(unitTr(u, tg)), startMs: u.startMs, endMs: u.endMs, cue: u.cue })).filter((x) => x.s);
         return { k, from: r.from, to: r.to, startMs: r.startMs, endMs: r.endMs, units: us, text: sentences.map((x) => x.s).join(" "), sentences };
       });
@@ -2047,9 +2047,9 @@
     const tipsLangLabel = (short) => tipsExplain === "same" ? (short ? (vocabPoolLang || "same").toUpperCase().slice(0, 2) : "the video's language") : (short ? (vocabTg || (settings.targets && settings.targets[0]) || "").toUpperCase().slice(0, 2) : (vocabTg || (settings.targets && settings.targets[0]) || "target"));
 
     const chunkFetching = new Map(); // chunk text → pending explain promise (deduped)
-    const explainChunk = (ch, list) => {
-      const hit = lineExplainCache.get(ch.text); if (hit) return Promise.resolve(hit);
-      if (!chunkFetching.has(ch.text)) chunkFetching.set(ch.text, send(explainPayload(ch, list)).then((r) => {
+    const explainChunk = (ch, list, fresh) => {
+      const hit = fresh ? null : lineExplainCache.get(ch.text); if (hit) return Promise.resolve(hit);
+      if (fresh || !chunkFetching.has(ch.text)) chunkFetching.set(ch.text, send(Object.assign(explainPayload(ch, list), fresh ? { fresh: true } : {})).then((r) => {
         chunkFetching.delete(ch.text);
         if (r && r.ctx) setCtx(r.ctx);
         if (r && r.tr) { const ex = { tr: r.tr, simple: r.simple || "", g: r.g, lang: r.lang || "", words: r.words || [] }; lineExplainCache.set(ch.text, ex); return ex; }
@@ -2152,6 +2152,11 @@
         addSect("Words", list);
       }
       const lg = buildLegend(ex); if (lg) body.appendChild(lg);
+      if (ch) { // one more call, on purpose: a fresh explanation for this chunk
+        const again = mk("button", "wt-again", "Explain again ↻"); again.type = "button"; again.title = "Ask once more for this chunk (one call) — e.g. after the tips language or the explanation shape changed";
+        again.addEventListener("click", (ev) => { ev.stopPropagation(); again.disabled = true; again.textContent = "Explaining…"; explainChunk(ch, board.list.length ? board.list : card.list, true).then(() => { board.sig = ""; boardTick(true); if (wtip._pinned && card.list.length) renderChunkCard(els.__orig); }); });
+        (lg || body).appendChild(again);
+      }
       return body;
     };
     // Snap: the current video frame as a Shot, with N whole chunks under it.

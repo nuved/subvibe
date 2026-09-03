@@ -423,6 +423,9 @@
 #sv-board .wt-legend, #copilot-subs .copilot-subs__wtip .wt-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 8px 13px 2px; font: 600 10.5px/1.3 ui-monospace, Menlo, Consolas, monospace; letter-spacing: .02em; }
 #sv-board .wt-legend { padding-left: 8px; }
 #sv-board .wt-lg::before, #copilot-subs .copilot-subs__wtip .wt-lg::before { content: "●"; margin-right: 4px; }
+#sv-board .wt-again, #copilot-subs .copilot-subs__wtip .wt-again { margin-left: auto; border: 0; background: none; color: #8A7F72; font: 600 10.5px/1.3 ui-monospace, Menlo, Consolas, monospace; cursor: pointer; padding: 0; }
+#sv-board .wt-again:hover, #copilot-subs .copilot-subs__wtip .wt-again:hover { color: #C93F2B; }
+#sv-board .wt-body > .wt-again, #copilot-subs .copilot-subs__wtip .wt-body > .wt-again { display: block; margin: 6px 13px 2px auto; }
 #sv-board .wt-lg.sep, #copilot-subs .copilot-subs__wtip .wt-lg.sep { text-decoration: underline dotted; text-underline-offset: 3px; }
 #sv-board .wt-lg.sep::before, #copilot-subs .copilot-subs__wtip .wt-lg.sep::before { content: "‥"; }
 #copilot-subs .copilot-subs__wtip .wt-tr { color: #1F7A6D; font-size: 12.5px; font-weight: 500; margin: 0 0 4px 24px; }

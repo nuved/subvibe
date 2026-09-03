@@ -63,6 +63,10 @@
   // long for this speaker (max of `silenceMs` and 2.5× the median gap between
   // lines), or once a chunk reaches `maxSents` lines or `maxChars` characters —
   // never inside a line. Returns [{ from, to, startMs, endMs }] over cue indices.
+  // ">>" / "&gt;&gt;" / "»" at the start of a caption = a new speaker (YouTube's convention).
+  const SPEAKER_MARK = /^\s*(?:>>|&gt;&gt;|»)/;
+  // Strip speaker marks from text meant for reading and for the model.
+  const stripSpeakerMarks = (t) => String(t || "").replace(/(?:^|\s)(?:>>|&gt;&gt;|»)+\s*/g, " ").replace(/\s+/g, " ").trim();
   function chunkCues(cues, opt) {
     const o = opt || {};
     const maxSents = o.maxSents == null ? 4 : o.maxSents, maxChars = o.maxChars == null ? 300 : o.maxChars;
@@ -75,13 +79,15 @@
     const out = [];
     let from = 0, chars = 0;
     const text = (c) => String((c && (c.original != null ? c.original : c.text)) || "");
+    // A new speaker (YouTube marks it ">>") always starts a new chunk.
+    const breakBefore = typeof o.breakBefore === "function" ? o.breakBefore : (c) => SPEAKER_MARK.test(text(c));
     for (let i = 0; i < list.length; i++) {
       chars += text(list[i]).length + 1;
       const next = list[i + 1];
       const gap = next ? next.startMs - (list[i].endMs != null ? list[i].endMs : list[i].startMs) : Infinity;
       const n = i - from + 1;
       const nextLen = next ? text(next).length + 1 : 0;
-      if (!next || gap >= silence || n >= maxSents || chars + nextLen > maxChars) { // never let the next line push a chunk past the cap
+      if (!next || gap >= silence || n >= maxSents || chars + nextLen > maxChars || breakBefore(next)) { // never let the next line push a chunk past the cap
         out.push({ from, to: i, startMs: list[from].startMs, endMs: list[i].endMs != null ? list[i].endMs : list[i].startMs });
         from = i + 1; chars = 0;
       }
@@ -93,5 +99,5 @@
     return out;
   }
   const chunkOf = (chunks, idx) => (chunks || []).findIndex((ch) => idx >= ch.from && idx <= ch.to);
-  g.SV_CUES = { rechunkTimed, isTimed, chunkCues, chunkOf };
+  g.SV_CUES = { rechunkTimed, isTimed, chunkCues, chunkOf, stripSpeakerMarks, SPEAKER_MARK };
 })(globalThis);
