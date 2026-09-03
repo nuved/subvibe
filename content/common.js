@@ -2138,6 +2138,37 @@
     };
     const tipsAll = (on) => { tips.all = !!on; tips.stopped = false; tips.errors = 0; tips.pausedUntil = 0; board.sig = ""; boardTick(true); };
     const tipsRetry = () => { tips.stopped = false; tips.errors = 0; tips.rounds = 0; tips.pausedUntil = 0; board.sig = ""; boardTick(true); };
+    // A person is a name: "Ray (Raymond)" counts as Ray; "the police", "radio advertisement voice" are roles.
+    const cleanName = (w) => String(w || "").replace(/\s*\(.*$/, "").trim();
+    const isRole = (k) => !/^\p{Lu}/u.test(k) || /\b(voice|advert|announcer|narrator|officer|police|crowd|men|man|woman|guy|guys|people|cop|cops|dealer|driver|radio|tv)\b/i.test(k) || k.split(/\s+/).length > 3;
+    // Faces: character pictures from the franchise's wiki, asked in small batches, remembered per name.
+    let facesTimer = 0; const facesQueue = new Set();
+    const askFaces = (names) => {
+      for (const n0 of names || []) { const n = cleanName(n0); if (!n || isRole(n) || board.facesAsked.has(n)) continue; board.facesAsked.add(n); facesQueue.add(n); }
+      if (!facesQueue.size || facesTimer || !board.dossier) return;
+      facesTimer = setTimeout(() => {
+        facesTimer = 0; const batch = [...facesQueue].slice(0, 12); for (const n of batch) facesQueue.delete(n);
+        send({ type: "FACES", base, names: batch, lang: vocabPoolLang }).then((r) => {
+          if (!r || !r.ok) { for (const n of batch) board.facesAsked.delete(n); return; }
+          for (const [n, u] of Object.entries(r.faces || {})) board.faces.set(n, u || "");
+          board.facesV++; board.sig = ""; board.stripSig = "";
+        }).catch(() => { for (const n of batch) board.facesAsked.delete(n); });
+        if (facesQueue.size) askFaces([]);
+      }, 1200);
+    };
+    // Story so far: a catch-up up to the playhead only, refreshed every 8 chunks, in the video's language.
+    const recap = { k: -1, text: "", who: [], inflight: false, pausedUntil: 0 };
+    const wantRecap = (list, ki) => {
+      if (ki < 3 || recap.inflight || performance.now() < recap.pausedUntil || (tips.all ? "all" : tipsAhead) === "off" || !engaged) return;
+      const bucket = ki - (ki % 8); if (bucket === recap.k) return;
+      const scenes = []; for (let j = 0; j <= bucket; j++) { const e = lineExplainCache.get(list[j].text); if (e && e.scene) scenes.push(e.scene); }
+      if (scenes.length < 2) return;
+      const lines = list.slice(Math.max(0, bucket - 4), bucket + 1).flatMap((c) => c.sentences.map((x) => x.s));
+      recap.inflight = true;
+      send({ type: "STORY_RECAP", base, k: bucket, scenes, lines, lang: vocabPoolLang, upTo: fmtT(list[bucket].startMs) })
+        .then((r) => { recap.inflight = false; if (r && r.ok && r.recap) { recap.k = bucket; recap.text = r.recap; recap.who = r.who || []; board.sig = ""; board.stripSig = ""; askFaces(recap.who); } else recap.pausedUntil = performance.now() + 60000; })
+        .catch(() => { recap.inflight = false; recap.pausedUntil = performance.now() + 60000; });
+    };
     const fmtT = (ms) => { const t = Math.max(0, Math.round(ms / 1000)); return Math.floor(t / 60) + ":" + String(t % 60).padStart(2, "0"); };
     const mk = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
 
@@ -2415,7 +2446,7 @@
     // subtitles: every chunk in order with its translation, the playing one
     // highlighted and followed, the explained ones marked; the open chunk
     // shows its Translation · Grammar · Words and the actions row.
-    const board = { el: null, list: [], ki: -1, open: -1, sig: "", at: 0, collapsed: false, userScrollAt: 0, linesOff: false, loop: -1, stopAt: null, rate: 1, ctx: null, lastScene: null, dossier: null, dossierAsked: false, dossierInFlight: false, dossierTries: 0, dossierRetryAt: 0, pinnedAt: 0, paneSig: "", stripHidden: false, stripSig: "" };
+    const board = { el: null, list: [], ki: -1, open: -1, sig: "", at: 0, collapsed: false, userScrollAt: 0, linesOff: false, loop: -1, stopAt: null, rate: 1, ctx: null, lastScene: null, faces: new Map(), facesAsked: new Set(), facesV: 0, stripShownAt: 0, pumpSig: "", dossier: null, dossierAsked: false, dossierInFlight: false, dossierTries: 0, dossierRetryAt: 0, pinnedAt: 0, paneSig: "", stripHidden: false, stripSig: "" };
     // "language lesson · walk & talk" — what kind of video the model took this for.
     const ctxLine = (cx) => cx && cx.kind ? [cx.kind, cx.about].filter(Boolean).join(" · ").slice(0, 90) : "";
     const setCtx = (cx) => { if (!cx || !cx.kind) return; board.ctx = cx; const el = board.el && board.el.querySelector(".svb-ctx"); if (el) { el.textContent = ctxLine(cx); el.title = [cx.kind, cx.about, cx.register ? "Register: " + cx.register : "", cx.speakers ? "Speakers: " + cx.speakers : ""].filter(Boolean).join("\n"); } };
@@ -2517,11 +2548,10 @@
       sel.addEventListener("click", (ev) => ev.stopPropagation());
       const share = mk("button", "svb-share", "Share ↗"); share.type = "button"; share.title = "One page with every chunk, its translation and the tips already explained — from the cache, nothing is asked again — to download and send to a friend";
       share.addEventListener("click", (ev) => { ev.stopPropagation(); shareBoard(share); });
-      const sceneBtn = mk("button", "svb-scene-btn", "Scene"); sceneBtn.type = "button"; sceneBtn.title = "Show the scene strip under the picture";
-      sceneBtn.addEventListener("click", () => { board.stripHidden = false; try { localStorage.setItem("sv-strip-collapsed", ""); } catch (e) {} fitPlayer(true); board.sig = ""; boardTick(true); });
-      tools.append(lines, speedButton("svb-speed"), share, sel);
+      const sceneBtn = mk("button", "svb-scene-btn", "Scene"); sceneBtn.type = "button";
+      sceneBtn.addEventListener("click", () => { board.stripHidden = !board.stripHidden; try { localStorage.setItem("sv-strip-collapsed", board.stripHidden ? "1" : ""); } catch (e) {} ensureStrip(); fitPlayer(true); board.sig = ""; board.stripSig = ""; boardTick(true); });
       if (drawer) tools.append(sceneBtn); board.sceneBtn = sceneBtn;
-      b.appendChild(head); b.appendChild(tools);
+      b.appendChild(head); b.appendChild(tools); b.appendChild(mk("div", "svb-pump"));
       const listEl = mk("div", "svb-list");
       // A hand on the list pauses the follow for a while, so it never yanks
       // the reader back while they scroll.
@@ -2542,7 +2572,7 @@
     const setRate = (r) => { const v = liveVideoEl(video) || video; try { if (adapter && adapter.setRate) adapter.setRate(r); else v.playbackRate = r; } catch (e) {} };
     // Play from a time; with an end time the video pauses there (hear ONE sentence).
     const playFrom = (ms, stopMs) => { board.stopAt = stopMs != null ? stopMs : null; if (stopMs != null) board.loop = -1; seekTo(ms); if (board.rate && board.rate !== 1) setRate(board.rate); playNow(); };
-    const rowSig = (ch, k) => [ch.text, ch.sentences.map((x) => x.tr).join("\u0002"), lineExplainCache.has(ch.text) ? 1 : 0, k === board.open ? 1 : 0, k === board.ki ? 1 : 0, k === board.open ? snapChunks : 0, board.loop === k ? 1 : 0, (lineExplainCache.get(ch.text) || {}).scene || "", ((lineExplainCache.get(ch.text) || {}).who || []).join("|"), busyHere(ch) ? 1 : 0].join("\u0001");
+    const rowSig = (ch, k) => [ch.text, ch.sentences.map((x) => x.tr).join("\u0002"), lineExplainCache.has(ch.text) ? 1 : 0, k === board.open ? 1 : 0, k === board.ki ? 1 : 0, k === board.open ? snapChunks : 0, board.loop === k ? 1 : 0, (lineExplainCache.get(ch.text) || {}).scene || "", ((lineExplainCache.get(ch.text) || {}).who || []).join("|"), busyHere(ch) ? 1 : 0, board.facesV].join("\u0001");
     const boardRow = (ch, k) => {
       const on = k === board.ki;
       const row = mk("div", "svb-chunk" + (on ? " on" : "") + (k === board.open ? " open" : "")); row.dataset.k = String(k); row.dataset.sig = rowSig(ch, k);
@@ -2563,7 +2593,7 @@
       if (ex && !ex.error && (ex.scene || (ex.who && ex.who.length))) { // one line about the scene, and who is in it
         const sc = mk("div", "svb-scene");
         if (ex.scene) { const t = mk("span", "svb-scene-txt", ex.scene); t.dir = explainDir(ex); sc.appendChild(t); }
-        for (const f of SV_DOSSIER.whoFaces(ex.who, board.dossier && board.dossier.people)) { const chip = mk("span", "svb-who"); const av = mk("i", null, f.person && f.person.photo ? "" : SV_DOSSIER.initials((f.person && f.person.character) || f.label)); if (f.person && f.person.photo) av.style.backgroundImage = "url(" + f.person.photo + ")"; else av.style.background = "hsl(" + nameHue((f.person && f.person.character) || f.label) + " 38% 50%)"; chip.append(av, document.createTextNode((f.person && f.person.character) || f.label)); chip.title = f.person ? (f.person.character || f.person.name) + (f.person.name && f.person.character ? " — " + f.person.name : "") : f.label; sc.appendChild(chip); }
+        for (const f of SV_DOSSIER.whoFaces(ex.who, board.dossier && board.dossier.people)) { const chip = mk("span", "svb-who"); const nm0 = (f.person && f.person.character) || f.label, url0 = (f.person && f.person.photo) || board.faces.get(cleanName(nm0)) || ""; const av = mk("i", null, url0 ? "" : SV_DOSSIER.initials(nm0)); if (url0) av.style.backgroundImage = "url(" + url0 + ")"; else av.style.background = "hsl(" + nameHue(nm0) + " 38% 50%)"; chip.append(av, document.createTextNode((f.person && f.person.character) || f.label)); chip.title = f.person ? (f.person.character || f.person.name) + (f.person.name && f.person.character ? " — " + f.person.name : "") : f.label; sc.appendChild(chip); }
         main.appendChild(sc);
       }
       if (ex && !ex.error) aside.appendChild(mk("i", "svb-mark", k === board.open ? "▸ tips" : "✓ tips"));
@@ -2656,104 +2686,118 @@
       if (!stripOn()) { const s = document.getElementById("sv-strip"); if (s) s.remove(); board.stripSig = ""; return null; }
       let s = document.getElementById("sv-strip"); if (s) return s;
       s = mk("div", "sv-strip"); s.id = "sv-strip"; s.dir = "auto";
-      s.append(mk("div", "svs-ident"), mk("div", "svs-now"), mk("div", "svs-cast"), mk("div", "svs-pump"));
-      document.body.appendChild(s); return s;
+      s.append(mk("div", "svs-ident"), mk("div", "svs-now"), mk("div", "svs-people"));
+      document.body.appendChild(s);
+      board.stripShownAt = performance.now(); // the identity shows in full for a few seconds, then folds and the people get the room
+      return s;
     };
-    // One person: their photo (or initials), the character, and who plays them.
     // Without a photo, each name gets its own steady colour — R and J stay apart across the strip and the rows.
     const nameHue = (name) => { let h = 0; for (const c of String(name || "")) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h % 360; };
-    const face = (p, label, big, talk) => {
-      const f = mk("span", "svs-face" + (big ? "" : " small") + (talk ? " talk" : ""));
+    const photoOf = (p, nm) => (p && p.photo) || board.faces.get(cleanName(nm)) || "";
+    // size: sm 40 px in the row · md 48 px in the Now box · lg 72 px cards in a sheet
+    const face = (p, label, size, talk) => {
       const nm = (p && (p.character || p.name)) || label;
-      const av = mk("i", null, p && p.photo ? "" : SV_DOSSIER.initials(nm)); if (p && p.photo) av.style.backgroundImage = "url(" + p.photo + ")"; else av.style.background = "hsl(" + nameHue(nm) + " 38% 50%)";
-      f.appendChild(av); f.appendChild(mk("b", null, (p && (p.character || p.name)) || label));
-      if (big) f.appendChild(mk("small", null, p ? (p.character ? p.name : p.role || "") : ""));
+      const f = mk("span", "svs-face " + size + (talk ? " talk" : ""));
+      const url = photoOf(p, nm);
+      const av = mk("i", null, url ? "" : SV_DOSSIER.initials(nm)); if (url) av.style.backgroundImage = "url(" + url + ")"; else av.style.background = "hsl(" + nameHue(nm) + " 38% 50%)";
+      f.appendChild(av); f.appendChild(mk("b", null, nm));
+      if (size === "lg" && p && (p.character ? p.name : p.role)) f.appendChild(mk("small", null, p.character ? p.name : p.role));
       return f;
     };
     const renderStrip = () => {
-      if (board.sceneBtn) board.sceneBtn.hidden = !board.stripHidden;
+      if (board.sceneBtn) { board.sceneBtn.textContent = board.stripHidden ? "Scene" : "Hide scene"; board.sceneBtn.title = board.stripHidden ? "Show the scene strip under the picture" : "Hide the scene strip under the picture"; }
       const s = ensureStrip(); if (!s) return;
       s.style.right = Math.round(board.el.getBoundingClientRect().width) + "px";
       const d = board.dossier, list = board.list, ch = list[board.ki], ex = ch ? lineExplainCache.get(ch.text) : null, st = tipsStatus(list, board.ki);
-      // Each section repaints only when its own facts change — rebuilding the whole strip flashed on every pump step.
+      s.classList.toggle("compact", performance.now() - (board.stripShownAt || 0) > 6000);
+      // Each section repaints only when its own facts change.
       const part = (cls, sig, fill) => { const el = s.querySelector("." + cls); if (!el || el.dataset.sig === sig) return; el.dataset.sig = sig; el.textContent = ""; fill(el); };
-      part("svs-ident", [d ? d.at : 0, d ? d.poster : "", d ? (d.show || d.title) + (d.season || "") + (d.episode || "") + (d.epTitle || "") + (d.synopsis || d.description || "") : SV_TITLE.clean(document.title)].join("\u0001"), (ident) => {
+      const title = (d && (d.show || d.title)) || SV_TITLE.clean(document.title);
+      const epLine = d && d.show ? [d.season ? "S" + d.season + " · E" + d.episode : d.episode ? "E" + d.episode : "", d.epTitle].filter(Boolean).join(" · ") : d && d.channel ? d.channel : "";
+      // ── identity: poster + title (+ synopsis while expanded); the sheet has everything ──
+      part("svs-ident", [d ? d.at : 0, d ? d.poster : "", title, epLine, d ? (d.synopsis || d.description || "") + (d.kind || "") : ""].join("|"), (ident) => {
         if (d && d.poster) { const img = mk("img", "svs-poster"); img.src = d.poster; img.alt = ""; ident.appendChild(img); }
-        const idb = mk("div", "svs-id"); idb.appendChild(mk("b", null, (d && (d.show || d.title)) || SV_TITLE.clean(document.title)));
-        if (d && d.show) idb.appendChild(mk("div", "svs-ep", [d.season ? "S" + d.season + " · E" + d.episode : d.episode ? "E" + d.episode : "", d.epTitle, d.runtimeMin ? d.runtimeMin + " min" : ""].filter(Boolean).join(" · ")));
-        else if (d && d.channel) idb.appendChild(mk("div", "svs-ep", d.channel));
-        if (d && (d.synopsis || d.description)) { idb.appendChild(mk("div", "svs-syn", d.synopsis || d.description)); }
+        else { const ph = mk("div", "svs-poster ph", SV_DOSSIER.initials(title)); ph.style.background = "hsl(" + nameHue(title) + " 30% 42%)"; ident.appendChild(ph); }
+        const idb = mk("div", "svs-id"); idb.appendChild(mk("b", null, title)); if (epLine) idb.appendChild(mk("div", "svs-ep", epLine));
+        if (d && (d.synopsis || d.description)) idb.appendChild(mk("div", "svs-syn", d.synopsis || d.description));
         ident.appendChild(idb);
-        // Hovering the section opens a sheet over the picture with everything, unclipped.
-        if (d) { const more = mk("div", "svs-more"); more.appendChild(mk("b", null, d.show || d.title || "")); if (d.show) more.appendChild(mk("div", "svs-ep", [d.season ? "S" + d.season + " · E" + d.episode : d.episode ? "E" + d.episode : "", d.epTitle, d.year ? String(d.year) : "", d.runtimeMin ? d.runtimeMin + " min" : ""].filter(Boolean).join(" · "))); else if (d.channel) more.appendChild(mk("div", "svs-ep", d.channel)); if (d.synopsis || d.description) more.appendChild(mk("div", "svs-text", d.synopsis || d.description)); if (d.kind) more.appendChild(mk("div", "svs-kind", [d.kind, d.about].filter(Boolean).join(" — "))); ident.appendChild(more); }
+        if (d) { const more = mk("div", "svs-more"); more.appendChild(mk("b", null, title)); const meta = [epLine, d.year ? String(d.year) : "", d.runtimeMin ? d.runtimeMin + " min" : ""].filter(Boolean).join(" · "); if (meta) more.appendChild(mk("div", "svs-ep", meta)); if (d.synopsis || d.description) more.appendChild(mk("div", "svs-text", d.synopsis || d.description)); if (d.kind) more.appendChild(mk("div", "svs-kind", [d.kind, d.about].filter(Boolean).join(" — "))); ident.appendChild(more); }
       });
-      const who = ex ? SV_DOSSIER.whoFaces(ex.who, d && d.people) : [];
-      // The Now box never goes blank between chunks: the last scene stays, dimmed, until the next one arrives.
+      // ── now: the scene and who is in it; a catch-up when the chunk has no tips yet ──
       if (ex && ex.scene) board.lastScene = { scene: ex.scene, who: ex.who || [], ex };
-      const last = ex && ex.scene ? null : board.lastScene;
-      part("svs-now", [ch ? ch.text : "", ex ? (ex.scene || "") + (ex.who || []).join("|") : "", busyHere(ch) ? 1 : 0, st.state, d ? d.at : 0, last ? last.scene : ""].join("\u0001"), (now) => {
-        const waiting = busyHere(ch) ? "explaining this chunk…" : st.state === "stopped" || st.state === "paused" ? "tips paused — see the right" : ex ? "" : "tips follow the video as it plays";
-        if (ex && ex.scene) { now.appendChild(mk("div", "svs-lbl", "Now · " + fmtT(ch.startMs))); const scene = mk("div", "svs-scene", ex.scene); scene.dir = explainDir(ex); now.appendChild(scene); }
-        else if (last) { now.appendChild(mk("div", "svs-lbl", "Earlier" + (waiting ? " · " + waiting : ""))); const scene = mk("div", "svs-scene faded", last.scene); scene.dir = explainDir(last.ex); now.appendChild(scene); }
+      const who = ex ? SV_DOSSIER.whoFaces(ex.who, d && d.people) : [];
+      askFaces(who.map((f) => (f.person && (f.person.character || f.person.name)) || f.label));
+      const useRecap = !(ex && ex.scene) && !!recap.text, last = ex && ex.scene ? null : useRecap ? null : board.lastScene;
+      const waiting = busyHere(ch) ? "explaining this chunk…" : st.state === "stopped" || st.state === "paused" ? "tips paused — see the board" : ex ? "" : "tips follow the video as it plays";
+      part("svs-now", [ch ? ch.text : "", ex ? (ex.scene || "") + (ex.who || []).join("|") : "", busyHere(ch) ? 1 : 0, st.state, d ? d.at : 0, useRecap ? recap.k + recap.text.slice(0, 40) : "", last ? last.scene : "", board.facesV].join("|"), (now) => {
+        let facesList = [];
+        if (ex && ex.scene) { now.appendChild(mk("div", "svs-lbl", "Now · " + fmtT(ch.startMs))); const sc = mk("div", "svs-scene", ex.scene); sc.dir = explainDir(ex); now.appendChild(sc); facesList = who; }
+        else if (useRecap) { now.appendChild(mk("div", "svs-lbl", "So far · up to " + fmtT(list[recap.k] ? list[recap.k].startMs : 0) + (waiting ? " · " + waiting : ""))); const sc = mk("div", "svs-scene recap", recap.text); sc.dir = dirOf(vocabPoolLang); now.appendChild(sc); facesList = SV_DOSSIER.whoFaces(recap.who, d && d.people); }
+        else if (last) { now.appendChild(mk("div", "svs-lbl", "Earlier" + (waiting ? " · " + waiting : ""))); const sc = mk("div", "svs-scene faded", last.scene); sc.dir = explainDir(last.ex); now.appendChild(sc); facesList = SV_DOSSIER.whoFaces(last.who, d && d.people); }
         else if (waiting) { now.appendChild(mk("div", "svs-lbl", "Now")); now.appendChild(mk("div", "svs-scene muted", waiting[0].toUpperCase() + waiting.slice(1))); }
-        now.classList.remove("svs-swap"); void now.offsetWidth; now.classList.add("svs-swap"); // one cross-fade per change
-        const faces = mk("div", "svs-faces" + (ex && ex.scene ? "" : " faded"));
-        const list2 = ex && ex.scene ? who : last ? SV_DOSSIER.whoFaces(last.who, d && d.people) : [];
-        list2.forEach((f, i) => faces.appendChild(face(f.person, f.label, true, i === 0))); now.appendChild(faces);
+        const faces = mk("div", "svs-faces" + (ex && ex.scene ? "" : " faded")); facesList.forEach((f, i) => faces.appendChild(face(f.person, f.label, "md", i === 0 && !!(ex && ex.scene)))); now.appendChild(faces);
+        // the sheet: the scene in full with its retelling, then the story so far
         const cur = ex && ex.scene ? ex : last ? last.ex : null;
-        if (cur) { const more = mk("div", "svs-more"); const sc = mk("div", "svs-text big", cur.scene); sc.dir = explainDir(cur); more.appendChild(sc);
-          const fl = mk("div", "svs-faces xl"); list2.forEach((f, i) => fl.appendChild(face(f.person, f.label, true, i === 0))); more.appendChild(fl);
-          if (cur.simple) { const sm = mk("div", "svs-text"); sm.textContent = cur.simple; sm.dir = dirOf(cur.lang || vocabPoolLang); more.appendChild(sm); }
-          now.appendChild(more); }
+        if (cur || recap.text) {
+          const more = mk("div", "svs-more");
+          if (cur) { more.appendChild(mk("div", "svs-lbl", cur === ex ? "Now" : "Earlier")); const sc = mk("div", "svs-text big", cur.scene); sc.dir = explainDir(cur); more.appendChild(sc); if (cur.simple) { const sm = mk("div", "svs-text"); sm.textContent = cur.simple; sm.dir = dirOf(cur.lang || vocabPoolLang); more.appendChild(sm); } }
+          if (recap.text) { more.appendChild(mk("div", "svs-lbl", "So far · up to " + fmtT(list[recap.k] ? list[recap.k].startMs : 0))); const rc = mk("div", "svs-text"); rc.textContent = recap.text; rc.dir = dirOf(vocabPoolLang); more.appendChild(rc); }
+          now.appendChild(more);
+        }
+        now.classList.remove("svs-swap"); void now.offsetWidth; now.classList.add("svs-swap");
       });
-      // The people of this video: the cast (TMDb) or the model's guesses, plus everyone the
-      // explained chunks have met so far, most-seen first — recounted only when a new explanation lands.
+      // ── people: in this scene first, then most seen; a row that fades out, a sheet of cards ──
       const dp = (d && d.people) || [];
       if (!board.peopleSeen || board.peopleSeen.n !== st.doneN || board.peopleSeen.at !== (d ? d.at : 0)) {
-        // A person is a name: "Ray (Raymond)" counts as Ray; "the police", "radio advertisement voice" are roles — they stay in the Now box, not here.
-        const isRole = (k) => !/^\p{Lu}/u.test(k) || /\b(voice|advert|announcer|narrator|officer|police|crowd|men|man|woman|guy|guys|people|cop|cops|dealer|driver)\b/i.test(k) || k.split(/\s+/).length > 3;
         const count = new Map();
-        for (const e of lineExplainCache.values()) for (const w of (e && e.who) || []) { const k = String(w).replace(/\s*\(.*$/, "").trim(); if (k && !isRole(k)) count.set(k, (count.get(k) || 0) + 1); }
+        for (const e of lineExplainCache.values()) for (const w of (e && e.who) || []) { const k = cleanName(w); if (k && !isRole(k)) count.set(k, (count.get(k) || 0) + 1); }
         const named = [...count.entries()].sort((a, b) => b[1] - a[1]).map(([label, n]) => ({ f: SV_DOSSIER.whoFaces([label], dp)[0], n }));
-        const list = dp.map((p) => ({ p, label: "", n: 0 }));
-        for (const { f, n } of named) { const hit = f.person && list.find((x) => x.p === f.person); if (hit) hit.n += n; else if (!/^(the |a |an )/i.test(f.label)) list.push({ p: null, label: f.label, n }); }
-        board.peopleSeen = { n: st.doneN, at: d ? d.at : 0, list: list.filter((x) => x.p || x.n > 0).sort((a, b) => (b.p && b.p.src === "tmdb" ? 1 : 0) - (a.p && a.p.src === "tmdb" ? 1 : 0) || b.n - a.n) };
+        const listP = dp.map((p) => ({ p, label: "", n: 0 }));
+        for (const { f, n } of named) { const hit = f.person && listP.find((x) => x.p === f.person); if (hit) hit.n += n; else listP.push({ p: null, label: f.label, n }); }
+        board.peopleSeen = { n: st.doneN, at: d ? d.at : 0, list: listP.filter((x) => x.p || x.n > 0).sort((a, b) => (b.p && b.p.src === "tmdb" ? 1 : 0) - (a.p && a.p.src === "tmdb" ? 1 : 0) || b.n - a.n) };
       }
-      const people = board.peopleSeen.list, shown = new Set(who.map((f) => f.person || f.label).filter(Boolean));
-      part("svs-cast", [d ? d.at : 0, people.length, people.map((x) => (x.p ? x.p.name : x.label) + x.n).join("|"), [...shown].map((p) => p.name || p).join("|")].join("\u0001"), (cast) => {
-        if (!people.length) return;
+      const people = board.peopleSeen.list, inScene = new Set(who.map((f) => f.person || cleanName(f.label)).filter(Boolean));
+      askFaces(people.map((x) => (x.p ? x.p.character || x.p.name : x.label)));
+      const keyOf = (x) => x.p || cleanName(x.label);
+      const ordered = people.slice().sort((a, b) => (inScene.has(keyOf(b)) ? 1 : 0) - (inScene.has(keyOf(a)) ? 1 : 0));
+      part("svs-people", [d ? d.at : 0, ordered.map((x) => (x.p ? x.p.name : x.label) + x.n + (inScene.has(keyOf(x)) ? "*" : "")).join("|"), board.facesV].join("|"), (pe) => {
         const tmdb = people.some((x) => x.p && x.p.src === "tmdb");
-        cast.appendChild(mk("div", "svs-lbl", (tmdb ? "Cast & people" : "People so far") + " · " + people.length));
-        const row = mk("div", "svs-faces"); for (const x of people.filter((x) => !shown.has(x.p || x.label)).slice(0, 8)) row.appendChild(face(x.p, x.label, false, false)); cast.appendChild(row);
-        if (tmdb) cast.appendChild(mk("div", "svs-attr", "Cast & episode data · TMDB"));
-        const more = mk("div", "svs-more"); more.appendChild(mk("div", "svs-lbl", tmdb ? "Cast, and the people the chunks have met" : "People the chunks have met so far")); const grid = mk("div", "svs-faces xl");
-        for (const x of people.slice(0, 16)) { const f = face(x.p, x.label, true, false); if (x.n) f.appendChild(mk("small", null, x.n + (x.n === 1 ? " scene" : " scenes"))); grid.appendChild(f); }
-        more.appendChild(grid); cast.appendChild(more);
+        const head = mk("div", "svs-lbl"); head.append(mk("span", null, "People · " + people.length), mk("span", null, tmdb ? "Cast & episode data · TMDB" : "")); pe.appendChild(head);
+        if (!people.length) { pe.appendChild(mk("div", "svs-scene muted", "People appear here as the chunks meet them")); return; }
+        const row = mk("div", "svs-people-row"); const MAX = 9;
+        ordered.slice(0, MAX).forEach((x) => { const f = face(x.p, x.label, "sm", false); if (inScene.has(keyOf(x))) f.classList.add("here"); row.appendChild(f); });
+        if (ordered.length > MAX) { const more = mk("span", "svs-face sm plus"); more.appendChild(mk("i", null, "+" + (ordered.length - MAX))); more.appendChild(mk("b", null, "more")); row.appendChild(more); }
+        pe.appendChild(row);
+        const sheet = mk("div", "svs-more wide"); sheet.appendChild(mk("div", "svs-lbl", tmdb ? "Cast, and the people the chunks have met" : "People the chunks have met so far"));
+        const grid = mk("div", "svs-grid");
+        for (const x of ordered.slice(0, 24)) { const f = face(x.p, x.label, "lg", false); if (inScene.has(keyOf(x))) f.classList.add("here"); if (x.n) f.appendChild(mk("small", "n", x.n + (x.n === 1 ? " scene" : " scenes"))); grid.appendChild(f); }
+        sheet.appendChild(grid); pe.appendChild(sheet);
       });
-      // The bar is a timeline: explained chunks are drawn where they are in the video (a
-      // viewer who starts at 20:00 sees the teal begin there), the busy ones amber, the playhead coral.
-      const n = list.length, ranges = []; let start = -1;
+    };
+    // The tips pipeline lives on the board, under its tools: how far the tips reach, what is being explained, Explain all / Stop / Retry.
+    const renderPump = () => {
+      const b = board.el; if (!b) return; const el = b.querySelector(".svb-pump"); if (!el) return;
+      const list = board.list, n = list.length, st = tipsStatus(list, board.ki);
+      const ranges = []; let start = -1;
       for (let j = 0; j <= n; j++) { const on = j < n && lineExplainCache.has(list[j].text); if (on && start < 0) start = j; if (!on && start >= 0) { ranges.push([start, j]); start = -1; } }
       const wait = st.state === "paused" ? Math.max(0, Math.ceil((tips.pausedUntil - performance.now()) / 10000) * 10) : 0;
-      part("svs-pump", [st.state, st.doneN, n, st.readyToMs, st.busy.join(","), st.all, st.reason, board.ki, ranges.map((r) => r.join("-")).join(","), wait].join("\u0001"), (pump) => {
-        const lbl = mk("div", "svs-lbl"); lbl.append(mk("span", null, "Tips ahead"), mk("span", null, st.doneN + " of " + n)); pump.appendChild(lbl);
-        const bar = mk("div", "svs-bar");
-        for (const [a, b] of ranges) { const i = mk("i"); i.style.left = (100 * a / n) + "%"; i.style.width = (100 * (b - a) / n) + "%"; bar.appendChild(i); }
-        for (const j of st.busy) { const e = mk("em"); e.style.left = (100 * j / n) + "%"; e.style.width = (100 / n) + "%"; bar.appendChild(e); }
-        if (n && board.ki >= 0) { const u = mk("u"); u.style.left = (100 * board.ki / n) + "%"; bar.appendChild(u); }
-        pump.appendChild(bar);
-        const txt = st.state === "off" ? "Off — set Tips ahead in the popup"
-          : st.state === "stopped" ? "Tips paused — " + (st.reason || "couldn't explain")
-          : st.state === "paused" ? "Tips paused — " + (st.reason || "couldn't explain") + (wait ? " · retrying in " + wait + " s" : "")
-          : (st.readyToMs ? "Ready to " + fmtT(st.readyToMs) : "Nothing ahead yet") + (st.busy.length ? " · explaining " + st.busy.map((j) => fmtT(list[j].startMs)).join(" · ") : "");
-        const stEl = mk("div", "svs-st", txt); stEl.title = txt; pump.appendChild(stEl);
-        const acts = mk("div", "svs-acts");
-        if (st.state === "stopped" || st.state === "paused") { const r = mk("button", "svs-btn coral", "Retry now"); r.type = "button"; r.title = "Start the tips pump again"; r.addEventListener("click", tipsRetry); acts.appendChild(r); }
-        else if (st.all) { const b = mk("button", "svs-btn", "Stop"); b.type = "button"; b.addEventListener("click", () => tipsAll(false)); acts.appendChild(b); }
-        else if (st.doneN < n) { const b = mk("button", "svs-btn coral", "Explain all →"); b.type = "button"; b.title = "Explain every chunk of this video now, one after the other"; b.addEventListener("click", () => tipsAll(true)); acts.appendChild(b); }
-        const hide = mk("button", "svs-btn", "Hide"); hide.type = "button"; hide.title = "Hide this strip (the Scene button on the board brings it back)"; hide.addEventListener("click", () => { board.stripHidden = true; try { localStorage.setItem("sv-strip-collapsed", "1"); } catch (e) {} ensureStrip(); fitPlayer(true); board.sig = ""; boardTick(true); }); acts.appendChild(hide);
-        pump.appendChild(acts);
-      });
+      const sig = [st.state, st.doneN, n, st.readyToMs, st.busy.join(","), st.all, st.reason, board.ki, ranges.map((r) => r.join("-")).join(","), wait, board.collapsed ? 1 : 0].join("|");
+      if (sig === board.pumpSig) return; board.pumpSig = sig; el.textContent = ""; el.hidden = board.collapsed || !n;
+      if (el.hidden) return;
+      const bar = mk("div", "svs-bar");
+      for (const [a, c] of ranges) { const i = mk("i"); i.style.left = (100 * a / n) + "%"; i.style.width = (100 * (c - a) / n) + "%"; bar.appendChild(i); }
+      for (const j of st.busy) { const e = mk("em"); e.style.left = (100 * j / n) + "%"; e.style.width = (100 / n) + "%"; bar.appendChild(e); }
+      if (board.ki >= 0) { const u = mk("u"); u.style.left = (100 * board.ki / n) + "%"; bar.appendChild(u); }
+      const txt = st.state === "off" ? "Tips ahead is off (popup)" : st.state === "stopped" ? "Tips paused — " + (st.reason || "couldn't explain")
+        : st.state === "paused" ? "Tips paused — " + (st.reason || "couldn't explain") + (wait ? " · retrying in " + wait + " s" : "")
+        : "Tips " + st.doneN + " / " + n + (st.readyToMs ? " · ready to " + fmtT(st.readyToMs) : "") + (st.busy.length ? " · explaining " + st.busy.map((j) => fmtT(list[j].startMs)).join(" · ") : "");
+      const stEl = mk("span", "svb-pump-st", txt); stEl.title = txt;
+      let btn = null;
+      if (st.state === "stopped" || st.state === "paused") { btn = mk("button", "svb-explain", "Retry now"); btn.addEventListener("click", tipsRetry); }
+      else if (st.all) { btn = mk("button", "svb-explain", "Stop"); btn.addEventListener("click", () => tipsAll(false)); }
+      else if (st.doneN < n) { btn = mk("button", "svb-explain", "Explain all →"); btn.title = "Explain every chunk of this video now, one after the other"; btn.addEventListener("click", () => tipsAll(true)); }
+      if (btn) btn.type = "button";
+      el.append(bar, stEl); if (btn) el.appendChild(btn);
     };
     // Open a chunk on the board: explain it (cached), show its tips, follow it.
     const boardFocus = (k, flash, pin) => {
@@ -2788,7 +2832,7 @@
       if (board.collapsed) return;
       const list = chunksNow();
       const ki = curCue ? chunkOfCue(list, curCue) : -1;
-      if (boardVisible()) tipsPump(list, ki); // the next chunks are explained before the playhead reaches them
+      if (boardVisible()) { tipsPump(list, ki); wantRecap(list, ki); } // the next chunks are explained before the playhead reaches them; the catch-up refreshes every 8
       // Tips at the start of each chunk: the pane opens the playing chunk by
       // itself (it shows "Explaining…" until the pump delivers) — unless a
       // row was pinned by a click in the last 20 s.
@@ -2796,13 +2840,13 @@
       const trN = list.reduce((n, ch) => n + ch.sentences.filter((x) => x.tr).length, 0);
       const exN = list.filter((ch) => lineExplainCache.has(ch.text)).length;
       const sig = [list.length, trN, ki, exN, board.open, snapChunks, tipsExplain, tips.inflight.size, tips.stopped ? 1 : 0, tips.all ? 1 : 0].join(":");
-      if (sig === board.sig) { renderPane(); renderStrip(); return; }
+      if (sig === board.sig) { renderPane(); renderStrip(); renderPump(); return; }
       const follow = ki !== board.ki;
       board.sig = sig; board.list = list; board.ki = ki;
       // A small state stamp for diagnosis from the page (the script's variables are not reachable there).
       try { document.documentElement.dataset.svBoard = JSON.stringify({ ki, open: board.open, loop: board.loop, stopAt: board.stopAt, rate: board.rate, tips: tipsStatus(list, ki).state, chunk: list[ki] ? [Math.round(list[ki].startMs), Math.round(list[ki].endMs)] : null }); } catch (e) {}
       renderBoard();
-      renderStrip();
+      renderStrip(); renderPump();
       // Follow the playhead — unless the reader scrolled the list in the last 6 s.
       if (follow && ki >= 0 && now - board.userScrollAt > 6000) boardScrollTo(ki, true);
       applyLinesOff();

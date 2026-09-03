@@ -26,6 +26,7 @@
     "https://api.anthropic.com/*",
     "https://api.themoviedb.org/*",
     "https://image.tmdb.org/*",
+    "https://*.fandom.com/*",
     "https://generativelanguage.googleapis.com/*",
     "https://*.youtube.com/*",
     "https://*.netflix.com/*",

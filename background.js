@@ -1273,7 +1273,10 @@ async function explainLine(base, sent, langHint, opts) {
   const out = { tr: String(p.tr || "").trim(), simple: String(p.simple || "").trim(), g: String(p.g || "").trim(), scene: String(p.scene || "").trim().slice(0, 240), who: Array.isArray(p.who) ? p.who.map((x) => String(x).trim().slice(0, 60)).filter(Boolean).slice(0, 4) : [], lang,
     words: Array.isArray(p.words) ? p.words.filter((x) => x && x.w && x.m).slice(0, 8).map((x) => ({ w: String(x.w).trim(), m: String(x.m).trim(), pos: String(x.pos || "").trim().toLowerCase(), level: String(x.level || "").trim().toUpperCase(), forms: cleanForms(x.forms), parts: Array.isArray(x.parts) ? x.parts.map((q) => String(q).trim()).filter(Boolean).slice(0, 4) : [],
       register: REG.has(String(x.register || "").toLowerCase()) ? String(x.register).toLowerCase() : "", tone: TONE.has(String(x.tone || "").toLowerCase()) ? String(x.tone).toLowerCase() : "", care: String(x.care || "").trim().slice(0, 160) })) : [] };
-  if (out.tr) { out.s = sent; out.at = started; out.explain = explainPref; cx.e[skey] = out; if (!explainPref) cx.target = target; cx.lang = lang || String(cx.lang || ""); cx.at = Date.now(); await idbVocabPut("clipexplain:" + base, cx); }
+  if (out.tr) { out.s = sent; out.at = started; out.explain = explainPref; cx.e[skey] = out; if (!explainPref) cx.target = target; cx.lang = lang || String(cx.lang || ""); cx.at = Date.now();
+    // The call took seconds; merge what landed meanwhile (other explanations, faces, recaps, the dossier) instead of writing over it.
+    const fresh = await idbVocabGet("clipexplain:" + base); if (fresh) { cx.e = Object.assign({}, fresh.e || {}, cx.e); if (fresh.dossier) cx.dossier = fresh.dossier; if (fresh.faces) cx.faces = fresh.faces; if (fresh.recaps) cx.recaps = fresh.recaps; }
+    await idbVocabPut("clipexplain:" + base, cx); }
   await logCall({ ts: started, site: "learn", title: "Explain: " + sent.slice(0, 40), kind: "enrich", lines: 1, ms: Date.now() - started,
     inTok: (r.usage && r.usage.prompt_tokens) || 0, outTok: (r.usage && r.usage.completion_tokens) || 0,
     cacheR: (r.usage && r.usage.cache_r) || 0, cacheW: (r.usage && r.usage.cache_w) || 0, ok: true, provider: r.provider, model: r.model });
@@ -1284,6 +1287,79 @@ const eRank = (k) => (k.startsWith("e4") ? 3 : k.startsWith("e3") ? 2 : 1);
 // "Share this video's tips": the board's chunks in order, each with whatever is
 // already explained (nothing is asked from the model), saved as one record and
 // opened in share.html — a page that can be downloaded as a single file.
+// ── Faces: character pictures from the franchise's Fandom wiki (no key needed) ──
+// The model names the wiki once per video ("gta" for gta.fandom.com); each name is
+// searched there with the title appended, and a page counts only when it starts with
+// the name, has a picture and its intro mentions this title (not a namesake from
+// another game). Cached per name in clipexplain:<base>.faces for 30 days.
+const WIKI_SCHEMA = { name: "fandom_wiki", strict: true, schema: { type: "object", additionalProperties: false, properties: { wiki: { type: "string" }, tag: { type: "string" } }, required: ["wiki", "tag"] } };
+async function ensureWiki(base, cx, d) {
+  if (d.wikiAt) return d.wiki || "";
+  try {
+    const r = await llmJSON(`You know the Fandom wiki subdomains of well-known titles (gta.fandom.com → "gta", breakingbad.fandom.com → "breakingbad", theoffice.fandom.com → "theoffice", strangerthings.fandom.com → "strangerthings", harrypotter.fandom.com → "harrypotter"). The user message carries {"title","show","kind","synopsis"}. Return STRICT JSON {"wiki":"<subdomain, or empty when no well-known wiki covers this title>","tag":"<the short tag that wiki uses for this specific game, series or film, e.g. GTA VI, or empty>"}. Never invent a wiki; empty is the right answer for most videos.`,
+      { title: d.title || "", show: d.show || "", kind: d.kind || "", synopsis: (d.synopsis || d.description || "").slice(0, 300) }, WIKI_SCHEMA);
+    const p = (r && r.parsed) || {};
+    d.wiki = String(p.wiki || "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 40); d.tag = String(p.tag || "").trim().slice(0, 30);
+  } catch (e) { d.wiki = ""; }
+  d.wikiAt = Date.now(); cx.dossier = d; await idbVocabPut("clipexplain:" + base, cx);
+  return d.wiki;
+}
+const FACE_TTL = 30 * 24 * 3600e3;
+async function faceLookup(name, d) {
+  if (!d.wiki) return "";
+  const show = d.show || d.title || "";
+  const url = "https://" + d.wiki + ".fandom.com/api.php?action=query&generator=search&gsrsearch=" + encodeURIComponent(name + " " + (d.tag || show)) + "&gsrlimit=4&prop=pageimages%7Cextracts&piprop=thumbnail&pithumbsize=240&exintro=1&explaintext=1&exchars=300&format=json&origin=*";
+  const r = await fetch(url); if (!r.ok) return "";
+  const j = await r.json();
+  const pages = Object.values((j.query && j.query.pages) || {}).sort((a, b) => (a.index || 9) - (b.index || 9));
+  const n = name.toLowerCase(), want = [show, d.tag].filter(Boolean).map((s) => s.toLowerCase());
+  for (const p of pages) {
+    const t = String(p.title || "").toLowerCase();
+    if (!t.startsWith(n) || /\/infobox$/.test(t) || !(p.thumbnail && p.thumbnail.source)) continue;
+    const intro = (String(p.extract || "") + " " + t).toLowerCase();
+    if (!want.length || want.some((w) => intro.includes(w))) return p.thumbnail.source;
+  }
+  return "";
+}
+async function faces(msg) {
+  const base = String(msg.base || "");
+  const names = (Array.isArray(msg.names) ? msg.names : []).map((x) => String(x).replace(/\s*\(.*$/, "").trim()).filter((x) => x && /^\p{Lu}/u.test(x)).slice(0, 12);
+  if (!base || !names.length) return { ok: false, error: "empty" };
+  const cx = await idbVocabGet("clipexplain:" + base);
+  if (!cx || !cx.dossier) return { ok: false, error: "no dossier yet" };
+  const d = cx.dossier; cx.faces = cx.faces || {};
+  const wiki = await ensureWiki(base, cx, d);
+  const out = {}; let dirty = false;
+  for (const nm of names) {
+    const c = cx.faces[nm]; if (c && Date.now() - c.at < FACE_TTL) { out[nm] = c.url; continue; }
+    let url = ""; if (wiki) { try { url = await faceLookup(nm, d); } catch (e) {} }
+    cx.faces[nm] = { url, at: Date.now() }; out[nm] = url; dirty = true;
+  }
+  if (dirty) { const fresh = await idbVocabGet("clipexplain:" + base); const rec = fresh || cx; rec.faces = Object.assign({}, rec.faces || {}, cx.faces); rec.dossier = rec.dossier || d; if (rec.dossier && !rec.dossier.wikiAt) { rec.dossier.wiki = d.wiki; rec.dossier.tag = d.tag; rec.dossier.wikiAt = d.wikiAt; } await idbVocabPut("clipexplain:" + base, rec); }
+  return { ok: true, faces: out, wiki };
+}
+
+// ── Story so far: a catch-up in the video's own language, up to the playhead only ──
+const RECAP_SCHEMA = { name: "story_so_far", strict: true, schema: { type: "object", additionalProperties: false, properties: { recap: { type: "string" }, who: { type: "array", items: { type: "string" } } }, required: ["recap", "who"] } };
+function recapPrompt(source, dossier) {
+  return `You catch a viewer up on the video they are watching, in ${langName(source)}, with simple words (B1). The user message carries {"scenes":[…one line per passage so far, in order…],"lines":[…the latest subtitle lines…],"upTo":"m:ss"}.\n` +
+    (dossierFacts(dossier) ? SV_DOSSIER.block(dossier) : "") +
+    `Return STRICT JSON {"recap":"…","who":["…"]}: recap = what has happened so far, up to this point ONLY — never guess, hint at or foreshadow what comes next — 3 to 5 short plain sentences in ${langName(source)}, using the people's names as they appear in the scenes; who = the 2 to 5 people who matter so far, by those names.`;
+}
+async function storyRecap(msg) {
+  const base = String(msg.base || ""), k = msg.k | 0; if (!base) return { ok: false, error: "empty" };
+  const cx = (await idbVocabGet("clipexplain:" + base)) || { base, at: Date.now(), e: {} };
+  cx.recaps = cx.recaps || {};
+  const lang = String(msg.lang || "auto"), key = k + "|" + lang;
+  if (cx.recaps[key] && cx.recaps[key].recap) return Object.assign({ ok: true, k, cached: true }, cx.recaps[key]);
+  const started = Date.now();
+  const r = await llmJSON(recapPrompt(lang, cx.dossier || null), { scenes: (msg.scenes || []).slice(-60).map((s) => String(s).slice(0, 240)), lines: (msg.lines || []).slice(-24).map((s) => String(s).slice(0, 200)), upTo: String(msg.upTo || "") }, RECAP_SCHEMA);
+  const p = (r && r.parsed) || {};
+  const out = { recap: String(p.recap || "").trim().slice(0, 900), who: Array.isArray(p.who) ? p.who.map((x) => String(x).trim().slice(0, 60)).filter(Boolean).slice(0, 5) : [], at: Date.now() };
+  if (out.recap) { const fresh = await idbVocabGet("clipexplain:" + base); const rec = fresh || cx; rec.recaps = Object.assign({}, rec.recaps || {}, { [key]: out }); await idbVocabPut("clipexplain:" + base, rec); }
+  await logCall({ ts: started, site: "learn", title: "So far: " + String(msg.upTo || ""), kind: "enrich", lines: (msg.scenes || []).length, ms: Date.now() - started, inTok: (r.usage && r.usage.prompt_tokens) || 0, outTok: (r.usage && r.usage.completion_tokens) || 0, cacheR: (r.usage && r.usage.cache_r) || 0, cacheW: (r.usage && r.usage.cache_w) || 0, ok: true, provider: r.provider, model: r.model });
+  return Object.assign({ ok: true, k }, out);
+}
 async function shareTips(msg) {
   const base = String(msg.base || ""); if (!base) return { ok: false, error: "empty" };
   const pref = String(msg.explain || "").trim();
@@ -3136,6 +3212,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         case "TIPS_SNAP": sendResponse(await tipsSnap(msg, sender)); break;
         case "CLIP_TIPS": sendResponse(await clipTips(msg)); break;
         case "TIPS_CACHED": sendResponse(await tipsCached(msg)); break;
+        case "FACES": try { sendResponse(await faces(msg)); } catch (e2) { sendResponse({ ok: false, error: String((e2 && e2.message) || e2) }); } break;
+        case "STORY_RECAP": try { sendResponse(await storyRecap(msg)); } catch (e2) { sendResponse({ ok: false, error: String((e2 && e2.message) || e2) }); } break;
         case "DOSSIER": { // the board asks once per video, before any explanation
           try { const d = await ensureDossier(String(msg.base || ""), msg.meta || {}, Array.isArray(msg.sample) ? msg.sample : [], msg.lang); sendResponse({ ok: !!d, dossier: d || null }); }
           catch (e2) { sendResponse({ ok: false, error: String((e2 && e2.message) || e2) }); }
