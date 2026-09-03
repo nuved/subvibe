@@ -2012,7 +2012,7 @@
         const us = units.slice(r.from, r.to + 1);
         // ASR stage tags ("[Music]", "[Applause]") are not language — keep them out of the tips.
         const clean = (t) => String(t || "").replace(/\[[^\]]{1,24}\]/g, " ").replace(/\s+/g, " ").trim();
-        const sentences = us.map((u) => ({ s: clean(u.original), tr: clean(unitTr(u, tg)), startMs: u.startMs, cue: u.cue })).filter((x) => x.s);
+        const sentences = us.map((u) => ({ s: clean(u.original), tr: clean(unitTr(u, tg)), startMs: u.startMs, endMs: u.endMs, cue: u.cue })).filter((x) => x.s);
         return { k, from: r.from, to: r.to, startMs: r.startMs, endMs: r.endMs, units: us, text: sentences.map((x) => x.s).join(" "), sentences };
       });
     };
@@ -2033,7 +2033,7 @@
       if (seededFor === tipsExplain) return; seededFor = tipsExplain;
       send({ type: "TIPS_CACHED", base, explain: tipsExplain }).then((r) => {
         if (!r || !r.ok || seededFor !== tipsExplain) return;
-        for (const e of r.entries || []) if (!lineExplainCache.has(e.s)) lineExplainCache.set(e.s, { tr: e.tr, g: e.g, lang: e.lang || "", words: e.words || [] });
+        for (const e of r.entries || []) if (!lineExplainCache.has(e.s)) lineExplainCache.set(e.s, { tr: e.tr, simple: e.simple || "", g: e.g, lang: e.lang || "", words: e.words || [] });
         board.sig = "";
       });
     };
@@ -2050,7 +2050,7 @@
       const hit = lineExplainCache.get(ch.text); if (hit) return Promise.resolve(hit);
       if (!chunkFetching.has(ch.text)) chunkFetching.set(ch.text, send(explainPayload(ch, list)).then((r) => {
         chunkFetching.delete(ch.text);
-        if (r && r.tr) { const ex = { tr: r.tr, g: r.g, lang: r.lang || "", words: r.words || [] }; lineExplainCache.set(ch.text, ex); return ex; }
+        if (r && r.tr) { const ex = { tr: r.tr, simple: r.simple || "", g: r.g, lang: r.lang || "", words: r.words || [] }; lineExplainCache.set(ch.text, ex); return ex; }
         return { error: r && r.error ? "couldn't explain — check the provider key in the popup" : "no explanation — try again" };
       }));
       return chunkFetching.get(ch.text);
@@ -2060,10 +2060,53 @@
 
     // ── Shared pieces: a chunk's sentences, its tips, the actions row ────────
     // Used by the ﹖ card over the video and by the story board beside it.
-    const buildSents = (ch, startNo, cls) => {
-      const box = mk("div", cls || "wt-line wt-sents"); box.dir = "auto";
-      ch.sentences.forEach((x, i) => { const r = mk("div", "wt-sent"); r.appendChild(mk("i", "wt-sn", String(startNo + i))); const t = mk("span", null, x.s); t.dir = "auto"; r.appendChild(t); box.appendChild(r); });
+    // Word classes: verbs (both parts of a separated verb in the same colour),
+    // nouns, adjectives, adverbs, phrases — from the explanation's word list.
+    const POS_CLASS = { noun: "n", verb: "v", "phrasal verb": "v", adjective: "adj", adverb: "adv", idiom: "x", expression: "x", preposition: "prep", conjunction: "conj", pronoun: "pron" };
+    const POS_LABEL = { v: "verb", n: "noun", adj: "adjective", adv: "adverb", x: "phrase", prep: "preposition" };
+    const normTok = (w) => String(w || "").toLowerCase().replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+    // Colour the term's words inside one sentence: each part is matched in
+    // order (a separated verb's prefix comes later in the sentence).
+    const markPos = (spans, words) => {
+      if (!spans.length || !words || !words.length) return;
+      const toks = spans.map((s) => normTok(s.textContent));
+      for (const w of words) {
+        const cls = POS_CLASS[String(w.pos || "").toLowerCase()]; if (!cls) continue;
+        const parts = (Array.isArray(w.parts) && w.parts.length ? w.parts : String(w.w || "").split(" ")).map(normTok).filter(Boolean);
+        if (!parts.length) continue;
+        let from = 0; const idxs = [];
+        for (const part of parts) { let i = -1; for (let j = from; j < toks.length; j++) if (toks[j] === part) { i = j; break; } if (i < 0) { idxs.length = 0; break; } idxs.push(i); from = i + 1; }
+        if (!idxs.length) continue;
+        for (const i of idxs) { spans[i].classList.add("pos-" + cls); if (parts.length > 1 && cls === "v") spans[i].classList.add("sep"); if (w.m) spans[i].title = w.w + " — " + w.m; }
+      }
+    };
+    // One sentence as word spans (karaoke units when given, else the words),
+    // coloured by the explanation's word classes.
+    const renderSentence = (x, ex, units) => {
+      const t = mk("span", "svb-txt"); t.dir = "auto";
+      const toks = units ? units.map((u) => u.t) : String(x.s || "").split(" ").filter(Boolean);
+      const spans = [];
+      toks.forEach((w, j) => { if (j) t.appendChild(document.createTextNode(" ")); const sp = mk("span", "svb-w", w); t.appendChild(sp); spans.push(sp); });
+      if (units) { t.__svW = { units, spans, k: -1 }; t.classList.add("k"); }
+      if (ex && !ex.error) markPos(spans, ex.words);
+      return t;
+    };
+    const buildSents = (ch, startNo, ex) => {
+      const box = mk("div", "wt-line wt-sents"); box.dir = "auto";
+      ch.sentences.forEach((x, i) => {
+        const r = mk("div", "wt-sent"); const num = mk("button", "wt-sn", String(startNo + i)); num.type = "button"; num.title = "Hear this sentence"; num.addEventListener("click", (ev) => { ev.stopPropagation(); playFrom(x.startMs != null ? x.startMs : ch.startMs, x.endMs); });
+        r.appendChild(num); r.appendChild(renderSentence(x, ex, null)); box.appendChild(r);
+        if (x.tr) { const tr = mk("div", "wt-tr", x.tr); tr.dir = "auto"; box.appendChild(tr); }
+      });
       return box;
+    };
+    const buildLegend = (ex) => {
+      const seen = new Set(); for (const w of (ex && ex.words) || []) { const c = POS_CLASS[String(w.pos || "").toLowerCase()]; if (c && POS_LABEL[c]) seen.add(c); }
+      if (!seen.size) return null;
+      const lg = mk("div", "wt-legend");
+      for (const c of ["v", "n", "adj", "adv", "x", "prep"]) if (seen.has(c)) { const it = mk("span", "wt-lg pos-" + c, POS_LABEL[c]); lg.appendChild(it); }
+      if ((ex.words || []).some((w) => /phrasal/.test(String(w.pos || "")) || ((w.parts || []).length > 1 && /verb/.test(String(w.pos || ""))))) lg.appendChild(mk("span", "wt-lg pos-v sep", "two-part verb"));
+      return lg;
     };
     const buildTips = (ex, ch) => {
       const body = mk("div", "wt-body");
@@ -2071,7 +2114,10 @@
       const line = (text) => { const v = mk("div", "wt-val", text); v.dir = "auto"; return v; };
       if (!ex) { body.appendChild(line("…")); return body; }
       if (ex.error) { body.appendChild(line(ex.error)); return body; }
-      if (ex.tr) addSect("Translation", line(ex.tr));
+      // The passage said more simply, in its own language — the translation
+      // already sits under each sentence, so no second translation here.
+      const simple = ex.simple || (tipsExplain === "same" ? ex.tr : "");
+      if (simple) addSect("Put simply", line(simple));
       if (ex.g) {
         const parts = String(ex.g).split(/\s*•\s*/).map((x) => x.trim()).filter(Boolean);
         const gbox = mk("div", "wt-val wt-grambox"); gbox.dir = "auto";
@@ -2081,7 +2127,7 @@
       if (ex.words && ex.words.length) {
         const list = mk("div", "wt-words");
         for (const x of ex.words) {
-          const b = mk("b", null, x.w); b.dir = "auto";
+          const b = mk("b", "pos-" + (POS_CLASS[String(x.pos || "").toLowerCase()] || "o"), x.w); b.dir = "auto";
           const tag = [x.pos, x.level].filter(Boolean).join(" · ");
           if (tag) b.appendChild(mk("i", "wt-tag", tag));
           const m = mk("span", null, x.m); m.dir = "auto";
@@ -2101,6 +2147,7 @@
         }
         addSect("Words", list);
       }
+      const lg = buildLegend(ex); if (lg) body.appendChild(lg);
       return body;
     };
     // Snap: the current video frame as a Shot, with N whole chunks under it.
@@ -2149,8 +2196,17 @@
           if (!r || !r.ok) sheet.textContent = r && r.error === "empty" ? "No tips saved yet" : "Couldn't open the sheet";
         });
       });
-      act.append(nsel, snap, sheet);
+      const loop = mk("button", "wt-sheet wt-loop" + (board.loop === ctx.k0 ? " on" : ""), board.loop === ctx.k0 ? "Repeating ↻" : "Repeat ↻"); loop.type = "button";
+      loop.title = "Play this chunk again and again (click to stop)";
+      loop.addEventListener("click", (ev) => { ev.stopPropagation(); if (board.loop === ctx.k0) { board.loop = -1; loop.classList.remove("on"); loop.textContent = "Repeat ↻"; } else { board.loop = ctx.k0; board.stopAt = null; loop.classList.add("on"); loop.textContent = "Repeating ↻"; const ch = ctx.list[ctx.k0]; if (ch) playFrom(ch.startMs); } });
+      act.append(nsel, snap, loop, sheet);
       return act;
+    };
+    // Playback speed for listening slowly: 1× → 0.75× → 0.5× → 1×.
+    const speedButton = (cls) => {
+      const b = mk("button", cls || "svb-speed", (board.rate || 1) + "×"); b.type = "button"; b.title = "Listen slower: 1× → 0.75× → 0.5×";
+      b.addEventListener("click", (ev) => { ev.stopPropagation(); const v = liveVideoEl(video) || video; const next = { 1: 0.75, 0.75: 0.5, 0.5: 1 }[board.rate || 1] || 1; board.rate = next; try { v.playbackRate = next; } catch (e) {} for (const q of document.querySelectorAll(".svb-speed, .wt-speed")) q.textContent = next + "×"; });
+      return b;
     };
     let snapChunks = 1; // how many chunks the card shows and a snap carries (1 · 2 · 3)
 
@@ -2182,13 +2238,13 @@
       next.addEventListener("click", (ev) => { ev.stopPropagation(); goChunk(k0 + n, anchor); });
       const lang = mk("button", "wt-pg wt-lang", tipsLangLabel(true)); lang.type = "button"; lang.title = "Tips in " + tipsLangLabel(false) + " — click to switch between your language and the video's own language";
       lang.addEventListener("click", (ev) => { ev.stopPropagation(); setTipsExplain(tipsExplain === "same" ? "" : "same"); });
-      pager.append(prev, lbl, lang, next); wtip.appendChild(pager);
+      pager.append(prev, lbl, speedButton("wt-pg wt-speed"), lang, next); wtip.appendChild(pager);
       const scroller = mk("div", "wt-scroll"); // sentences + tips of every shown chunk scroll together
       let no = 1;
       for (let k = k0; k < k0 + n; k++) {
         const ch = list[k]; const ex = lineExplainCache.get(ch.text);
         if (k > k0) scroller.appendChild(mk("div", "wt-div", "chunk " + (k + 1) + " · " + fmtT(ch.startMs)));
-        scroller.appendChild(buildSents(ch, no)); no += ch.sentences.length;
+        scroller.appendChild(buildSents(ch, no, ex)); no += ch.sentences.length;
         scroller.appendChild(buildTips(ex, ch));
         if (!ex) explainChunk(ch, list).then(() => { if (wtip._pinned && card.k0 === k0 && card.list === list) renderChunkCard(anchor); });
       }
@@ -2241,7 +2297,7 @@
     // subtitles: every chunk in order with its translation, the playing one
     // highlighted and followed, the explained ones marked; the open chunk
     // shows its Translation · Grammar · Words and the actions row.
-    const board = { el: null, list: [], ki: -1, open: -1, sig: "", at: 0, collapsed: false, userScrollAt: 0, linesOff: false };
+    const board = { el: null, list: [], ki: -1, open: -1, sig: "", at: 0, collapsed: false, userScrollAt: 0, linesOff: false, loop: -1, stopAt: null, rate: 1 };
     try { board.collapsed = localStorage.getItem("sv-board-collapsed") === "1"; board.linesOff = localStorage.getItem("sv-lines-off") === "1"; } catch (e) {}
     const boardVisible = () => !!(board.el && board.el.isConnected && !board.collapsed && !document.fullscreenElement && board.el.offsetParent !== null);
     const setBoardCollapsed = (v) => {
@@ -2271,7 +2327,7 @@
       sel.append(o1, o2); sel.value = tipsExplain;
       sel.addEventListener("change", () => setTipsExplain(sel.value));
       sel.addEventListener("click", (ev) => ev.stopPropagation());
-      tools.append(lines, sel);
+      tools.append(lines, speedButton("svb-speed"), sel);
       b.appendChild(head); b.appendChild(tools);
       const listEl = mk("div", "svb-list");
       // A hand on the list pauses the follow for a while, so it never yanks
@@ -2283,26 +2339,25 @@
       applyLinesOff(); seedExplained();
       return b;
     };
-    const playFrom = (ms) => { const v = liveVideoEl(video) || video; try { v.currentTime = ms / 1000 + 0.05; const pr = v.play(); if (pr && pr.catch) pr.catch(() => {}); } catch (e) {} };
-    const rowSig = (ch, k) => [ch.text, ch.sentences.map((x) => x.tr).join("\u0002"), lineExplainCache.has(ch.text) ? 1 : 0, k === board.open ? 1 : 0, k === board.ki ? 1 : 0, k === board.open ? snapChunks : 0].join("\u0001");
+    // Play from a time; with an end time the video pauses there (hear ONE sentence).
+    const playFrom = (ms, stopMs) => { const v = liveVideoEl(video) || video; board.stopAt = stopMs != null ? stopMs : null; if (stopMs != null) board.loop = -1; try { v.currentTime = ms / 1000 + 0.05; if (board.rate && board.rate !== 1) v.playbackRate = board.rate; const pr = v.play(); if (pr && pr.catch) pr.catch(() => {}); } catch (e) {} };
+    const rowSig = (ch, k) => [ch.text, ch.sentences.map((x) => x.tr).join("\u0002"), lineExplainCache.has(ch.text) ? 1 : 0, k === board.open ? 1 : 0, k === board.ki ? 1 : 0, k === board.open ? snapChunks : 0, board.loop === k ? 1 : 0].join("\u0001");
     const boardRow = (ch, k) => {
       const on = k === board.ki;
       const row = mk("div", "svb-chunk" + (on ? " on" : "") + (k === board.open ? " open" : "")); row.dataset.k = String(k); row.dataset.sig = rowSig(ch, k);
       const time = mk("button", "svb-time", fmtT(ch.startMs)); time.type = "button"; time.title = "Play from here";
       time.addEventListener("click", (ev) => { ev.stopPropagation(); playFrom(ch.startMs); });
       const main = mk("div", "svb-main");
+      const ex = lineExplainCache.get(ch.text);
       ch.sentences.forEach((x, i) => {
         const r = mk("div", "svb-sent");
-        const num = mk("button", "svb-sn", String(i + 1)); num.type = "button"; num.title = "Hear this sentence"; num.addEventListener("click", (ev) => { ev.stopPropagation(); playFrom(x.startMs != null ? x.startMs : ch.startMs); });
+        const num = mk("button", "svb-sn", String(i + 1)); num.type = "button"; num.title = "Hear this sentence (stops at its end)"; num.addEventListener("click", (ev) => { ev.stopPropagation(); playFrom(x.startMs != null ? x.startMs : ch.startMs, x.endMs); });
         r.appendChild(num);
-        const t = mk("span", "svb-txt", x.s); t.dir = "auto";
         // The playing chunk reads like the subtitle: its words light up as they are spoken.
         const units = on && settings.karaokeHl !== false && x.cue ? lineUnits(x.cue, null, x.s) : null;
-        if (units) { t.textContent = ""; /* the words replace the plain text, never both */ const spans = []; units.forEach((u, j) => { if (j) t.appendChild(document.createTextNode(" ")); const w = mk("span", "svb-w", u.t); t.appendChild(w); spans.push(w); }); t.__svW = { units, spans, k: -1 }; }
-        r.appendChild(t); main.appendChild(r);
+        r.appendChild(renderSentence(x, ex, units)); main.appendChild(r);
         if (x.tr) { const tr = mk("div", "svb-tr", x.tr); tr.dir = "auto"; main.appendChild(tr); }
       });
-      const ex = lineExplainCache.get(ch.text);
       const aside = mk("div", "svb-aside"); // the third column: ✓ tips or Explain — never over the text
       if (k === board.open) {
         main.appendChild(buildTips(ex, ch));
@@ -2316,6 +2371,13 @@
     // Karaoke on the board (every frame): spoken words turn coral, the word
     // being spoken sits on a warm pill, its sentence is the one in focus.
     const boardSung = (t) => {
+      // Hear one sentence: pause at its end. Repeat a chunk: jump back at its end.
+      if (board.stopAt != null && t >= board.stopAt) { board.stopAt = null; const v = liveVideoEl(video) || video; try { v.pause(); } catch (e) {} }
+      if (board.loop >= 0) {
+        const ch = board.list[board.loop];
+        if (!ch || t < ch.startMs - 2500 || t > ch.endMs + 2500) { board.loop = -1; board.sig = ""; } // the reader went elsewhere — stop repeating
+        else if (t >= ch.endMs) { const v = liveVideoEl(video) || video; try { v.currentTime = ch.startMs / 1000 + 0.05; } catch (e) {} }
+      }
       if (!board.el || board.collapsed || board.ki < 0) return;
       const row = board.el.querySelector(".svb-chunk.on"); if (!row) return;
       let live = null;
@@ -2375,6 +2437,8 @@
       if (sig === board.sig) return;
       const follow = ki !== board.ki;
       board.sig = sig; board.list = list; board.ki = ki;
+      // A small state stamp for diagnosis from the page (the script's variables are not reachable there).
+      try { document.documentElement.dataset.svBoard = JSON.stringify({ ki, open: board.open, loop: board.loop, stopAt: board.stopAt, rate: board.rate, chunk: list[ki] ? [Math.round(list[ki].startMs), Math.round(list[ki].endMs)] : null }); } catch (e) {}
       renderBoard();
       // Follow the playhead — unless the reader scrolled the list in the last 6 s.
       if (follow && ki >= 0 && now - board.userScrollAt > 6000) boardScrollTo(ki, true);

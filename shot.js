@@ -390,11 +390,12 @@
     }
   }
   $("studyDeeper") && $("studyDeeper").addEventListener("click", () => { if (rec && !studying && view === "bilingual") fetchStudy(); });
+  const POSC = { v: "#C93F2B", n: "#1F5FBF", adj: "#2E7D32", adv: "#7B4DBF" }; // word-class colours on the Study card
   const GENDER = { m: ["#2F6FE4", "#E8F0FD"], f: ["#D64550", "#FCE9EB"], n: ["#2E9E5B", "#E6F5EC"] };
   const STUDY_LABELS = {
-    de: { m: "maskulin", f: "feminin", n: "neutrum", v: "Verbgruppe", vDe: "zweiteiliges Verb", note: "Hinweis", simple: "Einfacher gesagt", grammar: "Grammatik", notes: "Hinweise", summary: "Kurz gesagt" },
-    fa: { m: "مذکر", f: "مؤنث", n: "خنثی", v: "گروه فعلی", vDe: "فعل دوبخشی", note: "نکته", simple: "ساده‌تر", grammar: "دستور زبان", notes: "نکته‌ها", summary: "خلاصه" },
-    en: { m: "masculine", f: "feminine", n: "neuter", v: "verb group", vDe: "two-part verb", note: "note", simple: "Put simply", grammar: "Grammar", notes: "Notes", summary: "In short" },
+    de: { m: "maskulin", f: "feminin", n: "neutrum", v: "Verbgruppe", vDe: "zweiteiliges Verb", note: "Hinweis", simple: "Einfacher gesagt", grammar: "Grammatik", notes: "Hinweise", summary: "Kurz gesagt", pv: "Verb", pn: "Nomen", padj: "Adjektiv", padv: "Adverb" },
+    fa: { m: "مذکر", f: "مؤنث", n: "خنثی", v: "گروه فعلی", vDe: "فعل دوبخشی", note: "نکته", simple: "ساده‌تر", grammar: "دستور زبان", notes: "نکته‌ها", summary: "خلاصه", pv: "فعل", pn: "اسم", padj: "صفت", padv: "قید" },
+    en: { m: "masculine", f: "feminine", n: "neuter", v: "verb group", vDe: "two-part verb", note: "note", simple: "Put simply", grammar: "Grammar", notes: "Notes", summary: "In short", pv: "verb", pn: "noun", padj: "adjective", padv: "adverb" },
   };
   const studyLabels = (lang) => STUDY_LABELS[(lang || "").split("-")[0]] || STUDY_LABELS.en;
   // A note = bold term + explanation. The term is its own run on the first
@@ -449,6 +450,12 @@
     const legend = [];
     if (gendered) for (const g of ["m", "f", "n"]) if (marks[g]) { const art = S.articleFor(lang, g); legend.push({ dot: GENDER[g][0], text: (art ? art + " · " : "") + L[g] }); }
     if (marks.v) legend.push({ bar: CORAL, text: (lang || "").split("-")[0] === "de" ? L.vDe : L.v });
+    // Word classes: verbs coral, nouns blue (where gender colours don't already say it), adjectives green, adverbs purple.
+    const pos = marks.pos || {};
+    if (pos.v && !marks.v) legend.push({ dot: POSC.v, text: L.pv });
+    if (pos.n && !gendered) legend.push({ dot: POSC.n, text: L.pn });
+    if (pos.adj) legend.push({ dot: POSC.adj, text: L.padj });
+    if (pos.adv) legend.push({ dot: POSC.adv, text: L.padv });
     if (marks.notes) legend.push({ sup: "1", text: L.note });
     if (legend.length) {
       let x = 0; mc.font = fLegend;
@@ -583,7 +590,7 @@
           const wordX = op.rtl ? tx + t.sw : tx; // in RTL the superscript sits to the LEFT of the word
           const gm = L.gendered && t.g && GENDER[t.g] ? t.g : "";
           if (gm) { g.fillStyle = GENDER[gm][1]; roundRect(g, ox + wordX - px(3), oy + ty + px(2), t.tw + px(6), lhS - px(6), px(4)); g.fill(); }
-          g.font = fS; g.fillStyle = gm ? GENDER[gm][0] : INK; g.textBaseline = "top"; g.textAlign = "left"; g.direction = "ltr";
+          g.font = fS; g.fillStyle = gm ? GENDER[gm][0] : t.v ? POSC.v : (POSC[t.p] || INK); g.textBaseline = "top"; g.textAlign = "left"; g.direction = "ltr";
           g.fillText(t.w, ox + wordX, oy + ty + px(4));
           if (t.v) dashUnder(wordX, ty + lhS - px(8), t.tw);
           if (t.sup) { g.font = fSup; g.fillStyle = CORAL; g.fillText(t.sup, ox + (op.rtl ? tx : tx + t.tw + px(2)), oy + ty + px(1)); }

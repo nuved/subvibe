@@ -407,9 +407,9 @@
   }
   // Which marks a study actually uses (the legend shows only those).
   function studyMarks(blocks) {
-    const marks = { m: false, f: false, n: false, v: false, notes: false };
+    const marks = { m: false, f: false, n: false, v: false, notes: false, pos: {} };
     for (const b of blocks || []) for (const s of b.sentences || []) {
-      for (const t of s.tokens || []) { if (t.g) marks[t.g] = true; if (t.v) marks.v = true; if (t.n && t.n.length) marks.notes = true; }
+      for (const t of s.tokens || []) { if (t.g) marks[t.g] = true; if (t.v) marks.v = true; if (t.n && t.n.length) marks.notes = true; if (t.p) marks.pos[t.p] = true; }
     }
     return marks;
   }

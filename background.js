@@ -968,9 +968,9 @@ function wordPrompt(source, target) {
 // key words. Cached per sentence in clipexplain:${base}.
 const EXPLAIN_SCHEMA = { name: "sentence_explain", strict: true, schema: { type: "object", additionalProperties: false,
   properties: {
-    tr: { type: "string" }, g: { type: "string" },
-    words: { type: "array", items: { type: "object", additionalProperties: false, properties: { w: { type: "string" }, m: { type: "string" }, pos: { type: "string" }, level: { type: "string" }, forms: { type: "string" } }, required: ["w", "m", "pos", "level", "forms"] } },
-  }, required: ["tr", "g", "words"] } };
+    tr: { type: "string" }, simple: { type: "string" }, g: { type: "string" },
+    words: { type: "array", items: { type: "object", additionalProperties: false, properties: { w: { type: "string" }, m: { type: "string" }, pos: { type: "string" }, level: { type: "string" }, forms: { type: "string" }, parts: { type: "array", items: { type: "string" } } }, required: ["w", "m", "pos", "level", "forms", "parts"] } },
+  }, required: ["tr", "simple", "g", "words"] } };
 // What kind of video this is — inferred once from the title and a sample of
 // its lines, cached per video, and put in front of every explanation so the
 // model knows whether it is reading an interview, a lesson, a match, a game…
@@ -1002,11 +1002,12 @@ function explainPrompt(source, target, ctx) {
   const same = source && source !== "auto" && (source || "").split("-")[0] === (target || "").split("-")[0];
   return `You explain ONE ${langName(source)} passage (one or a few sentences that belong together) to a learner${same ? " — in " + langName(source) + " itself, with simple words (A2), so the learner stays inside the language" : ""}. The user message carries {"s":"<the passage>","before":[…earlier lines…],"after":[…later lines…]}; "before" and "after" are ONLY context — never explain or translate them.\n` +
     contextLine(ctx) +
-    `Return STRICT JSON {"tr":"…","g":"…","words":[{"w":"…","m":"…","pos":"…","level":"…","forms":"…"}]}:\n` +
+    `Return STRICT JSON {"tr":"…","simple":"…","g":"…","words":[{"w":"…","m":"…","pos":"…","level":"…","forms":"…","parts":["…"]}]}:\n` +
     (same ? `- tr: the whole passage said more simply in ${langName(source)}: A2 vocabulary, short clauses, same meaning.\n`
           : `- tr: a natural ${langName(target)} translation of the whole passage.\n`) +
+    `- simple: the whole passage said more simply in ${langName(source)} itself — A2 vocabulary, short clauses, the same meaning and the same speaker's voice — so a learner grasps the context without leaving the language.\n` +
     `- g: a plain-${langName(target)} grammar note as 2–4 short points separated by " • ": (1) how the sentence is built — tense/mood, clauses, word order, any separable or phrasal verb; (2) WHY it takes that form, naming the rule with the everyday word next to it; (3) a watch-out for learners (a false friend, an ending, a word that moves) or the everyday way to say it. Concrete, about THIS sentence's words; no bare jargon.\n` +
-    `- words: the 3–8 most useful/learnable words or phrases in this passage, each {w: the ${langName(source)} word or phrase as it appears (the FULL reunited separable verb if one applies, e.g. "anschauen"), m: ${same ? "a short " + langName(source) + " definition or everyday synonym" : "its concise " + langName(target) + " meaning"}, pos: one of noun|verb|phrasal verb|adjective|adverb|idiom|expression|preposition|conjunction|pronoun|other, level: CEFR A1–C2 for a learner, forms: for a verb its base · past · participle plus "regular"/"irregular" (e.g. "say · said · said · irregular"), for a noun its plural (and article, where the language has one), for an adjective its comparative if irregular, else ""}. Skip trivial function words.` +
+    `- words: the 3–8 most useful/learnable words or phrases in this passage, each {w: the ${langName(source)} word or phrase as it appears (the FULL reunited separable verb if one applies, e.g. "anschauen"), m: ${same ? "a short " + langName(source) + " definition or everyday synonym" : "its concise " + langName(target) + " meaning"}, pos: one of noun|verb|phrasal verb|adjective|adverb|idiom|expression|preposition|conjunction|pronoun|other, level: CEFR A1–C2 for a learner, forms: for a verb its base · past · participle plus "regular"/"irregular" (e.g. "say · said · said · irregular"), for a noun its plural (and article, where the language has one), for an adjective its comparative if irregular, else "", parts: the exact surface words of this term as they appear in the passage, in order — for a separable or phrasal verb BOTH parts even when apart (["gibt","auf"], ["hat","gebrochen"], ["pick","up"]), one element for a single word}. Skip trivial function words.` +
     (fa ? `\nفارسیِ سادهٔ روزمره؛ هرگز واژه‌های دستوریِ سنگین. STANDARD IRANIAN FARSI — no Urdu letters/words.` : "");
 }
 
@@ -1105,7 +1106,7 @@ async function explainLine(base, sent, langHint, opts) {
   // Which language the tips are in: the popup's target by default, "same" = the
   // video's own language (immersion), or a language code. Part of the cache key.
   const explainPref = String(o.explain || "").trim();
-  const skey = "e2" + (h >>> 0).toString(36) + (explainPref ? "|" + explainPref : ""); // e2: passage-level explanations with pos/level/forms
+  const skey = "e3" + (h >>> 0).toString(36) + (explainPref ? "|" + explainPref : ""); // e3: passage-level explanations with simple/pos/level/forms/parts
   const cx = (await idbVocabGet("clipexplain:" + base)) || { base, at: Date.now(), e: {} };
   const { targets: cfgX } = await chrome.storage.local.get(["targets"]);
   const defTarget = (Array.isArray(cfgX) && cfgX[0]) || "en";
@@ -1115,7 +1116,7 @@ async function explainLine(base, sent, langHint, opts) {
   if (cx.e[skey] && cx.e[skey].tr) {
     const c = cx.e[skey];
     fa = ((c.explain && c.explain !== "same" ? c.explain : c.explain === "same" ? c.lang : target) || "").split("-")[0] === "fa";
-    return { ok: true, tr: faS(c.tr), g: faS(c.g), lang: c.lang || "", explain: c.explain || "", words: (c.words || []).map((x) => ({ w: x.w, m: faS(x.m), pos: x.pos || "", level: x.level || "", forms: x.forms || "" })), cached: true };
+    return { ok: true, tr: faS(c.tr), simple: c.simple || "", g: faS(c.g), lang: c.lang || "", explain: c.explain || "", words: (c.words || []).map((x) => ({ w: x.w, m: faS(x.m), pos: x.pos || "", level: x.level || "", forms: x.forms || "", parts: x.parts || [] })), cached: true };
   }
   const started = Date.now();
   let lang = langHint && langHint !== "xx" ? String(langHint) : "";
@@ -1128,13 +1129,13 @@ async function explainLine(base, sent, langHint, opts) {
   const payload = { s: sent, before: (o.before || []).slice(-3).map((x) => String(x).slice(0, 200)), after: (o.after || []).slice(0, 3).map((x) => String(x).slice(0, 200)) };
   const r = await llmJSON(explainPrompt(lang || "auto", target, ctx), payload, EXPLAIN_SCHEMA);
   const p = (r && r.parsed) || {};
-  const out = { tr: String(p.tr || "").trim(), g: String(p.g || "").trim(), lang,
-    words: Array.isArray(p.words) ? p.words.filter((x) => x && x.w && x.m).slice(0, 8).map((x) => ({ w: String(x.w).trim(), m: String(x.m).trim(), pos: String(x.pos || "").trim().toLowerCase(), level: String(x.level || "").trim().toUpperCase(), forms: String(x.forms || "").trim() })) : [] };
+  const out = { tr: String(p.tr || "").trim(), simple: String(p.simple || "").trim(), g: String(p.g || "").trim(), lang,
+    words: Array.isArray(p.words) ? p.words.filter((x) => x && x.w && x.m).slice(0, 8).map((x) => ({ w: String(x.w).trim(), m: String(x.m).trim(), pos: String(x.pos || "").trim().toLowerCase(), level: String(x.level || "").trim().toUpperCase(), forms: String(x.forms || "").trim(), parts: Array.isArray(x.parts) ? x.parts.map((q) => String(q).trim()).filter(Boolean).slice(0, 4) : [] })) : [] };
   if (out.tr) { out.s = sent; out.at = started; out.explain = explainPref; cx.e[skey] = out; if (!explainPref) cx.target = target; cx.lang = lang || String(cx.lang || ""); cx.at = Date.now(); await idbVocabPut("clipexplain:" + base, cx); }
   await logCall({ ts: started, site: "learn", title: "Explain: " + sent.slice(0, 40), kind: "enrich", lines: 1, ms: Date.now() - started,
     inTok: (r.usage && r.usage.prompt_tokens) || 0, outTok: (r.usage && r.usage.completion_tokens) || 0,
     cacheR: (r.usage && r.usage.cache_r) || 0, cacheW: (r.usage && r.usage.cache_w) || 0, ok: true, provider: r.provider, model: r.model });
-  return { ok: true, tr: faS(out.tr), g: faS(out.g), lang, explain: explainPref, words: out.words.map((x) => ({ w: x.w, m: faS(x.m), pos: x.pos, level: x.level, forms: x.forms })) };
+  return { ok: true, tr: faS(out.tr), simple: out.simple, g: faS(out.g), lang, explain: explainPref, words: out.words.map((x) => ({ w: x.w, m: faS(x.m), pos: x.pos, level: x.level, forms: x.forms, parts: x.parts })) };
 }
 // Everything already explained on a video, for one tips language — the story
 // board seeds its marks and tips from this after a page load, so nothing
@@ -1143,8 +1144,8 @@ async function tipsCached(msg) {
   const base = String(msg.base || ""); if (!base) return { ok: false, error: "empty" };
   const pref = String(msg.explain || "").trim();
   const cx = await idbVocabGet("clipexplain:" + base);
-  const entries = cx && cx.e ? Object.values(cx.e).filter((e) => e && e.s && e.tr && String(e.explain || "") === pref) : [];
-  return { ok: true, entries: entries.map((e) => ({ s: e.s, tr: e.tr, g: e.g || "", lang: e.lang || "", at: e.at || 0, words: (e.words || []).map((x) => ({ w: x.w, m: x.m, pos: x.pos || "", level: x.level || "", forms: x.forms || "" })) })), ctx: cx && cx.ctx ? cx.ctx : null };
+  const entries = cx && cx.e ? Object.entries(cx.e).filter(([k, e]) => k.startsWith("e3") && e && e.s && e.tr && String(e.explain || "") === pref).map(([, e]) => e) : [];
+  return { ok: true, entries: entries.map((e) => ({ s: e.s, tr: e.tr, simple: e.simple || "", g: e.g || "", lang: e.lang || "", at: e.at || 0, words: (e.words || []).map((x) => ({ w: x.w, m: x.m, pos: x.pos || "", level: x.level || "", forms: x.forms || "", parts: x.parts || [] })) })), ctx: cx && cx.ctx ? cx.ctx : null };
 }
 
 // ── Tips sheet: every ﹖-explained line of a video as one Study card ─────────
@@ -1178,7 +1179,7 @@ async function clipTips(msg) {
     const sTxt = norm(lines[i].s).slice(0, 700);
     try {
       const r = await explainLine(base, sTxt, msg.lang, { title: msg.title, sample: msg.sample, before: lines[i - 1] ? [norm(lines[i - 1].s)] : [], after: lines[i + 1] ? [norm(lines[i + 1].s)] : [] });
-      if (r && r.ok && r.tr) entries.push({ s: sTxt, tr: r.tr, g: r.g, words: r.words || [], lang: r.lang || "", at: i,
+      if (r && r.ok && r.tr) entries.push({ s: sTxt, tr: r.tr, simple: r.simple || "", g: r.g, words: r.words || [], lang: r.lang || "", at: i,
         sentences: Array.isArray(lines[i].sentences) ? lines[i].sentences.map((x) => ({ s: norm(x.s), tr: norm(x.tr) })).filter((x) => x.s) : null });
     } catch (e) { if (/key/i.test(String((e && e.message) || e))) return { ok: false, error: "no-key" }; }
   }
@@ -1243,7 +1244,7 @@ async function tipsSnap(msg, sender) {
   // the older single-line shape still arrives as `line`.
   const norm = (x) => String(x || "").replace(/\s+/g, " ").trim();
   const chunks = (Array.isArray(msg.chunks) && msg.chunks.length ? msg.chunks : [msg.line || {}]).slice(0, 3)
-    .map((c) => ({ s: norm(c.s), tr: norm(c.tr), g: c.g, lang: c.lang, words: c.words || [], sentences: Array.isArray(c.sentences) ? c.sentences.map((x) => ({ s: norm(x.s), tr: norm(x.tr) })).filter((x) => x.s) : null }))
+    .map((c) => ({ s: norm(c.s), tr: norm(c.tr), simple: norm(c.simple), g: c.g, lang: c.lang, words: c.words || [], sentences: Array.isArray(c.sentences) ? c.sentences.map((x) => ({ s: norm(x.s), tr: norm(x.tr) })).filter((x) => x.s) : null }))
     .filter((c) => c.s);
   const line = chunks[0] || {};
   const sTxt = line.s || "", tr = line.tr || "";
@@ -1265,7 +1266,7 @@ async function tipsSnap(msg, sender) {
     blocks, annots: [], crop: null, font: "", tabId: -1, windowId: -1, partial: false, truncated: "", sameLang: false, noKey: false,
   };
   if (sTxt && tr) {
-    const built = SV_SHOT.tipsSheet(chunks.map((c) => ({ s: c.s, tr: c.tr, g: c.g, words: c.words, sentences: c.sentences })));
+    const built = SV_SHOT.tipsSheet(chunks.map((c) => ({ s: c.s, tr: c.tr, simple: c.simple, g: c.g, words: c.words, sentences: c.sentences })));
     built.study.forEach((b, i) => { b.b = "b" + i; });
     rec.study = { [SV_SHOT.studyKey("source:" + (lang || "xx"), target)]: { v: 2, side: "source", lang: lang || "xx", explain: target, ts: Date.now(), provider: "tips", model: "", count: blocks.reduce((n, b) => n + b.pairs.length, 0), truncated: false, blocks: built.study } };
   }
