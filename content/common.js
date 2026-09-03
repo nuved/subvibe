@@ -125,7 +125,7 @@
   // layers this clip's own changes on top — so a tweak on one video (or live channel)
   // never bleeds onto another. sync defaults to 0 per clip.
   async function getSettings() {
-    const s = await chrome.storage.local.get(["enabled", "translateOn", "targets", "showOriginal", "hideNative", "position", "linePositions", "size", "stylePreset", "styleCustom", "syncOffset", "karaokeHl", "karaokeStyle", "storyBoard", "audioFallback", "audioDeviceId", "translationProvider", "debugHud", "clipOverrides"]);
+    const s = await chrome.storage.local.get(["enabled", "translateOn", "targets", "showOriginal", "hideNative", "position", "linePositions", "size", "stylePreset", "styleCustom", "syncOffset", "karaokeHl", "karaokeStyle", "storyBoard", "tipsAhead", "tmdbKey", "audioFallback", "audioDeviceId", "translationProvider", "debugHud", "clipOverrides"]);
     const { clipOverrides, ...flat } = s;
     const ov = (clipOverrides && clipOverrides[clipBaseId()]) || {};
     const merged = { ...DEFAULTS, ...flat, ...ov };
@@ -850,7 +850,7 @@
     if (window.__svDub) try { window.__svDub.detach(); } catch {}
     const el = document.getElementById("copilot-subs");
     if (el) el.remove();
-    { const b = document.getElementById("sv-board"); if (b) b.remove(); for (const el of document.querySelectorAll("[data-sv-fit]")) { el.style.right = el.dataset.svFitRight || ""; el.style.width = el.dataset.svFitWidth || ""; delete el.dataset.svFit; } }
+    { const b = document.getElementById("sv-board"); if (b) b.remove(); const s = document.getElementById("sv-strip"); if (s) s.remove(); for (const el of document.querySelectorAll("[data-sv-fit]")) { el.style.right = el.dataset.svFitRight || ""; el.style.width = el.dataset.svFitWidth || ""; el.style.bottom = el.dataset.svFitBottom || ""; el.style.height = el.dataset.svFitHeight || ""; delete el.dataset.svFit; } }
   }
 
   // ─── track engine (YouTube) ──────────────────────────────────────────────────
@@ -2031,12 +2031,33 @@
     // A sample of the whole video's lines — the background infers the video's
     // kind from it once (cached per video), so every later tip knows whether
     // this is an interview, a lesson, a match or a game stream.
-    const sampleLines = () => { const us = sentenceUnits(); if (us.length <= 40) return us.map((u) => u.original); const step = us.length / 40; const out = []; for (let i = 0; i < 40; i++) out.push(us[Math.floor(i * step)].original); return out; };
+    const sampleLines = () => {
+      const us = sentenceUnits().map((u) => u.original).filter(Boolean);
+      if (globalThis.SV_DOSSIER) return SV_DOSSIER.sampleLines(us, us.length >= 120 ? 300 : 40);
+      // Without the shared module, still SPREAD 40 lines over the whole video — the
+      // first 40 are all opening titles and say nothing about what the video is.
+      if (us.length <= 40) return us;
+      const step = us.length / 40, out = [];
+      for (let i = 0; i < 40; i++) out.push(us[Math.floor(i * step)]);
+      return out;
+    };
     // Tips language: "" = the popup's target, "same" = the video's own language.
     let tipsExplain = "";
     try { chrome.storage.local.get("tipsExplain", (r) => { tipsExplain = String((r && r.tipsExplain) || ""); if (board.el) { const sel = board.el.querySelector(".svb-lang"); if (sel) sel.value = tipsExplain; seedExplained(); board.sig = ""; } }); } catch (e) {}
-    const explainPayload = (ch, list) => ({ type: "VOCAB_EXPLAIN", base, s: ch.text, lang: vocabPoolLang, title: document.title, explain: tipsExplain,
-      before: list[ch.k - 1] ? [list[ch.k - 1].text] : [], after: list[ch.k + 1] ? [list[ch.k + 1].text] : [], sample: sampleLines() });
+    // How far ahead the pump explains: "off" · "3" · "all" (the popup's "Tips ahead").
+    // Read live — a change must not restart the engine, only wake the pump.
+    let tipsAhead = "3";
+    try { chrome.storage.local.get("tipsAhead", (r) => { tipsAhead = String((r && r.tipsAhead) || "3"); }); } catch (e) {}
+    // One listener per page: a restarted engine drops the old one first, or every restart leaves a dead closure listening.
+    const onTipsAhead = (ch, area) => { if (area === "local" && ch.tipsAhead) { tipsAhead = String(ch.tipsAhead.newValue || "3"); tips.stopped = false; tips.errors = 0; tips.pausedUntil = 0; board.sig = ""; } };
+    try { if (window.__svTipsAheadListener) chrome.storage.onChanged.removeListener(window.__svTipsAheadListener); } catch (e) {}
+    window.__svTipsAheadListener = onTipsAhead;
+    try { chrome.storage.onChanged.addListener(onTipsAhead); } catch (e) {}
+    const explainPayload = (ch, list) => ({ type: "VOCAB_EXPLAIN", base, s: ch.text, lang: vocabPoolLang, title: document.title, explain: tipsExplain, k: ch.k, n: list.length,
+      before: list[ch.k - 1] ? [list[ch.k - 1].text] : [], after: list[ch.k + 1] ? [list[ch.k + 1].text] : [],
+      // The background only needs the lines while the dossier is unknown or thin —
+      // sending 300 of them with every explanation was ~48 KB a call for nothing.
+      sample: !board.dossier || (board.dossier.sample || []).length < 40 ? sampleLines() : [] });
     // Seed the explanations already made on this video (for this tips language)
     // so marks and tips survive a page load.
     let seededFor = null;
@@ -2046,7 +2067,9 @@
         if (!r || !r.ok || seededFor !== tipsExplain) return;
         if (r.ctx) setCtx(r.ctx);
         const known = (r.entries || []).find((e) => e.lang && e.lang !== "xx"); if (known) refreshLangOption(known.lang);
-        for (const e of r.entries || []) if (!lineExplainCache.has(e.s)) lineExplainCache.set(e.s, { tr: e.tr, simple: e.simple || "", g: e.g, scene: e.scene || "", lang: e.lang || "", words: e.words || [] });
+        for (const e of r.entries || []) if (!lineExplainCache.has(e.s)) lineExplainCache.set(e.s, { tr: e.tr, simple: e.simple || "", g: e.g, scene: e.scene || "", who: e.who || [], lang: e.lang || "", words: e.words || [] });
+        // Last: painting the dossier must never cost the seeded tips above.
+        if (r.dossier) setDossier(r.dossier);
         board.sig = "";
       });
     };
@@ -2067,11 +2090,39 @@
         chunkFetching.delete(ch.text);
         if (r && r.ctx) setCtx(r.ctx);
         if (r && r.lang) refreshLangOption(r.lang);
-        if (r && r.tr) { const ex = { tr: r.tr, simple: r.simple || "", g: r.g, scene: r.scene || "", lang: r.lang || "", words: r.words || [] }; lineExplainCache.set(ch.text, ex); return ex; }
+        if (r && r.tr) { const ex = { tr: r.tr, simple: r.simple || "", g: r.g, scene: r.scene || "", who: r.who || [], lang: r.lang || "", words: r.words || [] }; lineExplainCache.set(ch.text, ex); return ex; }
         return { error: r && r.error ? "couldn't explain — check the provider key in the popup" : "no explanation — try again" };
       }));
       return chunkFetching.get(ch.text);
     };
+    // Tips ahead: the next chunks after the playhead are always being explained —
+    // one call in flight, in order, cached ones skipped — so the prompt cache
+    // stays warm and the tips are there when a chunk starts. "Explain all" runs to the end.
+    const tips = { inflight: null, k: -1, errors: 0, pausedUntil: 0, all: false, stopped: false, lastError: "" };
+    const tipsPump = (list, ki) => {
+      if (!globalThis.SV_DOSSIER || tips.inflight || tips.stopped || performance.now() < tips.pausedUntil || !list.length) return;
+      const mode = tips.all ? "all" : tipsAhead; if (mode === "off") return;
+      if (!engaged && mode !== "all") return; // nothing before the video has played once
+      const k = SV_DOSSIER.aheadWindow(ki, list.length, mode === "all" ? Infinity : 3, (j) => lineExplainCache.has(list[j].text));
+      if (k < 0) { if (tips.all) tips.all = false; return; }
+      tips.k = k;
+      tips.inflight = explainChunk(list[k], list).then((ex) => {
+        if (!ex || ex.error) { tips.errors++; tips.lastError = (ex && ex.error) || "no explanation"; tips.pausedUntil = performance.now() + 30000; if (tips.errors >= 3) tips.stopped = true; }
+        else { tips.errors = 0; tips.lastError = ""; }
+      }).catch(() => { tips.errors++; tips.pausedUntil = performance.now() + 30000; if (tips.errors >= 3) tips.stopped = true; })
+        .finally(() => { tips.inflight = null; tips.k = -1; board.sig = ""; });
+    };
+    // What the strip and the pane say about the pipeline: how far the tips reach,
+    // how many are done, which chunk is being explained, and why it stopped.
+    const tipsStatus = (list, ki) => {
+      const doneN = list.filter((ch) => lineExplainCache.has(ch.text)).length;
+      let readyTo = -1; for (let j = Math.max(0, ki); j < list.length && lineExplainCache.has(list[j].text); j++) readyTo = j;
+      const mode = tips.all ? "all" : tipsAhead;
+      return { readyToMs: readyTo >= 0 ? list[readyTo].endMs : 0, doneN, totalN: list.length, k: tips.k, all: tips.all,
+        state: mode === "off" ? "off" : tips.stopped ? "stopped" : tips.inflight ? "busy" : performance.now() < tips.pausedUntil ? "paused" : "idle", reason: tips.lastError };
+    };
+    const tipsAll = (on) => { tips.all = !!on; tips.stopped = false; tips.errors = 0; tips.pausedUntil = 0; board.sig = ""; boardTick(true); };
+    const tipsRetry = () => { tips.stopped = false; tips.errors = 0; tips.pausedUntil = 0; board.sig = ""; boardTick(true); };
     const fmtT = (ms) => { const t = Math.max(0, Math.round(ms / 1000)); return Math.floor(t / 60) + ":" + String(t % 60).padStart(2, "0"); };
     const mk = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
 
@@ -2349,11 +2400,41 @@
     // subtitles: every chunk in order with its translation, the playing one
     // highlighted and followed, the explained ones marked; the open chunk
     // shows its Translation · Grammar · Words and the actions row.
-    const board = { el: null, list: [], ki: -1, open: -1, sig: "", at: 0, collapsed: false, userScrollAt: 0, linesOff: false, loop: -1, stopAt: null, rate: 1, ctx: null };
+    const board = { el: null, list: [], ki: -1, open: -1, sig: "", at: 0, collapsed: false, userScrollAt: 0, linesOff: false, loop: -1, stopAt: null, rate: 1, ctx: null, dossier: null, dossierAsked: false, dossierInFlight: false, dossierTries: 0, dossierRetryAt: 0, pinnedAt: 0, paneSig: "", stripHidden: false, stripSig: "" };
     // "language lesson · walk & talk" — what kind of video the model took this for.
     const ctxLine = (cx) => cx && cx.kind ? [cx.kind, cx.about].filter(Boolean).join(" · ").slice(0, 90) : "";
     const setCtx = (cx) => { if (!cx || !cx.kind) return; board.ctx = cx; const el = board.el && board.el.querySelector(".svb-ctx"); if (el) { el.textContent = ctxLine(cx); el.title = [cx.kind, cx.about, cx.register ? "Register: " + cx.register : "", cx.speakers ? "Speakers: " + cx.speakers : ""].filter(Boolean).join("\n"); } };
-    try { board.collapsed = localStorage.getItem("sv-board-collapsed") === "1"; board.linesOff = localStorage.getItem("sv-lines-off") === "1"; } catch (e) {}
+    // The dossier: what the site says this video IS (show/episode or channel +
+    // description), the cast, and the model's reading of it. It reaches the board
+    // once per video and names the video under the "Story board" title.
+    const setDossier = (d) => {
+      if (!d) return; board.dossier = d; if (d.kind) setCtx({ kind: d.kind, about: d.about, register: d.register, speakers: d.speakers });
+      // Under the title: "interview · Peak TV · Anna, Tom" (YouTube) or "crime drama series · The Block · S1 E3" (Netflix)
+      const el = board.el && board.el.querySelector(".svb-ctx");
+      const idl = globalThis.SV_DOSSIER ? SV_DOSSIER.identityLine(d) : (d.show || d.title || "");
+      if (el) { const who = (d.people || []).slice(0, 3).map((p) => p.character || p.name).filter(Boolean).join(", "); el.textContent = [d.kind, d.show ? idl : d.channel, who].filter(Boolean).join(" · ").slice(0, 110); el.title = [d.kind, d.about, idl, d.channel, d.synopsis || d.description].filter(Boolean).join("\n"); }
+      board.sig = "";
+    };
+    // Asked ONCE per video (the background builds it once and caches it), before
+    // any explanation, so every tip is read in the light of what this video is.
+    const askDossier = () => {
+      if (board.dossierAsked || board.dossierInFlight || !adapter) return;
+      if (board.dossierTries >= 5 || performance.now() < board.dossierRetryAt) return; // a failed ask waits 20 s, five tries at most
+      // A YouTube pre-roll ad carries its OWN caption track, so the lines on the
+      // board right now are the ad's. The dossier is frozen once per video — asking
+      // during an ad would freeze the model's reading on the ad. Wait; boardTick
+      // asks again on the next tick, and the flag is still unset.
+      try { if (adapter.site === "youtube" && document.querySelector(".ad-showing")) return; } catch (e) {}
+      board.dossierInFlight = true; board.dossierTries++;
+      const fail = () => { board.dossierInFlight = false; board.dossierRetryAt = performance.now() + 20000; };
+      const metaP = adapter.getMeta ? adapter.getMeta() : Promise.resolve({ site: adapter.site, url: location.href, title: SV_TITLE.clean(document.title) });
+      metaP.then((m) => { const meta = m || { site: adapter.site, url: location.href }; meta.title = SV_TITLE.clean(meta.title || ""); return send({ type: "DOSSIER", base, meta, sample: sampleLines(), lang: vocabPoolLang }); })
+        // Only a real answer closes the question: a send that failed (worker asleep,
+        // error) must not cost this video its dossier for the whole run.
+        .then((r) => { if (r && r.ok) { board.dossierAsked = true; board.dossierInFlight = false; setDossier(r.dossier); } else fail(); })
+        .catch(() => fail());
+    };
+    try { board.collapsed = localStorage.getItem("sv-board-collapsed") === "1"; board.linesOff = localStorage.getItem("sv-lines-off") === "1"; board.stripHidden = localStorage.getItem("sv-strip-collapsed") === "1"; } catch (e) {}
     const boardVisible = () => !!(board.el && board.el.isConnected && !board.collapsed && !document.fullscreenElement && board.el.getClientRects().length > 0);
     // Drawer mode: the picture makes room instead of hiding behind the drawer.
     // The player's outermost viewport-sized box (Netflix: .watch-video) gets a
@@ -2368,15 +2449,20 @@
       }
       return best;
     };
+    const STRIP_H = 112;
+    const stripOn = () => !!(board.el && board.el.classList.contains("drawer") && !board.collapsed && !board.stripHidden && !document.fullscreenElement);
     const fitPlayer = (on) => {
       const w = board.el && board.el.classList.contains("drawer") ? Math.round(board.el.getBoundingClientRect().width) : 0;
+      const h = stripOn() ? STRIP_H : 0;
       if (on && w > 0) {
-        const el = playerBox(); if (!el) return;
-        if (fit.el !== el) { fitPlayer(false); fit.el = el; fit.prev = { right: el.style.right, width: el.style.width, transition: el.style.transition }; }
-        if (!el.dataset.svFit) { el.dataset.svFit = "1"; el.dataset.svFitRight = fit.prev.right || ""; el.dataset.svFitWidth = fit.prev.width || ""; }
-        el.style.transition = "right .2s ease"; el.style.right = w + "px"; el.style.width = "auto"; fit.on = true;
+        // Once inset, the box is no longer viewport-wide, so playerBox() cannot find
+        // it a second time — keep the one already held, or the strip's inset never lifts.
+        const el = (fit.el && fit.el.isConnected) ? fit.el : playerBox(); if (!el) return;
+        if (fit.el !== el) { fitPlayer(false); fit.el = el; fit.prev = { right: el.style.right, width: el.style.width, bottom: el.style.bottom, height: el.style.height, transition: el.style.transition }; }
+        if (!el.dataset.svFit) { el.dataset.svFit = "1"; el.dataset.svFitRight = fit.prev.right || ""; el.dataset.svFitWidth = fit.prev.width || ""; el.dataset.svFitBottom = fit.prev.bottom || ""; el.dataset.svFitHeight = fit.prev.height || ""; }
+        el.style.transition = "right .2s ease, bottom .2s ease"; el.style.right = w + "px"; el.style.width = "auto"; el.style.bottom = h + "px"; el.style.height = h ? "auto" : fit.prev.height; fit.on = true;
       } else if (fit.el) {
-        try { fit.el.style.right = fit.prev.right; fit.el.style.width = fit.prev.width; fit.el.style.transition = fit.prev.transition; delete fit.el.dataset.svFit; } catch (e) {}
+        try { fit.el.style.right = fit.prev.right; fit.el.style.width = fit.prev.width; fit.el.style.bottom = fit.prev.bottom; fit.el.style.height = fit.prev.height; fit.el.style.transition = fit.prev.transition; delete fit.el.dataset.svFit; } catch (e) {}
         fit.el = null; fit.prev = null; fit.on = false;
       }
     };
@@ -2416,16 +2502,22 @@
       sel.addEventListener("click", (ev) => ev.stopPropagation());
       const share = mk("button", "svb-share", "Share ↗"); share.type = "button"; share.title = "One page with every chunk, its translation and the tips already explained — from the cache, nothing is asked again — to download and send to a friend";
       share.addEventListener("click", (ev) => { ev.stopPropagation(); shareBoard(share); });
+      const sceneBtn = mk("button", "svb-scene-btn", "Scene"); sceneBtn.type = "button"; sceneBtn.title = "Show the scene strip under the picture";
+      sceneBtn.addEventListener("click", () => { board.stripHidden = false; try { localStorage.setItem("sv-strip-collapsed", ""); } catch (e) {} fitPlayer(true); board.sig = ""; boardTick(true); });
       tools.append(lines, speedButton("svb-speed"), share, sel);
+      if (drawer) tools.append(sceneBtn); board.sceneBtn = sceneBtn;
       b.appendChild(head); b.appendChild(tools);
       const listEl = mk("div", "svb-list");
       // A hand on the list pauses the follow for a while, so it never yanks
       // the reader back while they scroll.
       for (const evn of ["wheel", "touchstart", "pointerdown"]) listEl.addEventListener(evn, () => { board.userScrollAt = performance.now(); }, { passive: true });
       b.appendChild(listEl);
+      // The tips of ONE chunk, in a fixed place under the list — the rows stay short.
+      const pane = mk("div", "svb-pane"); pane.appendChild(mk("div", "svb-ph")); pane.appendChild(mk("div", "svb-pb")); b.appendChild(pane);
+      for (const evn of ["wheel", "touchstart", "pointerdown"]) pane.addEventListener(evn, () => { board.userScrollAt = performance.now(); }, { passive: true });
       if (host) host.insertBefore(b, host.firstChild); else document.body.appendChild(b);
       board.el = b;
-      applyLinesOff(); seedExplained();
+      applyLinesOff(); seedExplained(); askDossier();
       return b;
     };
     // Some players (Netflix) must be driven through their own API — the adapter says so.
@@ -2435,7 +2527,7 @@
     const setRate = (r) => { const v = liveVideoEl(video) || video; try { if (adapter && adapter.setRate) adapter.setRate(r); else v.playbackRate = r; } catch (e) {} };
     // Play from a time; with an end time the video pauses there (hear ONE sentence).
     const playFrom = (ms, stopMs) => { board.stopAt = stopMs != null ? stopMs : null; if (stopMs != null) board.loop = -1; seekTo(ms); if (board.rate && board.rate !== 1) setRate(board.rate); playNow(); };
-    const rowSig = (ch, k) => [ch.text, ch.sentences.map((x) => x.tr).join("\u0002"), lineExplainCache.has(ch.text) ? 1 : 0, k === board.open ? 1 : 0, k === board.ki ? 1 : 0, k === board.open ? snapChunks : 0, board.loop === k ? 1 : 0].join("\u0001");
+    const rowSig = (ch, k) => [ch.text, ch.sentences.map((x) => x.tr).join("\u0002"), lineExplainCache.has(ch.text) ? 1 : 0, k === board.open ? 1 : 0, k === board.ki ? 1 : 0, k === board.open ? snapChunks : 0, board.loop === k ? 1 : 0, (lineExplainCache.get(ch.text) || {}).scene || "", ((lineExplainCache.get(ch.text) || {}).who || []).join("|"), tips.k === k ? 1 : 0].join("\u0001");
     const boardRow = (ch, k) => {
       const on = k === board.ki;
       const row = mk("div", "svb-chunk" + (on ? " on" : "") + (k === board.open ? " open" : "")); row.dataset.k = String(k); row.dataset.sig = rowSig(ch, k);
@@ -2453,12 +2545,18 @@
         if (x.tr) { const tr = mk("div", "svb-tr", x.tr); tr.dir = dirOf(tgCode()); main.appendChild(tr); }
       });
       const aside = mk("div", "svb-aside"); // the third column: ✓ tips or Explain — never over the text
-      if (k === board.open) {
-        main.appendChild(buildTips(ex, ch));
-        main.appendChild(buildActions({ list: board.list, k0: k, n: snapChunks, setN: (m) => { snapChunks = m; board.sig = ""; boardTick(true); }, anchor: () => els.__orig }));
-      } else if (ex && !ex.error) aside.appendChild(mk("i", "svb-mark", "✓ tips"));
-      else if (on) { const b = mk("button", "svb-explain", "Explain"); b.type = "button"; b.addEventListener("click", (ev) => { ev.stopPropagation(); boardFocus(k, false); }); aside.appendChild(b); }
-      row.addEventListener("click", (ev) => { if (ev.target && ev.target.closest && ev.target.closest("button, select, .wt-body")) return; if (board.open === k) { board.open = -1; board.sig = ""; boardTick(true); } else boardFocus(k, false); });
+      if (ex && !ex.error && (ex.scene || (ex.who && ex.who.length))) { // one line about the scene, and who is in it
+        const sc = mk("div", "svb-scene");
+        if (ex.scene) { const t = mk("span", "svb-scene-txt", ex.scene); t.dir = explainDir(ex); sc.appendChild(t); }
+        for (const f of SV_DOSSIER.whoFaces(ex.who, board.dossier && board.dossier.people)) { const chip = mk("span", "svb-who"); const av = mk("i", null, f.person && f.person.photo ? "" : SV_DOSSIER.initials((f.person && f.person.character) || f.label)); if (f.person && f.person.photo) av.style.backgroundImage = "url(" + f.person.photo + ")"; chip.append(av, document.createTextNode((f.person && f.person.character) || f.label)); chip.title = f.person ? (f.person.character || f.person.name) + (f.person.name && f.person.character ? " — " + f.person.name : "") : f.label; sc.appendChild(chip); }
+        main.appendChild(sc);
+      }
+      if (ex && !ex.error) aside.appendChild(mk("i", "svb-mark", k === board.open ? "▸ tips" : "✓ tips"));
+      else if (tips.k === k) aside.appendChild(mk("i", "svb-mark busy", "explaining"));
+      else if (on) { const b = mk("button", "svb-explain", "Explain"); b.type = "button"; b.addEventListener("click", (ev) => { ev.stopPropagation(); boardFocus(k, false, true); }); aside.appendChild(b); }
+      // A click pins the pane to this row; a second click hands it back to the playhead.
+      // A second click unpins — and jumps back to the playing chunk, so "following" never shows a chunk minutes away.
+      row.addEventListener("click", (ev) => { if (ev.target && ev.target.closest && ev.target.closest("button, select, .wt-body")) return; if (board.open === k && board.pinnedAt) { board.pinnedAt = 0; board.open = board.ki; board.sig = ""; boardTick(true); } else boardFocus(k, false, true); });
       row.append(time, main, aside);
       return row;
     };
@@ -2513,11 +2611,83 @@
         if (cur) listEl.replaceChild(fresh, cur); else listEl.appendChild(fresh);
       });
       while (listEl.children.length > board.list.length) listEl.removeChild(listEl.lastChild);
+      renderPane();
+    };
+    // The tips pane: the open chunk's tips in one fixed place — it follows the
+    // playhead unless the reader pinned a row (click), and "following ▸" hands it back.
+    const renderPane = () => {
+      const b = board.el; if (!b) return;
+      const pane = b.querySelector(".svb-pane"), head = pane.querySelector(".svb-ph"), body = pane.querySelector(".svb-pb");
+      const k = board.open, ch = board.list[k]; const ex = ch ? lineExplainCache.get(ch.text) : null;
+      // board.list.length is in the signature because the head prints "chunk k / n": a growing cue list must redraw the total.
+      const sig = [k, ch ? ch.text : "", ex ? 1 : 0, ex && ex.error ? ex.error : "", snapChunks, tipsExplain, board.loop, board.pinnedAt ? 1 : 0, tips.k === k ? 1 : 0, board.list.length].join("\u0001");
+      if (sig === board.paneSig) return; board.paneSig = sig;
+      head.textContent = ""; body.textContent = "";
+      if (!ch) { head.appendChild(mk("b", null, "Tips")); body.appendChild(mk("div", "wt-val svb-empty", "The tips of the playing chunk appear here.")); return; }
+      head.appendChild(mk("b", null, "Tips · " + fmtT(ch.startMs) + " · chunk " + (k + 1) + " / " + board.list.length));
+      const fol = mk("button", "svb-follow" + (board.pinnedAt ? "" : " on"), board.pinnedAt ? "follow ▸" : "following ▸"); fol.type = "button"; fol.title = board.pinnedAt ? "Back to the playing chunk" : "The pane follows the video";
+      fol.addEventListener("click", (ev) => { ev.stopPropagation(); board.pinnedAt = 0; board.open = board.ki; board.sig = ""; boardTick(true); }); head.appendChild(fol);
+      if (!ex) { body.appendChild(mk("div", "wt-val svb-empty", tips.k === k ? "Explaining…" : "Not explained yet.")); if (tips.k !== k) { const b2 = mk("button", "svb-explain", "Explain"); b2.type = "button"; b2.addEventListener("click", () => boardFocus(k, false)); body.appendChild(b2); } return; }
+      body.appendChild(buildTips(ex, ch));
+      body.appendChild(buildActions({ list: board.list, k0: k, n: snapChunks, setN: (m) => { snapChunks = m; board.sig = ""; boardTick(true); }, anchor: () => els.__orig }));
+    };
+    // The scene strip under the picture (drawer players): what is playing, what
+    // is happening now and who is in it, the cast, and the tips pipeline.
+    const ensureStrip = () => {
+      if (!stripOn()) { const s = document.getElementById("sv-strip"); if (s) s.remove(); board.stripSig = ""; return null; }
+      let s = document.getElementById("sv-strip"); if (s) return s;
+      s = mk("div", "sv-strip"); s.id = "sv-strip"; s.dir = "auto";
+      s.append(mk("div", "svs-ident"), mk("div", "svs-now"), mk("div", "svs-cast"), mk("div", "svs-pump"));
+      document.body.appendChild(s); return s;
+    };
+    // One person: their photo (or initials), the character, and who plays them.
+    const face = (p, label, big, talk) => {
+      const f = mk("span", "svs-face" + (big ? "" : " small") + (talk ? " talk" : ""));
+      const av = mk("i", null, p && p.photo ? "" : SV_DOSSIER.initials((p && (p.character || p.name)) || label)); if (p && p.photo) av.style.backgroundImage = "url(" + p.photo + ")";
+      f.appendChild(av); f.appendChild(mk("b", null, (p && (p.character || p.name)) || label));
+      if (big) f.appendChild(mk("small", null, p ? (p.character ? p.name : p.role || "") : "")); f.title = p ? [p.character, p.name, p.role].filter(Boolean).join(" — ") : label;
+      return f;
+    };
+    const renderStrip = () => {
+      if (board.sceneBtn) board.sceneBtn.hidden = !board.stripHidden;
+      const s = ensureStrip(); if (!s) return;
+      s.style.right = Math.round(board.el.getBoundingClientRect().width) + "px";
+      const d = board.dossier, ch = board.list[board.ki], ex = ch ? lineExplainCache.get(ch.text) : null, st = tipsStatus(board.list, board.ki);
+      const sig = [d ? d.at : 0, ch ? ch.text : "", ex ? (ex.scene || "") + (ex.who || []).join("|") : "", st.state, st.doneN, st.readyToMs, st.k, st.all, st.reason].join("\u0001");
+      if (sig === board.stripSig) return; board.stripSig = sig;
+      const ident = s.querySelector(".svs-ident"); ident.textContent = "";
+      if (d && d.poster) { const img = mk("img", "svs-poster"); img.src = d.poster; img.alt = ""; ident.appendChild(img); }
+      const idb = mk("div", "svs-id"); idb.appendChild(mk("b", null, (d && (d.show || d.title)) || SV_TITLE.clean(document.title)));
+      if (d && d.show) idb.appendChild(mk("div", "svs-ep", ["S" + d.season + " · E" + d.episode, d.epTitle, d.runtimeMin ? d.runtimeMin + " min" : ""].filter((x) => x && x !== "S0 · E0").join(" · ")));
+      else if (d && d.channel) idb.appendChild(mk("div", "svs-ep", d.channel));
+      if (d && (d.synopsis || d.description)) { const sy = mk("div", "svs-syn", d.synopsis || d.description); sy.title = d.synopsis || d.description; idb.appendChild(sy); }
+      ident.appendChild(idb);
+      const now = s.querySelector(".svs-now"); now.textContent = "";
+      // The pill is a state, never an empty grey box: the scene when there is one, what the strip is waiting for (muted) when there is not, and no pill at all once a chunk is explained and has no scene.
+      const scene = ex && ex.scene ? mk("div", "svs-scene", ex.scene) : ch && tips.k === board.ki ? mk("div", "svs-scene muted", "Explaining this chunk…") : ex ? null : mk("div", "svs-scene muted", st.state === "stopped" ? "Tips paused — see the right" : "Tips follow the video as it plays");
+      if (scene) { if (ex && ex.scene) scene.dir = explainDir(ex); now.appendChild(scene); }
+      const faces = mk("div", "svs-faces"); const who = ex ? SV_DOSSIER.whoFaces(ex.who, d && d.people) : [];
+      who.forEach((f, i) => faces.appendChild(face(f.person, f.label, true, i === 0))); now.appendChild(faces);
+      const cast = s.querySelector(".svs-cast"); cast.textContent = "";
+      const people = (d && d.people) || []; const shown = new Set(who.map((f) => f.person).filter(Boolean));
+      if (people.length) { cast.appendChild(mk("div", "svs-lbl", (people[0].src === "tmdb" ? "Cast" : "People (from the model)") + " · " + people.length)); const row = mk("div", "svs-faces"); for (const p of people.filter((p) => !shown.has(p)).slice(0, 8)) row.appendChild(face(p, "", false, false)); cast.appendChild(row); if (people[0].src === "tmdb") cast.appendChild(mk("div", "svs-attr", "Cast & episode data · TMDB")); }
+      const pump = s.querySelector(".svs-pump"); pump.textContent = "";
+      const lbl = mk("div", "svs-lbl"); lbl.append(mk("span", null, "Tips ahead"), mk("span", null, st.doneN + " of " + st.totalN)); pump.appendChild(lbl);
+      const bar = mk("div", "svs-bar"); const done = mk("i"); done.style.width = (st.totalN ? (100 * st.doneN / st.totalN) : 0) + "%"; bar.appendChild(done); if (st.totalN && board.ki >= 0) { const u = mk("u"); u.style.left = (100 * board.ki / st.totalN) + "%"; bar.appendChild(u); } pump.appendChild(bar);
+      const txt = st.state === "off" ? "Off — set Tips ahead in the popup" : st.state === "stopped" ? "Tips paused — " + (st.reason || "couldn't explain") : (st.readyToMs ? "Ready to " + fmtT(st.readyToMs) : "Nothing ahead yet") + (st.k >= 0 && board.list[st.k] ? " · explaining " + fmtT(board.list[st.k].startMs) : "");
+      pump.appendChild(mk("div", "svs-st", txt));
+      const acts = mk("div", "svs-acts");
+      if (st.state === "stopped") { const r = mk("button", "svs-btn coral", "Retry"); r.type = "button"; r.addEventListener("click", tipsRetry); acts.appendChild(r); }
+      else if (st.all) { const b = mk("button", "svs-btn", "Stop"); b.type = "button"; b.addEventListener("click", () => tipsAll(false)); acts.appendChild(b); }
+      else if (st.doneN < st.totalN) { const b = mk("button", "svs-btn coral", "Explain all →"); b.type = "button"; b.title = "Explain every chunk of this video now, one after the other"; b.addEventListener("click", () => tipsAll(true)); acts.appendChild(b); }
+      const hide = mk("button", "svs-btn", "Hide"); hide.type = "button"; hide.title = "Hide this strip (the Scene button on the board brings it back)"; hide.addEventListener("click", () => { board.stripHidden = true; try { localStorage.setItem("sv-strip-collapsed", "1"); } catch (e) {} ensureStrip(); fitPlayer(true); board.sig = ""; boardTick(true); }); acts.appendChild(hide);
+      pump.appendChild(acts);
     };
     // Open a chunk on the board: explain it (cached), show its tips, follow it.
-    const boardFocus = (k, flash) => {
+    const boardFocus = (k, flash, pin) => {
       const list = board.list.length ? board.list : chunksNow(); board.list = list;
       const ch = list[k]; if (!ch) return;
+      if (pin) board.pinnedAt = performance.now(); // a reader's click holds the pane here
       board.open = k; board.sig = ""; boardTick(true); boardScrollTo(k, true);
       if (flash) { const row = board.el && board.el.querySelector('.svb-chunk[data-k="' + k + '"]'); if (row) { row.classList.add("flash"); setTimeout(() => row.classList.remove("flash"), 1200); } }
       if (!lineExplainCache.get(ch.text)) explainChunk(ch, list).then(() => { board.sig = ""; boardTick(true); });
@@ -2530,23 +2700,28 @@
       if (!force && now - board.at < 600) return;
       board.at = now;
       const b = ensureBoard(); if (!b) return;
+      askDossier(); // a no-op once asked — the retry for a board that was built during an ad
       b.classList.toggle("fs", !!document.fullscreenElement); // a drawer never sits over a fullscreen picture
       if (b.classList.contains("drawer")) fitPlayer(!board.collapsed && !document.fullscreenElement); // the picture makes room (re-applied if the player re-renders)
+      ensureStrip(); // collapsed, fullscreen or hidden: the strip leaves with the board
       if (board.collapsed) return;
       const list = chunksNow();
       const ki = curCue ? chunkOfCue(list, curCue) : -1;
-      // Tips at the start of each chunk: when the playing chunk changes and it
-      // is already explained, it opens by itself.
-      if (ki !== board.ki && ki >= 0 && lineExplainCache.get(list[ki].text)) board.open = ki;
+      if (boardVisible()) tipsPump(list, ki); // the next chunks are explained before the playhead reaches them
+      // Tips at the start of each chunk: the pane opens the playing chunk by
+      // itself (it shows "Explaining…" until the pump delivers) — unless a
+      // row was pinned by a click in the last 20 s.
+      if (ki >= 0 && ki !== board.ki && (!board.pinnedAt || now - board.pinnedAt > 20000)) { board.open = ki; board.pinnedAt = 0; }
       const trN = list.reduce((n, ch) => n + ch.sentences.filter((x) => x.tr).length, 0);
       const exN = list.filter((ch) => lineExplainCache.has(ch.text)).length;
-      const sig = [list.length, trN, ki, exN, board.open, snapChunks, tipsExplain].join(":");
-      if (sig === board.sig) return;
+      const sig = [list.length, trN, ki, exN, board.open, snapChunks, tipsExplain, tips.inflight ? 1 : 0, tips.stopped ? 1 : 0, tips.all ? 1 : 0].join(":");
+      if (sig === board.sig) { renderPane(); renderStrip(); return; }
       const follow = ki !== board.ki;
       board.sig = sig; board.list = list; board.ki = ki;
       // A small state stamp for diagnosis from the page (the script's variables are not reachable there).
-      try { document.documentElement.dataset.svBoard = JSON.stringify({ ki, open: board.open, loop: board.loop, stopAt: board.stopAt, rate: board.rate, chunk: list[ki] ? [Math.round(list[ki].startMs), Math.round(list[ki].endMs)] : null }); } catch (e) {}
+      try { document.documentElement.dataset.svBoard = JSON.stringify({ ki, open: board.open, loop: board.loop, stopAt: board.stopAt, rate: board.rate, tips: tipsStatus(list, ki).state, chunk: list[ki] ? [Math.round(list[ki].startMs), Math.round(list[ki].endMs)] : null }); } catch (e) {}
       renderBoard();
+      renderStrip();
       // Follow the playhead — unless the reader scrolled the list in the last 6 s.
       if (follow && ki >= 0 && now - board.userScrollAt > 6000) boardScrollTo(ki, true);
       applyLinesOff();
@@ -3021,7 +3196,7 @@
     audioCues = null;
     const el = document.getElementById("copilot-subs");
     if (el) el.remove();
-    { const b = document.getElementById("sv-board"); if (b) b.remove(); for (const el of document.querySelectorAll("[data-sv-fit]")) { el.style.right = el.dataset.svFitRight || ""; el.style.width = el.dataset.svFitWidth || ""; delete el.dataset.svFit; } }
+    { const b = document.getElementById("sv-board"); if (b) b.remove(); const s = document.getElementById("sv-strip"); if (s) s.remove(); for (const el of document.querySelectorAll("[data-sv-fit]")) { el.style.right = el.dataset.svFitRight || ""; el.style.width = el.dataset.svFitWidth || ""; el.style.bottom = el.dataset.svFitBottom || ""; el.style.height = el.dataset.svFitHeight || ""; delete el.dataset.svFit; } }
     currentRunKey = null;
     schedule(); // resume caption scraping if the page has its own captions
   }
@@ -3242,7 +3417,7 @@
   // Appearance keys (position, drag coords, text size, style preset/tweaks) and
   // the sync nudge apply LIVE — re-style in place, no flicker. Anything else
   // (languages, key, enabled…) restarts the engine.
-  const LIVE_KEYS = ["syncOffset", "position", "linePositions", "size", "stylePreset", "styleCustom", "karaokeStyle", "dubEnabled", "dubVoice", "dubGeminiVoice", "ttsProvider", "dubMultiVoice", "dubDuckLevel", "dubPace", "debugHud"];
+  const LIVE_KEYS = ["syncOffset", "position", "linePositions", "size", "stylePreset", "styleCustom", "karaokeStyle", "dubEnabled", "dubVoice", "dubGeminiVoice", "ttsProvider", "dubMultiVoice", "dubDuckLevel", "dubPace", "debugHud", "tipsAhead", "tmdbKey"];
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
     const keys = Object.keys(changes);

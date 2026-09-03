@@ -59,6 +59,16 @@
   // clip's subtitles.
   setInterval(() => { if (latestUrl) window.postMessage({ __copilotSubs: true, type: "SUBS_URL", url: latestUrl }, "*"); }, 1500);
 
+  // The video's own words (title, channel, description) for the story board's dossier.
+  // Only YouTube keeps them in a page global; elsewhere this answers with null and
+  // the adapter's DOM reading stands.
+  window.addEventListener("message", (ev) => {
+    if (ev.source !== window || !ev.data || !ev.data.__copilotSubs || ev.data.type !== "META_REQ") return;
+    let meta = null;
+    try { const vd = window.ytInitialPlayerResponse && window.ytInitialPlayerResponse.videoDetails; const v = new URL(location.href).searchParams.get("v"); if (vd && vd.videoId === v) meta = { title: vd.title || "", channel: vd.author || "", description: (vd.shortDescription || "").slice(0, 1500), keywords: (vd.keywords || []).slice(0, 20) }; } catch (e) {}
+    window.postMessage({ __copilotSubs: true, type: "META", meta }, "*");
+  });
+
   // ── NEED_CAPTIONS: the content script asks for this when SubVibe is running
   // but no subtitle file has appeared. Enabling a caption track makes the player
   // fire its pot-bearing timedtext request (the only kind that returns real

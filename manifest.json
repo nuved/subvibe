@@ -24,6 +24,8 @@
   "host_permissions": [
     "https://api.openai.com/*",
     "https://api.anthropic.com/*",
+    "https://api.themoviedb.org/*",
+    "https://image.tmdb.org/*",
     "https://generativelanguage.googleapis.com/*",
     "https://*.youtube.com/*",
     "https://*.netflix.com/*",
@@ -88,6 +90,7 @@
         "shared/textslice.js",
         "shared/quotes.js",
         "shared/cues.js",
+        "shared/dossier.js",
         "content/common.js"
       ],
       "css": [
@@ -109,6 +112,7 @@
         "shared/textslice.js",
         "shared/quotes.js",
         "shared/cues.js",
+        "shared/dossier.js",
         "content/common.js"
       ],
       "css": [
@@ -130,6 +134,7 @@
         "shared/textslice.js",
         "shared/quotes.js",
         "shared/cues.js",
+        "shared/dossier.js",
         "content/common.js"
       ],
       "css": [
@@ -151,6 +156,7 @@
         "shared/textslice.js",
         "shared/quotes.js",
         "shared/cues.js",
+        "shared/dossier.js",
         "content/common.js"
       ],
       "css": [
@@ -173,6 +179,7 @@
         "shared/textslice.js",
         "shared/quotes.js",
         "shared/cues.js",
+        "shared/dossier.js",
         "content/common.js"
       ],
       "css": [
@@ -194,6 +201,7 @@
         "shared/textslice.js",
         "shared/quotes.js",
         "shared/cues.js",
+        "shared/dossier.js",
         "content/common.js"
       ],
       "css": [

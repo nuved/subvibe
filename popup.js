@@ -12,7 +12,7 @@ const LIVE_ALIAS = window.SV_LIVE_ALIAS || {};
 // Coerce a code to one Gemini's live model accepts, or null if it can't voice it.
 const normLiveCode = (code) => (LIVE_CODES.has(code) ? code : (LIVE_CODES.has(LIVE_ALIAS[code]) ? LIVE_ALIAS[code] : null));
 
-const DEFAULTS = { enabled: true, translateOn: true, targets: ["en"], showOriginal: true, hideNative: true, karaokeHl: true, karaokeStyle: "classic", storyBoard: true, learnLang: "", apiKey: "", translationProvider: "openai", claudeModel: "claude-sonnet-5", anthropicKey: "", cliBridgeOk: false, cliBridgeInfo: "", keepNames: true, keepTerms: "", position: "bottom", size: "md", stylePreset: "classic", styleCustom: {}, syncOffset: 0, dubEnabled: false, ttsProvider: "openai", geminiKey: "", dubVoice: "marin", dubGeminiVoice: "Kore", dubMultiVoice: false, dubDuckLevel: 0.12, dubPace: 1, liveModel: "gemini-3.5-live-translate-preview", audioDeviceId: "", liveTarget: "", debugHud: false, uiTheme: "light" };
+const DEFAULTS = { enabled: true, translateOn: true, targets: ["en"], showOriginal: true, hideNative: true, karaokeHl: true, karaokeStyle: "classic", storyBoard: true, tipsAhead: "3", learnLang: "", apiKey: "", translationProvider: "openai", claudeModel: "claude-sonnet-5", anthropicKey: "", cliBridgeOk: false, cliBridgeInfo: "", keepNames: true, keepTerms: "", position: "bottom", size: "md", stylePreset: "classic", styleCustom: {}, syncOffset: 0, dubEnabled: false, ttsProvider: "openai", geminiKey: "", tmdbKey: "", dubVoice: "marin", dubGeminiVoice: "Kore", dubMultiVoice: false, dubDuckLevel: 0.12, dubPace: 1, liveModel: "gemini-3.5-live-translate-preview", audioDeviceId: "", liveTarget: "", debugHud: false, uiTheme: "light" };
 const el = (id) => document.getElementById(id);
 // Promise wrapper for chrome.runtime.sendMessage — same shape as learn.js's
 // helper, used by the word-game wiring below (async/await reads cleaner than
@@ -376,6 +376,21 @@ el("verifyGemini").addEventListener("click", async () => {
   refreshGeminiKeyDot();
 });
 
+// ── TMDb key (optional) — cast photos, character names, episode info ─────────
+// Optional on purpose: it is NOT in KEY_PROVIDERS, so an empty box never forces
+// the Keys panel open and never turns a summary pill grey.
+function setTmdbKeyStatus(text, cls) { const s = el("tmdbKeyStatus"); s.textContent = text; s.className = cls || ""; }
+let tmdbKeyFailed = false, tmdbKeyT;
+const refreshTmdbDot = () => setKeyDot("tmdbKeyDot", el("tmdbKey").value.trim() ? (tmdbKeyFailed ? "red" : "green") : "");
+el("tmdbKey").addEventListener("input", () => { clearTimeout(tmdbKeyT); tmdbKeyFailed = false; refreshTmdbDot(); tmdbKeyT = setTimeout(() => persist({ tmdbKey: el("tmdbKey").value.trim() }), 400); });
+el("verifyTmdb").addEventListener("click", async () => {
+  const key = el("tmdbKey").value.trim(); if (!key) { setTmdbKeyStatus("Paste a TMDb key first.", "warn"); return; }
+  setTmdbKeyStatus("Checking…", "");
+  const r = await new Promise((res) => chrome.runtime.sendMessage({ type: "TMDB_TEST", key }, res));
+  tmdbKeyFailed = !(r && r.ok); refreshTmdbDot();
+  setTmdbKeyStatus(r && r.ok ? "TMDb accepted the key — cast photos and episode info will show on the board." : (r && r.error) || "Couldn't reach TMDb", r && r.ok ? "ok" : "err");
+});
+
 // ── Translation + TTS engine selects: options disabled/labeled by key availability ──
 // Base labels are constants so rebuilding never accumulates " — add key" suffixes.
 const TRANSLATION_OPTIONS = [["openai", "OpenAI GPT-4o-mini"], ["claude", "Claude (API key)"], ["claude-cli", "Claude Code on this Mac"]];
@@ -477,6 +492,7 @@ el("showOriginal").addEventListener("change", () => saveSetting({ showOriginal: 
 el("hideNative").addEventListener("change", () => persist({ hideNative: el("hideNative").checked }));
 el("karaokeHl").addEventListener("change", () => persist({ karaokeHl: el("karaokeHl").checked }));
 el("storyBoard").addEventListener("change", () => persist({ storyBoard: el("storyBoard").checked }));
+el("tipsAhead").addEventListener("change", () => persist({ tipsAhead: el("tipsAhead").value }));
 el("position").addEventListener("change", () => saveSetting({ position: el("position").value }));
 el("keepNames").addEventListener("change", () => persist({ keepNames: el("keepNames").checked }));
 
@@ -2037,6 +2053,7 @@ async function load() {
   el("hideNative").checked = state.hideNative;
   el("karaokeHl").checked = state.karaokeHl !== false;
   el("storyBoard").checked = state.storyBoard !== false;
+  el("tipsAhead").value = ["off", "3", "all"].includes(state.tipsAhead) ? state.tipsAhead : "3";
   el("position").value = state.position || "bottom";
   el("syncInput").value = (-(state.syncOffset || 0)).toFixed(2);
   setSizeUI(state.size || "md");
@@ -2046,6 +2063,8 @@ async function load() {
   el("geminiKey").value = state.geminiKey || "";
   updateTtsProviderUI();
   geminiKeyHint();
+  el("tmdbKey").value = state.tmdbKey || "";
+  refreshTmdbDot();
   livePopulateDevices();
   updateLivePerm();
   // Keep liveTarget to a code Gemini can actually voice: inherit the subtitle

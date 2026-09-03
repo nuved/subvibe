@@ -11,7 +11,7 @@
 // exists); the Firefox build runs it as an EVENT PAGE (importScripts is a
 // worker-only API) where build.sh lists these files in background.scripts
 // instead — same globalThis globals either way, so guard rather than crash.
-if (typeof importScripts === "function") importScripts("shared/pricing.js", "shared/leitner.js", "shared/stopwords.js", "shared/vocab.js", "shared/simplify.js", "shared/shot.js", "shared/cli.js");
+if (typeof importScripts === "function") importScripts("shared/pricing.js", "shared/leitner.js", "shared/stopwords.js", "shared/vocab.js", "shared/simplify.js", "shared/shot.js", "shared/cli.js", "shared/dossier.js", "shared/tmdb.js");
 
 const OPENAI_CHAT = "https://api.openai.com/v1/chat/completions";
 const TRANSLATE_MODEL = "gpt-4o-mini";
@@ -987,45 +987,141 @@ function wordPrompt(source, target) {
 // key words. Cached per sentence in clipexplain:${base}.
 const EXPLAIN_SCHEMA = { name: "sentence_explain", strict: true, schema: { type: "object", additionalProperties: false,
   properties: {
-    tr: { type: "string" }, simple: { type: "string" }, g: { type: "string" }, scene: { type: "string" },
+    tr: { type: "string" }, simple: { type: "string" }, g: { type: "string" }, scene: { type: "string" }, who: { type: "array", items: { type: "string" } },
     words: { type: "array", items: { type: "object", additionalProperties: false, properties: { w: { type: "string" }, m: { type: "string" }, pos: { type: "string" }, level: { type: "string" }, forms: { type: "string" }, parts: { type: "array", items: { type: "string" } },
       register: { type: "string", enum: ["formal", "neutral", "informal", "slang", "vulgar"] }, tone: { type: "string", enum: ["positive", "neutral", "negative"] }, care: { type: "string" } }, required: ["w", "m", "pos", "level", "forms", "parts", "register", "tone", "care"] } },
-  }, required: ["tr", "simple", "g", "scene", "words"] } };
-// What kind of video this is — inferred once from the title and a sample of
-// its lines, cached per video, and put in front of every explanation so the
-// model knows whether it is reading an interview, a lesson, a match, a game…
+  }, required: ["tr", "simple", "g", "scene", "who", "words"] } };
+// What kind of video this is — read once from the site's own data (title,
+// episode, synopsis, channel, description) and a sample of the lines, cached
+// in the dossier, and put in front of every explanation.
 const CONTEXT_SCHEMA = { name: "video_context", strict: true, schema: { type: "object", additionalProperties: false,
-  properties: { kind: { type: "string" }, about: { type: "string" }, register: { type: "string" }, speakers: { type: "string" } }, required: ["kind", "about", "register", "speakers"] } };
+  properties: { kind: { type: "string" }, about: { type: "string" }, register: { type: "string" }, speakers: { type: "string" },
+    people: { type: "array", items: { type: "object", additionalProperties: false, properties: { name: { type: "string" }, role: { type: "string" } }, required: ["name", "role"] } } },
+  required: ["kind", "about", "register", "speakers", "people"] } };
 function contextPrompt(source) {
-  return `You are given the title of a video and a sample of its ${langName(source)} subtitle lines. Return STRICT JSON {"kind":"…","about":"…","register":"…","speakers":"…"}: ` +
-    `kind = what kind of video this is (interview, vlog, language lesson, news, documentary, football match commentary, video-game stream, comedy sketch, talk, podcast …); ` +
-    `about = the topic in one short sentence; register = how people speak (casual/formal, slang, dialect, jokes, technical terms); speakers = who is talking to whom. English, ≤ 60 words in total.`;
+  return `You are given what a video site says about a video (title, series and episode, synopsis, channel, description — some may be empty) and a sample of its ${langName(source)} subtitle lines. Return STRICT JSON {"kind":"…","about":"…","register":"…","speakers":"…","people":[{"name":"…","role":"…"}]}: ` +
+    `kind = what kind of video this is (interview, vlog, language lesson, news report, documentary, football match commentary, video-game stream, comedy sketch, talk, podcast, drama series episode, film …); ` +
+    `about = the topic in one short sentence; register = how people speak (casual/formal, slang, dialect, jokes, technical terms); speakers = who is talking to whom; ` +
+    `people = up to 8 named people who speak or matter here (a host, a guest, a reporter, a character) as {name, role} — ONLY names you are sure of from the given data or the lines; [] when unsure. English, ≤ 90 words in total.`;
 }
-async function videoContext(base, title, lines, source) {
-  if (!base) return null;
-  const cx = (await idbVocabGet("clipexplain:" + base)) || { base, at: Date.now(), e: {} };
-  if (cx.ctx && cx.ctx.kind) return cx.ctx;
-  const sample = (lines || []).filter(Boolean).slice(0, 40);
-  if (!sample.length) return null;
+// TMDb: the cast (character — actor, photo), the poster and the episode's own
+// title/synopsis. Optional (needs tmdbKey); every failure returns nothing and
+// the dossier goes on without it.
+async function tmdbLookup(meta, key) {
+  const none = { tmdb: null, people: [], poster: "", epTitle: "", synopsis: "" };
+  if (!key || !meta) return none;
+  // Only a real identity may be looked up. A bare title is often the site's own
+  // chrome ("Netflix") and would freeze a stranger's cast on the file; YouTube
+  // has no TMDb entry at all. A series name, or a synopsis off a film page.
+  if (!(meta.show || (meta.synopsis && meta.site !== "youtube"))) return none;
+  const u = SV_TMDB.urls(key);
+  const get = async (url) => { const r = await fetch(url); if (!r.ok) throw new Error("tmdb " + r.status); return r.json(); };
   try {
-    const r = await llmJSON(contextPrompt(source || "auto"), { title: String(title || "").slice(0, 120), lines: sample.map((l) => String(l).slice(0, 160)) }, CONTEXT_SCHEMA);
+    const kind = meta.show ? "tv" : "movie", want = meta.show || meta.title; if (!want) return none;
+    const hit = SV_TMDB.pickTitle((await get(u.search(kind, want))).results, want, meta.year);
+    if (!hit) return { ...none, tmdb: { type: kind, id: 0, matched: false } };
+    const people = SV_TMDB.cast(await get(u.credits(kind, hit.id)), 12);
+    let ep = { epTitle: "", synopsis: "", guests: [] };
+    if (kind === "tv" && meta.season && meta.episode) { try { ep = SV_TMDB.episode(await get(u.episode(hit.id, meta.season, meta.episode))); } catch (e) {} }
+    for (const g of ep.guests) if (people.length < 12 && !people.some((p) => p.name === g.name)) people.push(g);
+    return { tmdb: { type: kind, id: hit.id, matched: true, title: String(hit.name || hit.title || "") }, people, poster: SV_TMDB.imageUrl(hit.poster_path, "w185"), epTitle: ep.epTitle, synopsis: ep.synopsis };
+  } catch (e) { return none; }
+}
+// The model's reading of the video (kind, about, register, speakers, and the
+// people when TMDb gave none), written into d in place. Both the fresh build
+// and the identity upgrade run it; no provider yet is not fatal.
+async function readVideo(d, lines, lang) {
+  if (d.kind || !(lines.length || d.title || d.show)) return;
+  try {
+    const r = await llmJSON(contextPrompt(lang || "auto"), { title: d.title, show: d.show, season: d.season, episode: d.episode, epTitle: d.epTitle, synopsis: d.synopsis, channel: d.channel, description: String(d.description || "").slice(0, 600), lines: lines.slice(0, 40) }, CONTEXT_SCHEMA);
     const p = (r && r.parsed) || {};
-    const ctx = { kind: String(p.kind || "").trim(), about: String(p.about || "").trim(), register: String(p.register || "").trim(), speakers: String(p.speakers || "").trim(), at: Date.now() };
-    if (ctx.kind) { cx.ctx = ctx; await idbVocabPut("clipexplain:" + base, cx); }
-    await logCall({ ts: Date.now(), site: "learn", title: "Context: " + String(title || "").slice(0, 40), kind: "enrich", lines: sample.length, ms: 0, inTok: (r.usage && r.usage.prompt_tokens) || 0, outTok: (r.usage && r.usage.completion_tokens) || 0, ok: true, provider: r.provider, model: r.model });
-    return ctx.kind ? ctx : null;
-  } catch (e) { return null; }
+    d.kind = String(p.kind || "").trim(); d.about = String(p.about || "").trim(); d.register = String(p.register || "").trim(); d.speakers = String(p.speakers || "").trim();
+    if (!d.people.length && Array.isArray(p.people)) d.people = p.people.filter((x) => x && x.name).slice(0, 8).map((x, i) => ({ name: String(x.name).trim().slice(0, 60), character: "", role: String(x.role || "").trim().slice(0, 60), photo: "", order: i, src: "model" }));
+    await logCall({ ts: Date.now(), site: "learn", title: "Context: " + (d.show || d.title).slice(0, 40), kind: "enrich", lines: lines.length, ms: 0, inTok: (r.usage && r.usage.prompt_tokens) || 0, outTok: (r.usage && r.usage.completion_tokens) || 0, ok: true, provider: r.provider, model: r.model });
+  } catch (e) { /* no provider yet — the dossier still carries the site's data */ }
+}
+// The dossier: one file per video — the site's identity, the cast, the model's
+// reading, a frozen sample of the lines. Built once (single-flight), kept in
+// clipexplain:<base>.dossier; every explanation's prefix is made from it.
+const dossierBuilding = new Map(); // base → promise
+async function ensureDossier(base, meta, sample, lang) {
+  if (!base) return null;
+  if (dossierBuilding.has(base)) return dossierBuilding.get(base);
+  const run = (async () => {
+    const cx = (await idbVocabGet("clipexplain:" + base)) || { base, at: Date.now(), e: {} };
+    const m = meta || {};
+    const lines = SV_DOSSIER.sampleLines(sample || [], Array.isArray(sample) && sample.length >= 120 ? 300 : 40);
+    let d = cx.dossier && cx.dossier.v === 1 ? cx.dossier : null;
+    const setCtx = () => { if (d.kind) cx.ctx = { kind: d.kind, about: d.about, register: d.register, speakers: d.speakers, at: Date.now() }; }; // the old field, still read by older code paths
+    if (d) {
+      // The prefix must not drift: only a sample built from too few lines is
+      // replaced, once, and only before any e4 explanation was bought on it.
+      const bought = Object.keys(cx.e || {}).some((k) => k.startsWith("e4"));
+      let dirty = false;
+      if (!bought && (d.sample || []).length < 40 && lines.length >= 120) { d.sample = lines; dirty = true; }
+      // A ﹖ pressed before the board's DOSSIER message lands builds a
+      // title-only file — on Netflix that title is the site's own chrome — and
+      // the wrong reading would then be frozen for the whole video. The first
+      // meta that carries site facts replaces the identity, looks TMDb up and
+      // buys the reading again. The prefix changes once; that is the price.
+      if (!(d.show || d.synopsis || d.channel || d.description) && (m.show || m.synopsis || m.channel || m.description)) {
+        if (m.site) d.site = String(m.site);
+        if (m.title) d.title = String(m.title).slice(0, 160);
+        if (m.show) d.show = String(m.show).slice(0, 120);
+        if (+m.season) d.season = +m.season;
+        if (+m.episode) d.episode = +m.episode;
+        if (m.epTitle) d.epTitle = String(m.epTitle).slice(0, 120);
+        if (+m.year) d.year = +m.year;
+        if (+m.runtimeMin) d.runtimeMin = +m.runtimeMin;
+        if (m.synopsis) d.synopsis = String(m.synopsis).slice(0, 600);
+        if (m.channel) d.channel = String(m.channel).slice(0, 80);
+        if (m.description) d.description = String(m.description).slice(0, 1500);
+        const { tmdbKey } = await chrome.storage.local.get("tmdbKey");
+        const t = await tmdbLookup(d, String(tmdbKey || "").trim());
+        if (t.tmdb && t.tmdb.matched) { d.people = t.people; d.tmdb = t.tmdb; d.poster = t.poster; d.tmdbAt = Date.now(); if (!m.epTitle && t.epTitle) d.epTitle = String(t.epTitle).slice(0, 120); if (!m.synopsis && t.synopsis) d.synopsis = String(t.synopsis).slice(0, 600); }
+        const was = { kind: d.kind, about: d.about, register: d.register, speakers: d.speakers };
+        d.kind = ""; d.about = ""; d.register = ""; d.speakers = ""; // the reading was made without an identity — buy it again
+        await readVideo(d, d.sample || [], lang);
+        if (!d.kind) Object.assign(d, was); // no provider right now: the old reading beats none at all
+        setCtx();
+        dirty = true;
+      }
+      if (dirty) { cx.dossier = d; await idbVocabPut("clipexplain:" + base, cx); }
+      return d;
+    }
+    const { tmdbKey } = await chrome.storage.local.get("tmdbKey");
+    const t = await tmdbLookup(m, String(tmdbKey || "").trim());
+    d = { v: 1, at: Date.now(), site: String(m.site || ""), title: String(m.title || "").slice(0, 160), show: String(m.show || "").slice(0, 120), season: +m.season || 0, episode: +m.episode || 0,
+      epTitle: String(m.epTitle || t.epTitle || "").slice(0, 120), year: +m.year || 0, runtimeMin: +m.runtimeMin || 0, synopsis: String(m.synopsis || t.synopsis || "").slice(0, 600),
+      channel: String(m.channel || "").slice(0, 80), description: String(m.description || "").slice(0, 1500),
+      kind: (cx.ctx && cx.ctx.kind) || "", about: (cx.ctx && cx.ctx.about) || "", register: (cx.ctx && cx.ctx.register) || "", speakers: (cx.ctx && cx.ctx.speakers) || "",
+      people: t.people, tmdb: t.tmdb, poster: t.poster, sample: lines, tmdbAt: t.tmdb ? Date.now() : 0 };
+    await readVideo(d, lines, lang);
+    setCtx();
+    cx.dossier = d; await idbVocabPut("clipexplain:" + base, cx);
+    return d;
+  })().finally(() => dossierBuilding.delete(base));
+  dossierBuilding.set(base, run);
+  return run;
+}
+// Older callers (Study card): the kind of video, from the dossier.
+async function videoContext(base, title, lines, source) {
+  const d = await ensureDossier(base, { title }, lines, source);
+  return d && d.kind ? { kind: d.kind, about: d.about, register: d.register, speakers: d.speakers } : null;
 }
 const contextLine = (ctx) => (ctx && ctx.kind ? `VIDEO CONTEXT: ${ctx.kind}${ctx.about ? " — " + ctx.about : ""}${ctx.register ? ". Register: " + ctx.register : ""}${ctx.speakers ? ". Speakers: " + ctx.speakers : ""}. Read the lines in that light (a joke, a chant, a command in a game, an idiom of that world).\n` : "");
 // "forms" from the model is sometimes a bare dash or "none" — that is no form.
 const cleanForms = (v) => { const t = String(v || "").trim(); return /^[\s\-–—·.,_/]*$/.test(t) || /^(none|n\/a|na|no forms?|—|–|-)$/i.test(t) ? "" : t; };
-function explainPrompt(source, target, ctx) {
+// A dossier with nothing in it is no dossier: SV_DOSSIER.block({}) is a bare header line.
+const dossierFacts = (d) => !!(d && (d.show || d.title || d.kind || (d.sample || []).length || (d.people || []).length));
+function explainPrompt(source, target, dossier) {
   const fa = (target || "").split("-")[0] === "fa";
   const same = source && source !== "auto" && (source || "").split("-")[0] === (target || "").split("-")[0];
   return `You explain ONE ${langName(source)} passage (one or a few sentences that belong together) to a learner${same ? " — in " + langName(source) + " itself, with simple words (A2), so the learner stays inside the language" : ""}. The user message carries {"s":"<the passage>","before":[…earlier lines…],"after":[…later lines…]}; "before" and "after" are ONLY context — never explain or translate them.\n` +
-    contextLine(ctx) +
-    `Return STRICT JSON {"tr":"…","simple":"…","g":"…","scene":"…","words":[{"w":"…","m":"…","pos":"…","level":"…","forms":"…","parts":["…"],"register":"…","tone":"…","care":"…"}]}:\n` +
+    (dossierFacts(dossier) ? SV_DOSSIER.block(dossier) + "Read the passage in that light (a joke, a chant, a command in a game, an idiom of that world). Names in the dossier are the people's real names — use the CHARACTER names for who.\n" : "") +
+    `Return STRICT JSON {"tr":"…","simple":"…","g":"…","scene":"…","who":["…"],"words":[{"w":"…","m":"…","pos":"…","level":"…","forms":"…","parts":["…"],"register":"…","tone":"…","care":"…"}]}:\n` +
     `- scene: what is going on in THIS passage, in ${fa ? "Persian" : langName(target)}, at most 12 words — who speaks to whom, the mood (joking, serious, angry, selling, teaching…).\n` +
+    `- who: the characters or speakers present or speaking in THIS passage (0–4), by the dossier's character names when they fit, else a short role ("the doorman", "the host"); [] when unclear.\n` +
     (same ? `- tr: the whole passage said more simply in ${langName(source)}: A2 vocabulary, short clauses, same meaning.\n`
           : `- tr: a natural ${langName(target)} translation of the whole passage.\n`) +
     `- simple: RETELL the passage in ${langName(source)} for an A2 learner — what is being said, in 1–3 short plain sentences, only very common words, no idioms, no fillers ("like", "you know", "whatever"), no speaker marks; the idea, not the wording; clearly shorter and easier than the original. Never copy sentences from the passage.\n` +
@@ -1129,43 +1225,45 @@ async function explainLine(base, sent, langHint, opts) {
   // Which language the tips are in: the popup's target by default, "same" = the
   // video's own language (immersion), or a language code. Part of the cache key.
   const explainPref = String(o.explain || "").trim();
-  const skey = "e3" + (h >>> 0).toString(36) + (explainPref ? "|" + explainPref : ""); // e3: passage-level explanations with simple/pos/level/forms/parts
+  const skey = "e4" + (h >>> 0).toString(36) + (explainPref ? "|" + explainPref : ""); // e4: with who, on the dossier prefix
   const cx = (await idbVocabGet("clipexplain:" + base)) || { base, at: Date.now(), e: {} };
   const { targets: cfgX } = await chrome.storage.local.get(["targets"]);
   const defTarget = (Array.isArray(cfgX) && cfgX[0]) || "en";
   let target = explainPref && explainPref !== "same" ? explainPref : defTarget;
   let fa = (target || "").split("-")[0] === "fa";
   const faS = (s) => (fa ? SV_VOCAB.normalizeFa(String(s || "")) : String(s || ""));
-  // An explanation bought under the previous shape (e2…) is still an explanation:
-  // serve it rather than paying for it again; it only lacks "Put simply" and parts.
-  const e2key = "e2" + (h >>> 0).toString(36) + (explainPref ? "|" + explainPref : "");
-  if (!(cx.e[skey] && cx.e[skey].tr) && cx.e[e2key] && cx.e[e2key].tr && !o.fresh) cx.e[skey] = Object.assign({}, cx.e[e2key], { explain: explainPref });
+  // An explanation bought under a previous shape (e3…, e2…) is still an explanation: serve it rather than paying again (it only lacks who / Put simply).
+  for (const old of ["e3", "e2"]) { const k = old + (h >>> 0).toString(36) + (explainPref ? "|" + explainPref : ""); if (!(cx.e[skey] && cx.e[skey].tr) && cx.e[k] && cx.e[k].tr && !o.fresh) cx.e[skey] = Object.assign({}, cx.e[k], { explain: explainPref, who: cx.e[k].who || [] }); }
   if (!o.fresh && cx.e[skey] && cx.e[skey].tr) {
     const c = cx.e[skey];
     fa = ((c.explain && c.explain !== "same" ? c.explain : c.explain === "same" ? c.lang : target) || "").split("-")[0] === "fa";
-    return { ok: true, tr: faS(c.tr), simple: c.simple || "", g: faS(c.g), scene: faS(c.scene || ""), lang: c.lang || "", explain: c.explain || "", ctx: cx.ctx || null, words: (c.words || []).map((x) => ({ w: x.w, m: faS(x.m), pos: x.pos || "", level: x.level || "", forms: cleanForms(x.forms), parts: x.parts || [], register: x.register || "", tone: x.tone || "", care: faS(x.care || "") })), cached: true };
+    return { ok: true, tr: faS(c.tr), simple: c.simple || "", g: faS(c.g), scene: faS(c.scene || ""), who: Array.isArray(c.who) ? c.who : [], lang: c.lang || "", explain: c.explain || "", ctx: cx.ctx || null, words: (c.words || []).map((x) => ({ w: x.w, m: faS(x.m), pos: x.pos || "", level: x.level || "", forms: cleanForms(x.forms), parts: x.parts || [], register: x.register || "", tone: x.tone || "", care: faS(x.care || "") })), cached: true };
   }
   const started = Date.now();
   let lang = langHint && langHint !== "xx" ? String(langHint) : "";
   try { const det = await detectClipLang([{ o: sent }]); if (det && det !== "xx") lang = det; } catch {}
   if (explainPref === "same" && lang) { target = lang; fa = (target || "").split("-")[0] === "fa"; }
-  // The video's kind (interview, lesson, match …) is inferred once and cached;
-  // the neighbouring lines ride along as context only.
-  const ctx = await videoContext(base, o.title, o.sample, lang || "auto");
-  if (ctx && !cx.ctx) cx.ctx = ctx; // the record below is written back whole — keep the context it just inferred
-  const payload = { s: sent, before: (o.before || []).slice(-3).map((x) => String(x).slice(0, 200)), after: (o.after || []).slice(0, 3).map((x) => String(x).slice(0, 200)) };
-  const r = await llmJSON(explainPrompt(lang || "auto", target, ctx), payload, EXPLAIN_SCHEMA);
+  // The dossier (identity, cast, kind, a frozen sample) is the cached prefix; the passage and its neighbours are the only per-call bytes.
+  const dossier = await ensureDossier(base, { title: o.title }, o.sample, lang || "auto");
+  const ctx = dossier && dossier.kind ? { kind: dossier.kind, about: dossier.about, register: dossier.register, speakers: dossier.speakers } : null;
+  if (dossier) cx.dossier = dossier; // the record below is written back whole — keep what ensureDossier just stored
+  if (ctx && !cx.ctx) cx.ctx = ctx;
+  const payload = { s: sent, before: (o.before || []).slice(-2).map((x) => String(x).slice(0, 300)), after: (o.after || []).slice(0, 1).map((x) => String(x).slice(0, 300)) };
+  if (o.k != null && o.n) { payload.k = o.k + 1; payload.n = o.n; }
+  const r = await llmJSON(explainPrompt(lang || "auto", target, dossier), payload, EXPLAIN_SCHEMA);
   const p = (r && r.parsed) || {};
   const REG = new Set(["formal", "neutral", "informal", "slang", "vulgar"]), TONE = new Set(["positive", "neutral", "negative"]);
-  const out = { tr: String(p.tr || "").trim(), simple: String(p.simple || "").trim(), g: String(p.g || "").trim(), scene: String(p.scene || "").trim().slice(0, 140), lang,
+  const out = { tr: String(p.tr || "").trim(), simple: String(p.simple || "").trim(), g: String(p.g || "").trim(), scene: String(p.scene || "").trim().slice(0, 140), who: Array.isArray(p.who) ? p.who.map((x) => String(x).trim().slice(0, 60)).filter(Boolean).slice(0, 4) : [], lang,
     words: Array.isArray(p.words) ? p.words.filter((x) => x && x.w && x.m).slice(0, 8).map((x) => ({ w: String(x.w).trim(), m: String(x.m).trim(), pos: String(x.pos || "").trim().toLowerCase(), level: String(x.level || "").trim().toUpperCase(), forms: cleanForms(x.forms), parts: Array.isArray(x.parts) ? x.parts.map((q) => String(q).trim()).filter(Boolean).slice(0, 4) : [],
       register: REG.has(String(x.register || "").toLowerCase()) ? String(x.register).toLowerCase() : "", tone: TONE.has(String(x.tone || "").toLowerCase()) ? String(x.tone).toLowerCase() : "", care: String(x.care || "").trim().slice(0, 160) })) : [] };
   if (out.tr) { out.s = sent; out.at = started; out.explain = explainPref; cx.e[skey] = out; if (!explainPref) cx.target = target; cx.lang = lang || String(cx.lang || ""); cx.at = Date.now(); await idbVocabPut("clipexplain:" + base, cx); }
   await logCall({ ts: started, site: "learn", title: "Explain: " + sent.slice(0, 40), kind: "enrich", lines: 1, ms: Date.now() - started,
     inTok: (r.usage && r.usage.prompt_tokens) || 0, outTok: (r.usage && r.usage.completion_tokens) || 0,
     cacheR: (r.usage && r.usage.cache_r) || 0, cacheW: (r.usage && r.usage.cache_w) || 0, ok: true, provider: r.provider, model: r.model });
-  return { ok: true, tr: faS(out.tr), simple: out.simple, g: faS(out.g), scene: faS(out.scene), lang, explain: explainPref, ctx: cx.ctx || ctx || null, words: out.words.map((x) => ({ w: x.w, m: faS(x.m), pos: x.pos, level: x.level, forms: x.forms, parts: x.parts, register: x.register, tone: x.tone, care: faS(x.care) })) };
+  return { ok: true, tr: faS(out.tr), simple: out.simple, g: faS(out.g), scene: faS(out.scene), who: out.who, lang, explain: explainPref, ctx: cx.ctx || ctx || null, words: out.words.map((x) => ({ w: x.w, m: faS(x.m), pos: x.pos, level: x.level, forms: x.forms, parts: x.parts, register: x.register, tone: x.tone, care: faS(x.care) })) };
 }
+// Which shape an explanation was bought under: e4 (names who) beats e3 beats e2.
+const eRank = (k) => (k.startsWith("e4") ? 3 : k.startsWith("e3") ? 2 : 1);
 // "Share this video's tips": the board's chunks in order, each with whatever is
 // already explained (nothing is asked from the model), saved as one record and
 // opened in share.html — a page that can be downloaded as a single file.
@@ -1174,15 +1272,16 @@ async function shareTips(msg) {
   const pref = String(msg.explain || "").trim();
   const cx = await idbVocabGet("clipexplain:" + base);
   const byText = new Map();
-  for (const [k, e] of Object.entries((cx && cx.e) || {})) if (/^e[23]/.test(k) && e && e.s && e.tr && String(e.explain || "") === pref) { if (!byText.has(e.s) || k.startsWith("e3")) byText.set(e.s, e); }
+  const bestRank = new Map();
+  for (const [k, e] of Object.entries((cx && cx.e) || {})) if (/^e[234]/.test(k) && e && e.s && e.tr && String(e.explain || "") === pref) { const r = eRank(k); if (r > (bestRank.get(e.s) || 0)) { bestRank.set(e.s, r); byText.set(e.s, e); } }
   const chunks = (Array.isArray(msg.chunks) ? msg.chunks : []).slice(0, 600).map((c) => {
     const text = String(c.text || "").replace(/\s+/g, " ").trim(); const e = byText.get(text);
     return { k: c.k, startMs: +c.startMs || 0, sentences: (c.sentences || []).map((x) => ({ s: String(x.s || ""), tr: String(x.tr || "") })).filter((x) => x.s),
-      tips: e ? { tr: e.tr || "", simple: e.simple || "", g: e.g || "", scene: e.scene || "", words: (e.words || []).map((x) => ({ w: x.w, m: x.m, pos: x.pos || "", level: x.level || "", forms: cleanForms(x.forms), register: x.register || "", tone: x.tone || "", care: x.care || "" })) } : null };
+      tips: e ? { tr: e.tr || "", simple: e.simple || "", g: e.g || "", scene: e.scene || "", who: e.who || [], words: (e.words || []).map((x) => ({ w: x.w, m: x.m, pos: x.pos || "", level: x.level || "", forms: cleanForms(x.forms), register: x.register || "", tone: x.tone || "", care: x.care || "" })) } : null };
   });
   const { targets } = await chrome.storage.local.get("targets");
   const id = "sh" + Date.now().toString(36);
-  const rec = { id, at: Date.now(), base, title: String(msg.title || "Video"), url: String(msg.url || ""), lang: String((cx && cx.lang) || msg.lang || ""), target: String((Array.isArray(targets) && targets[0]) || "en"), explain: pref, ctx: (cx && cx.ctx) || null, chunks, explained: chunks.filter((c) => c.tips).length };
+  const rec = { id, at: Date.now(), base, title: String(msg.title || "Video"), url: String(msg.url || ""), lang: String((cx && cx.lang) || msg.lang || ""), target: String((Array.isArray(targets) && targets[0]) || "en"), explain: pref, ctx: (cx && cx.ctx) || null, dossier: cx && cx.dossier ? Object.assign({}, cx.dossier, { sample: [] }) : null, chunks, explained: chunks.filter((c) => c.tips).length };
   await idbVocabPut("share:" + id, rec);
   await chrome.tabs.create({ url: chrome.runtime.getURL("share.html?id=" + id) });
   return { ok: true, id, explained: rec.explained, chunks: chunks.length };
@@ -1194,11 +1293,12 @@ async function tipsCached(msg) {
   const base = String(msg.base || ""); if (!base) return { ok: false, error: "empty" };
   const pref = String(msg.explain || "").trim();
   const cx = await idbVocabGet("clipexplain:" + base);
-  // e3 entries first; an older e2 entry counts when no e3 one exists for the same passage.
-  const all = cx && cx.e ? Object.entries(cx.e).filter(([k, e]) => /^e[23]/.test(k) && e && e.s && e.tr && String(e.explain || "") === pref) : [];
-  const seen = new Set(all.filter(([k]) => k.startsWith("e3")).map(([, e]) => e.s));
-  const entries = all.filter(([k, e]) => k.startsWith("e3") || !seen.has(e.s)).map(([, e]) => e);
-  return { ok: true, entries: entries.map((e) => ({ s: e.s, tr: e.tr, simple: e.simple || "", g: e.g || "", scene: e.scene || "", lang: e.lang || "", at: e.at || 0, words: (e.words || []).map((x) => ({ w: x.w, m: x.m, pos: x.pos || "", level: x.level || "", forms: cleanForms(x.forms), parts: x.parts || [], register: x.register || "", tone: x.tone || "", care: x.care || "" })) })), ctx: cx && cx.ctx ? cx.ctx : null };
+  // One entry per passage, in the shape it was last bought in: e4, else e3, else e2.
+  const all = cx && cx.e ? Object.entries(cx.e).filter(([k, e]) => /^e[234]/.test(k) && e && e.s && e.tr && String(e.explain || "") === pref) : [];
+  const best = new Map();
+  for (const [k, e] of all) { const r = eRank(k); if (r > (best.has(e.s) ? best.get(e.s).r : 0)) best.set(e.s, { r, e }); }
+  const entries = [...best.values()].map((v) => v.e);
+  return { ok: true, entries: entries.map((e) => ({ s: e.s, tr: e.tr, simple: e.simple || "", g: e.g || "", scene: e.scene || "", who: e.who || [], lang: e.lang || "", at: e.at || 0, words: (e.words || []).map((x) => ({ w: x.w, m: x.m, pos: x.pos || "", level: x.level || "", forms: cleanForms(x.forms), parts: x.parts || [], register: x.register || "", tone: x.tone || "", care: x.care || "" })) })), ctx: cx && cx.ctx ? cx.ctx : null, dossier: cx && cx.dossier ? cx.dossier : null };
 }
 
 // ── Tips sheet: every ﹖-explained line of a video as one Study card ─────────
@@ -2854,7 +2954,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           // words) for the on-video ﹖ button. Cached per sentence forever.
           const base = String(msg.base || ""), sent = String(msg.s || "").slice(0, 700);
           if (!sent) { sendResponse({ error: "missing sentence" }); break; }
-          try { sendResponse(await explainLine(base, sent, msg.lang, { before: msg.before, after: msg.after, title: msg.title, sample: msg.sample, explain: msg.explain, fresh: !!msg.fresh })); }
+          try { sendResponse(await explainLine(base, sent, msg.lang, { before: msg.before, after: msg.after, title: msg.title, sample: msg.sample, explain: msg.explain, fresh: !!msg.fresh, k: msg.k, n: msg.n })); }
           catch (e2) { sendResponse({ error: String((e2 && e2.message) || e2) }); }
           break;
         }
@@ -3019,6 +3119,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         case "TIPS_SNAP": sendResponse(await tipsSnap(msg, sender)); break;
         case "CLIP_TIPS": sendResponse(await clipTips(msg)); break;
         case "TIPS_CACHED": sendResponse(await tipsCached(msg)); break;
+        case "DOSSIER": { // the board asks once per video, before any explanation
+          try { const d = await ensureDossier(String(msg.base || ""), msg.meta || {}, Array.isArray(msg.sample) ? msg.sample : [], msg.lang); sendResponse({ ok: !!d, dossier: d || null }); }
+          catch (e2) { sendResponse({ ok: false, error: String((e2 && e2.message) || e2) }); }
+          break;
+        }
+        case "TMDB_TEST": { // the popup's Verify for the TMDb key
+          try { const r = await fetch(SV_TMDB.urls(String(msg.key || "").trim()).configuration()); sendResponse(r.ok ? { ok: true } : { ok: false, error: r.status === 401 ? "TMDb didn't accept this key" : "TMDb answered " + r.status }); }
+          catch (e2) { sendResponse({ ok: false, error: "couldn't reach TMDb" }); }
+          break;
+        }
         case "SHARE_TIPS": sendResponse(await shareTips(msg)); break;
         case "SHARE_GET": sendResponse(await idbVocabGet("share:" + String(msg.id || "")) || { error: "not found" }); break;
         default:
