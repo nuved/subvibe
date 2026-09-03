@@ -386,7 +386,8 @@
 #sv-board .svb-toggle { border: 1px solid #EDE5DA; background: #fff; color: #C93F2B; font: 600 11px/1.3 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; padding: 3px 8px; border-radius: 6px; cursor: pointer; }
 #sv-board.collapsed .svb-list { display: none; }
 #sv-board .svb-list { position: relative; max-height: min(72vh, 760px); overflow-y: auto; overscroll-behavior: contain; padding: 6px 0; } /* relative: rows measure offsetTop against the list, so following the playhead scrolls right */
-#sv-board .svb-chunk { display: grid; grid-template-columns: 44px 1fr; gap: 8px; padding: 8px 12px 8px 8px; border-left: 3px solid transparent; cursor: pointer; position: relative; }
+#sv-board .svb-chunk { display: grid; grid-template-columns: 44px 1fr auto; gap: 8px; padding: 8px 10px 8px 8px; border-left: 3px solid transparent; cursor: pointer; position: relative; align-items: start; }
+#sv-board .svb-aside { align-self: start; min-width: 0; }
 #sv-board .svb-chunk + .svb-chunk { border-top: 1px solid #EDE5DA; }
 #sv-board .svb-chunk:hover { background: #F3EDE4; }
 #sv-board .svb-chunk.on { background: #fff; border-left-color: #C93F2B; }
@@ -399,8 +400,11 @@
 #sv-board .svb-sent { display: grid; grid-template-columns: 16px 1fr; gap: 6px; align-items: baseline; font-size: 13px; font-weight: 600; color: #241F1A; }
 #sv-board .svb-sn { border: 0; background: none; padding: 0; font: 700 9.5px/1.4 ui-monospace, Menlo, Consolas, monospace; color: #8A7F72; font-style: normal; cursor: pointer; text-align: left; }
 #sv-board .svb-sn:hover { color: #C93F2B; }
-#sv-board .svb-w { transition: color .15s ease; }
+#sv-board .svb-w { transition: color .15s ease, background-color .15s ease; border-radius: 4px; padding: 0 1px; margin: 0 -1px; }
 #sv-board .svb-w.sung { color: #C93F2B; }
+#sv-board .svb-w.now { color: #7A1F12; background: #FBDCD5; box-shadow: 0 0 0 2px #FBDCD5; }
+#sv-board .svb-chunk.on .svb-sent { color: #5B5348; }
+#sv-board .svb-chunk.on .svb-sent.live { color: #241F1A; font-size: 14px; }
 #sv-board .svb-tools { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid #EDE5DA; background: #F6F1E9; }
 #sv-board.collapsed .svb-tools { display: none; }
 #sv-board .svb-lines { border: 1px solid #EDE5DA; background: #fff; color: #5B5348; font: 600 11px/1.3 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; padding: 3px 8px; border-radius: 6px; cursor: pointer; }
@@ -412,8 +416,8 @@
 #copilot-subs .copilot-subs__wtip .wt-words .wt-add:hover, #sv-board .wt-words .wt-add:hover { background: #FDE8E4; }
 #copilot-subs .copilot-subs__wtip .wt-words .wt-add:disabled, #sv-board .wt-words .wt-add:disabled { color: #1F7A6D; border-color: #E4F2EF; background: #E4F2EF; cursor: default; }
 #sv-board .svb-tr { color: #1F7A6D; font-size: 12.5px; font-weight: 500; margin: 1px 0 5px 22px; }
-#sv-board .svb-mark { position: absolute; top: 8px; right: 10px; font: 600 10px/1.3 ui-monospace, Menlo, Consolas, monospace; color: #1F7A6D; font-style: normal; }
-#sv-board .svb-explain { position: absolute; top: 6px; right: 8px; border: 1px solid #F3D4CD; background: #fff; color: #C93F2B; font: 600 11px/1.3 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; padding: 3px 8px; border-radius: 6px; cursor: pointer; }
+#sv-board .svb-mark { display: block; padding-top: 3px; font: 600 10px/1.3 ui-monospace, Menlo, Consolas, monospace; color: #1F7A6D; font-style: normal; white-space: nowrap; }
+#sv-board .svb-explain { border: 1px solid #F3D4CD; background: #fff; color: #C93F2B; font: 600 11px/1.3 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; padding: 3px 8px; border-radius: 6px; cursor: pointer; white-space: nowrap; }
 #sv-board .svb-explain:hover { background: #FDE8E4; }
 #sv-board .wt-body { margin: 6px 0 0 -8px; border-top: 1px dashed #EDE5DA; padding-top: 2px; }
 #sv-board .wt-sect { padding: 0 4px 0 8px; }
