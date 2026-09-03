@@ -1343,18 +1343,19 @@ async function creditsLookup(d) {
   const wanted = []; const ids = new Set();
   for (const [p, role] of Object.entries(CREDIT_PROPS)) { const vals = (claims[p] || []).map((c) => c.mainsnak && c.mainsnak.datavalue && c.mainsnak.datavalue.value && c.mainsnak.datavalue.value.id).filter(Boolean).slice(0, 2); if (vals.length) { wanted.push({ role, ids: vals }); vals.forEach((v) => ids.add(v)); } }
   if (!ids.size) return [];
-  const l = await (await fetch(wd + "action=wbgetentities&props=labels&languages=en&ids=" + [...ids].join("|"))).json();
+  const l = await (await fetch(wd + "action=wbgetentities&props=labels&ids=" + [...ids].join("|"))).json(); // all languages: some items carry only "mul" or a regional English label
   // A merged item comes back under its new id with `redirects.from` — map both ids to the label.
-  const labels = {}; for (const ent of Object.values((l && l.entities) || {})) { const lab = ent && ent.labels && ent.labels.en && ent.labels.en.value; if (!lab) continue; labels[ent.id] = lab; if (ent.redirects && ent.redirects.from) labels[ent.redirects.from] = lab; }
+  const pick = (lb) => { if (!lb) return ""; for (const k of ["en", "en-gb", "en-us", "en-ca", "mul"]) if (lb[k] && lb[k].value) return lb[k].value; const any = Object.values(lb)[0]; return (any && any.value) || ""; };
+  const labels = {}; for (const ent of Object.values((l && l.entities) || {})) { const lab = pick(ent && ent.labels); if (!lab) continue; labels[ent.id] = lab; if (ent.redirects && ent.redirects.from) labels[ent.redirects.from] = lab; }
   const label = (id) => labels[id] || "";
   const out = []; const seen = new Set();
   for (const w of wanted) { const names = w.ids.map(label).filter(Boolean); if (!names.length) continue; const key = names.join("|"); if (w.role === "publisher" && seen.has(key)) continue; seen.add(key); out.push({ role: w.role, names }); }
   return out.slice(0, 5);
 }
 async function ensureCredits(base, cx, d) {
-  if (d.creditsAt && d.creditsV === 2) return d.credits || [];
+  if (d.creditsAt && d.creditsV === 3) return d.credits || [];
   try { d.credits = await creditsLookup(d); } catch (e) { d.credits = []; }
-  d.creditsAt = Date.now(); d.creditsV = 2; cx.dossier = d; await idbVocabPut("clipexplain:" + base, cx);
+  d.creditsAt = Date.now(); d.creditsV = 3; cx.dossier = d; await idbVocabPut("clipexplain:" + base, cx);
   return d.credits;
 }
 async function faces(msg) {
