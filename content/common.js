@@ -2140,7 +2140,7 @@
     const tipsRetry = () => { tips.stopped = false; tips.errors = 0; tips.rounds = 0; tips.pausedUntil = 0; board.sig = ""; boardTick(true); };
     // A person is a name: "Ray (Raymond)" counts as Ray; "the police", "radio advertisement voice" are roles.
     const cleanName = (w) => String(w || "").replace(/\s*\(.*$/, "").trim();
-    const isRole = (k) => !/^\p{Lu}/u.test(k) || /\b(voice|advert|announcer|narrator|officer|police|crowd|men|man|woman|guy|guys|people|cop|cops|dealer|driver|radio|tv)\b/i.test(k) || k.split(/\s+/).length > 3;
+    const isRole = (k) => !/^\p{Lu}/u.test(k) || /['\u2019]s?\s/.test(k) || /\b(voice|advert|announcer|narrator|officer|police|crowd|men|man|woman|guy|guys|people|cop|cops|dealer|driver|radio|tv)\b/i.test(k) || k.split(/\s+/).length > 3; // "Andrés's partner" is a role, not a person
     // Faces: character pictures from the franchise's wiki, asked in small batches, remembered per name.
     let facesTimer = 0; const facesQueue = new Set();
     const askFaces = (names) => {
