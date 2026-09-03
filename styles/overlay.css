@@ -422,3 +422,4 @@
 #sv-board .wt-body { margin: 6px 0 0 -8px; border-top: 1px dashed #EDE5DA; padding-top: 2px; }
 #sv-board .wt-sect { padding: 0 4px 0 8px; }
 #sv-board .wt-actions { margin: 8px 0 0 -8px; padding: 8px 4px 2px 8px; border-top: 1px solid #EDE5DA; background: transparent; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+#sv-board .svb-dead { padding: 8px 12px; background: #FBEAE6; color: #A93521; font: 600 12px/1.4 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; border-bottom: 1px solid #F3D4CD; }

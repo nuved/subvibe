@@ -67,14 +67,16 @@
   // that and halt this stale script quietly (with a refresh hint) instead of
   // spamming "Translation failed" on every pump tick.
   let contextDead = false;
-  function haltOrphaned() {
+  function haltOrphaned(note) {
     if (window.__svDub) try { window.__svDub.detach(); } catch {}
     if (streamCleanup) { try { streamCleanup(); } catch {} streamCleanup = null; }
     try { cancelAnimationFrame(rafId); } catch {}
     try { cancelAnimationFrame(audioRaf); } catch {}
     const el = document.getElementById("copilot-subs");
     const s = el && el.querySelector(".copilot-subs__status");
-    if (s) { s.textContent = "SubVibe was updated — refresh this tab to continue."; s.classList.add("show"); }
+    if (s) { s.textContent = note || "SubVibe was updated — refresh this tab to continue."; s.classList.add("show"); }
+    const b = document.getElementById("sv-board"); // the story board says it too, where the eye is
+    if (b) { const n = document.createElement("div"); n.className = "svb-dead"; n.textContent = note || "SubVibe was updated — refresh this tab to continue."; b.insertBefore(n, b.firstChild.nextSibling); }
   }
   function extAlive() {
     if (contextDead) return false;
@@ -88,6 +90,17 @@
   // reload/update (so we should halt quietly with a refresh hint, not surface a
   // "Translation failed"). Netflix kept hitting this via the callback path below.
   const isOrphanError = (m) => /context invalidated|Extension context|reading 'sendMessage'/i.test(m || "");
+  // "Receiving end does not exist": nobody is listening — the extension's
+  // background worker is not running (its process crashed, or the extension was
+  // reloaded under this tab). Chrome wakes an idle worker for a message, so this
+  // is not the idle case. Say what to do instead of "Translation failed".
+  const isNoReceiver = (m) => /Receiving end does not exist|Could not establish connection/i.test(m || "");
+  const NO_RECEIVER = "SubVibe's background isn't running — reload the extension (brave://extensions → SubVibe → Reload), then refresh this tab.";
+  function deadReply(m) {
+    if (isOrphanError(m)) { contextDead = true; try { haltOrphaned(); } catch {} return { error: "SubVibe was reloaded — refresh the tab.", dead: true }; }
+    if (isNoReceiver(m)) { contextDead = true; try { haltOrphaned(NO_RECEIVER); } catch {} return { error: NO_RECEIVER, dead: true }; }
+    return null;
+  }
   function send(msg) {
     return new Promise((resolve) => {
       if (!extAlive()) { resolve({ error: "SubVibe was reloaded — refresh the tab.", dead: true }); return; }
@@ -96,16 +109,12 @@
           const le = chrome.runtime.lastError;
           if (le) {
             const m = le.message || "messaging error";
-            const dead = isOrphanError(m);
-            if (dead) { contextDead = true; try { haltOrphaned(); } catch {} }
-            resolve({ error: dead ? "SubVibe was reloaded — refresh the tab." : m, dead });
+            resolve(deadReply(m) || { error: m, dead: false });
           } else resolve(resp);
         });
       } catch (e) {
         const m = String((e && e.message) || e);
-        const dead = isOrphanError(m);
-        if (dead) { contextDead = true; try { haltOrphaned(); } catch {} }
-        resolve({ error: dead ? "SubVibe was reloaded — refresh the tab." : m, dead });
+        resolve(deadReply(m) || { error: m, dead: false });
       }
     });
   }
