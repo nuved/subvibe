@@ -125,7 +125,7 @@
   // layers this clip's own changes on top — so a tweak on one video (or live channel)
   // never bleeds onto another. sync defaults to 0 per clip.
   async function getSettings() {
-    const s = await chrome.storage.local.get(["enabled", "translateOn", "targets", "showOriginal", "hideNative", "position", "linePositions", "size", "stylePreset", "styleCustom", "syncOffset", "karaokeHl", "karaokeStyle", "audioFallback", "audioDeviceId", "translationProvider", "debugHud", "clipOverrides"]);
+    const s = await chrome.storage.local.get(["enabled", "translateOn", "targets", "showOriginal", "hideNative", "position", "linePositions", "size", "stylePreset", "styleCustom", "syncOffset", "karaokeHl", "karaokeStyle", "storyBoard", "audioFallback", "audioDeviceId", "translationProvider", "debugHud", "clipOverrides"]);
     const { clipOverrides, ...flat } = s;
     const ov = (clipOverrides && clipOverrides[clipBaseId()]) || {};
     const merged = { ...DEFAULTS, ...flat, ...ov };
@@ -2033,6 +2033,7 @@
       if (seededFor === tipsExplain) return; seededFor = tipsExplain;
       send({ type: "TIPS_CACHED", base, explain: tipsExplain }).then((r) => {
         if (!r || !r.ok || seededFor !== tipsExplain) return;
+        if (r.ctx) setCtx(r.ctx);
         for (const e of r.entries || []) if (!lineExplainCache.has(e.s)) lineExplainCache.set(e.s, { tr: e.tr, simple: e.simple || "", g: e.g, lang: e.lang || "", words: e.words || [] });
         board.sig = "";
       });
@@ -2050,6 +2051,7 @@
       const hit = lineExplainCache.get(ch.text); if (hit) return Promise.resolve(hit);
       if (!chunkFetching.has(ch.text)) chunkFetching.set(ch.text, send(explainPayload(ch, list)).then((r) => {
         chunkFetching.delete(ch.text);
+        if (r && r.ctx) setCtx(r.ctx);
         if (r && r.tr) { const ex = { tr: r.tr, simple: r.simple || "", g: r.g, lang: r.lang || "", words: r.words || [] }; lineExplainCache.set(ch.text, ex); return ex; }
         return { error: r && r.error ? "couldn't explain — check the provider key in the popup" : "no explanation — try again" };
       }));
@@ -2297,7 +2299,10 @@
     // subtitles: every chunk in order with its translation, the playing one
     // highlighted and followed, the explained ones marked; the open chunk
     // shows its Translation · Grammar · Words and the actions row.
-    const board = { el: null, list: [], ki: -1, open: -1, sig: "", at: 0, collapsed: false, userScrollAt: 0, linesOff: false, loop: -1, stopAt: null, rate: 1 };
+    const board = { el: null, list: [], ki: -1, open: -1, sig: "", at: 0, collapsed: false, userScrollAt: 0, linesOff: false, loop: -1, stopAt: null, rate: 1, ctx: null };
+    // "language lesson · walk & talk" — what kind of video the model took this for.
+    const ctxLine = (cx) => cx && cx.kind ? [cx.kind, cx.about].filter(Boolean).join(" · ").slice(0, 90) : "";
+    const setCtx = (cx) => { if (!cx || !cx.kind) return; board.ctx = cx; const el = board.el && board.el.querySelector(".svb-ctx"); if (el) { el.textContent = ctxLine(cx); el.title = [cx.kind, cx.about, cx.register ? "Register: " + cx.register : "", cx.speakers ? "Speakers: " + cx.speakers : ""].filter(Boolean).join("\n"); } };
     try { board.collapsed = localStorage.getItem("sv-board-collapsed") === "1"; board.linesOff = localStorage.getItem("sv-lines-off") === "1"; } catch (e) {}
     const boardVisible = () => !!(board.el && board.el.isConnected && !board.collapsed && !document.fullscreenElement && board.el.offsetParent !== null);
     const setBoardCollapsed = (v) => {
@@ -2308,6 +2313,7 @@
     // Subtitles on the picture: off = read them on the board (karaoke follows there).
     const applyLinesOff = () => { overlay.classList.toggle("sv-lines-off", board.linesOff && boardVisible()); const t = board.el && board.el.querySelector(".svb-lines"); if (t) { t.textContent = board.linesOff ? "Subtitles on video: off" : "Subtitles on video: on"; t.classList.toggle("off", board.linesOff); } };
     const ensureBoard = () => {
+      if (settings.storyBoard === false) { if (board.el) { try { board.el.remove(); } catch (e) {} board.el = null; } return null; } // switched off in the popup
       if (board.el && board.el.isConnected) return board.el;
       if (!(adapter && adapter.site === "youtube")) return null;
       const host = document.querySelector("ytd-watch-flexy #secondary-inner") || document.querySelector("ytd-watch-flexy #secondary");
@@ -2316,7 +2322,8 @@
       const head = mk("div", "svb-head");
       const toggle = mk("button", "svb-toggle", board.collapsed ? "Show" : "Hide"); toggle.type = "button";
       toggle.addEventListener("click", () => { setBoardCollapsed(!board.collapsed); applyLinesOff(); });
-      head.append(mk("span", "svb-logo", "S"), mk("b", null, "Story board"), mk("span", "svb-count", ""), toggle);
+      const title = mk("span", "svb-title"); title.appendChild(mk("b", null, "Story board")); title.appendChild(mk("i", "svb-ctx", board.ctx ? ctxLine(board.ctx) : ""));
+      head.append(mk("span", "svb-logo", "S"), title, mk("span", "svb-count", ""), toggle);
       const tools = mk("div", "svb-tools");
       const lines = mk("button", "svb-lines", ""); lines.type = "button"; lines.title = "Hide the subtitles on the picture and read them here instead (the playing words light up on the board)";
       lines.addEventListener("click", () => { board.linesOff = !board.linesOff; try { localStorage.setItem("sv-lines-off", board.linesOff ? "1" : ""); } catch (e) {} applyLinesOff(); });
