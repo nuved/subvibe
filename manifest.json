@@ -53,6 +53,12 @@
         "default": "Alt+Shift+C"
       },
       "description": "SubVibe: start/stop recording a clip of this video (non-DRM)"
+    },
+    "sv-snap-chunk": {
+      "suggested_key": {
+        "default": "Alt+Shift+F"
+      },
+      "description": "SubVibe: frame + this chunk as a Shot (works on protected video too)"
     }
   },
   "content_security_policy": {

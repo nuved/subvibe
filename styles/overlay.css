@@ -469,6 +469,7 @@
 #sv-board .svb-share:hover { background: #FDE8E4; }
 #sv-board .svb-lang { margin-left: auto; border: 1px solid #EDE5DA; background: #fff; color: #241F1A; font: 600 11px/1.3 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; padding: 3px 6px; border-radius: 6px; max-width: 60%; }
 #copilot-subs.sv-lines-off .copilot-subs__stack, #copilot-subs.sv-lines-off .copilot-subs__hint { display: none !important; }
+#copilot-subs.sv-snap-hide { visibility: hidden !important; } /* the frame is captured from the screen — nothing of ours on it */
 #copilot-subs .copilot-subs__wtip .wt-lang { width: auto; padding: 0 7px; font-size: 10.5px; letter-spacing: .04em; }
 #copilot-subs .copilot-subs__wtip .wt-words .wt-add, #sv-board .wt-words .wt-add { margin-inline-start: 6px; border: 1px solid #EDE5DA; background: #fff; color: #C93F2B; font: 700 11px/1 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; width: 18px; height: 18px; border-radius: 6px; cursor: pointer; vertical-align: middle; padding: 0; }
 #copilot-subs .copilot-subs__wtip .wt-words .wt-add:hover, #sv-board .wt-words .wt-add:hover { background: #FDE8E4; }
