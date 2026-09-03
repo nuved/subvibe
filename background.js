@@ -1135,7 +1135,7 @@ async function explainLine(base, sent, langHint, opts) {
   await logCall({ ts: started, site: "learn", title: "Explain: " + sent.slice(0, 40), kind: "enrich", lines: 1, ms: Date.now() - started,
     inTok: (r.usage && r.usage.prompt_tokens) || 0, outTok: (r.usage && r.usage.completion_tokens) || 0,
     cacheR: (r.usage && r.usage.cache_r) || 0, cacheW: (r.usage && r.usage.cache_w) || 0, ok: true, provider: r.provider, model: r.model });
-  return { ok: true, tr: faS(out.tr), simple: out.simple, g: faS(out.g), lang, explain: explainPref, words: out.words.map((x) => ({ w: x.w, m: faS(x.m), pos: x.pos, level: x.level, forms: x.forms, parts: x.parts })) };
+  return { ok: true, tr: faS(out.tr), simple: out.simple, g: faS(out.g), lang, explain: explainPref, ctx: cx.ctx || ctx || null, words: out.words.map((x) => ({ w: x.w, m: faS(x.m), pos: x.pos, level: x.level, forms: x.forms, parts: x.parts })) };
 }
 // Everything already explained on a video, for one tips language — the story
 // board seeds its marks and tips from this after a page load, so nothing
@@ -2365,12 +2365,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             break;
           }
           await ensureOffscreen();
-          chrome.runtime.sendMessage({ type: "AUDIO_START", deviceId: msg.deviceId });
+          chrome.runtime.sendMessage({ type: "AUDIO_START", deviceId: msg.deviceId }).catch(() => {});
           sendResponse({ ok: true });
           break;
         case "STOP_AUDIO":
           audioActive = false;
-          chrome.runtime.sendMessage({ type: "AUDIO_STOP" });
+          chrome.runtime.sendMessage({ type: "AUDIO_STOP" }).catch(() => {});
           if (audioTabId != null) chrome.tabs.sendMessage(audioTabId, { type: "AUDIO_STOP" }).catch(() => {});
           if (!liveActive) { try { await chrome.offscreen.closeDocument(); } catch {} } // live shares the doc
           sendResponse({ ok: true });
@@ -2410,17 +2410,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             // Hand the key over instead of letting the capture page read
             // storage itself — one less await over there that could stall.
             const { geminiKey } = await chrome.storage.local.get("geminiKey");
-            chrome.runtime.sendMessage({ type: "LIVE_START", key: geminiKey || "", streamId, origVol: msg.origVol, deviceId: msg.deviceId, target: msg.target, targetCode: msg.targetCode, model: msg.model });
+            chrome.runtime.sendMessage({ type: "LIVE_START", key: geminiKey || "", streamId, origVol: msg.origVol, deviceId: msg.deviceId, target: msg.target, targetCode: msg.targetCode, model: msg.model }).catch(() => {});
           } catch (e) {
             liveActive = false;
-            chrome.runtime.sendMessage({ type: "LIVE_STATE", running: false, error: "capture page: " + (e.message || e) });
+            chrome.runtime.sendMessage({ type: "LIVE_STATE", running: false, error: "capture page: " + (e.message || e) }).catch(() => {});
           }
           sendResponse({ ok: true });
           break;
         }
         case "LIVE_END": // popup→background; forwarded to the capture page as LIVE_STOP
           liveActive = false;
-          chrome.runtime.sendMessage({ type: "LIVE_STOP" });
+          chrome.runtime.sendMessage({ type: "LIVE_STOP" }).catch(() => {});
           if (liveTabId != null) chrome.tabs.sendMessage(liveTabId, { type: "LIVE_STATE", running: false }).catch(() => {});
           if (!audioActive) { try { await chrome.offscreen.closeDocument(); } catch {} }
           sendResponse({ ok: true });

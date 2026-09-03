@@ -102,3 +102,17 @@ MIT — see [LICENSE](LICENSE).
 —
 
 Made by [Nimanou](https://nimanou.com).
+
+## Claude Code on this Mac (optional)
+
+Translations, tips and Study cards can run on your own Claude subscription through the Claude Code CLI instead of an API key. A browser cannot install a local program from inside an extension, so this needs one small step on your machine, once:
+
+```bash
+bash bridge/install.sh <extension-id>      # the id is shown in the popup under Keys → Claude Code on this Mac
+```
+
+It copies a tiny native-messaging host to `~/.subvibe/` and registers it for Brave, Chrome, Chromium and Edge. Then in the popup: Keys → Claude Code on this Mac → Test, and choose *Claude Code on this Mac* as the translation engine. Every call is logged to `~/.subvibe/bridge.log`. Everyone else keeps using an API key and never needs this. Details: [bridge/README.md](bridge/README.md).
+
+## Story board (YouTube)
+
+Beside the video, above the suggestions: every chunk of the subtitles with its translation, following the playhead. Press ﹖ (or Explain on the playing chunk) for the tips — the passage put simply in its own language, grammar, and the key words with level, part of speech and forms, coloured by word class. Click a sentence number to hear that sentence, Repeat ↻ to loop a chunk, 1× to listen slower, and ＋ to save a word to your Leitner boxes. "Subtitles on video: off" moves reading to the board, where the spoken words light up. Explanations are cached per video and per tips language.
