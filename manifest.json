@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "SubVibe - AI Subtitle Translator",
-  "version": "1330.4.0",
-  "version_name": "1330.4 · Mansoor",
+  "version": "1330.5.0",
+  "version_name": "1330.5 · Mansoor",
   "description": "AI subtitles for streaming video — in sync, cached free on replay, or hear it translated aloud live in your language.",
   "homepage_url": "https://nimanou.com",
   "icons": {
