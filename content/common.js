@@ -2151,13 +2151,15 @@
         send({ type: "FACES", base, names: batch, lang: vocabPoolLang }).then((r) => {
           if (!r || !r.ok) { for (const n of batch) board.facesAsked.delete(n); return; }
           for (const [n, u] of Object.entries(r.faces || {})) board.faces.set(n, u || "");
+          if (Array.isArray(r.credits)) board.credits = r.credits;
           board.facesV++; board.sig = ""; board.stripSig = "";
         }).catch(() => { for (const n of batch) board.facesAsked.delete(n); });
         if (facesQueue.size) askFaces([]);
       }, 1200);
     };
     // Story so far: a catch-up up to the playhead only, refreshed every 8 chunks, in the video's language.
-    const recap = { k: -1, text: "", who: [], inflight: false, pausedUntil: 0 };
+    const recap = { k: -1, text: "", who: [], cast: new Map(), inflight: false, pausedUntil: 0 };
+    const ROLE_WORD = { protagonist: "lead", antagonist: "opponent", ally: "ally", minor: "minor", other: "" };
     const wantRecap = (list, ki) => {
       if (ki < 3 || recap.inflight || performance.now() < recap.pausedUntil || (tips.all ? "all" : tipsAhead) === "off" || !engaged) return;
       const bucket = ki - (ki % 8); if (bucket === recap.k) return;
@@ -2166,7 +2168,7 @@
       const lines = list.slice(Math.max(0, bucket - 4), bucket + 1).flatMap((c) => c.sentences.map((x) => x.s));
       recap.inflight = true;
       send({ type: "STORY_RECAP", base, k: bucket, scenes, lines, lang: vocabPoolLang, upTo: fmtT(list[bucket].startMs) })
-        .then((r) => { recap.inflight = false; if (r && r.ok && r.recap) { recap.k = bucket; recap.text = r.recap; recap.who = r.who || []; board.sig = ""; board.stripSig = ""; askFaces(recap.who); } else recap.pausedUntil = performance.now() + 60000; })
+        .then((r) => { recap.inflight = false; if (r && r.ok && r.recap) { recap.k = bucket; recap.text = r.recap; recap.who = r.who || []; for (const c of r.cast || []) recap.cast.set(cleanName(c.name), c); board.sig = ""; board.stripSig = ""; askFaces(recap.who); } else recap.pausedUntil = performance.now() + 60000; })
         .catch(() => { recap.inflight = false; recap.pausedUntil = performance.now() + 60000; });
     };
     const fmtT = (ms) => { const t = Math.max(0, Math.round(ms / 1000)); return Math.floor(t / 60) + ":" + String(t % 60).padStart(2, "0"); };
@@ -2719,12 +2721,13 @@
       const title = (d && (d.show || d.title)) || SV_TITLE.clean(document.title);
       const epLine = d && d.show ? [d.season ? "S" + d.season + " · E" + d.episode : d.episode ? "E" + d.episode : "", d.epTitle].filter(Boolean).join(" · ") : d && d.channel ? d.channel : "";
       // ── identity: a small poster and the title; the synopsis unfolds when the section is open ──
-      part("svs-ident", [d ? d.at : 0, d ? d.poster + (d.backdrop || "") : "", title, epLine, d ? (d.synopsis || d.description || "") : ""].join("|"), (ident) => {
+      part("svs-ident", [d ? d.at : 0, d ? d.poster + (d.backdrop || "") : "", title, epLine, d ? (d.synopsis || d.description || "") : "", (board.credits || []).length].join("|"), (ident) => {
         if (d && d.backdrop) { const art = mk("img", "svs-art"); art.src = d.backdrop; art.alt = ""; art.loading = "lazy"; ident.appendChild(art); } // the wide key art, shown when the section is open
         if (d && d.poster) { const img = mk("img", "svs-poster"); img.src = d.poster; img.alt = ""; ident.appendChild(img); }
         else { const ph = mk("div", "svs-poster ph", SV_DOSSIER.initials(title)); ph.style.background = "hsl(" + nameHue(title) + " 30% 42%)"; ident.appendChild(ph); }
         const idb = mk("div", "svs-id"); idb.appendChild(mk("b", null, title)); if (epLine) idb.appendChild(mk("div", "svs-ep", epLine));
         if (d && (d.synopsis || d.description)) idb.appendChild(mk("div", "svs-syn", d.synopsis || d.description));
+        const cr = board.credits || []; if (cr.length) idb.appendChild(mk("div", "svs-made", cr.map((c) => (c.role === "developer" || c.role === "studio" ? "" : c.role + " ") + c.names.join(", ")).join(" · "))); // "Rockstar Games · producer Sam Houser"
         ident.appendChild(idb);
       });
       // ── now: the scene and who is in it; the story so far when the chunk has no tips yet ──
@@ -2759,16 +2762,29 @@
       askFaces(people.map((x) => (x.p ? x.p.character || x.p.name : x.label)));
       const keyOf = (x) => x.p || cleanName(x.label);
       const ordered = people.slice().sort((a, b) => (inScene.has(keyOf(b)) ? 1 : 0) - (inScene.has(keyOf(a)) ? 1 : 0));
-      part("svs-people", [d ? d.at : 0, ordered.map((x) => (x.p ? x.p.name : x.label) + x.n + (inScene.has(keyOf(x)) ? "*" : "")).join("|"), board.facesV].join("|"), (pe) => {
+      const castOf = (x) => recap.cast.get(cleanName(x.p ? x.p.character || x.p.name : x.label)) || null;
+      const firstSeen = (nm) => { const n = cleanName(nm); for (let j = 0; j < list.length; j++) { const e = lineExplainCache.get(list[j].text); if (e && (e.who || []).some((w) => cleanName(w) === n)) return list[j].startMs; } return -1; };
+      part("svs-people", [d ? d.at : 0, ordered.map((x) => (x.p ? x.p.name : x.label) + x.n + (inScene.has(keyOf(x)) ? "*" : "")).join("|"), board.facesV, recap.k].join("|"), (pe) => {
         const tmdb = people.some((x) => x.p && x.p.src === "tmdb");
         const head = mk("div", "svs-lbl"); head.append(mk("span", null, "People · " + people.length), mk("span", "svs-attr", tmdb ? "TMDB" : "")); pe.appendChild(head);
         if (!people.length) { pe.appendChild(mk("div", "svs-scene muted", "People appear here as the chunks meet them")); return; }
         // At rest eight tiny faces and "+N"; open, twelve portraits with names and "+N" — the same row, two chips, CSS picks.
         const row = mk("div", "svs-people-row"); const MAX = 12, REST = 8;
-        ordered.slice(0, MAX).forEach((x) => { const f = face(x.p, x.label, "sm", false); if (inScene.has(keyOf(x))) f.classList.add("here"); if (x.n) f.appendChild(mk("small", "n", String(x.n))); row.appendChild(f); });
+        // A face under the pointer opens a card at the end of the row — inside the strip, never over the picture.
+        const card = mk("div", "svs-card"); let cardT = 0;
+        const showCard = (x) => { clearTimeout(cardT); cardT = setTimeout(() => { const nm = x.p ? x.p.character || x.p.name : x.label, c = castOf(x), since = firstSeen(nm); card.textContent = "";
+          card.appendChild(face(x.p, x.label, "md", false)); const tx = mk("div", "svs-card-tx"); const h = mk("b", null, nm); tx.appendChild(h);
+          const chips = mk("div", "svs-chips"); if (c) { if (ROLE_WORD[c.role]) chips.appendChild(mk("span", "svs-chip " + c.role, ROLE_WORD[c.role])); chips.appendChild(mk("span", "svs-chip " + c.weight, c.weight === "major" ? "drives the story" : "passes through")); }
+          if (x.p && x.p.character && x.p.name) chips.appendChild(mk("span", "svs-chip", x.p.name)); if (chips.childElementCount) tx.appendChild(chips);
+          const note = c && c.note ? c.note : x.p && x.p.role ? x.p.role : ""; if (note) { const nt = mk("div", "svs-card-note", note); nt.dir = dirOf(vocabPoolLang); tx.appendChild(nt); }
+          tx.appendChild(mk("div", "svs-card-meta", [x.n ? x.n + (x.n === 1 ? " scene" : " scenes") : "", since >= 0 ? "since " + fmtT(since) : ""].filter(Boolean).join(" · ")));
+          card.appendChild(tx); pe.dataset.person = nm; }, 180); };
+        const hideCard = () => { clearTimeout(cardT); cardT = setTimeout(() => { delete pe.dataset.person; }, 260); };
+        ordered.slice(0, MAX).forEach((x) => { const f = face(x.p, x.label, "sm", false); if (inScene.has(keyOf(x))) f.classList.add("here"); const c = castOf(x); if (c && c.role !== "other") f.classList.add("role-" + c.role); if (x.n) f.appendChild(mk("small", "n", String(x.n)));
+          f.addEventListener("mouseenter", () => showCard(x)); f.addEventListener("mouseleave", hideCard); row.appendChild(f); });
         if (ordered.length > REST) { const more = mk("span", "svs-face sm plus rest"); more.appendChild(mk("i", null, "+" + (ordered.length - REST))); more.appendChild(mk("b", null, "more")); row.appendChild(more); }
         if (ordered.length > MAX) { const more = mk("span", "svs-face sm plus open"); more.appendChild(mk("i", null, "+" + (ordered.length - MAX))); more.appendChild(mk("b", null, "more")); row.appendChild(more); }
-        pe.appendChild(row);
+        pe.appendChild(row); pe.appendChild(card); card.addEventListener("mouseenter", () => clearTimeout(cardT)); card.addEventListener("mouseleave", hideCard);
       });
     };
     // The tips pipeline lives on the board, under its tools: how far the tips reach, what is being explained, Explain all / Stop / Retry.

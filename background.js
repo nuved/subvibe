@@ -1331,6 +1331,30 @@ async function faceLookup(name, d) {
   }
   return "";
 }
+const CREDIT_PROPS = { P178: "developer", P123: "publisher", P57: "director", P58: "writer", P86: "music", P170: "creator", P162: "producer", P272: "studio" };
+async function creditsLookup(d) {
+  const title = String(d.show || d.title || "").split(/\s*[:–—|(]\s*|\s+-\s+/)[0].trim(); if (!title) return [];
+  const wd = "https://www.wikidata.org/w/api.php?format=json&origin=*&";
+  const s = await (await fetch(wd + "action=wbsearchentities&language=en&limit=5&search=" + encodeURIComponent(title))).json();
+  const kinds = /video game|film|movie|television|tv series|series|documentary|show|miniseries|anime/i;
+  const hit = (s.search || []).find((r) => kinds.test(r.description || "")) || (s.search || [])[0]; if (!hit) return [];
+  const e = await (await fetch(wd + "action=wbgetentities&props=claims&ids=" + hit.id)).json();
+  const claims = (e.entities && e.entities[hit.id] && e.entities[hit.id].claims) || {};
+  const wanted = []; const ids = new Set();
+  for (const [p, role] of Object.entries(CREDIT_PROPS)) { const vals = (claims[p] || []).map((c) => c.mainsnak && c.mainsnak.datavalue && c.mainsnak.datavalue.value && c.mainsnak.datavalue.value.id).filter(Boolean).slice(0, 2); if (vals.length) { wanted.push({ role, ids: vals }); vals.forEach((v) => ids.add(v)); } }
+  if (!ids.size) return [];
+  const l = await (await fetch(wd + "action=wbgetentities&props=labels&languages=en&ids=" + [...ids].join("|"))).json();
+  const label = (id) => (l.entities && l.entities[id] && l.entities[id].labels && l.entities[id].labels.en && l.entities[id].labels.en.value) || "";
+  const out = []; const seen = new Set();
+  for (const w of wanted) { const names = w.ids.map(label).filter(Boolean); if (!names.length) continue; const key = names.join("|"); if (w.role === "publisher" && seen.has(key)) continue; seen.add(key); out.push({ role: w.role, names }); }
+  return out.slice(0, 5);
+}
+async function ensureCredits(base, cx, d) {
+  if (d.creditsAt) return d.credits || [];
+  try { d.credits = await creditsLookup(d); } catch (e) { d.credits = []; }
+  d.creditsAt = Date.now(); cx.dossier = d; await idbVocabPut("clipexplain:" + base, cx);
+  return d.credits;
+}
 async function faces(msg) {
   const base = String(msg.base || "");
   const names = (Array.isArray(msg.names) ? msg.names : []).map((x) => String(x).replace(/\s*\(.*$/, "").trim()).filter((x) => x && /^\p{Lu}/u.test(x)).slice(0, 12);
@@ -1339,6 +1363,7 @@ async function faces(msg) {
   if (!cx || !cx.dossier) return { ok: false, error: "no dossier yet" };
   const d = cx.dossier; cx.faces3 = cx.faces3 || {};
   const wiki = await ensureWiki(base, cx, d);
+  const credits = await ensureCredits(base, cx, d);
   const out = {}; let dirty = false;
   for (const nm of names) {
     const c = cx.faces3[nm]; if (c && Date.now() - c.at < FACE_TTL) { out[nm] = c.url; continue; }
@@ -1346,15 +1371,16 @@ async function faces(msg) {
     cx.faces3[nm] = { url, at: Date.now() }; out[nm] = url; dirty = true;
   }
   if (dirty) { const fresh = await idbVocabGet("clipexplain:" + base); const rec = fresh || cx; rec.faces3 = Object.assign({}, rec.faces3 || {}, cx.faces3); rec.dossier = rec.dossier || d; if (rec.dossier && !rec.dossier.wikiAt) { rec.dossier.wiki = d.wiki; rec.dossier.tag = d.tag; rec.dossier.wikiAt = d.wikiAt; } await idbVocabPut("clipexplain:" + base, rec); }
-  return { ok: true, faces: out, wiki };
+  return { ok: true, faces: out, wiki, credits };
 }
 
 // ── Story so far: a catch-up in the video's own language, up to the playhead only ──
-const RECAP_SCHEMA = { name: "story_so_far", strict: true, schema: { type: "object", additionalProperties: false, properties: { recap: { type: "string" }, who: { type: "array", items: { type: "string" } } }, required: ["recap", "who"] } };
+const RECAP_SCHEMA = { name: "story_so_far", strict: true, schema: { type: "object", additionalProperties: false, properties: { recap: { type: "string" }, who: { type: "array", items: { type: "string" } },
+  cast: { type: "array", items: { type: "object", additionalProperties: false, properties: { name: { type: "string" }, role: { type: "string", enum: ["protagonist", "antagonist", "ally", "minor", "other"] }, weight: { type: "string", enum: ["major", "minor"] }, note: { type: "string" } }, required: ["name", "role", "weight", "note"] } } }, required: ["recap", "who", "cast"] } };
 function recapPrompt(source, dossier) {
   return `You catch a viewer up on the video they are watching, in ${langName(source)}, with simple words (B1). The user message carries {"scenes":[…one line per passage so far, in order…],"lines":[…the latest subtitle lines…],"upTo":"m:ss"}.\n` +
     (dossierFacts(dossier) ? SV_DOSSIER.block(dossier) : "") +
-    `Return STRICT JSON {"recap":"…","who":["…"]}: recap = what has happened so far, up to this point ONLY — never guess, hint at or foreshadow what comes next — 2 or 3 short plain sentences (at most 55 words) in ${langName(source)}, the essentials only, using the people's names as they appear in the scenes; who = the 2 to 5 people who matter so far, by those names.`;
+    `Return STRICT JSON {"recap":"…","who":["…"],"cast":[{"name":"…","role":"…","weight":"…","note":"…"}]}: recap = what has happened so far, up to this point ONLY — never guess, hint at or foreshadow what comes next — 2 or 3 short plain sentences (at most 55 words) in ${langName(source)}, the essentials only, using the people's names as they appear in the scenes; who = the 2 to 5 people who matter so far, by those names; cast = every named person met so far (up to 12) and what they are to the story SO FAR — role: protagonist | antagonist | ally | minor | other; weight: major (drives the story) | minor (passes through); note: at most 12 words in ${langName(source)}, what they are or want, from what was seen so far only.`;
 }
 async function storyRecap(msg) {
   const base = String(msg.base || ""), k = msg.k | 0; if (!base) return { ok: false, error: "empty" };
@@ -1365,7 +1391,9 @@ async function storyRecap(msg) {
   const started = Date.now();
   const r = await llmJSON(recapPrompt(lang, cx.dossier || null), { scenes: (msg.scenes || []).slice(-60).map((s) => String(s).slice(0, 240)), lines: (msg.lines || []).slice(-24).map((s) => String(s).slice(0, 200)), upTo: String(msg.upTo || "") }, RECAP_SCHEMA);
   const p = (r && r.parsed) || {};
-  const out = { recap: String(p.recap || "").trim().slice(0, 900), who: Array.isArray(p.who) ? p.who.map((x) => String(x).trim().slice(0, 60)).filter(Boolean).slice(0, 5) : [], at: Date.now() };
+  const ROLE = new Set(["protagonist", "antagonist", "ally", "minor", "other"]);
+  const out = { recap: String(p.recap || "").trim().slice(0, 900), who: Array.isArray(p.who) ? p.who.map((x) => String(x).trim().slice(0, 60)).filter(Boolean).slice(0, 5) : [], at: Date.now(),
+    cast: Array.isArray(p.cast) ? p.cast.filter((c) => c && c.name).slice(0, 12).map((c) => ({ name: String(c.name).trim().slice(0, 60), role: ROLE.has(c.role) ? c.role : "other", weight: c.weight === "major" ? "major" : "minor", note: String(c.note || "").trim().slice(0, 120) })) : [] };
   if (out.recap) { const fresh = await idbVocabGet("clipexplain:" + base); const rec = fresh || cx; rec.recaps = Object.assign({}, rec.recaps || {}, { [key]: out }); await idbVocabPut("clipexplain:" + base, rec); }
   await logCall({ ts: started, site: "learn", title: "So far: " + String(msg.upTo || ""), kind: "enrich", lines: (msg.scenes || []).length, ms: Date.now() - started, inTok: (r.usage && r.usage.prompt_tokens) || 0, outTok: (r.usage && r.usage.completion_tokens) || 0, cacheR: (r.usage && r.usage.cache_r) || 0, cacheW: (r.usage && r.usage.cache_w) || 0, ok: true, provider: r.provider, model: r.model });
   return Object.assign({ ok: true, k }, out);
