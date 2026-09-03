@@ -1059,6 +1059,15 @@ async function ensureDossier(base, meta, sample, lang) {
       const bought = Object.keys(cx.e || {}).some((k) => k.startsWith("e4"));
       let dirty = false;
       if (!bought && (d.sample || []).length < 40 && lines.length >= 120) { d.sample = lines; dirty = true; }
+      // A reading made from the lines alone (before the site's identity reached the file) is
+      // re-bought once with the identity in hand — "crime drama" for a game trailer otherwise stays.
+      if ((d.show || d.synopsis || d.description) && d.readWith !== "site") {
+        const was = { kind: d.kind, about: d.about, register: d.register, speakers: d.speakers };
+        d.kind = ""; d.about = ""; d.register = ""; d.speakers = "";
+        await readVideo(d, d.sample || [], lang);
+        if (!d.kind) Object.assign(d, was); else d.readWith = "site";
+        setCtx(); dirty = true;
+      }
       // A ﹖ pressed before the board's DOSSIER message lands builds a
       // title-only file — on Netflix that title is the site's own chrome — and
       // the wrong reading would then be frozen for the whole video. The first
@@ -1088,7 +1097,7 @@ async function ensureDossier(base, meta, sample, lang) {
         const was = { kind: d.kind, about: d.about, register: d.register, speakers: d.speakers };
         d.kind = ""; d.about = ""; d.register = ""; d.speakers = ""; // the reading was made without an identity — buy it again
         await readVideo(d, d.sample || [], lang);
-        if (!d.kind) Object.assign(d, was); // no provider right now: the old reading beats none at all
+        if (!d.kind) Object.assign(d, was); else d.readWith = "site"; // no provider right now: the old reading beats none at all
         setCtx();
         dirty = true;
       }
@@ -1100,7 +1109,9 @@ async function ensureDossier(base, meta, sample, lang) {
     d = { v: 1, at: Date.now(), site: String(m.site || ""), title: String(m.title || "").slice(0, 160), show: String(m.show || "").slice(0, 120), season: +m.season || 0, episode: +m.episode || 0,
       epTitle: String(m.epTitle || t.epTitle || "").slice(0, 120), year: +m.year || 0, runtimeMin: +m.runtimeMin || 0, synopsis: String(m.synopsis || t.synopsis || "").slice(0, 600),
       channel: String(m.channel || "").slice(0, 80), description: String(m.description || "").slice(0, 1500),
-      kind: (cx.ctx && cx.ctx.kind) || "", about: (cx.ctx && cx.ctx.about) || "", register: (cx.ctx && cx.ctx.register) || "", speakers: (cx.ctx && cx.ctx.speakers) || "",
+      // An old reading (from the lines alone) is kept only when the site gave no identity; with one, the reading is bought fresh.
+      kind: !(m.show || m.synopsis || m.description) && cx.ctx ? cx.ctx.kind || "" : "", about: !(m.show || m.synopsis || m.description) && cx.ctx ? cx.ctx.about || "" : "", register: !(m.show || m.synopsis || m.description) && cx.ctx ? cx.ctx.register || "" : "", speakers: !(m.show || m.synopsis || m.description) && cx.ctx ? cx.ctx.speakers || "" : "",
+      readWith: (m.show || m.synopsis || m.description) ? "site" : "lines",
       people: t.people, tmdb: t.tmdb, poster: t.poster || String(m.poster || "").slice(0, 400), partial: !!m.partial, sample: lines, tmdbAt: t.tmdb ? Date.now() : 0 };
     await readVideo(d, lines, lang);
     setCtx();

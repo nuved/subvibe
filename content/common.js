@@ -2563,7 +2563,7 @@
       if (ex && !ex.error && (ex.scene || (ex.who && ex.who.length))) { // one line about the scene, and who is in it
         const sc = mk("div", "svb-scene");
         if (ex.scene) { const t = mk("span", "svb-scene-txt", ex.scene); t.dir = explainDir(ex); sc.appendChild(t); }
-        for (const f of SV_DOSSIER.whoFaces(ex.who, board.dossier && board.dossier.people)) { const chip = mk("span", "svb-who"); const av = mk("i", null, f.person && f.person.photo ? "" : SV_DOSSIER.initials((f.person && f.person.character) || f.label)); if (f.person && f.person.photo) av.style.backgroundImage = "url(" + f.person.photo + ")"; chip.append(av, document.createTextNode((f.person && f.person.character) || f.label)); chip.title = f.person ? (f.person.character || f.person.name) + (f.person.name && f.person.character ? " — " + f.person.name : "") : f.label; sc.appendChild(chip); }
+        for (const f of SV_DOSSIER.whoFaces(ex.who, board.dossier && board.dossier.people)) { const chip = mk("span", "svb-who"); const av = mk("i", null, f.person && f.person.photo ? "" : SV_DOSSIER.initials((f.person && f.person.character) || f.label)); if (f.person && f.person.photo) av.style.backgroundImage = "url(" + f.person.photo + ")"; else av.style.background = "hsl(" + nameHue((f.person && f.person.character) || f.label) + " 38% 50%)"; chip.append(av, document.createTextNode((f.person && f.person.character) || f.label)); chip.title = f.person ? (f.person.character || f.person.name) + (f.person.name && f.person.character ? " — " + f.person.name : "") : f.label; sc.appendChild(chip); }
         main.appendChild(sc);
       }
       if (ex && !ex.error) aside.appendChild(mk("i", "svb-mark", k === board.open ? "▸ tips" : "✓ tips"));
@@ -2660,9 +2660,12 @@
       document.body.appendChild(s); return s;
     };
     // One person: their photo (or initials), the character, and who plays them.
+    // Without a photo, each name gets its own steady colour — R and J stay apart across the strip and the rows.
+    const nameHue = (name) => { let h = 0; for (const c of String(name || "")) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h % 360; };
     const face = (p, label, big, talk) => {
       const f = mk("span", "svs-face" + (big ? "" : " small") + (talk ? " talk" : ""));
-      const av = mk("i", null, p && p.photo ? "" : SV_DOSSIER.initials((p && (p.character || p.name)) || label)); if (p && p.photo) av.style.backgroundImage = "url(" + p.photo + ")";
+      const nm = (p && (p.character || p.name)) || label;
+      const av = mk("i", null, p && p.photo ? "" : SV_DOSSIER.initials(nm)); if (p && p.photo) av.style.backgroundImage = "url(" + p.photo + ")"; else av.style.background = "hsl(" + nameHue(nm) + " 38% 50%)";
       f.appendChild(av); f.appendChild(mk("b", null, (p && (p.character || p.name)) || label));
       if (big) f.appendChild(mk("small", null, p ? (p.character ? p.name : p.role || "") : "")); f.title = p ? [p.character, p.name, p.role].filter(Boolean).join(" — ") : label;
       return f;
@@ -2679,7 +2682,7 @@
         const idb = mk("div", "svs-id"); idb.appendChild(mk("b", null, (d && (d.show || d.title)) || SV_TITLE.clean(document.title)));
         if (d && d.show) idb.appendChild(mk("div", "svs-ep", [d.season ? "S" + d.season + " · E" + d.episode : d.episode ? "E" + d.episode : "", d.epTitle, d.runtimeMin ? d.runtimeMin + " min" : ""].filter(Boolean).join(" · ")));
         else if (d && d.channel) idb.appendChild(mk("div", "svs-ep", d.channel));
-        if (d && (d.synopsis || d.description)) { const sy = mk("div", "svs-syn", d.synopsis || d.description); sy.title = d.synopsis || d.description; idb.appendChild(sy); }
+        if (d && (d.synopsis || d.description)) { idb.appendChild(mk("div", "svs-syn", d.synopsis || d.description)); }
         ident.appendChild(idb);
         // Hovering the section opens a sheet over the picture with everything, unclipped.
         if (d) { const more = mk("div", "svs-more"); more.appendChild(mk("b", null, d.show || d.title || "")); if (d.show) more.appendChild(mk("div", "svs-ep", [d.season ? "S" + d.season + " · E" + d.episode : d.episode ? "E" + d.episode : "", d.epTitle, d.year ? String(d.year) : "", d.runtimeMin ? d.runtimeMin + " min" : ""].filter(Boolean).join(" · "))); else if (d.channel) more.appendChild(mk("div", "svs-ep", d.channel)); if (d.synopsis || d.description) more.appendChild(mk("div", "svs-text", d.synopsis || d.description)); if (d.kind) more.appendChild(mk("div", "svs-kind", [d.kind, d.about].filter(Boolean).join(" — "))); ident.appendChild(more); }
@@ -2697,7 +2700,7 @@
         }
         const faces = mk("div", "svs-faces" + (ex && ex.scene ? "" : " faded"));
         const list2 = ex && ex.scene ? who : last ? SV_DOSSIER.whoFaces(last.who, d && d.people) : [];
-        list2.forEach((f, i) => faces.appendChild(face(f.person, f.label, true, i === 0 && !!(ex && ex.scene)))); now.appendChild(faces);
+        list2.forEach((f, i) => faces.appendChild(face(f.person, f.label, true, i === 0))); now.appendChild(faces);
         const cur = ex && ex.scene ? ex : last ? last.ex : null;
         if (cur) { const more = mk("div", "svs-more"); const sc = mk("div", "svs-text big", cur.scene); sc.dir = explainDir(cur); more.appendChild(sc);
           const fl = mk("div", "svs-faces xl"); list2.forEach((f, i) => fl.appendChild(face(f.person, f.label, true, i === 0))); more.appendChild(fl);
