@@ -2183,6 +2183,29 @@
     const normTok = (w) => String(w || "").toLowerCase().replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
     // Colour the term's words inside one sentence: each part is matched in
     // order (a separated verb's prefix comes later in the sentence).
+    // A term's tip, drawn inside the row (never the browser's grey box): its number, the term,
+    // its kind (phrasal verb · B1 · slang), the meaning, the forms, a care line — the same
+    // numbers the Words list in the pane carries, so the two read as one.
+    let wtipEl = null, wtipT = 0;
+    const kindOf = (w) => { const pos = String(w.pos || "").toLowerCase(), reg = String(w.register || ""); return [pos, w.level || "", /^(slang|vulgar|informal|formal)$/.test(reg) ? reg : ""].filter(Boolean).join(" · "); };
+    const hideWordTip = () => { clearTimeout(wtipT); wtipT = setTimeout(() => { if (wtipEl) wtipEl.classList.remove("on"); }, 160); };
+    const showWordTip = (anchor, w, k) => {
+      clearTimeout(wtipT);
+      const row = anchor.closest(".svb-chunk, .wt-sents"); if (!row) return;
+      if (!wtipEl) { wtipEl = mk("div", "svb-wtip"); wtipEl.addEventListener("mouseenter", () => clearTimeout(wtipT)); wtipEl.addEventListener("mouseleave", hideWordTip); }
+      wtipEl.textContent = "";
+      const cls = POS_CLASS[String(w.pos || "").toLowerCase()] || "o";
+      const head = mk("div", "svb-wtip-h"); head.appendChild(mk("i", "wt-n", String(k))); const term = mk("b", "pos-" + cls, w.w); term.dir = "auto"; head.appendChild(term);
+      const kind = kindOf(w); if (kind) head.appendChild(mk("span", "svb-wtip-kind" + (/slang|vulgar/.test(kind) ? " hot" : ""), kind)); wtipEl.appendChild(head);
+      if (w.m) { const m = mk("div", "svb-wtip-m", w.m); m.dir = "auto"; wtipEl.appendChild(m); }
+      const forms = String(w.forms || "").trim(); if (forms && !/^[\s\-–—·.,_/]*$/.test(forms)) { const f = mk("div", "svb-wtip-f", forms); f.dir = "ltr"; wtipEl.appendChild(f); }
+      if (w.care) { const c = mk("div", "svb-wtip-c", "⚠ " + w.care); c.dir = "auto"; wtipEl.appendChild(c); }
+      if (wtipEl.parentElement !== row) row.appendChild(wtipEl);
+      const rr = row.getBoundingClientRect(), ar = anchor.getBoundingClientRect();
+      wtipEl.style.top = Math.round(ar.bottom - rr.top + 4) + "px";
+      wtipEl.style.left = Math.max(6, Math.min(Math.max(6, rr.width - 272), Math.round(ar.left - rr.left))) + "px";
+      wtipEl.classList.add("on");
+    };
     const markPos = (spans, words) => {
       if (!spans.length || !words || !words.length) return;
       const toks = spans.map((s) => normTok(s.textContent));
@@ -2193,7 +2216,11 @@
         let from = 0; const idxs = [];
         for (const part of parts) { let i = -1; for (let j = from; j < toks.length; j++) if (toks[j] === part) { i = j; break; } if (i < 0) { idxs.length = 0; break; } idxs.push(i); from = i + 1; }
         if (!idxs.length) continue;
-        for (const i of idxs) { spans[i].classList.add("pos-" + cls); if (parts.length > 1 && cls === "v") spans[i].classList.add("sep"); if (w.m) spans[i].title = w.w + " — " + w.m; }
+        const k = words.indexOf(w) + 1;
+        for (const i of idxs) { spans[i].classList.add("pos-" + cls); if (parts.length > 1 && cls === "v") spans[i].classList.add("sep"); spans[i].addEventListener("mouseenter", () => showWordTip(spans[i], w, k)); spans[i].addEventListener("mouseleave", hideWordTip); }
+        // The number after the term's last word — the same number as in the Words list.
+        const last = spans[idxs[idxs.length - 1]];
+        if (!last.querySelector(".svb-n")) { const n = mk("sup", "svb-n pos-" + cls, String(k)); n.addEventListener("mouseenter", () => showWordTip(last, w, k)); n.addEventListener("mouseleave", hideWordTip); last.appendChild(n); }
       }
     };
     // One sentence as word spans (karaoke units when given, else the words),
@@ -2250,6 +2277,7 @@
         const list = mk("div", "wt-words");
         for (const x of ex.words) {
           const b = mk("b", "pos-" + (POS_CLASS[String(x.pos || "").toLowerCase()] || "o"), x.w); b.dir = "auto";
+          b.prepend(mk("i", "wt-n", String(ex.words.indexOf(x) + 1))); // the number the sentence carries on this term
           // ± for the word's tone; register (formal · informal · slang) in the tag line; ⚠ when care is needed.
           if (x.tone === "positive" || x.tone === "negative") b.appendChild(mk("i", "wt-tone " + x.tone, x.tone === "positive" ? "+" : "−"));
           const tag = [x.pos, x.level, x.register && x.register !== "neutral" ? x.register : ""].filter(Boolean).join(" · ");
