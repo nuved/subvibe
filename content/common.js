@@ -2034,7 +2034,7 @@
       send({ type: "TIPS_CACHED", base, explain: tipsExplain }).then((r) => {
         if (!r || !r.ok || seededFor !== tipsExplain) return;
         if (r.ctx) setCtx(r.ctx);
-        for (const e of r.entries || []) if (!lineExplainCache.has(e.s)) lineExplainCache.set(e.s, { tr: e.tr, simple: e.simple || "", g: e.g, lang: e.lang || "", words: e.words || [] });
+        for (const e of r.entries || []) if (!lineExplainCache.has(e.s)) lineExplainCache.set(e.s, { tr: e.tr, simple: e.simple || "", g: e.g, scene: e.scene || "", lang: e.lang || "", words: e.words || [] });
         board.sig = "";
       });
     };
@@ -2052,7 +2052,7 @@
       if (fresh || !chunkFetching.has(ch.text)) chunkFetching.set(ch.text, send(Object.assign(explainPayload(ch, list), fresh ? { fresh: true } : {})).then((r) => {
         chunkFetching.delete(ch.text);
         if (r && r.ctx) setCtx(r.ctx);
-        if (r && r.tr) { const ex = { tr: r.tr, simple: r.simple || "", g: r.g, lang: r.lang || "", words: r.words || [] }; lineExplainCache.set(ch.text, ex); return ex; }
+        if (r && r.tr) { const ex = { tr: r.tr, simple: r.simple || "", g: r.g, scene: r.scene || "", lang: r.lang || "", words: r.words || [] }; lineExplainCache.set(ch.text, ex); return ex; }
         return { error: r && r.error ? "couldn't explain — check the provider key in the popup" : "no explanation — try again" };
       }));
       return chunkFetching.get(ch.text);
@@ -2118,6 +2118,8 @@
       if (ex.error) { body.appendChild(line(ex.error)); return body; }
       // The passage said more simply, in its own language — the translation
       // already sits under each sentence, so no second translation here.
+      // The scene as the model read it — who speaks, the mood — before the retelling.
+      if (ex.scene) { const sc = mk("div", "wt-scene", ex.scene); sc.dir = "auto"; body.appendChild(sc); }
       const simple = ex.simple || (tipsExplain === "same" ? ex.tr : "");
       if (simple) addSect("Put simply", line(simple));
       if (ex.g) {
@@ -2130,9 +2132,12 @@
         const list = mk("div", "wt-words");
         for (const x of ex.words) {
           const b = mk("b", "pos-" + (POS_CLASS[String(x.pos || "").toLowerCase()] || "o"), x.w); b.dir = "auto";
-          const tag = [x.pos, x.level].filter(Boolean).join(" · ");
-          if (tag) b.appendChild(mk("i", "wt-tag", tag));
+          // ± for the word's tone; register (formal · informal · slang) in the tag line; ⚠ when care is needed.
+          if (x.tone === "positive" || x.tone === "negative") b.appendChild(mk("i", "wt-tone " + x.tone, x.tone === "positive" ? "+" : "−"));
+          const tag = [x.pos, x.level, x.register && x.register !== "neutral" ? x.register : ""].filter(Boolean).join(" · ");
+          if (tag) b.appendChild(mk("i", "wt-tag" + (x.register === "slang" || x.register === "vulgar" ? " hot" : ""), tag));
           const m = mk("span", null, x.m); m.dir = "auto";
+          if (x.care) { const c = mk("i", "wt-care", "⚠ " + x.care); c.dir = "auto"; m.appendChild(c); }
           // Into the Leitner boxes, with the sentence it appeared in.
           const add = mk("button", "wt-add", "＋"); add.type = "button"; add.title = "Save to Leitner";
           add.addEventListener("click", (ev) => {

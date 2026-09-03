@@ -968,9 +968,10 @@ function wordPrompt(source, target) {
 // key words. Cached per sentence in clipexplain:${base}.
 const EXPLAIN_SCHEMA = { name: "sentence_explain", strict: true, schema: { type: "object", additionalProperties: false,
   properties: {
-    tr: { type: "string" }, simple: { type: "string" }, g: { type: "string" },
-    words: { type: "array", items: { type: "object", additionalProperties: false, properties: { w: { type: "string" }, m: { type: "string" }, pos: { type: "string" }, level: { type: "string" }, forms: { type: "string" }, parts: { type: "array", items: { type: "string" } } }, required: ["w", "m", "pos", "level", "forms", "parts"] } },
-  }, required: ["tr", "simple", "g", "words"] } };
+    tr: { type: "string" }, simple: { type: "string" }, g: { type: "string" }, scene: { type: "string" },
+    words: { type: "array", items: { type: "object", additionalProperties: false, properties: { w: { type: "string" }, m: { type: "string" }, pos: { type: "string" }, level: { type: "string" }, forms: { type: "string" }, parts: { type: "array", items: { type: "string" } },
+      register: { type: "string", enum: ["formal", "neutral", "informal", "slang", "vulgar"] }, tone: { type: "string", enum: ["positive", "neutral", "negative"] }, care: { type: "string" } }, required: ["w", "m", "pos", "level", "forms", "parts", "register", "tone", "care"] } },
+  }, required: ["tr", "simple", "g", "scene", "words"] } };
 // What kind of video this is — inferred once from the title and a sample of
 // its lines, cached per video, and put in front of every explanation so the
 // model knows whether it is reading an interview, a lesson, a match, a game…
@@ -1004,12 +1005,13 @@ function explainPrompt(source, target, ctx) {
   const same = source && source !== "auto" && (source || "").split("-")[0] === (target || "").split("-")[0];
   return `You explain ONE ${langName(source)} passage (one or a few sentences that belong together) to a learner${same ? " — in " + langName(source) + " itself, with simple words (A2), so the learner stays inside the language" : ""}. The user message carries {"s":"<the passage>","before":[…earlier lines…],"after":[…later lines…]}; "before" and "after" are ONLY context — never explain or translate them.\n` +
     contextLine(ctx) +
-    `Return STRICT JSON {"tr":"…","simple":"…","g":"…","words":[{"w":"…","m":"…","pos":"…","level":"…","forms":"…","parts":["…"]}]}:\n` +
+    `Return STRICT JSON {"tr":"…","simple":"…","g":"…","scene":"…","words":[{"w":"…","m":"…","pos":"…","level":"…","forms":"…","parts":["…"],"register":"…","tone":"…","care":"…"}]}:\n` +
+    `- scene: what is going on in THIS passage, in ${fa ? "Persian" : langName(target)}, at most 12 words — who speaks to whom, the mood (joking, serious, angry, selling, teaching…).\n` +
     (same ? `- tr: the whole passage said more simply in ${langName(source)}: A2 vocabulary, short clauses, same meaning.\n`
           : `- tr: a natural ${langName(target)} translation of the whole passage.\n`) +
     `- simple: RETELL the passage in ${langName(source)} for an A2 learner — what is being said, in 1–3 short plain sentences, only very common words, no idioms, no fillers ("like", "you know", "whatever"), no speaker marks; the idea, not the wording; clearly shorter and easier than the original. Never copy sentences from the passage.\n` +
     `- g: a plain-${langName(target)} grammar note as 2–4 short points separated by " • ": (1) how the sentence is built — tense/mood, clauses, word order, any separable or phrasal verb; (2) WHY it takes that form, naming the rule with the everyday word next to it; (3) a watch-out for learners (a false friend, an ending, a word that moves) or the everyday way to say it. Concrete, about THIS sentence's words; no bare jargon.\n` +
-    `- words: the 3–8 most useful/learnable words or phrases in this passage, each {w: the ${langName(source)} word or phrase as it appears (the FULL reunited separable verb if one applies, e.g. "anschauen"), m: ${same ? "a short " + langName(source) + " definition or everyday synonym" : "its concise " + langName(target) + " meaning"}, pos: one of noun|verb|phrasal verb|adjective|adverb|idiom|expression|preposition|conjunction|pronoun|other, level: CEFR A1–C2 for a learner, forms: for a verb its base · past · participle plus "regular"/"irregular" (e.g. "say · said · said · irregular"), for a noun its plural (and article, where the language has one), for an adjective its comparative if irregular, else "", parts: the exact surface words of this term as they appear in the passage, in order — for a separable or phrasal verb BOTH parts even when apart (["gibt","auf"], ["hat","gebrochen"], ["pick","up"]), one element for a single word}. Skip trivial function words.` +
+    `- words: the 3–8 most useful/learnable words or phrases in this passage, each {w: the ${langName(source)} word or phrase as it appears (the FULL reunited separable verb if one applies, e.g. "anschauen"), m: ${same ? "a short " + langName(source) + " definition or everyday synonym" : "its concise " + langName(target) + " meaning"}, pos: one of noun|verb|phrasal verb|adjective|adverb|idiom|expression|preposition|conjunction|pronoun|other, level: CEFR A1–C2 for a learner, forms: for a verb its base · past · participle plus "regular"/"irregular" (e.g. "say · said · said · irregular"), for a noun its plural (and article, where the language has one), for an adjective its comparative if irregular, else "", parts: the exact surface words of this term as they appear in the passage, in order — for a separable or phrasal verb BOTH parts even when apart (["gibt","auf"], ["hat","gebrochen"], ["pick","up"]), one element for a single word, register: formal | neutral | informal | slang | vulgar (how it sounds), tone: positive | neutral | negative (what it implies about the thing or person), care: "" unless the learner should be careful — then one short ${fa ? "Persian" : langName(target)} warning (rude, sarcastic, only among friends, dated, regional, a false friend…)}. Skip trivial function words.` +
     (fa ? `\nفارسیِ سادهٔ روزمره؛ هرگز واژه‌های دستوریِ سنگین. STANDARD IRANIAN FARSI — no Urdu letters/words.` : "");
 }
 
@@ -1122,7 +1124,7 @@ async function explainLine(base, sent, langHint, opts) {
   if (!o.fresh && cx.e[skey] && cx.e[skey].tr) {
     const c = cx.e[skey];
     fa = ((c.explain && c.explain !== "same" ? c.explain : c.explain === "same" ? c.lang : target) || "").split("-")[0] === "fa";
-    return { ok: true, tr: faS(c.tr), simple: c.simple || "", g: faS(c.g), lang: c.lang || "", explain: c.explain || "", ctx: cx.ctx || null, words: (c.words || []).map((x) => ({ w: x.w, m: faS(x.m), pos: x.pos || "", level: x.level || "", forms: cleanForms(x.forms), parts: x.parts || [] })), cached: true };
+    return { ok: true, tr: faS(c.tr), simple: c.simple || "", g: faS(c.g), scene: faS(c.scene || ""), lang: c.lang || "", explain: c.explain || "", ctx: cx.ctx || null, words: (c.words || []).map((x) => ({ w: x.w, m: faS(x.m), pos: x.pos || "", level: x.level || "", forms: cleanForms(x.forms), parts: x.parts || [], register: x.register || "", tone: x.tone || "", care: faS(x.care || "") })), cached: true };
   }
   const started = Date.now();
   let lang = langHint && langHint !== "xx" ? String(langHint) : "";
@@ -1135,13 +1137,15 @@ async function explainLine(base, sent, langHint, opts) {
   const payload = { s: sent, before: (o.before || []).slice(-3).map((x) => String(x).slice(0, 200)), after: (o.after || []).slice(0, 3).map((x) => String(x).slice(0, 200)) };
   const r = await llmJSON(explainPrompt(lang || "auto", target, ctx), payload, EXPLAIN_SCHEMA);
   const p = (r && r.parsed) || {};
-  const out = { tr: String(p.tr || "").trim(), simple: String(p.simple || "").trim(), g: String(p.g || "").trim(), lang,
-    words: Array.isArray(p.words) ? p.words.filter((x) => x && x.w && x.m).slice(0, 8).map((x) => ({ w: String(x.w).trim(), m: String(x.m).trim(), pos: String(x.pos || "").trim().toLowerCase(), level: String(x.level || "").trim().toUpperCase(), forms: cleanForms(x.forms), parts: Array.isArray(x.parts) ? x.parts.map((q) => String(q).trim()).filter(Boolean).slice(0, 4) : [] })) : [] };
+  const REG = new Set(["formal", "neutral", "informal", "slang", "vulgar"]), TONE = new Set(["positive", "neutral", "negative"]);
+  const out = { tr: String(p.tr || "").trim(), simple: String(p.simple || "").trim(), g: String(p.g || "").trim(), scene: String(p.scene || "").trim().slice(0, 140), lang,
+    words: Array.isArray(p.words) ? p.words.filter((x) => x && x.w && x.m).slice(0, 8).map((x) => ({ w: String(x.w).trim(), m: String(x.m).trim(), pos: String(x.pos || "").trim().toLowerCase(), level: String(x.level || "").trim().toUpperCase(), forms: cleanForms(x.forms), parts: Array.isArray(x.parts) ? x.parts.map((q) => String(q).trim()).filter(Boolean).slice(0, 4) : [],
+      register: REG.has(String(x.register || "").toLowerCase()) ? String(x.register).toLowerCase() : "", tone: TONE.has(String(x.tone || "").toLowerCase()) ? String(x.tone).toLowerCase() : "", care: String(x.care || "").trim().slice(0, 160) })) : [] };
   if (out.tr) { out.s = sent; out.at = started; out.explain = explainPref; cx.e[skey] = out; if (!explainPref) cx.target = target; cx.lang = lang || String(cx.lang || ""); cx.at = Date.now(); await idbVocabPut("clipexplain:" + base, cx); }
   await logCall({ ts: started, site: "learn", title: "Explain: " + sent.slice(0, 40), kind: "enrich", lines: 1, ms: Date.now() - started,
     inTok: (r.usage && r.usage.prompt_tokens) || 0, outTok: (r.usage && r.usage.completion_tokens) || 0,
     cacheR: (r.usage && r.usage.cache_r) || 0, cacheW: (r.usage && r.usage.cache_w) || 0, ok: true, provider: r.provider, model: r.model });
-  return { ok: true, tr: faS(out.tr), simple: out.simple, g: faS(out.g), lang, explain: explainPref, ctx: cx.ctx || ctx || null, words: out.words.map((x) => ({ w: x.w, m: faS(x.m), pos: x.pos, level: x.level, forms: x.forms, parts: x.parts })) };
+  return { ok: true, tr: faS(out.tr), simple: out.simple, g: faS(out.g), scene: faS(out.scene), lang, explain: explainPref, ctx: cx.ctx || ctx || null, words: out.words.map((x) => ({ w: x.w, m: faS(x.m), pos: x.pos, level: x.level, forms: x.forms, parts: x.parts, register: x.register, tone: x.tone, care: faS(x.care) })) };
 }
 // "Share this video's tips": the board's chunks in order, each with whatever is
 // already explained (nothing is asked from the model), saved as one record and
@@ -1155,7 +1159,7 @@ async function shareTips(msg) {
   const chunks = (Array.isArray(msg.chunks) ? msg.chunks : []).slice(0, 600).map((c) => {
     const text = String(c.text || "").replace(/\s+/g, " ").trim(); const e = byText.get(text);
     return { k: c.k, startMs: +c.startMs || 0, sentences: (c.sentences || []).map((x) => ({ s: String(x.s || ""), tr: String(x.tr || "") })).filter((x) => x.s),
-      tips: e ? { tr: e.tr || "", simple: e.simple || "", g: e.g || "", words: (e.words || []).map((x) => ({ w: x.w, m: x.m, pos: x.pos || "", level: x.level || "", forms: cleanForms(x.forms) })) } : null };
+      tips: e ? { tr: e.tr || "", simple: e.simple || "", g: e.g || "", scene: e.scene || "", words: (e.words || []).map((x) => ({ w: x.w, m: x.m, pos: x.pos || "", level: x.level || "", forms: cleanForms(x.forms), register: x.register || "", tone: x.tone || "", care: x.care || "" })) } : null };
   });
   const { targets } = await chrome.storage.local.get("targets");
   const id = "sh" + Date.now().toString(36);
@@ -1175,7 +1179,7 @@ async function tipsCached(msg) {
   const all = cx && cx.e ? Object.entries(cx.e).filter(([k, e]) => /^e[23]/.test(k) && e && e.s && e.tr && String(e.explain || "") === pref) : [];
   const seen = new Set(all.filter(([k]) => k.startsWith("e3")).map(([, e]) => e.s));
   const entries = all.filter(([k, e]) => k.startsWith("e3") || !seen.has(e.s)).map(([, e]) => e);
-  return { ok: true, entries: entries.map((e) => ({ s: e.s, tr: e.tr, simple: e.simple || "", g: e.g || "", lang: e.lang || "", at: e.at || 0, words: (e.words || []).map((x) => ({ w: x.w, m: x.m, pos: x.pos || "", level: x.level || "", forms: cleanForms(x.forms), parts: x.parts || [] })) })), ctx: cx && cx.ctx ? cx.ctx : null };
+  return { ok: true, entries: entries.map((e) => ({ s: e.s, tr: e.tr, simple: e.simple || "", g: e.g || "", scene: e.scene || "", lang: e.lang || "", at: e.at || 0, words: (e.words || []).map((x) => ({ w: x.w, m: x.m, pos: x.pos || "", level: x.level || "", forms: cleanForms(x.forms), parts: x.parts || [], register: x.register || "", tone: x.tone || "", care: x.care || "" })) })), ctx: cx && cx.ctx ? cx.ctx : null };
 }
 
 // ── Tips sheet: every ﹖-explained line of a video as one Study card ─────────

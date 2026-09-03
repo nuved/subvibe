@@ -37,11 +37,12 @@
       });
       const tp = ch.tips;
       if (tp) {
+        if (tp.scene) { const sc = mk("div", "scene", tp.scene); sc.dir = "auto"; box.appendChild(sc); }
         if (tp.simple) { box.appendChild(mk("div", "lbl", "Put simply")); const s = mk("div", "simple", tp.simple); s.dir = "auto"; box.appendChild(s); }
         if (tp.g) { box.appendChild(mk("div", "lbl", "Grammar")); const g = mk("div", "gram"); g.dir = "auto"; const parts = String(tp.g).split(/\s*•\s*/).map((q) => q.trim()).filter(Boolean); if (parts.length > 1) for (const q of parts) g.appendChild(mk("div", "gpt", q)); else g.textContent = tp.g; box.appendChild(g); }
         if (tp.words && tp.words.length) {
           box.appendChild(mk("div", "lbl", "Words")); const list = mk("div", "words");
-          for (const w of tp.words) { const b = mk("b", "pos-" + (POS[String(w.pos || "").toLowerCase()] || "o"), w.w); b.dir = "auto"; const tag = [w.pos, w.level].filter(Boolean).join(" · "); if (tag) b.appendChild(mk("i", "tag", tag)); const m = mk("span", null, w.m); m.dir = "auto"; if (w.forms) m.appendChild(mk("i", "forms", w.forms)); list.append(b, m); }
+          for (const w of tp.words) { const b = mk("b", "pos-" + (POS[String(w.pos || "").toLowerCase()] || "o"), w.w); b.dir = "auto"; if (w.tone === "positive" || w.tone === "negative") b.appendChild(mk("i", "tone " + w.tone, w.tone === "positive" ? "+" : "−")); const tag = [w.pos, w.level, w.register && w.register !== "neutral" ? w.register : ""].filter(Boolean).join(" · "); if (tag) b.appendChild(mk("i", "tag", tag)); const m = mk("span", null, w.m); m.dir = "auto"; if (w.care) { const c = mk("i", "care", "⚠ " + w.care); c.dir = "auto"; m.appendChild(c); } if (w.forms) m.appendChild(mk("i", "forms", w.forms)); list.append(b, m); }
           box.appendChild(list);
         }
       } else box.appendChild(mk("div", "none", "Not explained yet — press ﹖ on this chunk in the video to add its tips."));
