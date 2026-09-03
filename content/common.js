@@ -2719,7 +2719,8 @@
       const title = (d && (d.show || d.title)) || SV_TITLE.clean(document.title);
       const epLine = d && d.show ? [d.season ? "S" + d.season + " · E" + d.episode : d.episode ? "E" + d.episode : "", d.epTitle].filter(Boolean).join(" · ") : d && d.channel ? d.channel : "";
       // ── identity: a small poster and the title; the synopsis unfolds when the section is open ──
-      part("svs-ident", [d ? d.at : 0, d ? d.poster : "", title, epLine, d ? (d.synopsis || d.description || "") : ""].join("|"), (ident) => {
+      part("svs-ident", [d ? d.at : 0, d ? d.poster + (d.backdrop || "") : "", title, epLine, d ? (d.synopsis || d.description || "") : ""].join("|"), (ident) => {
+        if (d && d.backdrop) { const art = mk("img", "svs-art"); art.src = d.backdrop; art.alt = ""; art.loading = "lazy"; ident.appendChild(art); } // the wide key art, shown when the section is open
         if (d && d.poster) { const img = mk("img", "svs-poster"); img.src = d.poster; img.alt = ""; ident.appendChild(img); }
         else { const ph = mk("div", "svs-poster ph", SV_DOSSIER.initials(title)); ph.style.background = "hsl(" + nameHue(title) + " 30% 42%)"; ident.appendChild(ph); }
         const idb = mk("div", "svs-id"); idb.appendChild(mk("b", null, title)); if (epLine) idb.appendChild(mk("div", "svs-ep", epLine));
@@ -2741,6 +2742,7 @@
         const faces = mk("div", "svs-faces" + (ex && ex.scene ? "" : " faded")); facesList.slice(0, 4).forEach((f, i) => faces.appendChild(face(f.person, f.label, "md", i === 0 && !!(ex && ex.scene))));
         if (facesList.length > 4) { const more = mk("span", "svs-face md plus"); more.appendChild(mk("i", null, "+" + (facesList.length - 4))); more.appendChild(mk("b", null, "more")); faces.appendChild(more); }
         now.appendChild(faces);
+        if (d && (d.stills || []).length) { const still = mk("img", "svs-still"); still.src = d.stills[0]; still.alt = ""; still.loading = "lazy"; now.appendChild(still); } // the episode's own still, when the section is open
         now.classList.remove("svs-swap"); void now.offsetWidth; now.classList.add("svs-swap");
       });
       // ── people: in this scene first, then most seen — tiny at rest, named when the section is open ──

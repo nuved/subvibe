@@ -28,10 +28,12 @@
       const j = await r.json(); const v = j.video || {};
       if (!v.title) throw new Error("no video in the answer (keys: " + Object.keys(j).slice(0, 8).join(",") + ")");
       const art = (a) => (Array.isArray(a) && a[0] && a[0].url) || (a && a.url) || "";
+      const widest = (a) => (Array.isArray(a) ? a.slice().sort((x, y) => (y.w || 0) - (x.w || 0)).map((x) => x.url).find(Boolean) : "") || "";
       out.poster = art(v.boxart) || art(v.storyart) || "";
+      out.backdrop = widest(v.storyart) || widest(v.artwork) || ""; // the wide key art — a proper promotional frame, not a screenshot
       if (v.type === "show") {
         out.show = v.title || ""; out.year = v.year || 0; out.synopsis = v.synopsis || "";
-        for (const s of v.seasons || []) for (const e of s.episodes || []) if (String(e.id) === String(v.currentEpisode || id)) { out.season = s.seq || 0; out.episode = e.seq || 0; out.epTitle = e.title || ""; out.synopsis = e.synopsis || out.synopsis; out.runtimeMin = Math.round((e.runtime || 0) / 60); }
+        for (const s of v.seasons || []) for (const e of s.episodes || []) if (String(e.id) === String(v.currentEpisode || id)) { out.season = s.seq || 0; out.episode = e.seq || 0; out.epTitle = e.title || ""; out.synopsis = e.synopsis || out.synopsis; out.runtimeMin = Math.round((e.runtime || 0) / 60); out.stills = (Array.isArray(e.stills) ? e.stills : []).map((x) => x && x.url).filter(Boolean).slice(0, 4); }
       } else { out.title = v.title || ""; out.year = v.year || 0; out.synopsis = v.synopsis || ""; out.runtimeMin = Math.round((v.runtime || 0) / 60); }
     } catch (e) { why = String((e && e.message) || e); }
     if (why) console.info("[SubVibe] Netflix metadata: " + why + (out.show || out.title ? "" : " — using the player's title block"));
