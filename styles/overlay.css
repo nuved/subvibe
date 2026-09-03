@@ -636,7 +636,7 @@
 #sv-strip .svs-face.role-ally i { box-shadow: 0 0 0 2px #fff, 0 0 0 4px #1F5FBF; }
 #sv-strip .svs-face.role-minor i { opacity: .8; }
 #sv-strip .svs-people { position: relative; }
-#sv-strip .svs-card { position: absolute; top: 0; right: 0; bottom: 0; width: 0; opacity: 0; overflow: hidden; display: flex; gap: 10px; align-items: flex-start; padding: 28px 14px 8px 16px; background: linear-gradient(90deg, rgba(250,246,240,0) 0, #FAF6F0 18px); transition: width .3s ease, opacity .2s ease; pointer-events: none; }
+#sv-strip .svs-card { position: absolute; top: 0; right: 0; bottom: 0; width: 0; opacity: 0; overflow: hidden; display: flex; gap: 10px; align-items: flex-start; padding: 28px 14px 8px 14px; background: #FAF6F0; border-left: 1px solid #EDE5DA; box-shadow: -10px 0 16px -8px rgba(36,31,26,.18); transition: width .3s ease, opacity .2s ease; pointer-events: none; }
 #sv-strip .svs-people[data-person] .svs-card { width: 360px; opacity: 1; pointer-events: auto; }
 #sv-strip .svs-card .svs-face.md { width: 60px; }
 #sv-strip .svs-card .svs-face.md i { width: 56px; height: 72px; border-radius: 10px; background-position: top center; line-height: 72px; }
