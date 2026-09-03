@@ -440,6 +440,8 @@
 #sv-board.collapsed .svb-tools { display: none; }
 #sv-board .svb-lines { border: 1px solid #EDE5DA; background: #fff; color: #5B5348; font: 600 11px/1.3 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; padding: 3px 8px; border-radius: 6px; cursor: pointer; }
 #sv-board .svb-lines.off { background: #FBEAE6; color: #C93F2B; border-color: #F3D4CD; }
+#sv-board .svb-share { border: 1px solid #F3D4CD; background: #fff; color: #C93F2B; font: 600 11px/1.3 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; padding: 3px 8px; border-radius: 6px; cursor: pointer; }
+#sv-board .svb-share:hover { background: #FDE8E4; }
 #sv-board .svb-lang { margin-left: auto; border: 1px solid #EDE5DA; background: #fff; color: #241F1A; font: 600 11px/1.3 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; padding: 3px 6px; border-radius: 6px; max-width: 60%; }
 #copilot-subs.sv-lines-off .copilot-subs__stack, #copilot-subs.sv-lines-off .copilot-subs__hint { display: none !important; }
 #copilot-subs .copilot-subs__wtip .wt-lang { width: auto; padding: 0 7px; font-size: 10.5px; letter-spacing: .04em; }
