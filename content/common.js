@@ -2548,6 +2548,7 @@
       sel.addEventListener("click", (ev) => ev.stopPropagation());
       const share = mk("button", "svb-share", "Share ↗"); share.type = "button"; share.title = "One page with every chunk, its translation and the tips already explained — from the cache, nothing is asked again — to download and send to a friend";
       share.addEventListener("click", (ev) => { ev.stopPropagation(); shareBoard(share); });
+      tools.append(lines, speedButton("svb-speed"), share, sel);
       const sceneBtn = mk("button", "svb-scene-btn", "Scene"); sceneBtn.type = "button";
       sceneBtn.addEventListener("click", () => { board.stripHidden = !board.stripHidden; try { localStorage.setItem("sv-strip-collapsed", board.stripHidden ? "1" : ""); } catch (e) {} ensureStrip(); fitPlayer(true); board.sig = ""; board.stripSig = ""; boardTick(true); });
       if (drawer) tools.append(sceneBtn); board.sceneBtn = sceneBtn;
@@ -2732,10 +2733,12 @@
       part("svs-now", [ch ? ch.text : "", ex ? (ex.scene || "") + (ex.who || []).join("|") : "", busyHere(ch) ? 1 : 0, st.state, d ? d.at : 0, useRecap ? recap.k + recap.text.slice(0, 40) : "", last ? last.scene : "", board.facesV].join("|"), (now) => {
         let facesList = [];
         if (ex && ex.scene) { now.appendChild(mk("div", "svs-lbl", "Now · " + fmtT(ch.startMs))); const sc = mk("div", "svs-scene", ex.scene); sc.dir = explainDir(ex); now.appendChild(sc); facesList = who; }
-        else if (useRecap) { now.appendChild(mk("div", "svs-lbl", "So far · up to " + fmtT(list[recap.k] ? list[recap.k].startMs : 0) + (waiting ? " · " + waiting : ""))); const sc = mk("div", "svs-scene recap", recap.text); sc.dir = dirOf(vocabPoolLang); now.appendChild(sc); facesList = SV_DOSSIER.whoFaces(recap.who, d && d.people); }
+        else if (useRecap) { now.appendChild(mk("div", "svs-lbl", "So far · up to " + fmtT(list[recap.k] ? list[recap.k].startMs : 0) + (busyHere(ch) ? " · explaining this chunk…" : ""))); const sc = mk("div", "svs-scene recap", recap.text); sc.dir = dirOf(vocabPoolLang); now.appendChild(sc); facesList = SV_DOSSIER.whoFaces(recap.who, d && d.people); }
         else if (last) { now.appendChild(mk("div", "svs-lbl", "Earlier" + (waiting ? " · " + waiting : ""))); const sc = mk("div", "svs-scene faded", last.scene); sc.dir = explainDir(last.ex); now.appendChild(sc); facesList = SV_DOSSIER.whoFaces(last.who, d && d.people); }
         else if (waiting) { now.appendChild(mk("div", "svs-lbl", "Now")); now.appendChild(mk("div", "svs-scene muted", waiting[0].toUpperCase() + waiting.slice(1))); }
-        const faces = mk("div", "svs-faces" + (ex && ex.scene ? "" : " faded")); facesList.forEach((f, i) => faces.appendChild(face(f.person, f.label, "md", i === 0 && !!(ex && ex.scene)))); now.appendChild(faces);
+        const faces = mk("div", "svs-faces" + (ex && ex.scene ? "" : " faded")); facesList.slice(0, 4).forEach((f, i) => faces.appendChild(face(f.person, f.label, "md", i === 0 && !!(ex && ex.scene))));
+        if (facesList.length > 4) { const more = mk("span", "svs-face md plus"); more.appendChild(mk("i", null, "+" + (facesList.length - 4))); more.appendChild(mk("b", null, "more")); faces.appendChild(more); }
+        now.appendChild(faces);
         // the sheet: the scene in full with its retelling, then the story so far
         const cur = ex && ex.scene ? ex : last ? last.ex : null;
         if (cur || recap.text) {
