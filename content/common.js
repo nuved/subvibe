@@ -2710,8 +2710,10 @@
       // explained chunks have met so far, most-seen first — recounted only when a new explanation lands.
       const dp = (d && d.people) || [];
       if (!board.peopleSeen || board.peopleSeen.n !== st.doneN || board.peopleSeen.at !== (d ? d.at : 0)) {
+        // A person is a name: "Ray (Raymond)" counts as Ray; "the police", "radio advertisement voice" are roles — they stay in the Now box, not here.
+        const isRole = (k) => !/^\p{Lu}/u.test(k) || /\b(voice|advert|announcer|narrator|officer|police|crowd|men|man|woman|guy|guys|people|cop|cops|dealer|driver)\b/i.test(k) || k.split(/\s+/).length > 3;
         const count = new Map();
-        for (const e of lineExplainCache.values()) for (const w of (e && e.who) || []) { const k = String(w).trim(); if (k) count.set(k, (count.get(k) || 0) + 1); }
+        for (const e of lineExplainCache.values()) for (const w of (e && e.who) || []) { const k = String(w).replace(/\s*\(.*$/, "").trim(); if (k && !isRole(k)) count.set(k, (count.get(k) || 0) + 1); }
         const named = [...count.entries()].sort((a, b) => b[1] - a[1]).map(([label, n]) => ({ f: SV_DOSSIER.whoFaces([label], dp)[0], n }));
         const list = dp.map((p) => ({ p, label: "", n: 0 }));
         for (const { f, n } of named) { const hit = f.person && list.find((x) => x.p === f.person); if (hit) hit.n += n; else if (!/^(the |a |an )/i.test(f.label)) list.push({ p: null, label: f.label, n }); }
