@@ -1545,6 +1545,37 @@ async function snapViaCapture(tab) {
   const lr = prep.lineRect ? { x: prep.lineRect.x * k, y: prep.lineRect.y * k, w: prep.lineRect.w * k, h: prep.lineRect.h * k } : null;
   return tipsSnap({ frame, w: sw, h: sh, lineRect: lr, chunks: prep.chunks, line: prep.chunks && prep.chunks[0], lang: prep.lang, title: prep.title, url: prep.url, base: prep.base }, { tab });
 }
+// ── Scene camera: one small frame per chunk, from the visible tab — the same screen route as
+// "Frame + this chunk from the screen", so protected video works and no prompt is needed on a
+// site the extension already holds. The frame is cropped to the video's box, scaled to 640 px
+// and kept per video as frame:<base>:<k>. Only the active tab of its window is ever captured.
+const FRAME_W = 640;
+async function sceneFrame(msg, sender) {
+  const tab = sender && sender.tab; if (!tab || tab.id == null) return { ok: false, error: "no-tab" };
+  const base = String(msg.base || ""), k = msg.k | 0; if (!base) return { ok: false, error: "empty" };
+  const key = "frame:" + base + ":" + k;
+  const have = await idbVocabGet(key); if (have && have.d) return { ok: true, k, frame: have.d, cached: true };
+  let live = null; try { live = await chrome.tabs.get(tab.id); } catch (e) {}
+  if (!live || !live.active) return { ok: false, error: "not-visible" };
+  let shot = null; try { shot = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "jpeg", quality: 88 }); } catch (e) { return { ok: false, error: "capture" }; }
+  if (!shot) return { ok: false, error: "capture" };
+  const bmp = await createImageBitmap(await (await fetch(shot)).blob());
+  const dpr = +msg.dpr || 1, r = msg.rect || { x: 0, y: 0, w: bmp.width / dpr, h: bmp.height / dpr };
+  const sx = Math.max(0, Math.round(r.x * dpr)), sy = Math.max(0, Math.round(r.y * dpr));
+  const sw = Math.max(8, Math.min(bmp.width - sx, Math.round(r.w * dpr))), sh = Math.max(8, Math.min(bmp.height - sy, Math.round(r.h * dpr)));
+  const scale = Math.min(1, FRAME_W / sw);
+  const c = new OffscreenCanvas(Math.max(8, Math.round(sw * scale)), Math.max(8, Math.round(sh * scale)));
+  c.getContext("2d").drawImage(bmp, sx, sy, sw, sh, 0, 0, c.width, c.height);
+  const blob = await c.convertToBlob({ type: "image/jpeg", quality: 0.74 });
+  const d = await new Promise((res) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.readAsDataURL(blob); });
+  await idbVocabPut(key, { base, k, ms: +msg.ms || 0, at: Date.now(), d });
+  return { ok: true, k, frame: d };
+}
+async function sceneFrames(msg) {
+  const base = String(msg.base || ""), ks = (Array.isArray(msg.ks) ? msg.ks : []).map((x) => x | 0).slice(0, 12);
+  const out = {}; for (const k of ks) { const rec = await idbVocabGet("frame:" + base + ":" + k); if (rec && rec.d) out[k] = rec.d; }
+  return { ok: true, frames: out };
+}
 async function tipsSnap(msg, sender) {
   const tab = sender && sender.tab;
   if (!tab) return { ok: false, error: "no-tab" };
@@ -3257,6 +3288,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         case "CLIP_TIPS": sendResponse(await clipTips(msg)); break;
         case "TIPS_CACHED": sendResponse(await tipsCached(msg)); break;
         case "FACES": try { sendResponse(await faces(msg)); } catch (e2) { sendResponse({ ok: false, error: String((e2 && e2.message) || e2) }); } break;
+        case "SCENE_FRAME": try { sendResponse(await sceneFrame(msg, sender)); } catch (e2) { sendResponse({ ok: false, error: String((e2 && e2.message) || e2) }); } break;
+        case "SCENE_FRAMES": try { sendResponse(await sceneFrames(msg)); } catch (e2) { sendResponse({ ok: false, error: String((e2 && e2.message) || e2) }); } break;
         case "STORY_RECAP": try { sendResponse(await storyRecap(msg)); } catch (e2) { sendResponse({ ok: false, error: String((e2 && e2.message) || e2) }); } break;
         case "DOSSIER": { // the board asks once per video, before any explanation
           try { const d = await ensureDossier(String(msg.base || ""), msg.meta || {}, Array.isArray(msg.sample) ? msg.sample : [], msg.lang); sendResponse({ ok: !!d, dossier: d || null }); }

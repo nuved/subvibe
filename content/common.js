@@ -2160,6 +2160,25 @@
         if (facesQueue.size) askFaces([]);
       }, 1200);
     };
+    // Scene camera: one small frame of the video a second into each chunk, through the same screen
+    // route as Frame-from-screen (protected video works). The subtitle overlay hides for the
+    // capture's few frames so the picture is clean. Only while the strip is shown and the tab is visible.
+    const cam = { frames: new Map(), asked: new Set(), inflight: false, timer: 0 };
+    const frameRect = () => { const v = liveVideoEl(video) || video; const r = v && v.getBoundingClientRect(); if (!r || r.width < 120 || r.height < 60) return null;
+      // the box the picture really occupies (letterboxed inside the element): assume 16:9 inside the element's rect
+      const ar = 16 / 9; let w = r.width, h = r.height; if (w / h > ar) { w = h * ar; } else { h = w / ar; } return { x: r.left + (r.width - w) / 2, y: r.top + (r.height - h) / 2, w, h }; };
+    const snapChunkFrame = (k) => {
+      if (cam.inflight || cam.asked.has(k) || document.visibilityState !== "visible" || !stripOn()) return;
+      const ch = board.list[k]; if (!ch) return;
+      const r = frameRect(); if (!r) return;
+      cam.asked.add(k); cam.inflight = true; overlay.classList.add("sv-snap-hide");
+      setTimeout(() => send({ type: "SCENE_FRAME", base, k, ms: ch.startMs, dpr: devicePixelRatio, rect: r })
+        .then((res) => { if (res && res.ok && res.frame) { cam.frames.set(k, res.frame); board.stripSig = ""; } else if (res && res.error === "not-visible") cam.asked.delete(k); })
+        .catch(() => {}).finally(() => { overlay.classList.remove("sv-snap-hide"); cam.inflight = false; }), 70);
+    };
+    // Frames already taken on an earlier watch, for the chunks the strip is about to show.
+    const wantFrames = (ks) => { const need = ks.filter((k) => !cam.frames.has(k) && !cam.asked.has("get:" + k)); if (!need.length) return; need.forEach((k) => cam.asked.add("get:" + k));
+      send({ type: "SCENE_FRAMES", base, ks: need }).then((r) => { if (!r || !r.ok) return; let got = 0; for (const [k, d] of Object.entries(r.frames || {})) { cam.frames.set(+k, d); got++; } if (got) board.stripSig = ""; }).catch(() => {}); };
     // Story so far: a catch-up up to the playhead only, refreshed every 8 chunks, in the video's language.
     const recap = { k: -1, text: "", who: [], cast: new Map(), inflight: false, pausedUntil: 0 };
     const ROLE_WORD = { protagonist: "lead", antagonist: "opponent", ally: "ally", minor: "minor", other: "" };
@@ -2782,7 +2801,9 @@
       askFaces(who.map((f) => (f.person && (f.person.character || f.person.name)) || f.label));
       const useRecap = !(ex && ex.scene) && !!recap.text, last = ex && ex.scene ? null : useRecap ? null : board.lastScene;
       const waiting = busyHere(ch) ? "explaining this chunk…" : st.state === "stopped" || st.state === "paused" ? "tips paused — see the board" : ex ? "" : "tips follow the video as it plays";
-      part("svs-now", [ch ? ch.text : "", ex ? (ex.scene || "") + (ex.who || []).join("|") : "", busyHere(ch) ? 1 : 0, st.state, d ? d.at : 0, useRecap ? recap.k + recap.text.slice(0, 40) : "", last ? last.scene : "", board.facesV].join("|"), (now) => {
+      if (board.ki >= 0) wantFrames([board.ki]);
+      const frameNow = board.ki >= 0 ? cam.frames.get(board.ki) : "";
+      part("svs-now", [ch ? ch.text : "", ex ? (ex.scene || "") + (ex.who || []).join("|") : "", busyHere(ch) ? 1 : 0, st.state, d ? d.at : 0, useRecap ? recap.k + recap.text.slice(0, 40) : "", last ? last.scene : "", board.facesV, frameNow ? frameNow.length : 0].join("|"), (now) => {
         let facesList = [];
         if (ex && ex.scene) { now.appendChild(mk("div", "svs-lbl", "Now · " + fmtT(ch.startMs))); const sc = mk("div", "svs-scene", ex.scene); sc.dir = explainDir(ex); now.appendChild(sc); facesList = who; }
         else if (useRecap) { now.appendChild(mk("div", "svs-lbl", "Story so far · to " + fmtT(list[recap.k] ? list[recap.k].startMs : 0) + (busyHere(ch) ? " · explaining this chunk…" : ""))); const sc = mk("div", "svs-scene recap", recap.text); sc.dir = dirOf(vocabPoolLang); now.appendChild(sc); facesList = SV_DOSSIER.whoFaces(recap.who, d && d.people); }
@@ -2791,6 +2812,7 @@
         const faces = mk("div", "svs-faces" + (ex && ex.scene ? "" : " faded")); facesList.slice(0, 4).forEach((f) => faces.appendChild(face(f.person, f.label, "md", false)));
         if (facesList.length > 4) { const more = mk("span", "svs-face md plus"); more.appendChild(mk("i", null, "+" + (facesList.length - 4))); more.appendChild(mk("b", null, "more")); faces.appendChild(more); }
         now.appendChild(faces);
+        if (frameNow) { const img = mk("img", "svs-frame"); img.src = frameNow; img.alt = ""; img.title = "This moment — click to open it as a Shot"; img.addEventListener("click", () => { snapChunksNow(list, board.ki, 1, els.__orig, () => {}); }); now.appendChild(img); }
         now.classList.remove("svs-swap"); void now.offsetWidth; now.classList.add("svs-swap");
       });
       // ── people: in this scene first, then most seen — tiny at rest, named when the section is open ──
@@ -2823,6 +2845,10 @@
           if (x.p && x.p.character && x.p.name) chips.appendChild(mk("span", "svs-chip", x.p.name)); if (chips.childElementCount) tx.appendChild(chips);
           const note = c && c.note ? c.note : x.p && x.p.role ? x.p.role : ""; if (note) { const nt = mk("div", "svs-card-note", note); nt.dir = dirOf(vocabPoolLang); tx.appendChild(nt); }
           tx.appendChild(mk("div", "svs-card-meta", [x.n ? x.n + (x.n === 1 ? " scene" : " scenes") : "", since >= 0 ? "since " + fmtT(since) : ""].filter(Boolean).join(" · ")));
+          // the album: this person's chunks that have a frame, newest first; a thumb plays from there
+          const ks = []; for (let j = list.length - 1; j >= 0 && ks.length < 6; j--) { const e = lineExplainCache.get(list[j].text); if (e && (e.who || []).some((w) => sameName(w, nm)) && cam.frames.has(j)) ks.push(j); }
+          const missing = []; for (let j = list.length - 1; j >= 0 && missing.length < 6; j--) { const e = lineExplainCache.get(list[j].text); if (e && (e.who || []).some((w) => sameName(w, nm)) && !cam.frames.has(j)) missing.push(j); } if (missing.length) wantFrames(missing);
+          if (ks.length) { const strip = mk("div", "svs-album"); for (const j of ks) { const th = mk("img", "svs-thumb"); th.src = cam.frames.get(j); th.alt = ""; th.title = "Play from " + fmtT(list[j].startMs); th.addEventListener("click", (ev) => { ev.stopPropagation(); playFrom(list[j].startMs); }); strip.appendChild(th); } tx.appendChild(strip); }
           card.appendChild(tx); pe.dataset.person = nm; }, 180); };
         const hideCard = () => { clearTimeout(cardT); cardT = setTimeout(() => { delete pe.dataset.person; }, 260); };
         ordered.slice(0, MAX).forEach((x) => { const f = face(x.p, x.label, "sm", false); if (inScene.has(keyOf(x))) f.classList.add("here"); const c = castOf(x); if (c && c.role !== "other") f.classList.add("role-" + c.role); if (x.n) f.appendChild(mk("small", "n", String(x.n)));
@@ -2900,6 +2926,7 @@
       const sig = [list.length, trN, ki, exN, board.open, snapChunks, tipsExplain, tips.inflight.size, tips.stopped ? 1 : 0, tips.all ? 1 : 0].join(":");
       if (sig === board.sig) { renderPane(); renderStrip(); renderPump(); return; }
       const follow = ki !== board.ki;
+      if (follow && ki >= 0) { clearTimeout(cam.timer); cam.timer = setTimeout(() => { if (board.ki === ki) snapChunkFrame(ki); }, 1200); }
       board.sig = sig; board.list = list; board.ki = ki;
       // A small state stamp for diagnosis from the page (the script's variables are not reachable there).
       try { document.documentElement.dataset.svBoard = JSON.stringify({ ki, open: board.open, loop: board.loop, stopAt: board.stopAt, rate: board.rate, tips: tipsStatus(list, ki).state, chunk: list[ki] ? [Math.round(list[ki].startMs), Math.round(list[ki].endMs)] : null }); } catch (e) {}

@@ -685,3 +685,12 @@
 /* the speaker's chip on the playing row */
 #sv-board .svb-who.talk { border-color: #C93F2B; color: #C93F2B; background: #FBEAE6; }
 #sv-board .svb-who.talk i { box-shadow: 0 0 0 1.5px #C93F2B; }
+
+/* ── Scene camera: the chunk's own frame in the Now box; a person's album in their card ── */
+#sv-strip .svs-frame { grid-column: 2; grid-row: 1 / span 2; align-self: start; width: 128px; height: 72px; border-radius: 8px; object-fit: cover; box-shadow: 0 0 0 1px rgba(36,31,26,.14); cursor: pointer; transition: width .3s ease, height .3s ease; }
+#sv-strip[data-open="now"] .svs-frame { width: 200px; height: 112px; }
+#sv-strip .svs-now { grid-template-columns: minmax(0,1.6fr) auto auto; }
+#sv-strip .svs-now > .svs-faces { grid-column: 3; grid-row: 2; }
+#sv-strip .svs-album { display: flex; gap: 4px; margin-top: 4px; }
+#sv-strip .svs-thumb { width: 56px; height: 32px; border-radius: 4px; object-fit: cover; box-shadow: 0 0 0 1px rgba(36,31,26,.14); cursor: pointer; }
+#sv-strip .svs-thumb:hover { box-shadow: 0 0 0 2px #C93F2B; }
