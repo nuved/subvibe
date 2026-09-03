@@ -2289,7 +2289,7 @@
         const t = mk("span", "svb-txt", x.s); t.dir = "auto";
         // The playing chunk reads like the subtitle: its words light up as they are spoken.
         const units = on && settings.karaokeHl !== false && x.cue ? lineUnits(x.cue, null, x.s) : null;
-        if (units) { const spans = []; units.forEach((u, j) => { if (j) t.appendChild(document.createTextNode(" ")); const w = mk("span", "svb-w", u.t); t.appendChild(w); spans.push(w); }); t.__svW = { units, spans, k: -1 }; }
+        if (units) { t.textContent = ""; /* the words replace the plain text, never both */ const spans = []; units.forEach((u, j) => { if (j) t.appendChild(document.createTextNode(" ")); const w = mk("span", "svb-w", u.t); t.appendChild(w); spans.push(w); }); t.__svW = { units, spans, k: -1 }; }
         r.appendChild(t); main.appendChild(r);
         if (x.tr) { const tr = mk("div", "svb-tr", x.tr); tr.dir = "auto"; main.appendChild(tr); }
       });
