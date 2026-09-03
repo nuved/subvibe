@@ -1010,6 +1010,10 @@ function contextPrompt(source) {
 async function tmdbLookup(meta, key) {
   const none = { tmdb: null, people: [], poster: "", epTitle: "", synopsis: "" };
   if (!key || !meta) return none;
+  // Only a real identity may be looked up. A bare title is often the site's own
+  // chrome ("Netflix") and would freeze a stranger's cast on the file; YouTube
+  // has no TMDb entry at all. A series name, or a synopsis off a film page.
+  if (!(meta.show || (meta.synopsis && meta.site !== "youtube"))) return none;
   const u = SV_TMDB.urls(key);
   const get = async (url) => { const r = await fetch(url); if (!r.ok) throw new Error("tmdb " + r.status); return r.json(); };
   try {
@@ -1023,6 +1027,19 @@ async function tmdbLookup(meta, key) {
     return { tmdb: { type: kind, id: hit.id, matched: true, title: String(hit.name || hit.title || "") }, people, poster: SV_TMDB.imageUrl(hit.poster_path, "w185"), epTitle: ep.epTitle, synopsis: ep.synopsis };
   } catch (e) { return none; }
 }
+// The model's reading of the video (kind, about, register, speakers, and the
+// people when TMDb gave none), written into d in place. Both the fresh build
+// and the identity upgrade run it; no provider yet is not fatal.
+async function readVideo(d, lines, lang) {
+  if (d.kind || !(lines.length || d.title || d.show)) return;
+  try {
+    const r = await llmJSON(contextPrompt(lang || "auto"), { title: d.title, show: d.show, season: d.season, episode: d.episode, epTitle: d.epTitle, synopsis: d.synopsis, channel: d.channel, description: String(d.description || "").slice(0, 600), lines: lines.slice(0, 40) }, CONTEXT_SCHEMA);
+    const p = (r && r.parsed) || {};
+    d.kind = String(p.kind || "").trim(); d.about = String(p.about || "").trim(); d.register = String(p.register || "").trim(); d.speakers = String(p.speakers || "").trim();
+    if (!d.people.length && Array.isArray(p.people)) d.people = p.people.filter((x) => x && x.name).slice(0, 8).map((x, i) => ({ name: String(x.name).trim().slice(0, 60), character: "", role: String(x.role || "").trim().slice(0, 60), photo: "", order: i, src: "model" }));
+    await logCall({ ts: Date.now(), site: "learn", title: "Context: " + (d.show || d.title).slice(0, 40), kind: "enrich", lines: lines.length, ms: 0, inTok: (r.usage && r.usage.prompt_tokens) || 0, outTok: (r.usage && r.usage.completion_tokens) || 0, ok: true, provider: r.provider, model: r.model });
+  } catch (e) { /* no provider yet — the dossier still carries the site's data */ }
+}
 // The dossier: one file per video — the site's identity, the cast, the model's
 // reading, a frozen sample of the lines. Built once (single-flight), kept in
 // clipexplain:<base>.dossier; every explanation's prefix is made from it.
@@ -1035,11 +1052,41 @@ async function ensureDossier(base, meta, sample, lang) {
     const m = meta || {};
     const lines = SV_DOSSIER.sampleLines(sample || [], Array.isArray(sample) && sample.length >= 120 ? 300 : 40);
     let d = cx.dossier && cx.dossier.v === 1 ? cx.dossier : null;
+    const setCtx = () => { if (d.kind) cx.ctx = { kind: d.kind, about: d.about, register: d.register, speakers: d.speakers, at: Date.now() }; }; // the old field, still read by older code paths
     if (d) {
       // The prefix must not drift: only a sample built from too few lines is
       // replaced, once, and only before any e4 explanation was bought on it.
       const bought = Object.keys(cx.e || {}).some((k) => k.startsWith("e4"));
-      if (!bought && (d.sample || []).length < 40 && lines.length >= 120) { d.sample = lines; cx.dossier = d; await idbVocabPut("clipexplain:" + base, cx); }
+      let dirty = false;
+      if (!bought && (d.sample || []).length < 40 && lines.length >= 120) { d.sample = lines; dirty = true; }
+      // A ﹖ pressed before the board's DOSSIER message lands builds a
+      // title-only file — on Netflix that title is the site's own chrome — and
+      // the wrong reading would then be frozen for the whole video. The first
+      // meta that carries site facts replaces the identity, looks TMDb up and
+      // buys the reading again. The prefix changes once; that is the price.
+      if (!(d.show || d.synopsis || d.channel || d.description) && (m.show || m.synopsis || m.channel || m.description)) {
+        if (m.site) d.site = String(m.site);
+        if (m.title) d.title = String(m.title).slice(0, 160);
+        if (m.show) d.show = String(m.show).slice(0, 120);
+        if (+m.season) d.season = +m.season;
+        if (+m.episode) d.episode = +m.episode;
+        if (m.epTitle) d.epTitle = String(m.epTitle).slice(0, 120);
+        if (+m.year) d.year = +m.year;
+        if (+m.runtimeMin) d.runtimeMin = +m.runtimeMin;
+        if (m.synopsis) d.synopsis = String(m.synopsis).slice(0, 600);
+        if (m.channel) d.channel = String(m.channel).slice(0, 80);
+        if (m.description) d.description = String(m.description).slice(0, 1500);
+        const { tmdbKey } = await chrome.storage.local.get("tmdbKey");
+        const t = await tmdbLookup(d, String(tmdbKey || "").trim());
+        if (t.tmdb && t.tmdb.matched) { d.people = t.people; d.tmdb = t.tmdb; d.poster = t.poster; d.tmdbAt = Date.now(); if (!m.epTitle && t.epTitle) d.epTitle = String(t.epTitle).slice(0, 120); if (!m.synopsis && t.synopsis) d.synopsis = String(t.synopsis).slice(0, 600); }
+        const was = { kind: d.kind, about: d.about, register: d.register, speakers: d.speakers };
+        d.kind = ""; d.about = ""; d.register = ""; d.speakers = ""; // the reading was made without an identity — buy it again
+        await readVideo(d, d.sample || [], lang);
+        if (!d.kind) Object.assign(d, was); // no provider right now: the old reading beats none at all
+        setCtx();
+        dirty = true;
+      }
+      if (dirty) { cx.dossier = d; await idbVocabPut("clipexplain:" + base, cx); }
       return d;
     }
     const { tmdbKey } = await chrome.storage.local.get("tmdbKey");
@@ -1049,16 +1096,8 @@ async function ensureDossier(base, meta, sample, lang) {
       channel: String(m.channel || "").slice(0, 80), description: String(m.description || "").slice(0, 1500),
       kind: (cx.ctx && cx.ctx.kind) || "", about: (cx.ctx && cx.ctx.about) || "", register: (cx.ctx && cx.ctx.register) || "", speakers: (cx.ctx && cx.ctx.speakers) || "",
       people: t.people, tmdb: t.tmdb, poster: t.poster, sample: lines, tmdbAt: t.tmdb ? Date.now() : 0 };
-    if (!d.kind && (lines.length || d.title || d.show)) {
-      try {
-        const r = await llmJSON(contextPrompt(lang || "auto"), { title: d.title, show: d.show, season: d.season, episode: d.episode, epTitle: d.epTitle, synopsis: d.synopsis, channel: d.channel, description: d.description.slice(0, 600), lines: lines.slice(0, 40) }, CONTEXT_SCHEMA);
-        const p = (r && r.parsed) || {};
-        d.kind = String(p.kind || "").trim(); d.about = String(p.about || "").trim(); d.register = String(p.register || "").trim(); d.speakers = String(p.speakers || "").trim();
-        if (!d.people.length && Array.isArray(p.people)) d.people = p.people.filter((x) => x && x.name).slice(0, 8).map((x, i) => ({ name: String(x.name).trim().slice(0, 60), character: "", role: String(x.role || "").trim().slice(0, 60), photo: "", order: i, src: "model" }));
-        await logCall({ ts: Date.now(), site: "learn", title: "Context: " + (d.show || d.title).slice(0, 40), kind: "enrich", lines: lines.length, ms: 0, inTok: (r.usage && r.usage.prompt_tokens) || 0, outTok: (r.usage && r.usage.completion_tokens) || 0, ok: true, provider: r.provider, model: r.model });
-      } catch (e) { /* no provider yet — the dossier still carries the site's data */ }
-    }
-    if (d.kind) cx.ctx = { kind: d.kind, about: d.about, register: d.register, speakers: d.speakers, at: Date.now() }; // the old field, still read by older code paths
+    await readVideo(d, lines, lang);
+    setCtx();
     cx.dossier = d; await idbVocabPut("clipexplain:" + base, cx);
     return d;
   })().finally(() => dossierBuilding.delete(base));
@@ -1242,7 +1281,7 @@ async function shareTips(msg) {
   });
   const { targets } = await chrome.storage.local.get("targets");
   const id = "sh" + Date.now().toString(36);
-  const rec = { id, at: Date.now(), base, title: String(msg.title || "Video"), url: String(msg.url || ""), lang: String((cx && cx.lang) || msg.lang || ""), target: String((Array.isArray(targets) && targets[0]) || "en"), explain: pref, ctx: (cx && cx.ctx) || null, dossier: (cx && cx.dossier) || null, chunks, explained: chunks.filter((c) => c.tips).length };
+  const rec = { id, at: Date.now(), base, title: String(msg.title || "Video"), url: String(msg.url || ""), lang: String((cx && cx.lang) || msg.lang || ""), target: String((Array.isArray(targets) && targets[0]) || "en"), explain: pref, ctx: (cx && cx.ctx) || null, dossier: cx && cx.dossier ? Object.assign({}, cx.dossier, { sample: [] }) : null, chunks, explained: chunks.filter((c) => c.tips).length };
   await idbVocabPut("share:" + id, rec);
   await chrome.tabs.create({ url: chrome.runtime.getURL("share.html?id=" + id) });
   return { ok: true, id, explained: rec.explained, chunks: chunks.length };
