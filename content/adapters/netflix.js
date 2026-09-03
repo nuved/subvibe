@@ -28,6 +28,13 @@
       return document.querySelector("video");
     },
 
+    // Netflix's player must do the seeking (a direct video.currentTime write ends
+    // the session with error M7375) — content/page/netflix-seek.js listens in the page.
+    seek(ms) { window.postMessage({ __sv: "netflix", op: "seek", ms: Math.round(ms) }, "*"); },
+    play() { window.postMessage({ __sv: "netflix", op: "play" }, "*"); },
+    pause() { window.postMessage({ __sv: "netflix", op: "pause" }, "*"); },
+    setRate(rate) { window.postMessage({ __sv: "netflix", op: "rate", rate }, "*"); },
+
     getPlayerContainer() {
       return (
         document.querySelector(".watch-video--player-view") ||
