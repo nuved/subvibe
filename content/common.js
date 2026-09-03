@@ -2019,13 +2019,15 @@
       const C = globalThis.SV_CUES;
       const ranges = C && C.chunkCues ? C.chunkCues(units, { maxSents: 4, maxChars: 300 }) : units.map((u, i) => ({ from: i, to: i, startMs: u.startMs, endMs: u.endMs }));
       const tg = vocabTg || (settings.targets && settings.targets[0]) || "";
-      return ranges.map((r, k) => {
+      // A chunk whose lines were all stage tags ("[GROANING]") has nothing to read or explain —
+      // it is dropped here, so no bare row and no empty explanation request; k is the list index.
+      return ranges.map((r) => {
         const us = units.slice(r.from, r.to + 1);
         // ASR stage tags ("[Music]") and speaker marks (">>") are not language — keep them out of the tips.
         const clean = (t) => String(t || "").replace(/\[[^\]]{1,24}\]/g, " ").replace(/(?:^|\s)(?:>>|&gt;&gt;|»)+\s*/g, " ").replace(/\s+/g, " ").trim();
         const sentences = us.map((u) => ({ s: clean(u.original), tr: clean(unitTr(u, tg)), startMs: u.startMs, endMs: u.endMs, cue: u.cue })).filter((x) => x.s);
-        return { k, from: r.from, to: r.to, startMs: r.startMs, endMs: r.endMs, units: us, text: sentences.map((x) => x.s).join(" "), sentences };
-      });
+        return { k: 0, from: r.from, to: r.to, startMs: r.startMs, endMs: r.endMs, units: us, text: sentences.map((x) => x.s).join(" "), sentences };
+      }).filter((c) => c.sentences.length).map((c, k) => { c.k = k; return c; });
     };
     const chunkOfCue = (list, cue) => list.findIndex((ch) => ch.units.some((u) => u.cue === cue || (u.grp && u.grp === cue.grp)));
     // A sample of the whole video's lines — the background infers the video's
@@ -2087,6 +2089,7 @@
     const plainError = (m) => { const s = String(m || ""); return isNoReceiver(s) || /context invalidated/i.test(s) ? "SubVibe was updated — reload this page" : /No (OpenAI|Anthropic) API key|bridge/i.test(s) ? s.replace(/^Error:\s*/, "").slice(0, 140) : "couldn't explain — " + s.replace(/^Error:\s*/, "").slice(0, 120); };
     const chunkFetching = new Map(); // chunk text → pending explain promise (deduped)
     const explainChunk = (ch, list, fresh) => {
+      if (!ch || !ch.text) return Promise.resolve({ error: "nothing to explain in this chunk" });
       const hit = fresh ? null : lineExplainCache.get(ch.text); if (hit) return Promise.resolve(hit);
       if (fresh || !chunkFetching.has(ch.text)) chunkFetching.set(ch.text, send(Object.assign(explainPayload(ch, list), fresh ? { fresh: true } : {})).then((r) => {
         chunkFetching.delete(ch.text);
@@ -2116,7 +2119,7 @@
       const slow = [...tips.inflight.values()].some((t0) => now - t0 > PUMP_SLOW_MS);
       const limit = (behind || mode === "all" ? 2 : 1) + (slow ? 1 : 0);
       if (tips.inflight.size >= limit) return;
-      const k = SV_DOSSIER.aheadWindow(ki, list.length, mode === "all" ? Infinity : 3, (j) => lineExplainCache.has(list[j].text) || tips.inflight.has(list[j].text));
+      const k = SV_DOSSIER.aheadWindow(ki, list.length, mode === "all" ? Infinity : 3, (j) => !list[j].text || lineExplainCache.has(list[j].text) || tips.inflight.has(list[j].text));
       if (k < 0) { if (tips.all && !tips.inflight.size) tips.all = false; return; }
       const text = list[k].text; tips.inflight.set(text, now); board.sig = "";
       const failed = (why) => { tips.errors++; tips.lastError = why; tips.pausedUntil = performance.now() + 30000;
