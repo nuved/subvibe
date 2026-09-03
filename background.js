@@ -1387,7 +1387,7 @@ async function storyRecap(msg) {
   const cx = (await idbVocabGet("clipexplain:" + base)) || { base, at: Date.now(), e: {} };
   cx.recaps = cx.recaps || {};
   const lang = String(msg.lang || "auto"), key = k + "|" + lang;
-  if (cx.recaps[key] && cx.recaps[key].recap) return Object.assign({ ok: true, k, cached: true }, cx.recaps[key]);
+  if (cx.recaps[key] && cx.recaps[key].recap && Array.isArray(cx.recaps[key].cast)) return Object.assign({ ok: true, k, cached: true }, cx.recaps[key]); // an entry from before "cast" is bought again
   const started = Date.now();
   const r = await llmJSON(recapPrompt(lang, cx.dossier || null), { scenes: (msg.scenes || []).slice(-60).map((s) => String(s).slice(0, 240)), lines: (msg.lines || []).slice(-24).map((s) => String(s).slice(0, 200)), upTo: String(msg.upTo || "") }, RECAP_SCHEMA);
   const p = (r && r.parsed) || {};
