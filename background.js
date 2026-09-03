@@ -987,10 +987,10 @@ function wordPrompt(source, target) {
 // key words. Cached per sentence in clipexplain:${base}.
 const EXPLAIN_SCHEMA = { name: "sentence_explain", strict: true, schema: { type: "object", additionalProperties: false,
   properties: {
-    tr: { type: "string" }, simple: { type: "string" }, g: { type: "string" }, scene: { type: "string" }, who: { type: "array", items: { type: "string" } },
+    tr: { type: "string" }, simple: { type: "string" }, g: { type: "string" }, scene: { type: "string" }, who: { type: "array", items: { type: "string" } }, spk: { type: "array", items: { type: "string" } },
     words: { type: "array", items: { type: "object", additionalProperties: false, properties: { w: { type: "string" }, m: { type: "string" }, pos: { type: "string" }, level: { type: "string" }, forms: { type: "string" }, parts: { type: "array", items: { type: "string" } },
       register: { type: "string", enum: ["formal", "neutral", "informal", "slang", "vulgar"] }, tone: { type: "string", enum: ["positive", "neutral", "negative"] }, care: { type: "string" } }, required: ["w", "m", "pos", "level", "forms", "parts", "register", "tone", "care"] } },
-  }, required: ["tr", "simple", "g", "scene", "who", "words"] } };
+  }, required: ["tr", "simple", "g", "scene", "who", "spk", "words"] } };
 // What kind of video this is — read once from the site's own data (title,
 // episode, synopsis, channel, description) and a sample of the lines, cached
 // in the dossier, and put in front of every explanation.
@@ -1140,9 +1140,10 @@ function explainPrompt(source, target, dossier) {
   const same = source && source !== "auto" && (source || "").split("-")[0] === (target || "").split("-")[0];
   return `You explain ONE ${langName(source)} passage (one or a few sentences that belong together) to a learner${same ? " — in " + langName(source) + " itself, with simple words (A2), so the learner stays inside the language" : ""}. The user message carries {"s":"<the passage>","before":[…earlier lines…],"after":[…later lines…]}; "before" and "after" are ONLY context — never explain or translate them.\n` +
     (dossierFacts(dossier) ? SV_DOSSIER.block(dossier) + "Read the passage in that light (a joke, a chant, a command in a game, an idiom of that world). Names in the dossier are the people's real names — use the CHARACTER names for who.\n" : "") +
-    `Return STRICT JSON {"tr":"…","simple":"…","g":"…","scene":"…","who":["…"],"words":[{"w":"…","m":"…","pos":"…","level":"…","forms":"…","parts":["…"],"register":"…","tone":"…","care":"…"}]}:\n` +
+    `Return STRICT JSON {"tr":"…","simple":"…","g":"…","scene":"…","who":["…"],"spk":["…"],"words":[{"w":"…","m":"…","pos":"…","level":"…","forms":"…","parts":["…"],"register":"…","tone":"…","care":"…"}]}:\n` +
     `- scene: what happens and what is said in THIS passage, in ${fa ? "Persian" : langName(target)}: one plain sentence of at most 25 words — who speaks to whom, about what, and the mood (joking, serious, angry, selling, teaching…). Say the point of what they say, not just the mood.\n` +
     `- who: the characters or speakers present or speaking in THIS passage (0–4), by the dossier's character names when they fit, else a short role ("the doorman", "the host"); [] when unclear. Names stay in the VIDEO'S OWN spelling and script (Jason, Lucia, Aunt Tee) — never translated or transliterated into the tips language.\n` +
+    `- spk: who says each sentence — the user message lists the passage's sentences in "lines", in order; give exactly one entry per line, the same names as in who (or a short role), "" when you cannot tell.\n` +
     (same ? `- tr: the whole passage said more simply in ${langName(source)}: A2 vocabulary, short clauses, same meaning.\n`
           : `- tr: a natural ${langName(target)} translation of the whole passage.\n`) +
     `- simple: RETELL the passage in ${langName(source)} for an A2 learner — what is being said, in 1–3 short plain sentences, only very common words, no idioms, no fillers ("like", "you know", "whatever"), no speaker marks; the idea, not the wording; clearly shorter and easier than the original. Never copy sentences from the passage.\n` +
@@ -1258,7 +1259,7 @@ async function explainLine(base, sent, langHint, opts) {
   if (!o.fresh && cx.e[skey] && cx.e[skey].tr) {
     const c = cx.e[skey];
     fa = ((c.explain && c.explain !== "same" ? c.explain : c.explain === "same" ? c.lang : target) || "").split("-")[0] === "fa";
-    return { ok: true, tr: faS(c.tr), simple: c.simple || "", g: faS(c.g), scene: faS(c.scene || ""), who: Array.isArray(c.who) ? c.who : [], lang: c.lang || "", explain: c.explain || "", ctx: cx.ctx || null, words: (c.words || []).map((x) => ({ w: x.w, m: faS(x.m), pos: x.pos || "", level: x.level || "", forms: cleanForms(x.forms), parts: x.parts || [], register: x.register || "", tone: x.tone || "", care: faS(x.care || "") })), cached: true };
+    return { ok: true, tr: faS(c.tr), simple: c.simple || "", g: faS(c.g), scene: faS(c.scene || ""), who: Array.isArray(c.who) ? c.who : [], spk: Array.isArray(c.spk) ? c.spk : [], lang: c.lang || "", explain: c.explain || "", ctx: cx.ctx || null, words: (c.words || []).map((x) => ({ w: x.w, m: faS(x.m), pos: x.pos || "", level: x.level || "", forms: cleanForms(x.forms), parts: x.parts || [], register: x.register || "", tone: x.tone || "", care: faS(x.care || "") })), cached: true };
   }
   const started = Date.now();
   let lang = langHint && langHint !== "xx" ? String(langHint) : "";
@@ -1270,11 +1271,13 @@ async function explainLine(base, sent, langHint, opts) {
   if (dossier) cx.dossier = dossier; // the record below is written back whole — keep what ensureDossier just stored
   if (ctx && !cx.ctx) cx.ctx = ctx;
   const payload = { s: sent, before: (o.before || []).slice(-2).map((x) => String(x).slice(0, 300)), after: (o.after || []).slice(0, 1).map((x) => String(x).slice(0, 300)) };
+  const lines = Array.isArray(o.sentences) ? o.sentences.map((x) => String(x).slice(0, 300)).filter(Boolean).slice(0, 8) : [];
+  if (lines.length) payload.lines = lines;
   if (o.k != null && o.n) { payload.k = o.k + 1; payload.n = o.n; }
   const r = await llmJSON(explainPrompt(lang || "auto", target, dossier), payload, EXPLAIN_SCHEMA);
   const p = (r && r.parsed) || {};
   const REG = new Set(["formal", "neutral", "informal", "slang", "vulgar"]), TONE = new Set(["positive", "neutral", "negative"]);
-  const out = { tr: String(p.tr || "").trim(), simple: String(p.simple || "").trim(), g: String(p.g || "").trim(), scene: String(p.scene || "").trim().slice(0, 240), who: Array.isArray(p.who) ? p.who.map((x) => String(x).trim().slice(0, 60)).filter(Boolean).slice(0, 4) : [], lang,
+  const out = { tr: String(p.tr || "").trim(), simple: String(p.simple || "").trim(), g: String(p.g || "").trim(), scene: String(p.scene || "").trim().slice(0, 240), who: Array.isArray(p.who) ? p.who.map((x) => String(x).trim().slice(0, 60)).filter(Boolean).slice(0, 4) : [], spk: Array.isArray(p.spk) ? p.spk.slice(0, Math.max(1, lines.length || 8)).map((x) => String(x || "").trim().slice(0, 60)) : [], lang,
     words: Array.isArray(p.words) ? p.words.filter((x) => x && x.w && x.m).slice(0, 8).map((x) => ({ w: String(x.w).trim(), m: String(x.m).trim(), pos: String(x.pos || "").trim().toLowerCase(), level: String(x.level || "").trim().toUpperCase(), forms: cleanForms(x.forms), parts: Array.isArray(x.parts) ? x.parts.map((q) => String(q).trim()).filter(Boolean).slice(0, 4) : [],
       register: REG.has(String(x.register || "").toLowerCase()) ? String(x.register).toLowerCase() : "", tone: TONE.has(String(x.tone || "").toLowerCase()) ? String(x.tone).toLowerCase() : "", care: String(x.care || "").trim().slice(0, 160) })) : [] };
   if (out.tr) { out.s = sent; out.at = started; out.explain = explainPref; cx.e[skey] = out; if (!explainPref) cx.target = target; cx.lang = lang || String(cx.lang || ""); cx.at = Date.now();
@@ -1284,7 +1287,7 @@ async function explainLine(base, sent, langHint, opts) {
   await logCall({ ts: started, site: "learn", title: "Explain: " + sent.slice(0, 40), kind: "enrich", lines: 1, ms: Date.now() - started,
     inTok: (r.usage && r.usage.prompt_tokens) || 0, outTok: (r.usage && r.usage.completion_tokens) || 0,
     cacheR: (r.usage && r.usage.cache_r) || 0, cacheW: (r.usage && r.usage.cache_w) || 0, ok: true, provider: r.provider, model: r.model });
-  return { ok: true, tr: faS(out.tr), simple: out.simple, g: faS(out.g), scene: faS(out.scene), who: out.who, lang, explain: explainPref, ctx: cx.ctx || ctx || null, words: out.words.map((x) => ({ w: x.w, m: faS(x.m), pos: x.pos, level: x.level, forms: x.forms, parts: x.parts, register: x.register, tone: x.tone, care: faS(x.care) })) };
+  return { ok: true, tr: faS(out.tr), simple: out.simple, g: faS(out.g), scene: faS(out.scene), who: out.who, spk: out.spk, lang, explain: explainPref, ctx: cx.ctx || ctx || null, words: out.words.map((x) => ({ w: x.w, m: faS(x.m), pos: x.pos, level: x.level, forms: x.forms, parts: x.parts, register: x.register, tone: x.tone, care: faS(x.care) })) };
 }
 // Which shape an explanation was bought under: e4 (names who) beats e3 beats e2.
 const eRank = (k) => (k.startsWith("e4") ? 3 : k.startsWith("e3") ? 2 : 1);
@@ -1432,7 +1435,7 @@ async function tipsCached(msg) {
   const best = new Map();
   for (const [k, e] of all) { const r = eRank(k); if (r > (best.has(e.s) ? best.get(e.s).r : 0)) best.set(e.s, { r, e }); }
   const entries = [...best.values()].map((v) => v.e);
-  return { ok: true, entries: entries.map((e) => ({ s: e.s, tr: e.tr, simple: e.simple || "", g: e.g || "", scene: e.scene || "", who: e.who || [], lang: e.lang || "", at: e.at || 0, words: (e.words || []).map((x) => ({ w: x.w, m: x.m, pos: x.pos || "", level: x.level || "", forms: cleanForms(x.forms), parts: x.parts || [], register: x.register || "", tone: x.tone || "", care: x.care || "" })) })), ctx: cx && cx.ctx ? cx.ctx : null, dossier: cx && cx.dossier ? cx.dossier : null };
+  return { ok: true, entries: entries.map((e) => ({ s: e.s, tr: e.tr, simple: e.simple || "", g: e.g || "", scene: e.scene || "", who: e.who || [], spk: e.spk || [], lang: e.lang || "", at: e.at || 0, words: (e.words || []).map((x) => ({ w: x.w, m: x.m, pos: x.pos || "", level: x.level || "", forms: cleanForms(x.forms), parts: x.parts || [], register: x.register || "", tone: x.tone || "", care: x.care || "" })) })), ctx: cx && cx.ctx ? cx.ctx : null, dossier: cx && cx.dossier ? cx.dossier : null };
 }
 
 // ── Tips sheet: every ﹖-explained line of a video as one Study card ─────────
@@ -3088,7 +3091,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           // words) for the on-video ﹖ button. Cached per sentence forever.
           const base = String(msg.base || ""), sent = String(msg.s || "").slice(0, 700);
           if (!sent) { sendResponse({ error: "missing sentence" }); break; }
-          try { sendResponse(await explainLine(base, sent, msg.lang, { before: msg.before, after: msg.after, title: msg.title, sample: msg.sample, explain: msg.explain, fresh: !!msg.fresh, k: msg.k, n: msg.n })); }
+          try { sendResponse(await explainLine(base, sent, msg.lang, { before: msg.before, after: msg.after, title: msg.title, sample: msg.sample, explain: msg.explain, fresh: !!msg.fresh, k: msg.k, n: msg.n, sentences: msg.sentences })); }
           catch (e2) { sendResponse({ error: String((e2 && e2.message) || e2) }); }
           break;
         }

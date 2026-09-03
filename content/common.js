@@ -2055,7 +2055,7 @@
     try { if (window.__svTipsAheadListener) chrome.storage.onChanged.removeListener(window.__svTipsAheadListener); } catch (e) {}
     window.__svTipsAheadListener = onTipsAhead;
     try { chrome.storage.onChanged.addListener(onTipsAhead); } catch (e) {}
-    const explainPayload = (ch, list) => ({ type: "VOCAB_EXPLAIN", base, s: ch.text, lang: vocabPoolLang, title: document.title, explain: tipsExplain, k: ch.k, n: list.length,
+    const explainPayload = (ch, list) => ({ type: "VOCAB_EXPLAIN", base, s: ch.text, sentences: ch.sentences.map((x) => x.s), lang: vocabPoolLang, title: document.title, explain: tipsExplain, k: ch.k, n: list.length,
       before: list[ch.k - 1] ? [list[ch.k - 1].text] : [], after: list[ch.k + 1] ? [list[ch.k + 1].text] : [],
       // The background only needs the lines while the dossier is unknown or thin —
       // sending 300 of them with every explanation was ~48 KB a call for nothing.
@@ -2069,7 +2069,7 @@
         if (!r || !r.ok || seededFor !== tipsExplain) return;
         if (r.ctx) setCtx(r.ctx);
         const known = (r.entries || []).find((e) => e.lang && e.lang !== "xx"); if (known) refreshLangOption(known.lang);
-        for (const e of r.entries || []) if (!lineExplainCache.has(e.s)) lineExplainCache.set(e.s, { tr: e.tr, simple: e.simple || "", g: e.g, scene: e.scene || "", who: e.who || [], lang: e.lang || "", words: e.words || [] });
+        for (const e of r.entries || []) if (!lineExplainCache.has(e.s)) lineExplainCache.set(e.s, { tr: e.tr, simple: e.simple || "", g: e.g, scene: e.scene || "", who: e.who || [], spk: e.spk || [], lang: e.lang || "", words: e.words || [] });
         // Last: painting the dossier must never cost the seeded tips above.
         if (r.dossier) setDossier(r.dossier);
         board.sig = "";
@@ -2095,7 +2095,7 @@
         chunkFetching.delete(ch.text);
         if (r && r.ctx) setCtx(r.ctx);
         if (r && r.lang) refreshLangOption(r.lang);
-        if (r && r.tr) { const ex = { tr: r.tr, simple: r.simple || "", g: r.g, scene: r.scene || "", who: r.who || [], lang: r.lang || "", words: r.words || [] }; lineExplainCache.set(ch.text, ex); return ex; }
+        if (r && r.tr) { const ex = { tr: r.tr, simple: r.simple || "", g: r.g, scene: r.scene || "", who: r.who || [], spk: r.spk || [], lang: r.lang || "", words: r.words || [] }; lineExplainCache.set(ch.text, ex); return ex; }
         return { error: r && r.error ? plainError(r.error) : "no explanation — try again" };
       }));
       return chunkFetching.get(ch.text);
@@ -2627,7 +2627,7 @@
       if (ex && !ex.error && (ex.scene || (ex.who && ex.who.length))) { // one line about the scene, and who is in it
         const sc = mk("div", "svb-scene");
         if (ex.scene) { const t = mk("span", "svb-scene-txt", ex.scene); t.dir = explainDir(ex); sc.appendChild(t); }
-        for (const f of SV_DOSSIER.whoFaces(ex.who, board.dossier && board.dossier.people)) { const chip = mk("span", "svb-who"); const nm0 = (f.person && f.person.character) || f.label, url0 = (f.person && f.person.photo) || board.faces.get(cleanName(nm0)) || ""; const av = mk("i", null, url0 ? "" : SV_DOSSIER.initials(nm0)); if (url0) av.style.backgroundImage = "url(" + url0 + ")"; else av.style.background = "hsl(" + nameHue(nm0) + " 38% 50%)"; chip.append(av, document.createTextNode((f.person && f.person.character) || f.label)); chip.title = f.person ? (f.person.character || f.person.name) + (f.person.name && f.person.character ? " — " + f.person.name : "") : f.label; sc.appendChild(chip); }
+        for (const f of SV_DOSSIER.whoFaces(ex.who, board.dossier && board.dossier.people)) { const chip = mk("span", "svb-who"); const nm0 = (f.person && f.person.character) || f.label, url0 = (f.person && f.person.photo) || board.faces.get(cleanName(nm0)) || ""; const av = mk("i", null, url0 ? "" : SV_DOSSIER.initials(nm0)); if (url0) av.style.backgroundImage = "url(" + url0 + ")"; else av.style.background = "hsl(" + nameHue(nm0) + " 38% 50%)"; chip.append(av, document.createTextNode((f.person && f.person.character) || f.label)); chip.dataset.name = cleanName((f.person && f.person.character) || f.label); sc.appendChild(chip); }
         main.appendChild(sc);
       }
       if (ex && !ex.error) aside.appendChild(mk("i", "svb-mark", k === board.open ? "▸ tips" : "✓ tips"));
@@ -2650,6 +2650,19 @@
     };
     // Karaoke on the board (every frame): spoken words turn coral, the word
     // being spoken sits on a warm pill, its sentence is the one in focus.
+    // Who is speaking right now: the sentence under the playhead and the explanation's per-sentence
+    // speaker list; the matching face in the Now box (and chip on the playing row) wears the ring.
+    let spkLast = "";
+    const sameName = (a, b) => { a = cleanName(a).toLowerCase(); b = cleanName(b).toLowerCase(); if (!a || !b) return false; if (a === b) return true; const fa = a.split(/\s+/)[0], fb = b.split(/\s+/)[0]; return fa.length >= 3 && fa === fb; };
+    const markSpeaker = (t) => {
+      const ch = board.list[board.ki], ex = ch ? lineExplainCache.get(ch.text) : null;
+      let name = "";
+      if (ex && Array.isArray(ex.spk) && ex.spk.length) { let i = -1; for (let j = 0; j < ch.sentences.length; j++) if (ch.sentences[j].startMs <= t) i = j; if (i >= 0) name = ex.spk[i] || ""; }
+      if (name === spkLast) return; spkLast = name;
+      const strip = document.getElementById("sv-strip");
+      const nodes = [...(strip ? strip.querySelectorAll(".svs-now .svs-face") : []), ...(board.el ? board.el.querySelectorAll(".svb-chunk.on .svb-who") : [])];
+      for (const n of nodes) n.classList.toggle("talk", !!name && sameName(n.dataset.name || n.textContent, name));
+    };
     const boardSung = (t) => {
       // Hear one sentence: pause at its end. Repeat a chunk: jump back at its end.
       if (board.stopAt != null && t >= board.stopAt) { board.stopAt = null; pauseNow(); }
@@ -2660,6 +2673,7 @@
         else if (t >= ch.endMs && now - (board.loopSeekAt || 0) > 2500) { board.loopSeekAt = now; seekTo(ch.startMs); } // one jump per lap — a seek per frame stalls Netflix at "99%"
       }
       if (!board.el || board.collapsed || board.ki < 0) return;
+      markSpeaker(t);
       const row = board.el.querySelector(".svb-chunk.on"); if (!row) return;
       let live = null, lastDone = null;
       const txts = row.querySelectorAll(".svb-txt");
@@ -2735,7 +2749,7 @@
     // size: sm 40 px in the row · md 48 px in the Now box · lg 72 px cards in a sheet
     const face = (p, label, size, talk) => {
       const nm = (p && (p.character || p.name)) || label;
-      const f = mk("span", "svs-face " + size + (talk ? " talk" : ""));
+      const f = mk("span", "svs-face " + size + (talk ? " talk" : "")); f.dataset.name = cleanName(nm);
       const url = photoOf(p, nm);
       const av = mk("i", null, url ? "" : SV_DOSSIER.initials(nm)); if (url) av.style.backgroundImage = "url(" + url + ")"; else av.style.background = "hsl(" + nameHue(nm) + " 38% 50%)";
       f.appendChild(av); f.appendChild(mk("b", null, nm));
@@ -2753,7 +2767,8 @@
       const epLine = d && d.show ? [d.season ? "S" + d.season + " · E" + d.episode : d.episode ? "E" + d.episode : "", d.epTitle].filter(Boolean).join(" · ") : d && d.channel ? d.channel : "";
       // ── identity: a small poster and the title; the synopsis unfolds when the section is open ──
       part("svs-ident", [d ? d.at : 0, d ? d.poster + (d.backdrop || "") : "", title, epLine, d ? (d.synopsis || d.description || "") : "", (board.credits || []).length].join("|"), (ident) => {
-        if (d && d.backdrop) { const art = mk("img", "svs-art"); art.src = d.backdrop; art.alt = ""; art.loading = "lazy"; ident.appendChild(art); } // the wide key art, shown when the section is open
+        const artUrl = d ? ((d.stills || [])[0] || d.backdrop) : ""; // the episode's own still, else the series' key art — shown when the section is open
+        if (artUrl) { const art = mk("img", "svs-art"); art.src = artUrl; art.alt = ""; art.loading = "lazy"; ident.appendChild(art); }
         if (d && d.poster) { const img = mk("img", "svs-poster"); img.src = d.poster; img.alt = ""; ident.appendChild(img); }
         else { const ph = mk("div", "svs-poster ph", SV_DOSSIER.initials(title)); ph.style.background = "hsl(" + nameHue(title) + " 30% 42%)"; ident.appendChild(ph); }
         const idb = mk("div", "svs-id"); idb.appendChild(mk("b", null, title)); if (epLine) idb.appendChild(mk("div", "svs-ep", epLine));
@@ -2773,10 +2788,9 @@
         else if (useRecap) { now.appendChild(mk("div", "svs-lbl", "Story so far · to " + fmtT(list[recap.k] ? list[recap.k].startMs : 0) + (busyHere(ch) ? " · explaining this chunk…" : ""))); const sc = mk("div", "svs-scene recap", recap.text); sc.dir = dirOf(vocabPoolLang); now.appendChild(sc); facesList = SV_DOSSIER.whoFaces(recap.who, d && d.people); }
         else if (last) { now.appendChild(mk("div", "svs-lbl", "Earlier" + (waiting ? " · " + waiting : ""))); const sc = mk("div", "svs-scene faded", last.scene); sc.dir = explainDir(last.ex); now.appendChild(sc); facesList = SV_DOSSIER.whoFaces(last.who, d && d.people); }
         else if (waiting) { now.appendChild(mk("div", "svs-lbl", "Now")); now.appendChild(mk("div", "svs-scene muted", waiting[0].toUpperCase() + waiting.slice(1))); }
-        const faces = mk("div", "svs-faces" + (ex && ex.scene ? "" : " faded")); facesList.slice(0, 4).forEach((f, i) => faces.appendChild(face(f.person, f.label, "md", i === 0 && !!(ex && ex.scene))));
+        const faces = mk("div", "svs-faces" + (ex && ex.scene ? "" : " faded")); facesList.slice(0, 4).forEach((f) => faces.appendChild(face(f.person, f.label, "md", false)));
         if (facesList.length > 4) { const more = mk("span", "svs-face md plus"); more.appendChild(mk("i", null, "+" + (facesList.length - 4))); more.appendChild(mk("b", null, "more")); faces.appendChild(more); }
         now.appendChild(faces);
-        if (d && (d.stills || []).length) { const still = mk("img", "svs-still"); still.src = d.stills[0]; still.alt = ""; still.loading = "lazy"; now.appendChild(still); } // the episode's own still, when the section is open
         now.classList.remove("svs-swap"); void now.offsetWidth; now.classList.add("svs-swap");
       });
       // ── people: in this scene first, then most seen — tiny at rest, named when the section is open ──
