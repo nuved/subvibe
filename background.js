@@ -1265,6 +1265,30 @@ async function buildTipsRecord({ id, entries, title, url, target, langHint, tab,
 // Translated paints the translation where the subtitle sat, Notes puts it in
 // the margin), and the tips are its ready-made Study analysis. tabId −1:
 // nothing to re-shoot.
+// Frame + chunk from the SCREEN (a keyboard command or the context menu grants
+// activeTab, which captureVisibleTab needs): the page prepares the chunk(s) and
+// hides its overlay, the tab is captured, the video's box is cropped out, and
+// the same snap record is built as for a drawn frame. Protected video included.
+async function snapViaCapture(tab) {
+  if (!tab || tab.id == null) return { ok: false, error: "no-tab" };
+  let prep = null;
+  try { prep = await chrome.tabs.sendMessage(tab.id, { type: "SV_SNAP_PREP" }); } catch (e) { prep = null; }
+  if (!prep || !prep.ok) { try { await chrome.tabs.sendMessage(tab.id, { type: "SV_SNAP_DONE" }); } catch (e) {} chrome.action.setTitle({ tabId: tab.id, title: "SubVibe: no subtitles here to snap" }); return { ok: false, error: (prep && prep.error) || "prep" }; }
+  let shot = null;
+  try { shot = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" }); } catch (e) { shot = null; }
+  try { await chrome.tabs.sendMessage(tab.id, { type: "SV_SNAP_DONE" }); } catch (e) {}
+  if (!shot) return { ok: false, error: "capture" };
+  // crop the video's box out of the screen capture (device pixels)
+  const bmp = await createImageBitmap(await (await fetch(shot)).blob());
+  const k = prep.dpr || 1, r = prep.rect;
+  const sx = Math.max(0, Math.round(r.x * k)), sy = Math.max(0, Math.round(r.y * k));
+  const sw = Math.max(8, Math.min(bmp.width - sx, Math.round(r.w * k))), sh = Math.max(8, Math.min(bmp.height - sy, Math.round(r.h * k)));
+  const c = new OffscreenCanvas(sw, sh); c.getContext("2d").drawImage(bmp, sx, sy, sw, sh, 0, 0, sw, sh);
+  const blob = await c.convertToBlob({ type: "image/jpeg", quality: 0.92 });
+  const frame = await new Promise((res) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.readAsDataURL(blob); });
+  const lr = prep.lineRect ? { x: prep.lineRect.x * k, y: prep.lineRect.y * k, w: prep.lineRect.w * k, h: prep.lineRect.h * k } : null;
+  return tipsSnap({ frame, w: sw, h: sh, lineRect: lr, chunks: prep.chunks, line: prep.chunks && prep.chunks[0], lang: prep.lang, title: prep.title, url: prep.url, base: prep.base }, { tab });
+}
 async function tipsSnap(msg, sender) {
   const tab = sender && sender.tab;
   if (!tab) return { ok: false, error: "no-tab" };
@@ -1644,6 +1668,9 @@ chrome.runtime.onInstalled.addListener(({ reason }) => {
     // Shot: one parent with the four capture modes (activeTab is granted by
     // the click, so the capture script can be injected on any page).
     chrome.contextMenus.create({ id: "svShot", title: "Screenshot with SubVibe", contexts: ["all"] });
+    // The frame + the chunk being spoken, captured from the screen — so it works on
+    // protected video (Netflix) where drawing the <video> gives black.
+    chrome.contextMenus.create({ id: "svSnapChunk", title: "Frame + this chunk (SubVibe)", contexts: ["all"] });
     for (const [id, title] of [["svShotVisible", "Visible area"], ["svShotFull", "Full page"], ["svShotArea", "Select area"], ["svShotElement", "Pick element"]]) {
       chrome.contextMenus.create({ id, parentId: "svShot", title, contexts: ["all"] });
     }
@@ -1657,6 +1684,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     if (tab && tab.id != null) startShot(tab, SHOT_MENU[info.menuItemId]);
     return;
   }
+  if (info.menuItemId === "svSnapChunk") { if (tab && tab.id != null) snapViaCapture(tab); return; }
   if (info.menuItemId !== "svSimplify" || !tab || tab.id == null) return;
   const frameId = info.frameId || 0;
   // Clear any stale "can't run" badge from a previous failed attempt on this
@@ -2182,6 +2210,7 @@ if (chrome.commands && chrome.commands.onCommand) {
     const t = tab || await activeTabHere();
     if (command === "sv-shot-area") startShot(t, "area");
     else if (command === "sv-clip-record") startClip(t);
+    else if (command === "sv-snap-chunk") snapViaCapture(t);
   });
 }
 

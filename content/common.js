@@ -2183,6 +2183,23 @@
       }
       return body;
     };
+    // Frame + chunk from the screen (keyboard command / context menu): gather the
+    // chunk(s) with their tips, report the video's box and the line's box in CSS
+    // pixels, hide the overlay for the capture.
+    window.__svSnapPrep = async () => {
+      const list = board.list.length ? board.list : chunksNow(); if (!list.length) return { ok: false, error: "no-chunks" };
+      let k0 = board.open >= 0 ? board.open : chunkOfCue(list, curCue); if (k0 < 0) k0 = Math.max(0, board.ki);
+      const picked = [];
+      for (let k = k0; k < Math.min(list.length, k0 + snapChunks); k++) { const ch = list[k]; const ex = await explainChunk(ch, list); if (!ex || ex.error) continue; picked.push({ s: ch.text, tr: ex.tr, simple: ex.simple || "", g: ex.g, lang: ex.lang || "", words: ex.words || [], sentences: ch.sentences.map((x) => ({ s: x.s, tr: x.tr })) }); }
+      if (!picked.length) return { ok: false, error: "explain" };
+      const v = liveVideoEl(video) || video; const vr = v.getBoundingClientRect();
+      const ol = els.__orig && els.__orig.style.display !== "none" ? els.__orig : null; const lr = ol ? ol.getBoundingClientRect() : null;
+      overlay.classList.add("sv-snap-hide");
+      return { ok: true, dpr: window.devicePixelRatio || 1, rect: { x: vr.left, y: vr.top, w: vr.width, h: vr.height },
+        lineRect: lr ? { x: lr.left - vr.left, y: lr.top - vr.top, w: lr.width, h: lr.height } : null,
+        chunks: picked, lang: picked[0].lang || vocabPoolLang, title: document.title, url: location.href, base };
+    };
+    window.__svSnapDone = () => overlay.classList.remove("sv-snap-hide");
     // Snap: the current video frame as a Shot, with N whole chunks under it.
     // The frame comes straight from the <video> at its native size — no player
     // UI, no overlay, no tab-capture permission. Media-source players (YouTube)
@@ -2218,7 +2235,7 @@
         ev.stopPropagation(); snap.disabled = true; for (const b of btns) b.disabled = true;
         const r = await snapChunksNow(ctx.list, ctx.k0, ctx.n, ctx.anchor(), (t) => { snap.textContent = t; });
         snap.disabled = false; for (const b of btns) b.disabled = false;
-        snap.textContent = r && r.ok ? "Snapped ↗" : r && r.error === "drm" ? "Protected video — use the popup's Screenshot" : r && r.error === "explain" ? "Couldn't explain" : "Couldn't snap";
+        snap.textContent = r && r.ok ? "Snapped ↗" : r && r.error === "drm" ? "Protected video — press ⌥⇧F, or right-click → Frame + this chunk (SubVibe)" : r && r.error === "explain" ? "Couldn't explain" : "Couldn't snap";
       });
       const sheet = mk("button", "wt-sheet", "All explained lines ↗"); sheet.type = "button";
       sheet.title = "Every chunk you explained on this video, gathered as one Study sheet";
@@ -3294,10 +3311,17 @@
     if (msg.type === "SV_SEEK") {
       // Learn tab time chip → jump the video to where a word was said (shadowing).
       const v = adapter?.getVideoEl?.() || document.querySelector("video");
-      if (v && typeof msg.ms === "number") { v.currentTime = Math.max(0, msg.ms / 1000 - 1); v.play?.(); } // 1s of run-up
+      if (v && typeof msg.ms === "number") { const ms = Math.max(0, msg.ms - 1000); if (adapter && adapter.seek) { adapter.seek(ms); adapter.play && adapter.play(); } else { v.currentTime = ms / 1000; v.play?.(); } } // 1s of run-up; Netflix through its own player
       sendResponse({ ok: !!v });
       return;
     }
+    if (msg.type === "SV_SNAP_PREP") { // the background captures the screen next — prepare the chunk(s), hide the overlay
+      const prep = window.__svSnapPrep;
+      if (!prep) { sendResponse({ ok: false, error: "no-board" }); return; }
+      prep().then((r) => sendResponse(r || { ok: false, error: "prep" })).catch((e) => sendResponse({ ok: false, error: String((e && e.message) || e) }));
+      return true;
+    }
+    if (msg.type === "SV_SNAP_DONE") { if (window.__svSnapDone) window.__svSnapDone(); sendResponse({ ok: true }); return; }
     if (msg.type === "AUDIO_CUE") onAudioCue(msg.text);
     else if (msg.type === "AUDIO_STOP") stopAudio();
     else if (msg.type === "AUDIO_ERROR") setStatus("Audio: " + msg.error, true);
