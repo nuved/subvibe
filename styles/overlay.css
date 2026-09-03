@@ -534,7 +534,7 @@
 #sv-strip .svs-syn { color: #5B5348; font-size: 11.5px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
 #sv-strip .svs-now { display: grid; grid-template-columns: minmax(0,1fr) auto; grid-template-rows: auto minmax(0,1fr); gap: 4px 14px; align-content: start; }
 #sv-strip .svs-now > .svs-lbl { grid-column: 1 / -1; margin-bottom: 0; }
-#sv-strip .svs-now > .svs-scene { grid-column: 1; align-self: start; }
+#sv-strip .svs-now > .svs-scene { grid-column: 1; grid-row: 2; align-self: start; }
 #sv-strip .svs-now > .svs-faces { grid-column: 2; grid-row: 2; align-self: start; flex-wrap: nowrap; }
 #sv-strip .svs-now > .svs-more { grid-column: 1 / -1; }
 #sv-strip .svs-scene { font: 500 15px/1.4 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: #241F1A; background: transparent; border-radius: 0; padding: 0; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
