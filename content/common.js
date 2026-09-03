@@ -2045,6 +2045,7 @@
       send({ type: "TIPS_CACHED", base, explain: tipsExplain }).then((r) => {
         if (!r || !r.ok || seededFor !== tipsExplain) return;
         if (r.ctx) setCtx(r.ctx);
+        const known = (r.entries || []).find((e) => e.lang && e.lang !== "xx"); if (known) refreshLangOption(known.lang);
         for (const e of r.entries || []) if (!lineExplainCache.has(e.s)) lineExplainCache.set(e.s, { tr: e.tr, simple: e.simple || "", g: e.g, scene: e.scene || "", lang: e.lang || "", words: e.words || [] });
         board.sig = "";
       });
@@ -2055,6 +2056,8 @@
       seedExplained(); board.sig = ""; boardTick(true);
       if (wtip._pinned && card.list.length) renderChunkCard(els.__orig);
     };
+    // The video's language becomes known from the track or the first explanation — name it in the option.
+    const refreshLangOption = (code, opt) => { const o = opt || (board.el && board.el.querySelector('.svb-lang option[value="same"]')); if (!o || !code || code === "xx") return; const name = langLabel(code); if (name && name !== code) o.textContent = "Tips in " + name + " (the video's language)"; };
     const tipsLangLabel = (short) => tipsExplain === "same" ? (short ? (vocabPoolLang || "same").toUpperCase().slice(0, 2) : "the video's language") : (short ? (vocabTg || (settings.targets && settings.targets[0]) || "").toUpperCase().slice(0, 2) : (vocabTg || (settings.targets && settings.targets[0]) || "target"));
 
     const chunkFetching = new Map(); // chunk text → pending explain promise (deduped)
@@ -2063,6 +2066,7 @@
       if (fresh || !chunkFetching.has(ch.text)) chunkFetching.set(ch.text, send(Object.assign(explainPayload(ch, list), fresh ? { fresh: true } : {})).then((r) => {
         chunkFetching.delete(ch.text);
         if (r && r.ctx) setCtx(r.ctx);
+        if (r && r.lang) refreshLangOption(r.lang);
         if (r && r.tr) { const ex = { tr: r.tr, simple: r.simple || "", g: r.g, scene: r.scene || "", lang: r.lang || "", words: r.words || [] }; lineExplainCache.set(ch.text, ex); return ex; }
         return { error: r && r.error ? "couldn't explain — check the provider key in the popup" : "no explanation — try again" };
       }));
@@ -2130,14 +2134,17 @@
       if (ex.error) { body.appendChild(line(ex.error)); return body; }
       // The passage said more simply, in its own language — the translation
       // already sits under each sentence, so no second translation here.
-      // The scene as the model read it — who speaks, the mood — before the retelling.
-      if (ex.scene) { const sc = mk("div", "wt-scene", ex.scene); sc.dir = tDir; body.appendChild(sc); }
+      // The scene as the model read it — who speaks, the mood — then the retelling.
+      if (ex.scene) { const sc = mk("div", "wt-val wt-scene", ex.scene); sc.dir = tDir; addSect("What's happening", sc); }
       const simple = ex.simple || (tipsExplain === "same" ? ex.tr : "");
-      if (simple) addSect("Put simply", line(simple, dirOf(ex.lang || vocabPoolLang)));
+      const srcName = langLabel(ex.lang || vocabPoolLang || "");
+      if (simple) { const v = line(simple, dirOf(ex.lang || vocabPoolLang)); v.title = "The same passage retold with easier " + srcName + " words — the meaning does not change"; addSect("Simpler words, same meaning" + (srcName && srcName !== (ex.lang || "") ? " · " + srcName : ""), v); }
       if (ex.g) {
         const parts = String(ex.g).split(/\s*•\s*/).map((x) => x.trim()).filter(Boolean);
         const gbox = mk("div", "wt-val wt-grambox"); gbox.dir = tDir;
-        if (parts.length > 1) { for (const pt of parts) gbox.appendChild(mk("div", "wt-gpt", pt)); } else gbox.textContent = ex.g;
+        // «quoted» bits are the passage's own words — set them apart from the explanation.
+        const gpt = (text) => { const d = mk("div", "wt-gpt"); const re = /«([^»]+)»|“([^”]+)”|"([^"]{2,60})"/g; let last = 0, m; while ((m = re.exec(text))) { if (m.index > last) d.appendChild(document.createTextNode(text.slice(last, m.index))); const q = mk("b", "wt-q", m[1] || m[2] || m[3]); q.dir = "auto"; d.appendChild(q); last = m.index + m[0].length; } if (last < text.length) d.appendChild(document.createTextNode(text.slice(last))); return d; };
+        for (const pt of parts.length ? parts : [String(ex.g)]) gbox.appendChild(gpt(pt));
         addSect("Grammar", gbox);
       }
       if (ex.words && ex.words.length) {
@@ -2232,7 +2239,7 @@
     };
     // Playback speed for listening slowly: 1× → 0.75× → 0.5× → 1×.
     const speedButton = (cls) => {
-      const b = mk("button", cls || "svb-speed", (board.rate || 1) + "×"); b.type = "button"; b.title = "Listen slower: 1× → 0.75× → 0.5×";
+      const b = mk("button", cls || "svb-speed", (board.rate || 1) + "×"); b.type = "button"; b.title = "Playback speed — click to slow down: 1× → 0.75× → 0.5× → 1×";
       b.addEventListener("click", (ev) => { ev.stopPropagation(); const next = { 1: 0.75, 0.75: 0.5, 0.5: 1 }[board.rate || 1] || 1; board.rate = next; setRate(next); for (const q of document.querySelectorAll(".svb-speed, .wt-speed")) q.textContent = next + "×"; });
       return b;
     };
@@ -2362,7 +2369,7 @@
       board.sig = "";
     };
     // Subtitles on the picture: off = read them on the board (karaoke follows there).
-    const applyLinesOff = () => { overlay.classList.toggle("sv-lines-off", board.linesOff && boardVisible()); const t = board.el && board.el.querySelector(".svb-lines"); if (t) { t.textContent = board.linesOff ? "Subtitles on video: off" : "Subtitles on video: on"; t.classList.toggle("off", board.linesOff); } };
+    const applyLinesOff = () => { overlay.classList.toggle("sv-lines-off", board.linesOff && boardVisible()); const t = board.el && board.el.querySelector(".svb-lines"); if (t) { t.textContent = board.linesOff ? "Subtitles: board only" : "Subtitles: on video"; t.title = board.linesOff ? "The subtitles are hidden on the picture — read them here. Click to show them on the video again." : "The subtitles are shown on the picture. Click to hide them there and read them here only (the spoken words light up on the board)."; t.classList.toggle("off", board.linesOff); } };
     const ensureBoard = () => {
       if (settings.storyBoard === false) { if (board.el) { try { board.el.remove(); } catch (e) {} board.el = null; } return null; } // switched off in the popup
       if (board.el && board.el.isConnected) return board.el;
@@ -2381,12 +2388,12 @@
       const title = mk("span", "svb-title"); title.appendChild(mk("b", null, "Story board")); title.appendChild(mk("i", "svb-ctx", board.ctx ? ctxLine(board.ctx) : ""));
       head.append(mk("span", "svb-logo", "S"), title, mk("span", "svb-count", ""), toggle);
       const tools = mk("div", "svb-tools");
-      const lines = mk("button", "svb-lines", ""); lines.type = "button"; lines.title = "Hide the subtitles on the picture and read them here instead (the playing words light up on the board)";
+      const lines = mk("button", "svb-lines", ""); lines.type = "button";
       lines.addEventListener("click", () => { board.linesOff = !board.linesOff; try { localStorage.setItem("sv-lines-off", board.linesOff ? "1" : ""); } catch (e) {} applyLinesOff(); });
-      const sel = mk("select", "svb-lang"); sel.title = "Which language the tips are in";
-      const tgCode = vocabTg || (settings.targets && settings.targets[0]) || "";
-      const o1 = mk("option", null, "Tips in " + (tgCode ? tgCode.toUpperCase() : "your language")); o1.value = "";
-      const o2 = mk("option", null, "Tips in the video's language"); o2.value = "same";
+      const sel = mk("select", "svb-lang"); sel.title = "Which language the tips (simpler retelling, grammar, word notes) are written in";
+      const tgc = vocabTg || (settings.targets && settings.targets[0]) || "";
+      const o1 = mk("option", null, "Tips in " + (tgc ? langLabel(tgc) : "your language")); o1.value = "";
+      const o2 = mk("option", null, "Tips in the video's language"); o2.value = "same"; refreshLangOption(vocabPoolLang, o2);
       sel.append(o1, o2); sel.value = tipsExplain;
       sel.addEventListener("change", () => setTipsExplain(sel.value));
       sel.addEventListener("click", (ev) => ev.stopPropagation());
@@ -2454,8 +2461,9 @@
       if (board.stopAt != null && t >= board.stopAt) { board.stopAt = null; pauseNow(); }
       if (board.loop >= 0) {
         const ch = board.list[board.loop];
-        if (!ch || t < ch.startMs - 2500 || t > ch.endMs + 2500) { board.loop = -1; board.sig = ""; } // the reader went elsewhere — stop repeating
-        else if (t >= ch.endMs) seekTo(ch.startMs);
+        const now = performance.now();
+        if (!ch || t < ch.startMs - 2500 || t > ch.endMs + 2500) { if (now - (board.loopSeekAt || 0) > 3000) { board.loop = -1; board.sig = ""; } } // the reader went elsewhere — stop repeating
+        else if (t >= ch.endMs && now - (board.loopSeekAt || 0) > 2500) { board.loopSeekAt = now; seekTo(ch.startMs); } // one jump per lap — a seek per frame stalls Netflix at "99%"
       }
       if (!board.el || board.collapsed || board.ki < 0) return;
       const row = board.el.querySelector(".svb-chunk.on"); if (!row) return;

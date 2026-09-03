@@ -40,9 +40,11 @@
       });
       const tp = ch.tips;
       if (tp) {
-        if (tp.scene) { const sc = mk("div", "scene", tp.scene); sc.dir = tDir; box.appendChild(sc); }
-        if (tp.simple) { box.appendChild(mk("div", "lbl", "Put simply")); const s = mk("div", "simple", tp.simple); s.dir = srcDir; box.appendChild(s); }
-        if (tp.g) { box.appendChild(mk("div", "lbl", "Grammar")); const g = mk("div", "gram"); g.dir = tDir; const parts = String(tp.g).split(/\s*•\s*/).map((q) => q.trim()).filter(Boolean); if (parts.length > 1) for (const q of parts) g.appendChild(mk("div", "gpt", q)); else g.textContent = tp.g; box.appendChild(g); }
+        if (tp.scene) { box.appendChild(mk("div", "lbl", "What's happening")); const sc = mk("div", "scene", tp.scene); sc.dir = tDir; box.appendChild(sc); }
+        if (tp.simple) { box.appendChild(mk("div", "lbl", "Simpler words, same meaning")); const s = mk("div", "simple", tp.simple); s.dir = srcDir; box.appendChild(s); }
+        if (tp.g) { box.appendChild(mk("div", "lbl", "Grammar")); const g = mk("div", "gram"); g.dir = tDir; const parts = String(tp.g).split(/\s*•\s*/).map((q) => q.trim()).filter(Boolean);
+          const gpt = (text) => { const d = mk("div", "gpt"); const re = /«([^»]+)»|“([^”]+)”|"([^"]{2,60})"/g; let last = 0, m; while ((m = re.exec(text))) { if (m.index > last) d.appendChild(document.createTextNode(text.slice(last, m.index))); const q = mk("b", "q", m[1] || m[2] || m[3]); q.dir = "auto"; d.appendChild(q); last = m.index + m[0].length; } if (last < text.length) d.appendChild(document.createTextNode(text.slice(last))); return d; };
+          for (const q of parts.length ? parts : [String(tp.g)]) g.appendChild(gpt(q)); box.appendChild(g); }
         if (tp.words && tp.words.length) {
           box.appendChild(mk("div", "lbl", "Words")); const list = mk("div", "words");
           for (const w of tp.words) { const b = mk("b", "pos-" + (POS[String(w.pos || "").toLowerCase()] || "o"), w.w); b.dir = "auto"; if (w.tone === "positive" || w.tone === "negative") b.appendChild(mk("i", "tone " + w.tone, w.tone === "positive" ? "+" : "−")); const tag = [w.pos, w.level, w.register && w.register !== "neutral" ? w.register : ""].filter(Boolean).join(" · "); if (tag) b.appendChild(mk("i", "tag", tag)); const m = mk("span", null, w.m); m.dir = tDir; if (w.care) { const c = mk("i", "care", "⚠ " + w.care); c.dir = tDir; m.appendChild(c); } if (w.forms) m.appendChild(mk("i", "forms", w.forms)); list.append(b, m); }
