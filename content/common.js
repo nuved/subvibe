@@ -125,7 +125,7 @@
   // layers this clip's own changes on top — so a tweak on one video (or live channel)
   // never bleeds onto another. sync defaults to 0 per clip.
   async function getSettings() {
-    const s = await chrome.storage.local.get(["enabled", "translateOn", "targets", "showOriginal", "hideNative", "position", "linePositions", "size", "stylePreset", "styleCustom", "syncOffset", "karaokeHl", "karaokeStyle", "storyBoard", "audioFallback", "audioDeviceId", "translationProvider", "debugHud", "clipOverrides"]);
+    const s = await chrome.storage.local.get(["enabled", "translateOn", "targets", "showOriginal", "hideNative", "position", "linePositions", "size", "stylePreset", "styleCustom", "syncOffset", "karaokeHl", "karaokeStyle", "storyBoard", "tipsAhead", "tmdbKey", "audioFallback", "audioDeviceId", "translationProvider", "debugHud", "clipOverrides"]);
     const { clipOverrides, ...flat } = s;
     const ov = (clipOverrides && clipOverrides[clipBaseId()]) || {};
     const merged = { ...DEFAULTS, ...flat, ...ov };
@@ -2035,6 +2035,11 @@
     // Tips language: "" = the popup's target, "same" = the video's own language.
     let tipsExplain = "";
     try { chrome.storage.local.get("tipsExplain", (r) => { tipsExplain = String((r && r.tipsExplain) || ""); if (board.el) { const sel = board.el.querySelector(".svb-lang"); if (sel) sel.value = tipsExplain; seedExplained(); board.sig = ""; } }); } catch (e) {}
+    // How far ahead the pump explains: "off" · "3" · "all" (the popup's "Tips ahead").
+    // Read live — a change must not restart the engine, only wake the pump.
+    let tipsAhead = "3";
+    try { chrome.storage.local.get("tipsAhead", (r) => { tipsAhead = String((r && r.tipsAhead) || "3"); }); } catch (e) {}
+    try { chrome.storage.onChanged.addListener((ch, area) => { if (area === "local" && ch.tipsAhead) { tipsAhead = String(ch.tipsAhead.newValue || "3"); tips.stopped = false; tips.errors = 0; tips.pausedUntil = 0; board.sig = ""; } }); } catch (e) {}
     const explainPayload = (ch, list) => ({ type: "VOCAB_EXPLAIN", base, s: ch.text, lang: vocabPoolLang, title: document.title, explain: tipsExplain, k: ch.k, n: list.length,
       before: list[ch.k - 1] ? [list[ch.k - 1].text] : [], after: list[ch.k + 1] ? [list[ch.k + 1].text] : [], sample: sampleLines() });
     // Seed the explanations already made on this video (for this tips language)
@@ -2074,6 +2079,34 @@
       }));
       return chunkFetching.get(ch.text);
     };
+    // Tips ahead: the next chunks after the playhead are always being explained —
+    // one call in flight, in order, cached ones skipped — so the prompt cache
+    // stays warm and the tips are there when a chunk starts. "Explain all" runs to the end.
+    const tips = { inflight: null, k: -1, errors: 0, pausedUntil: 0, all: false, stopped: false, lastError: "" };
+    const tipsPump = (list, ki) => {
+      if (!globalThis.SV_DOSSIER || tips.inflight || tips.stopped || performance.now() < tips.pausedUntil || !list.length) return;
+      const mode = tips.all ? "all" : tipsAhead; if (mode === "off") return;
+      if (!engaged && mode !== "all") return; // nothing before the video has played once
+      const k = SV_DOSSIER.aheadWindow(ki, list.length, mode === "all" ? Infinity : 3, (j) => lineExplainCache.has(list[j].text));
+      if (k < 0) { if (tips.all) tips.all = false; return; }
+      tips.k = k;
+      tips.inflight = explainChunk(list[k], list).then((ex) => {
+        if (!ex || ex.error) { tips.errors++; tips.lastError = (ex && ex.error) || "no explanation"; tips.pausedUntil = performance.now() + 30000; if (tips.errors >= 3) tips.stopped = true; }
+        else { tips.errors = 0; tips.lastError = ""; }
+      }).catch(() => { tips.errors++; tips.pausedUntil = performance.now() + 30000; if (tips.errors >= 3) tips.stopped = true; })
+        .finally(() => { tips.inflight = null; tips.k = -1; board.sig = ""; });
+    };
+    // What the strip and the pane say about the pipeline: how far the tips reach,
+    // how many are done, which chunk is being explained, and why it stopped.
+    const tipsStatus = (list, ki) => {
+      const doneN = list.filter((ch) => lineExplainCache.has(ch.text)).length;
+      let readyTo = -1; for (let j = Math.max(0, ki); j < list.length && lineExplainCache.has(list[j].text); j++) readyTo = j;
+      const mode = tips.all ? "all" : tipsAhead;
+      return { readyToMs: readyTo >= 0 ? list[readyTo].endMs : 0, doneN, totalN: list.length, k: tips.k, all: tips.all,
+        state: mode === "off" ? "off" : tips.stopped ? "stopped" : tips.inflight ? "busy" : performance.now() < tips.pausedUntil ? "paused" : "idle", reason: tips.lastError };
+    };
+    const tipsAll = (on) => { tips.all = !!on; tips.stopped = false; tips.errors = 0; tips.pausedUntil = 0; board.sig = ""; boardTick(true); };
+    const tipsRetry = () => { tips.stopped = false; tips.errors = 0; tips.pausedUntil = 0; board.sig = ""; boardTick(true); };
     const fmtT = (ms) => { const t = Math.max(0, Math.round(ms / 1000)); return Math.floor(t / 60) + ":" + String(t % 60).padStart(2, "0"); };
     const mk = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
 
@@ -2562,17 +2595,18 @@
       if (board.collapsed) return;
       const list = chunksNow();
       const ki = curCue ? chunkOfCue(list, curCue) : -1;
+      if (boardVisible()) tipsPump(list, ki); // the next chunks are explained before the playhead reaches them
       // Tips at the start of each chunk: when the playing chunk changes and it
       // is already explained, it opens by itself.
       if (ki !== board.ki && ki >= 0 && lineExplainCache.get(list[ki].text)) board.open = ki;
       const trN = list.reduce((n, ch) => n + ch.sentences.filter((x) => x.tr).length, 0);
       const exN = list.filter((ch) => lineExplainCache.has(ch.text)).length;
-      const sig = [list.length, trN, ki, exN, board.open, snapChunks, tipsExplain].join(":");
+      const sig = [list.length, trN, ki, exN, board.open, snapChunks, tipsExplain, tips.inflight ? 1 : 0, tips.stopped ? 1 : 0, tips.all ? 1 : 0].join(":");
       if (sig === board.sig) return;
       const follow = ki !== board.ki;
       board.sig = sig; board.list = list; board.ki = ki;
       // A small state stamp for diagnosis from the page (the script's variables are not reachable there).
-      try { document.documentElement.dataset.svBoard = JSON.stringify({ ki, open: board.open, loop: board.loop, stopAt: board.stopAt, rate: board.rate, chunk: list[ki] ? [Math.round(list[ki].startMs), Math.round(list[ki].endMs)] : null }); } catch (e) {}
+      try { document.documentElement.dataset.svBoard = JSON.stringify({ ki, open: board.open, loop: board.loop, stopAt: board.stopAt, rate: board.rate, tips: tipsStatus(list, ki).state, chunk: list[ki] ? [Math.round(list[ki].startMs), Math.round(list[ki].endMs)] : null }); } catch (e) {}
       renderBoard();
       // Follow the playhead — unless the reader scrolled the list in the last 6 s.
       if (follow && ki >= 0 && now - board.userScrollAt > 6000) boardScrollTo(ki, true);
@@ -3269,7 +3303,7 @@
   // Appearance keys (position, drag coords, text size, style preset/tweaks) and
   // the sync nudge apply LIVE — re-style in place, no flicker. Anything else
   // (languages, key, enabled…) restarts the engine.
-  const LIVE_KEYS = ["syncOffset", "position", "linePositions", "size", "stylePreset", "styleCustom", "karaokeStyle", "dubEnabled", "dubVoice", "dubGeminiVoice", "ttsProvider", "dubMultiVoice", "dubDuckLevel", "dubPace", "debugHud"];
+  const LIVE_KEYS = ["syncOffset", "position", "linePositions", "size", "stylePreset", "styleCustom", "karaokeStyle", "dubEnabled", "dubVoice", "dubGeminiVoice", "ttsProvider", "dubMultiVoice", "dubDuckLevel", "dubPace", "debugHud", "tipsAhead", "tmdbKey"];
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
     const keys = Object.keys(changes);
