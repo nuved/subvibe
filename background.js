@@ -808,9 +808,28 @@ function cliSend(msg) {
 }
 // One structured answer from Claude Code — the same {content, parsed, usage}
 // shape the API paths produce, so callers don't care which road it took.
+// When a model stops answering (an outage on one model, as Opus had on 2026-09-03), a
+// call waits 75 s at most, the model is marked degraded for 10 minutes, and the call —
+// and every call meanwhile — goes to Sonnet instead. Nothing stalls for 3 minutes a batch.
+const CLI_FALLBACK = "claude-sonnet-5", CLI_DEGRADED_MS = 10 * 60 * 1000, CLI_CALL_SECONDS = 75;
+const cliDegraded = new Map(); // cli model id → until (ms since epoch)
 async function cliChat(system, user, schema, model) {
-  const reply = await cliSend({ type: "chat", system, prompt: user, model: SV_CLI.cliModel(model), schema: schema ? schema.schema : null, effort: "low" });
-  return SV_CLI.parseEnvelope(reply);
+  const want = SV_CLI.cliModel(model), fb = SV_CLI.cliModel(CLI_FALLBACK);
+  let m = want;
+  if (m !== fb && (cliDegraded.get(m) || 0) > Date.now()) m = fb;
+  const call = (mm, secs) => cliSend({ type: "chat", system, prompt: user, model: mm, schema: schema ? schema.schema : null, effort: "low", maxSeconds: secs }).then((reply) => SV_CLI.parseEnvelope(reply));
+  try { return await call(m, CLI_CALL_SECONDS); }
+  catch (e) {
+    const msg = String((e && e.message) || e);
+    if (m !== fb && /timed out|timeout/i.test(msg)) {
+      cliDegraded.set(m, Date.now() + CLI_DEGRADED_MS);
+      const until = new Date(Date.now() + CLI_DEGRADED_MS);
+      try { await logCall({ ts: Date.now(), site: "bridge", title: m + " timed out → " + fb + " until " + until.toTimeString().slice(0, 5), kind: "fallback", lines: 0, ms: CLI_CALL_SECONDS * 1000, inTok: 0, outTok: 0, ok: false, provider: "claude-cli", model: m }); } catch (e2) {}
+      try { chrome.storage.local.set({ cliFallbackNote: m + " isn't answering — using " + fb + " until " + until.toTimeString().slice(0, 5) }); } catch (e2) {}
+      return await call(fb, 120);
+    }
+    throw e;
+  }
 }
 async function translateChunkCli(lines, source, target, _key, context, keepTerms, keepNames, model, kind) {
   const userPayload = context && context.length ? { count: lines.length, context, lines } : { count: lines.length, lines };
