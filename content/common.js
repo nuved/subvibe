@@ -2727,7 +2727,7 @@
       return s;
     };
     // Without a photo, each name gets its own steady colour — R and J stay apart across the strip and the rows.
-    const nameHue = (name) => { let h = 0; for (const c of String(name || "")) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h % 360; };
+    const nameHue = (name) => { let h = 2166136261; for (const c of String(name || "")) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619) >>> 0; } return (h ^ (h >>> 13)) % 360; }; // FNV-1a: short names in any script spread over the wheel
     const photoOf = (p, nm) => (p && p.photo) || board.faces.get(cleanName(nm)) || "";
     // size: sm 40 px in the row · md 48 px in the Now box · lg 72 px cards in a sheet
     const face = (p, label, size, talk) => {
