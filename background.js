@@ -1275,7 +1275,7 @@ async function explainLine(base, sent, langHint, opts) {
       register: REG.has(String(x.register || "").toLowerCase()) ? String(x.register).toLowerCase() : "", tone: TONE.has(String(x.tone || "").toLowerCase()) ? String(x.tone).toLowerCase() : "", care: String(x.care || "").trim().slice(0, 160) })) : [] };
   if (out.tr) { out.s = sent; out.at = started; out.explain = explainPref; cx.e[skey] = out; if (!explainPref) cx.target = target; cx.lang = lang || String(cx.lang || ""); cx.at = Date.now();
     // The call took seconds; merge what landed meanwhile (other explanations, faces, recaps, the dossier) instead of writing over it.
-    const fresh = await idbVocabGet("clipexplain:" + base); if (fresh) { cx.e = Object.assign({}, fresh.e || {}, cx.e); if (fresh.dossier) cx.dossier = fresh.dossier; if (fresh.faces2) cx.faces2 = fresh.faces2; if (fresh.recaps) cx.recaps = fresh.recaps; }
+    const fresh = await idbVocabGet("clipexplain:" + base); if (fresh) { cx.e = Object.assign({}, fresh.e || {}, cx.e); if (fresh.dossier) cx.dossier = fresh.dossier; if (fresh.faces3) cx.faces3 = fresh.faces3; if (fresh.recaps) cx.recaps = fresh.recaps; }
     await idbVocabPut("clipexplain:" + base, cx); }
   await logCall({ ts: started, site: "learn", title: "Explain: " + sent.slice(0, 40), kind: "enrich", lines: 1, ms: Date.now() - started,
     inTok: (r.usage && r.usage.prompt_tokens) || 0, outTok: (r.usage && r.usage.completion_tokens) || 0,
@@ -1308,7 +1308,8 @@ const FACE_TTL = 30 * 24 * 3600e3;
 async function faceLookup(name, d) {
   if (!d.wiki) return "";
   const show = d.show || d.title || "";
-  const url = "https://" + d.wiki + ".fandom.com/api.php?action=query&generator=search&gsrsearch=" + encodeURIComponent(name + " " + (d.tag || show)) + "&gsrlimit=4&prop=pageimages%7Cextracts&piprop=thumbnail&pithumbsize=240&exintro=1&explaintext=1&exchars=300&format=json&origin=*";
+  // Fandom's intro extract is often empty (the page opens with an infobox), so the page's categories carry the check: "Characters in GTA VI", "Grand Theft Auto VI characters" …
+  const url = "https://" + d.wiki + ".fandom.com/api.php?action=query&generator=search&gsrsearch=" + encodeURIComponent(name + " " + (d.tag || show)) + "&gsrlimit=4&prop=pageimages%7Cextracts%7Ccategories&piprop=thumbnail&pithumbsize=240&exintro=1&explaintext=1&exchars=300&cllimit=30&format=json&origin=*";
   const r = await fetch(url); if (!r.ok) return "";
   const j = await r.json();
   const pages = Object.values((j.query && j.query.pages) || {}).sort((a, b) => (a.index || 9) - (b.index || 9));
@@ -1317,9 +1318,12 @@ async function faceLookup(name, d) {
   const n = name.toLowerCase(), want = [baseTitle, d.tag].filter(Boolean).map((s) => s.toLowerCase());
   for (const p of pages) {
     const t = String(p.title || "").toLowerCase();
-    if (!t.startsWith(n) || /\/infobox$/.test(t) || !(p.thumbnail && p.thumbnail.source)) continue;
-    const intro = (String(p.extract || "") + " " + t).toLowerCase();
-    if (!want.length || want.some((w) => intro.includes(w))) return p.thumbnail.source;
+    if (!t.startsWith(n) || /\/infobox$/.test(t) || /^(characters|list of|category)/.test(t) || !(p.thumbnail && p.thumbnail.source)) continue;
+    const cats = (p.categories || []).map((c) => String(c.title || "").toLowerCase()).join(" | ");
+    const text = (String(p.extract || "") + " " + t + " | " + cats).toLowerCase();
+    if (!want.length || want.some((w) => text.includes(w))) return p.thumbnail.source;
+    // no intro and no categories to judge by: the top hit whose title is the name plus a surname is taken as the person
+    if (!p.extract && !cats && p.index === 1 && t.split(/\s+/).length <= 3) return p.thumbnail.source;
   }
   return "";
 }
@@ -1329,15 +1333,15 @@ async function faces(msg) {
   if (!base || !names.length) return { ok: false, error: "empty" };
   const cx = await idbVocabGet("clipexplain:" + base);
   if (!cx || !cx.dossier) return { ok: false, error: "no dossier yet" };
-  const d = cx.dossier; cx.faces2 = cx.faces2 || {};
+  const d = cx.dossier; cx.faces3 = cx.faces3 || {};
   const wiki = await ensureWiki(base, cx, d);
   const out = {}; let dirty = false;
   for (const nm of names) {
-    const c = cx.faces2[nm]; if (c && Date.now() - c.at < FACE_TTL) { out[nm] = c.url; continue; }
+    const c = cx.faces3[nm]; if (c && Date.now() - c.at < FACE_TTL) { out[nm] = c.url; continue; }
     let url = ""; if (wiki) { try { url = await faceLookup(nm, d); } catch (e) {} }
-    cx.faces2[nm] = { url, at: Date.now() }; out[nm] = url; dirty = true;
+    cx.faces3[nm] = { url, at: Date.now() }; out[nm] = url; dirty = true;
   }
-  if (dirty) { const fresh = await idbVocabGet("clipexplain:" + base); const rec = fresh || cx; rec.faces2 = Object.assign({}, rec.faces2 || {}, cx.faces2); rec.dossier = rec.dossier || d; if (rec.dossier && !rec.dossier.wikiAt) { rec.dossier.wiki = d.wiki; rec.dossier.tag = d.tag; rec.dossier.wikiAt = d.wikiAt; } await idbVocabPut("clipexplain:" + base, rec); }
+  if (dirty) { const fresh = await idbVocabGet("clipexplain:" + base); const rec = fresh || cx; rec.faces3 = Object.assign({}, rec.faces3 || {}, cx.faces3); rec.dossier = rec.dossier || d; if (rec.dossier && !rec.dossier.wikiAt) { rec.dossier.wiki = d.wiki; rec.dossier.tag = d.tag; rec.dossier.wikiAt = d.wikiAt; } await idbVocabPut("clipexplain:" + base, rec); }
   return { ok: true, faces: out, wiki };
 }
 
