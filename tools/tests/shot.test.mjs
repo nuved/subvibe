@@ -387,7 +387,7 @@ test("buildStudy (v2): tips live on the chunk, marks on the sentences; invalid m
   assert.equal(s0.meaning, "مدل شکست."); assert.equal(s0.simple, undefined, "no per-sentence tips in v2");
   const s1 = b0.sentences[1];
   assert.deepEqual(s1.tokens.map((t) => t.w), ["Zweiter", "Satz."]);
-  assert.deepEqual(S.studyMarks(blocks), { m: false, f: false, n: true, v: true, notes: true });
+  assert.deepEqual(S.studyMarks(blocks), { m: false, f: false, n: true, v: true, notes: true, pos: { art: true, n: true, aux: true, v: true } });
 });
 
 test("normalizeStudy: a v1 analysis (tips per sentence) becomes one block per sentence; v2 passes through", () => {

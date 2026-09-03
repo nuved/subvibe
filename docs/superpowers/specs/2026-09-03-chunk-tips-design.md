@@ -109,6 +109,31 @@ it cannot be read as one of the coral note numbers.
 - **Opening the board.** It appears on its own on a YouTube watch page while
   SubVibe subtitles are on. Pressing ﹖ with the board hidden expands it.
 
+### Round 10 — reading and listening on the board
+
+- **Put simply, not a second translation.** The tips no longer open with a
+  translation of the chunk (each sentence already shows its own under it).
+  The first section is "Put simply": the passage paraphrased in its own
+  language at A2 level (`simple` in `EXPLAIN_SCHEMA`; the cache moved to
+  `e3…` keys so every chunk gets it once). The floating card's sentence rows
+  now carry their translations too.
+- **Word classes in colour.** Every sentence is rendered as word spans; the
+  explanation's word list (with `parts`, the exact surface words of a term)
+  colours them: verbs coral, nouns blue, adjectives green, adverbs purple,
+  phrases amber; both parts of a separated or phrasal verb share the verb
+  colour and a dotted underline. The Words list uses the same colours, and a
+  small legend closes the tips. On the playing row karaoke now dims the words
+  not yet spoken instead of recolouring them, so the class colours stay.
+  The Study card colours tokens by their character too (`POSC`), with legend
+  entries; gender colours win for nouns in gendered languages.
+- **Listening.** A sentence number plays that sentence and pauses at its end
+  (`playFrom(start, end)` + `board.stopAt`). "Repeat ↻" on an open chunk loops
+  it (`board.loop`; jumping far away ends the loop). A speed button in the
+  board's tool row and in the card's pager cycles 1× → 0.75× → 0.5×.
+- **Scrolling over the tips.** The board's tip sections are in the page flow
+  (`overflow: visible`), so the wheel over them scrolls the board list; the
+  card keeps its own scroll box.
+
 ## Video context (background.js)
 
 `videoContext(base, title, sample, lang)` asks the model once per video what
