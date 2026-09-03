@@ -1064,7 +1064,12 @@ async function ensureDossier(base, meta, sample, lang) {
       // the wrong reading would then be frozen for the whole video. The first
       // meta that carries site facts replaces the identity, looks TMDb up and
       // buys the reading again. The prefix changes once; that is the price.
-      if (!(d.show || d.synopsis || d.channel || d.description) && (m.show || m.synopsis || m.channel || m.description)) {
+      // "Thin" also covers a partial identity (the player's title block: show + episode
+      // title, no season, no synopsis) — the site's full answer replaces it once.
+      const thin = !(d.show || d.synopsis || d.channel || d.description) || d.partial || (d.site === "netflix" && d.show && !d.synopsis && !d.season);
+      const rich = (m.show || m.synopsis || m.channel || m.description) && !m.partial;
+      if (thin && rich) {
+        d.partial = false;
         if (m.site) d.site = String(m.site);
         if (m.title) d.title = String(m.title).slice(0, 160);
         if (m.show) d.show = String(m.show).slice(0, 120);
@@ -1078,7 +1083,8 @@ async function ensureDossier(base, meta, sample, lang) {
         if (m.description) d.description = String(m.description).slice(0, 1500);
         const { tmdbKey } = await chrome.storage.local.get("tmdbKey");
         const t = await tmdbLookup(d, String(tmdbKey || "").trim());
-        if (t.tmdb && t.tmdb.matched) { d.people = t.people; d.tmdb = t.tmdb; d.poster = t.poster; d.tmdbAt = Date.now(); if (!m.epTitle && t.epTitle) d.epTitle = String(t.epTitle).slice(0, 120); if (!m.synopsis && t.synopsis) d.synopsis = String(t.synopsis).slice(0, 600); }
+        if (t.tmdb && t.tmdb.matched) { d.people = t.people; d.tmdb = t.tmdb; d.poster = t.poster || d.poster; d.tmdbAt = Date.now(); if (!m.epTitle && t.epTitle) d.epTitle = String(t.epTitle).slice(0, 120); if (!m.synopsis && t.synopsis) d.synopsis = String(t.synopsis).slice(0, 600); }
+        if (!d.poster && m.poster) d.poster = String(m.poster).slice(0, 400); // the site's own artwork when TMDb has none
         const was = { kind: d.kind, about: d.about, register: d.register, speakers: d.speakers };
         d.kind = ""; d.about = ""; d.register = ""; d.speakers = ""; // the reading was made without an identity — buy it again
         await readVideo(d, d.sample || [], lang);
@@ -1095,7 +1101,7 @@ async function ensureDossier(base, meta, sample, lang) {
       epTitle: String(m.epTitle || t.epTitle || "").slice(0, 120), year: +m.year || 0, runtimeMin: +m.runtimeMin || 0, synopsis: String(m.synopsis || t.synopsis || "").slice(0, 600),
       channel: String(m.channel || "").slice(0, 80), description: String(m.description || "").slice(0, 1500),
       kind: (cx.ctx && cx.ctx.kind) || "", about: (cx.ctx && cx.ctx.about) || "", register: (cx.ctx && cx.ctx.register) || "", speakers: (cx.ctx && cx.ctx.speakers) || "",
-      people: t.people, tmdb: t.tmdb, poster: t.poster, sample: lines, tmdbAt: t.tmdb ? Date.now() : 0 };
+      people: t.people, tmdb: t.tmdb, poster: t.poster || String(m.poster || "").slice(0, 400), partial: !!m.partial, sample: lines, tmdbAt: t.tmdb ? Date.now() : 0 };
     await readVideo(d, lines, lang);
     setCtx();
     cx.dossier = d; await idbVocabPut("clipexplain:" + base, cx);
