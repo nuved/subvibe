@@ -1115,6 +1115,10 @@ async function explainLine(base, sent, langHint, opts) {
   let target = explainPref && explainPref !== "same" ? explainPref : defTarget;
   let fa = (target || "").split("-")[0] === "fa";
   const faS = (s) => (fa ? SV_VOCAB.normalizeFa(String(s || "")) : String(s || ""));
+  // An explanation bought under the previous shape (e2…) is still an explanation:
+  // serve it rather than paying for it again; it only lacks "Put simply" and parts.
+  const e2key = "e2" + (h >>> 0).toString(36) + (explainPref ? "|" + explainPref : "");
+  if (!(cx.e[skey] && cx.e[skey].tr) && cx.e[e2key] && cx.e[e2key].tr && !o.fresh) cx.e[skey] = Object.assign({}, cx.e[e2key], { explain: explainPref });
   if (cx.e[skey] && cx.e[skey].tr) {
     const c = cx.e[skey];
     fa = ((c.explain && c.explain !== "same" ? c.explain : c.explain === "same" ? c.lang : target) || "").split("-")[0] === "fa";
@@ -1139,6 +1143,27 @@ async function explainLine(base, sent, langHint, opts) {
     cacheR: (r.usage && r.usage.cache_r) || 0, cacheW: (r.usage && r.usage.cache_w) || 0, ok: true, provider: r.provider, model: r.model });
   return { ok: true, tr: faS(out.tr), simple: out.simple, g: faS(out.g), lang, explain: explainPref, ctx: cx.ctx || ctx || null, words: out.words.map((x) => ({ w: x.w, m: faS(x.m), pos: x.pos, level: x.level, forms: x.forms, parts: x.parts })) };
 }
+// "Share this video's tips": the board's chunks in order, each with whatever is
+// already explained (nothing is asked from the model), saved as one record and
+// opened in share.html — a page that can be downloaded as a single file.
+async function shareTips(msg) {
+  const base = String(msg.base || ""); if (!base) return { ok: false, error: "empty" };
+  const pref = String(msg.explain || "").trim();
+  const cx = await idbVocabGet("clipexplain:" + base);
+  const byText = new Map();
+  for (const [k, e] of Object.entries((cx && cx.e) || {})) if (/^e[23]/.test(k) && e && e.s && e.tr && String(e.explain || "") === pref) { if (!byText.has(e.s) || k.startsWith("e3")) byText.set(e.s, e); }
+  const chunks = (Array.isArray(msg.chunks) ? msg.chunks : []).slice(0, 600).map((c) => {
+    const text = String(c.text || "").replace(/\s+/g, " ").trim(); const e = byText.get(text);
+    return { k: c.k, startMs: +c.startMs || 0, sentences: (c.sentences || []).map((x) => ({ s: String(x.s || ""), tr: String(x.tr || "") })).filter((x) => x.s),
+      tips: e ? { tr: e.tr || "", simple: e.simple || "", g: e.g || "", words: (e.words || []).map((x) => ({ w: x.w, m: x.m, pos: x.pos || "", level: x.level || "", forms: cleanForms(x.forms) })) } : null };
+  });
+  const { targets } = await chrome.storage.local.get("targets");
+  const id = "sh" + Date.now().toString(36);
+  const rec = { id, at: Date.now(), base, title: String(msg.title || "Video"), url: String(msg.url || ""), lang: String((cx && cx.lang) || msg.lang || ""), target: String((Array.isArray(targets) && targets[0]) || "en"), explain: pref, ctx: (cx && cx.ctx) || null, chunks, explained: chunks.filter((c) => c.tips).length };
+  await idbVocabPut("share:" + id, rec);
+  await chrome.tabs.create({ url: chrome.runtime.getURL("share.html?id=" + id) });
+  return { ok: true, id, explained: rec.explained, chunks: chunks.length };
+}
 // Everything already explained on a video, for one tips language — the story
 // board seeds its marks and tips from this after a page load, so nothing
 // explained is ever lost.
@@ -1146,7 +1171,10 @@ async function tipsCached(msg) {
   const base = String(msg.base || ""); if (!base) return { ok: false, error: "empty" };
   const pref = String(msg.explain || "").trim();
   const cx = await idbVocabGet("clipexplain:" + base);
-  const entries = cx && cx.e ? Object.entries(cx.e).filter(([k, e]) => k.startsWith("e3") && e && e.s && e.tr && String(e.explain || "") === pref).map(([, e]) => e) : [];
+  // e3 entries first; an older e2 entry counts when no e3 one exists for the same passage.
+  const all = cx && cx.e ? Object.entries(cx.e).filter(([k, e]) => /^e[23]/.test(k) && e && e.s && e.tr && String(e.explain || "") === pref) : [];
+  const seen = new Set(all.filter(([k]) => k.startsWith("e3")).map(([, e]) => e.s));
+  const entries = all.filter(([k, e]) => k.startsWith("e3") || !seen.has(e.s)).map(([, e]) => e);
   return { ok: true, entries: entries.map((e) => ({ s: e.s, tr: e.tr, simple: e.simple || "", g: e.g || "", lang: e.lang || "", at: e.at || 0, words: (e.words || []).map((x) => ({ w: x.w, m: x.m, pos: x.pos || "", level: x.level || "", forms: cleanForms(x.forms), parts: x.parts || [] })) })), ctx: cx && cx.ctx ? cx.ctx : null };
 }
 
@@ -2939,6 +2967,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         case "TIPS_SNAP": sendResponse(await tipsSnap(msg, sender)); break;
         case "CLIP_TIPS": sendResponse(await clipTips(msg)); break;
         case "TIPS_CACHED": sendResponse(await tipsCached(msg)); break;
+        case "SHARE_TIPS": sendResponse(await shareTips(msg)); break;
+        case "SHARE_GET": sendResponse(await idbVocabGet("share:" + String(msg.id || "")) || { error: "not found" }); break;
         default:
           sendResponse({ error: "unknown message: " + (msg && msg.type) });
       }

@@ -2336,7 +2336,9 @@
       sel.append(o1, o2); sel.value = tipsExplain;
       sel.addEventListener("change", () => setTipsExplain(sel.value));
       sel.addEventListener("click", (ev) => ev.stopPropagation());
-      tools.append(lines, speedButton("svb-speed"), sel);
+      const share = mk("button", "svb-share", "Share ↗"); share.type = "button"; share.title = "One page with every chunk, its translation and the tips already explained — from the cache, nothing is asked again — to download and send to a friend";
+      share.addEventListener("click", (ev) => { ev.stopPropagation(); shareBoard(share); });
+      tools.append(lines, speedButton("svb-speed"), share, sel);
       b.appendChild(head); b.appendChild(tools);
       const listEl = mk("div", "svb-list");
       // A hand on the list pauses the follow for a while, so it never yanks
@@ -2376,6 +2378,14 @@
       row.addEventListener("click", (ev) => { if (ev.target && ev.target.closest && ev.target.closest("button, select, .wt-body")) return; if (board.open === k) { board.open = -1; board.sig = ""; boardTick(true); } else boardFocus(k, false); });
       row.append(time, main, aside);
       return row;
+    };
+    // Share: every chunk in order with its translations; the background attaches the cached tips.
+    const shareBoard = (btn) => {
+      const list = board.list.length ? board.list : chunksNow(); if (!list.length) return;
+      if (btn) { btn.disabled = true; btn.textContent = "Preparing…"; }
+      send({ type: "SHARE_TIPS", base, explain: tipsExplain, title: SV_TITLE.clean(document.title), url: location.href, lang: vocabPoolLang,
+        chunks: list.map((ch) => ({ k: ch.k, startMs: ch.startMs, text: ch.text, sentences: ch.sentences.map((x) => ({ s: x.s, tr: x.tr })) })) })
+        .then((r) => { if (!(r && r.ok)) console.warn("[SubVibe] share failed:", r && (r.error || JSON.stringify(r).slice(0, 200))); if (btn) { btn.disabled = false; btn.textContent = r && r.ok ? "Shared ↗" : "Couldn't share"; setTimeout(() => { btn.textContent = "Share ↗"; }, 2500); } });
     };
     // Karaoke on the board (every frame): spoken words turn coral, the word
     // being spoken sits on a warm pill, its sentence is the one in focus.
