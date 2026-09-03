@@ -2769,7 +2769,7 @@
         const head = mk("div", "svs-lbl"); head.append(mk("span", null, "People · " + people.length), mk("span", "svs-attr", tmdb ? "TMDB" : "")); pe.appendChild(head);
         if (!people.length) { pe.appendChild(mk("div", "svs-scene muted", "People appear here as the chunks meet them")); return; }
         // At rest eight tiny faces and "+N"; open, twelve portraits with names and "+N" — the same row, two chips, CSS picks.
-        const row = mk("div", "svs-people-row"); const MAX = 12, REST = 8;
+        const row = mk("div", "svs-people-row"); const MAX = 12, REST = 3; // at rest: three overlapped faces and "+N" — the scene keeps the room
         // A face under the pointer opens a card at the end of the row — inside the strip, never over the picture.
         const card = mk("div", "svs-card"); let cardT = 0;
         const showCard = (x) => { clearTimeout(cardT); cardT = setTimeout(() => { const nm = x.p ? x.p.character || x.p.name : x.label, c = castOf(x), since = firstSeen(nm); card.textContent = "";
