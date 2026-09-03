@@ -624,3 +624,8 @@
 #sv-strip[data-open="people"] .svs-face.sm b { max-width: 64px; }
 #sv-strip[data-open="now"] .svs-face.md i { width: 56px; height: 72px; border-radius: 10px; background-position: top center; line-height: 72px; }
 #sv-strip[data-open="now"] .svs-face.md { width: 68px; }
+
+/* people at rest: eight faces, then "+N"; open: all twelve and the other "+N" */
+#sv-strip:not([data-open="people"]) .svs-people-row .svs-face.sm:not(.plus):nth-child(n+9) { display: none; }
+#sv-strip:not([data-open="people"]) .svs-people-row .svs-face.plus.open { display: none; }
+#sv-strip[data-open="people"] .svs-people-row .svs-face.plus.rest { display: none; }

@@ -2763,9 +2763,11 @@
         const tmdb = people.some((x) => x.p && x.p.src === "tmdb");
         const head = mk("div", "svs-lbl"); head.append(mk("span", null, "People · " + people.length), mk("span", "svs-attr", tmdb ? "TMDB" : "")); pe.appendChild(head);
         if (!people.length) { pe.appendChild(mk("div", "svs-scene muted", "People appear here as the chunks meet them")); return; }
-        const row = mk("div", "svs-people-row"); const MAX = 12;
+        // At rest eight tiny faces and "+N"; open, twelve portraits with names and "+N" — the same row, two chips, CSS picks.
+        const row = mk("div", "svs-people-row"); const MAX = 12, REST = 8;
         ordered.slice(0, MAX).forEach((x) => { const f = face(x.p, x.label, "sm", false); if (inScene.has(keyOf(x))) f.classList.add("here"); if (x.n) f.appendChild(mk("small", "n", String(x.n))); row.appendChild(f); });
-        if (ordered.length > MAX) { const more = mk("span", "svs-face sm plus"); more.appendChild(mk("i", null, "+" + (ordered.length - MAX))); more.appendChild(mk("b", null, "more")); row.appendChild(more); }
+        if (ordered.length > REST) { const more = mk("span", "svs-face sm plus rest"); more.appendChild(mk("i", null, "+" + (ordered.length - REST))); more.appendChild(mk("b", null, "more")); row.appendChild(more); }
+        if (ordered.length > MAX) { const more = mk("span", "svs-face sm plus open"); more.appendChild(mk("i", null, "+" + (ordered.length - MAX))); more.appendChild(mk("b", null, "more")); row.appendChild(more); }
         pe.appendChild(row);
       });
     };
