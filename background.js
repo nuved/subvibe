@@ -997,6 +997,8 @@ async function videoContext(base, title, lines, source) {
   } catch (e) { return null; }
 }
 const contextLine = (ctx) => (ctx && ctx.kind ? `VIDEO CONTEXT: ${ctx.kind}${ctx.about ? " — " + ctx.about : ""}${ctx.register ? ". Register: " + ctx.register : ""}${ctx.speakers ? ". Speakers: " + ctx.speakers : ""}. Read the lines in that light (a joke, a chant, a command in a game, an idiom of that world).\n` : "");
+// "forms" from the model is sometimes a bare dash or "none" — that is no form.
+const cleanForms = (v) => { const t = String(v || "").trim(); return /^[\s\-–—·.,_/]*$/.test(t) || /^(none|n\/a|na|no forms?|—|–|-)$/i.test(t) ? "" : t; };
 function explainPrompt(source, target, ctx) {
   const fa = (target || "").split("-")[0] === "fa";
   const same = source && source !== "auto" && (source || "").split("-")[0] === (target || "").split("-")[0];
@@ -1116,7 +1118,7 @@ async function explainLine(base, sent, langHint, opts) {
   if (cx.e[skey] && cx.e[skey].tr) {
     const c = cx.e[skey];
     fa = ((c.explain && c.explain !== "same" ? c.explain : c.explain === "same" ? c.lang : target) || "").split("-")[0] === "fa";
-    return { ok: true, tr: faS(c.tr), simple: c.simple || "", g: faS(c.g), lang: c.lang || "", explain: c.explain || "", words: (c.words || []).map((x) => ({ w: x.w, m: faS(x.m), pos: x.pos || "", level: x.level || "", forms: x.forms || "", parts: x.parts || [] })), cached: true };
+    return { ok: true, tr: faS(c.tr), simple: c.simple || "", g: faS(c.g), lang: c.lang || "", explain: c.explain || "", ctx: cx.ctx || null, words: (c.words || []).map((x) => ({ w: x.w, m: faS(x.m), pos: x.pos || "", level: x.level || "", forms: cleanForms(x.forms), parts: x.parts || [] })), cached: true };
   }
   const started = Date.now();
   let lang = langHint && langHint !== "xx" ? String(langHint) : "";
@@ -1130,7 +1132,7 @@ async function explainLine(base, sent, langHint, opts) {
   const r = await llmJSON(explainPrompt(lang || "auto", target, ctx), payload, EXPLAIN_SCHEMA);
   const p = (r && r.parsed) || {};
   const out = { tr: String(p.tr || "").trim(), simple: String(p.simple || "").trim(), g: String(p.g || "").trim(), lang,
-    words: Array.isArray(p.words) ? p.words.filter((x) => x && x.w && x.m).slice(0, 8).map((x) => ({ w: String(x.w).trim(), m: String(x.m).trim(), pos: String(x.pos || "").trim().toLowerCase(), level: String(x.level || "").trim().toUpperCase(), forms: String(x.forms || "").trim(), parts: Array.isArray(x.parts) ? x.parts.map((q) => String(q).trim()).filter(Boolean).slice(0, 4) : [] })) : [] };
+    words: Array.isArray(p.words) ? p.words.filter((x) => x && x.w && x.m).slice(0, 8).map((x) => ({ w: String(x.w).trim(), m: String(x.m).trim(), pos: String(x.pos || "").trim().toLowerCase(), level: String(x.level || "").trim().toUpperCase(), forms: cleanForms(x.forms), parts: Array.isArray(x.parts) ? x.parts.map((q) => String(q).trim()).filter(Boolean).slice(0, 4) : [] })) : [] };
   if (out.tr) { out.s = sent; out.at = started; out.explain = explainPref; cx.e[skey] = out; if (!explainPref) cx.target = target; cx.lang = lang || String(cx.lang || ""); cx.at = Date.now(); await idbVocabPut("clipexplain:" + base, cx); }
   await logCall({ ts: started, site: "learn", title: "Explain: " + sent.slice(0, 40), kind: "enrich", lines: 1, ms: Date.now() - started,
     inTok: (r.usage && r.usage.prompt_tokens) || 0, outTok: (r.usage && r.usage.completion_tokens) || 0,
@@ -1145,7 +1147,7 @@ async function tipsCached(msg) {
   const pref = String(msg.explain || "").trim();
   const cx = await idbVocabGet("clipexplain:" + base);
   const entries = cx && cx.e ? Object.entries(cx.e).filter(([k, e]) => k.startsWith("e3") && e && e.s && e.tr && String(e.explain || "") === pref).map(([, e]) => e) : [];
-  return { ok: true, entries: entries.map((e) => ({ s: e.s, tr: e.tr, simple: e.simple || "", g: e.g || "", lang: e.lang || "", at: e.at || 0, words: (e.words || []).map((x) => ({ w: x.w, m: x.m, pos: x.pos || "", level: x.level || "", forms: x.forms || "", parts: x.parts || [] })) })), ctx: cx && cx.ctx ? cx.ctx : null };
+  return { ok: true, entries: entries.map((e) => ({ s: e.s, tr: e.tr, simple: e.simple || "", g: e.g || "", lang: e.lang || "", at: e.at || 0, words: (e.words || []).map((x) => ({ w: x.w, m: x.m, pos: x.pos || "", level: x.level || "", forms: cleanForms(x.forms), parts: x.parts || [] })) })), ctx: cx && cx.ctx ? cx.ctx : null };
 }
 
 // ── Tips sheet: every ﹖-explained line of a video as one Study card ─────────

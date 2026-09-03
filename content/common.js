@@ -2133,7 +2133,6 @@
           const tag = [x.pos, x.level].filter(Boolean).join(" · ");
           if (tag) b.appendChild(mk("i", "wt-tag", tag));
           const m = mk("span", null, x.m); m.dir = "auto";
-          if (x.forms) m.appendChild(mk("i", "wt-forms", x.forms));
           // Into the Leitner boxes, with the sentence it appeared in.
           const add = mk("button", "wt-add", "＋"); add.type = "button"; add.title = "Save to Leitner";
           add.addEventListener("click", (ev) => {
@@ -2145,6 +2144,9 @@
               .then((r) => { if (r && r.error) { add.disabled = false; add.textContent = "＋"; add.title = "Save failed — retry"; return; } add.textContent = "✓"; add.title = "Saved to Leitner"; });
           });
           m.appendChild(add);
+          // A verb's forms / a noun's plural — left-to-right on its own line, after the ＋ (a bare dash is no form).
+          const forms = String(x.forms || "").trim();
+          if (forms && !/^[\s\-–—·.,_/]*$/.test(forms)) { const f = mk("i", "wt-forms", forms); f.dir = "ltr"; m.appendChild(f); }
           list.appendChild(b); list.appendChild(m);
         }
         addSect("Words", list);

@@ -328,7 +328,9 @@
 #copilot-subs .copilot-subs__wtip .wt-words b, #sv-board .wt-words b { color: #241F1A; font-weight: 700; }
 #copilot-subs .copilot-subs__wtip .wt-words span, #sv-board .wt-words span { color: #5B5348; }
 #copilot-subs .copilot-subs__wtip .wt-words .wt-tag, #sv-board .wt-words .wt-tag { display: block; font: 600 10px/1.3 ui-monospace, Menlo, Consolas, monospace; color: #8A7F72; font-style: normal; letter-spacing: .02em; }
-#copilot-subs .copilot-subs__wtip .wt-words .wt-forms, #sv-board .wt-words .wt-forms { display: block; font: 500 10.5px/1.35 ui-monospace, Menlo, Consolas, monospace; color: #8A7F72; font-style: normal; margin-top: 1px; }
+#copilot-subs .copilot-subs__wtip .wt-words .wt-forms, #sv-board .wt-words .wt-forms { display: block; direction: ltr; unicode-bidi: isolate; text-align: start; font: 500 10.5px/1.35 ui-monospace, Menlo, Consolas, monospace; color: #8A7F72; font-style: normal; margin-top: 1px; overflow-wrap: anywhere; }
+#copilot-subs .copilot-subs__wtip .wt-words .wt-tag, #sv-board .wt-words .wt-tag { direction: ltr; unicode-bidi: isolate; }
+#copilot-subs .copilot-subs__wtip .wt-words span, #sv-board .wt-words span { min-width: 0; }
 #copilot-subs .copilot-subs__wtip .wt-line.wt-sents { display: grid; gap: 4px; }
 #copilot-subs .copilot-subs__wtip .wt-sent, #sv-board .wt-sent { display: grid; grid-template-columns: 18px 1fr; gap: 6px; align-items: baseline; }
 #copilot-subs .copilot-subs__wtip .wt-sn, #sv-board .wt-sn { font: 700 10px/1.4 ui-monospace, Menlo, Consolas, monospace; color: #C93F2B; background: #fff; box-shadow: 0 0 0 1px rgba(201,63,43,.25); border-radius: 999px; width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; font-style: normal; }
