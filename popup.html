@@ -470,6 +470,11 @@
     .shotrow__ttl { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px; }
     .shotrow__ttl svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; color: var(--coral-600); }
     .shotrow__key { margin-left: auto; font: 600 10px/1 var(--mono); color: var(--faint); letter-spacing: .04em; }
+    .shotrow__delay { display: flex; align-items: center; gap: 5px; margin-top: 7px; font-size: 11px; color: var(--muted); }
+    .shotrow__delaylbl { font-weight: 600; color: var(--ink-2); }
+    .shotdelay { border: 1px solid var(--border); background: var(--surface); color: var(--ink-2); font: 600 11px/1.2 inherit; padding: 3px 8px; border-radius: 999px; cursor: pointer; }
+    .shotdelay.on { background: var(--coral-100); color: var(--coral-600); border-color: var(--coral-100); }
+    .shotrow__delayhint { margin-left: 4px; color: var(--faint); font-size: 10.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .shotrow__chips { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
     .shotbtn { border: 1px solid var(--border); background: var(--bg); color: var(--ink); border-radius: var(--r-sm); padding: 7px 4px; display: grid; justify-items: center; gap: 5px; font: 600 11px/1 var(--ui); cursor: pointer; }
     .shotbtn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
@@ -921,6 +926,15 @@
       <button class="shotbtn" id="shotFull" title="Scroll through and capture the whole page"><svg viewBox="0 0 24 24"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M9 7h6M9 11h6M9 15h4"/></svg>Full page</button>
       <button class="shotbtn" id="shotArea" title="Drag a rectangle over the part you want"><svg viewBox="0 0 24 24"><path d="M4 8V6a2 2 0 0 1 2-2h2"/><path d="M16 4h2a2 2 0 0 1 2 2v2"/><path d="M20 16v2a2 2 0 0 1-2 2h-2"/><path d="M8 20H6a2 2 0 0 1-2-2v-2"/></svg>Area</button>
       <button class="shotbtn" id="shotElement" title="Click one element (a post, an article, a card)"><svg viewBox="0 0 24 24"><path d="M4 4h6v6H4z"/><path d="m13 13 8 3-3 1-1 3z"/></svg>Element</button>
+    </div>
+    <!-- A countdown before the capture: time to open a menu or hold a hover. Runs after the area or element is chosen. -->
+    <div class="shotrow__delay" id="shotDelayRow">
+      <span class="shotrow__delaylbl">Wait</span>
+      <button type="button" class="shotdelay on" data-d="0" title="Capture at once">0</button>
+      <button type="button" class="shotdelay" data-d="3" title="Count down 3 seconds first">3 s</button>
+      <button type="button" class="shotdelay" data-d="5" title="Count down 5 seconds first">5 s</button>
+      <button type="button" class="shotdelay" data-d="10" title="Count down 10 seconds first">10 s</button>
+      <span class="shotrow__delayhint">before the shot — time to open a menu or hover</span>
     </div>
   </section>
 

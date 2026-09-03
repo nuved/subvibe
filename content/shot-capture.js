@@ -461,7 +461,24 @@
     toast("Shot saved — opening editor…", 1800);
   }
 
-  async function run(mode, layout, target, font) {
+  // A countdown before the capture (the popup's "Wait 3 s / 5 s / 10 s"): the page is
+  // free meanwhile — open a menu, hold a hover — and Esc cancels. Nothing of ours is on
+  // the page when the capture runs.
+  async function countdown(seconds) {
+    const Z = 2147483647, FONT = "system-ui,-apple-system,sans-serif";
+    const wrap = document.createElement("div"); wrap.style.cssText = "position:fixed;inset:0;z-index:" + Z + ";display:flex;align-items:center;justify-content:center;pointer-events:none;";
+    const n = document.createElement("div"); n.style.cssText = "min-width:130px;height:130px;border-radius:50%;background:rgba(20,16,12,.82);color:#fff;font:800 72px/130px " + FONT + ";text-align:center;box-shadow:0 0 0 6px rgba(201,63,43,.7),0 12px 40px rgba(0,0,0,.5);padding:0 18px;"; wrap.appendChild(n);
+    const c = document.createElement("div"); c.style.cssText = "position:absolute;bottom:18%;left:50%;transform:translateX(-50%);color:#fff;font:600 13px/1.3 " + FONT + ";background:rgba(20,16,12,.8);padding:6px 12px;border-radius:8px;"; c.textContent = "Shot in a moment — Esc cancels"; wrap.appendChild(c);
+    if (host) host.style.display = "none"; // the picker's chrome must not sit under the pointer while the page is being arranged
+    document.documentElement.appendChild(wrap);
+    let cancelled = false; const onKey = (e) => { if (e.key === "Escape") cancelled = true; };
+    window.addEventListener("keydown", onKey, true);
+    for (let s = seconds; s > 0 && !cancelled; s--) { n.textContent = String(s); await sleep(1000); }
+    window.removeEventListener("keydown", onKey, true);
+    wrap.remove(); if (host) host.style.display = "";
+    return !cancelled;
+  }
+  async function run(mode, layout, target, font, delay) {
     if (busy) return;
     busy = true; aborted = false;
     try {
@@ -471,6 +488,7 @@
       try {
         rect = mode === "area" ? await pickArea() : mode === "element" ? await pickElement() : mode === "full" ? fullRect() : visibleRect();
       } catch (e) { cleanupAll(); return; }
+      if (delay > 0 && !(await countdown(delay))) { cleanupAll(); return; }
       await capture(rect, mode, layout, target, font);
       // Release busy NOW so a quick re-shoot / language change from the editor
       // isn't rejected; keep the "Shot saved" toast up briefly, then remove the
@@ -535,7 +553,7 @@
     if (!msg) return;
     if (msg.type === "SV_SHOT_START") {
       sendResponse({ ok: true });
-      run(String(msg.mode || "visible"), msg.layout === "bilingual" ? "bilingual" : "translated", String(msg.target || ""), String(msg.font || ""));
+      run(String(msg.mode || "visible"), msg.layout === "bilingual" ? "bilingual" : "translated", String(msg.target || ""), String(msg.font || ""), Math.min(30, Math.max(0, +msg.delay || 0)));
       return;
     }
     if (msg.type === "SV_SHOT_RESHOOT") {

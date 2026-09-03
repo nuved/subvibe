@@ -2086,11 +2086,11 @@ async function startShot(tab, mode) {
     chrome.action.setTitle({ tabId: tab.id, title: "SubVibe: can't run on this page" });
     return { ok: false, error: "inject", detail };
   }
-  const { shotLayout, shotFont } = await chrome.storage.local.get(["shotLayout", "shotFont"]);
+  const { shotLayout, shotFont, shotDelay } = await chrome.storage.local.get(["shotLayout", "shotFont", "shotDelay"]);
   const { target, targetName } = await shotTarget();
   try {
     await chrome.tabs.sendMessage(tab.id, {
-      type: "SV_SHOT_START", mode, layout: shotLayout === "bilingual" ? "bilingual" : "translated", target, targetName, font: shotFont || "",
+      type: "SV_SHOT_START", mode, layout: shotLayout === "bilingual" ? "bilingual" : "translated", target, targetName, font: shotFont || "", delay: +shotDelay || 0,
     });
   } catch (e) {
     return { ok: false, error: "inject", detail: String((e && e.message) || e) };
