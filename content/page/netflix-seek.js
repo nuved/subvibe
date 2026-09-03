@@ -16,15 +16,20 @@
   // (show, season/episode, titles, synopses); the player's title block is the fallback.
   const netflixMeta = async (id) => {
     const out = { site: "netflix", url: location.href, title: "", show: "", season: 0, episode: 0, epTitle: "", synopsis: "", year: 0, runtimeMin: 0 };
+    let why = ""; // why the member API gave nothing — logged so a failing route can be reported
     try {
-      const build = window.netflix.reactContext.models.serverDefs.data.BUILD_IDENTIFIER;
-      const r = await fetch("/nq/website/memberapi/" + build + "/metadata?movieid=" + encodeURIComponent(id), { credentials: "include" });
-      const v = (await r.json()).video || {};
+      const defs = window.netflix.reactContext.models.serverDefs.data;
+      const root = defs.SHAKTI_API_ROOT || ("/nq/website/memberapi/" + defs.BUILD_IDENTIFIER);
+      const r = await fetch(root + "/metadata?movieid=" + encodeURIComponent(id) + "&_=" + Date.now(), { credentials: "include" });
+      if (!r.ok) throw new Error("HTTP " + r.status + " from " + root);
+      const j = await r.json(); const v = j.video || {};
+      if (!v.title) throw new Error("no video in the answer (keys: " + Object.keys(j).slice(0, 8).join(",") + ")");
       if (v.type === "show") {
         out.show = v.title || ""; out.year = v.year || 0; out.synopsis = v.synopsis || "";
         for (const s of v.seasons || []) for (const e of s.episodes || []) if (String(e.id) === String(v.currentEpisode || id)) { out.season = s.seq || 0; out.episode = e.seq || 0; out.epTitle = e.title || ""; out.synopsis = e.synopsis || out.synopsis; out.runtimeMin = Math.round((e.runtime || 0) / 60); }
       } else { out.title = v.title || ""; out.year = v.year || 0; out.synopsis = v.synopsis || ""; out.runtimeMin = Math.round((v.runtime || 0) / 60); }
-    } catch (e) {}
+    } catch (e) { why = String((e && e.message) || e); }
+    if (why) console.info("[SubVibe] Netflix metadata: " + why + (out.show || out.title ? "" : " — using the player's title block"));
     if (!out.show && !out.title) { // the player's title block (visible with the controls)
       try {
         const t = document.querySelector('[data-uia="video-title"]');
