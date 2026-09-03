@@ -122,9 +122,10 @@ In `content/common.js`, beside the translation pump:
 - Errors: back off 30 s; after 3 in a row, stop with the reason on the
   strip ("Tips paused — no key / bridge not answering · Retry").
 - The strip shows: ready-to time, the chunk being explained, count done / all,
-  the per-chunk cost from the Activity log's last 10 explain rows ("≈ $0.01 a
-  chunk", "on your Claude subscription" for the bridge), "Explain all →",
-  "Pause" / "Retry".
+  "Explain all →" / "Stop", "Retry" after a stop, "Hide". The per-chunk cost
+  stays where it already is (the popup's Activity list); the strip shows counts.
+  (v1 simplification — a cost figure on the strip needs a log read from the
+  content script; later.)
 - The floating ﹖ card and "Frame + N chunks" use the same `explainChunk`
   and therefore the same cache and prefix.
 
