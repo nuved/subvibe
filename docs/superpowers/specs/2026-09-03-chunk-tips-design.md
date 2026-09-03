@@ -143,6 +143,15 @@ friend without the extension, and Print / PDF does the obvious. No model
 call is made; chunks without tips say so. Explanations cached under the
 previous shape are served rather than re-bought.
 
+### Word tone, register, care; the scene (round 14)
+
+Each word note carries `register`, `tone` and `care`; the chunk carries a
+one-line `scene`. The board shows ± after the term, the register in the tag
+line, an amber ⚠ line for care, and the scene above "Put simply". Speaker
+marks (">>") start a new chunk and are stripped from all text; "Put simply"
+is a retelling (1–3 plain sentences); "Explain again ↻" buys one fresh
+explanation on purpose, cached tips are never re-bought automatically.
+
 ## Video context (background.js)
 
 `videoContext(base, title, sample, lang)` asks the model once per video what
@@ -205,4 +214,5 @@ the clip's lines as the context sample, and opens the sheet ("CLIP · TIPS").
   chunks above the line's rectangle; it has no real place for them on the
   frame — the Study card is the deliverable there.
 - The context inference costs one extra model call per video the first time
-  a chunk is explained; the ﹖ card does not show it yet.
+  a chunk is explained. Both the board (under its title) and the ﹖ card
+  (under its pager) show it once known.
