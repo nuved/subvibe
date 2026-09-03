@@ -482,3 +482,26 @@
 #sv-board .wt-sect { padding: 0 4px 0 8px; }
 #sv-board .wt-actions { margin: 8px 0 0 -8px; padding: 8px 4px 2px 8px; border-top: 1px solid #EDE5DA; background: transparent; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 #sv-board .svb-dead { padding: 8px 12px; background: #FBEAE6; color: #A93521; font: 600 12px/1.4 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; border-bottom: 1px solid #F3D4CD; }
+
+/* ── Split drawer: compact rows over a tips pane that follows the playhead ── */
+#sv-board.drawer .svb-list { flex: 1 1 54%; min-height: 120px; }
+#sv-board .svb-pane { display: flex; flex-direction: column; min-height: 0; border-top: 2px solid #C93F2B; background: #fff; }
+#sv-board.drawer .svb-pane { flex: 0 0 46%; }
+#sv-board:not(.drawer) .svb-pane { max-height: min(40vh, 420px); }
+#sv-board:not(.drawer) .svb-list { max-height: min(44vh, 460px); }
+#sv-board.collapsed .svb-pane { display: none; }
+#sv-board .svb-ph { display: flex; align-items: center; gap: 8px; padding: 7px 12px; border-bottom: 1px solid #EDE5DA; font: 700 10.5px/1.3 ui-monospace, Menlo, Consolas, monospace; letter-spacing: .06em; text-transform: uppercase; color: #C93F2B; }
+#sv-board .svb-follow { margin-left: auto; border: 1px solid #EDE5DA; background: #fff; color: #5B5348; font: 600 10.5px/1.3 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; padding: 2px 8px; border-radius: 999px; cursor: pointer; text-transform: none; letter-spacing: 0; }
+#sv-board .svb-follow.on { color: #1F7A6D; background: #E4F2EF; border-color: #E4F2EF; }
+#sv-board .svb-pb { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px 0 8px; }
+#sv-board .svb-pb .wt-body { margin: 0; border-top: 0; overflow: visible; }
+#sv-board .svb-pb .wt-actions { margin: 8px 0 0; padding: 8px 12px 2px; }
+#sv-board .svb-empty { padding: 10px 12px; color: #8A7F72; }
+#sv-board .svb-scene { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin: 4px 0 0 22px; }
+#sv-board .svb-scene-txt { font: 500 11.5px/1.4 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: #5B5348; background: #F3EDE4; border-radius: 6px; padding: 2px 7px; }
+#sv-board .svb-who { display: inline-flex; align-items: center; gap: 4px; font: 600 10.5px/1 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: #5B5348; background: #fff; border: 1px solid #EDE5DA; border-radius: 999px; padding: 2px 7px 2px 2px; }
+#sv-board .svb-who i { width: 16px; height: 16px; border-radius: 50%; background: #A39684 center / cover no-repeat; color: #fff; font: 700 8px/16px ui-monospace, Menlo, Consolas, monospace; text-align: center; font-style: normal; }
+#sv-board .svb-mark.busy { color: #B45309; }
+#sv-board .svb-mark.busy::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #B45309; margin-right: 4px; animation: svb-pulse 1.2s ease-in-out infinite; }
+@keyframes svb-pulse { 50% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { #sv-board .svb-mark.busy::before { animation: none; } }

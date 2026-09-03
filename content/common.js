@@ -2384,7 +2384,7 @@
     // subtitles: every chunk in order with its translation, the playing one
     // highlighted and followed, the explained ones marked; the open chunk
     // shows its Translation · Grammar · Words and the actions row.
-    const board = { el: null, list: [], ki: -1, open: -1, sig: "", at: 0, collapsed: false, userScrollAt: 0, linesOff: false, loop: -1, stopAt: null, rate: 1, ctx: null, dossier: null, dossierAsked: false };
+    const board = { el: null, list: [], ki: -1, open: -1, sig: "", at: 0, collapsed: false, userScrollAt: 0, linesOff: false, loop: -1, stopAt: null, rate: 1, ctx: null, dossier: null, dossierAsked: false, pinnedAt: 0, paneSig: "" };
     // "language lesson · walk & talk" — what kind of video the model took this for.
     const ctxLine = (cx) => cx && cx.kind ? [cx.kind, cx.about].filter(Boolean).join(" · ").slice(0, 90) : "";
     const setCtx = (cx) => { if (!cx || !cx.kind) return; board.ctx = cx; const el = board.el && board.el.querySelector(".svb-ctx"); if (el) { el.textContent = ctxLine(cx); el.title = [cx.kind, cx.about, cx.register ? "Register: " + cx.register : "", cx.speakers ? "Speakers: " + cx.speakers : ""].filter(Boolean).join("\n"); } };
@@ -2482,6 +2482,9 @@
       // the reader back while they scroll.
       for (const evn of ["wheel", "touchstart", "pointerdown"]) listEl.addEventListener(evn, () => { board.userScrollAt = performance.now(); }, { passive: true });
       b.appendChild(listEl);
+      // The tips of ONE chunk, in a fixed place under the list — the rows stay short.
+      const pane = mk("div", "svb-pane"); pane.appendChild(mk("div", "svb-ph")); pane.appendChild(mk("div", "svb-pb")); b.appendChild(pane);
+      for (const evn of ["wheel", "touchstart", "pointerdown"]) pane.addEventListener(evn, () => { board.userScrollAt = performance.now(); }, { passive: true });
       if (host) host.insertBefore(b, host.firstChild); else document.body.appendChild(b);
       board.el = b;
       applyLinesOff(); seedExplained(); askDossier();
@@ -2494,7 +2497,7 @@
     const setRate = (r) => { const v = liveVideoEl(video) || video; try { if (adapter && adapter.setRate) adapter.setRate(r); else v.playbackRate = r; } catch (e) {} };
     // Play from a time; with an end time the video pauses there (hear ONE sentence).
     const playFrom = (ms, stopMs) => { board.stopAt = stopMs != null ? stopMs : null; if (stopMs != null) board.loop = -1; seekTo(ms); if (board.rate && board.rate !== 1) setRate(board.rate); playNow(); };
-    const rowSig = (ch, k) => [ch.text, ch.sentences.map((x) => x.tr).join("\u0002"), lineExplainCache.has(ch.text) ? 1 : 0, k === board.open ? 1 : 0, k === board.ki ? 1 : 0, k === board.open ? snapChunks : 0, board.loop === k ? 1 : 0].join("\u0001");
+    const rowSig = (ch, k) => [ch.text, ch.sentences.map((x) => x.tr).join("\u0002"), lineExplainCache.has(ch.text) ? 1 : 0, k === board.open ? 1 : 0, k === board.ki ? 1 : 0, k === board.open ? snapChunks : 0, board.loop === k ? 1 : 0, (lineExplainCache.get(ch.text) || {}).scene || "", ((lineExplainCache.get(ch.text) || {}).who || []).join("|"), tips.k === k ? 1 : 0].join("\u0001");
     const boardRow = (ch, k) => {
       const on = k === board.ki;
       const row = mk("div", "svb-chunk" + (on ? " on" : "") + (k === board.open ? " open" : "")); row.dataset.k = String(k); row.dataset.sig = rowSig(ch, k);
@@ -2512,12 +2515,17 @@
         if (x.tr) { const tr = mk("div", "svb-tr", x.tr); tr.dir = dirOf(tgCode()); main.appendChild(tr); }
       });
       const aside = mk("div", "svb-aside"); // the third column: ✓ tips or Explain — never over the text
-      if (k === board.open) {
-        main.appendChild(buildTips(ex, ch));
-        main.appendChild(buildActions({ list: board.list, k0: k, n: snapChunks, setN: (m) => { snapChunks = m; board.sig = ""; boardTick(true); }, anchor: () => els.__orig }));
-      } else if (ex && !ex.error) aside.appendChild(mk("i", "svb-mark", "✓ tips"));
-      else if (on) { const b = mk("button", "svb-explain", "Explain"); b.type = "button"; b.addEventListener("click", (ev) => { ev.stopPropagation(); boardFocus(k, false); }); aside.appendChild(b); }
-      row.addEventListener("click", (ev) => { if (ev.target && ev.target.closest && ev.target.closest("button, select, .wt-body")) return; if (board.open === k) { board.open = -1; board.sig = ""; boardTick(true); } else boardFocus(k, false); });
+      if (ex && !ex.error && (ex.scene || (ex.who && ex.who.length))) { // one line about the scene, and who is in it
+        const sc = mk("div", "svb-scene");
+        if (ex.scene) { const t = mk("span", "svb-scene-txt", ex.scene); t.dir = explainDir(ex); sc.appendChild(t); }
+        for (const f of SV_DOSSIER.whoFaces(ex.who, board.dossier && board.dossier.people)) { const chip = mk("span", "svb-who"); const av = mk("i", null, f.person && f.person.photo ? "" : SV_DOSSIER.initials((f.person && f.person.character) || f.label)); if (f.person && f.person.photo) av.style.backgroundImage = "url(" + f.person.photo + ")"; chip.append(av, document.createTextNode((f.person && f.person.character) || f.label)); chip.title = f.person ? (f.person.character || f.person.name) + (f.person.name && f.person.character ? " — " + f.person.name : "") : f.label; sc.appendChild(chip); }
+        main.appendChild(sc);
+      }
+      if (ex && !ex.error) aside.appendChild(mk("i", "svb-mark", k === board.open ? "▸ tips" : "✓ tips"));
+      else if (tips.k === k) aside.appendChild(mk("i", "svb-mark busy", "explaining"));
+      else if (on) { const b = mk("button", "svb-explain", "Explain"); b.type = "button"; b.addEventListener("click", (ev) => { ev.stopPropagation(); boardFocus(k, false, true); }); aside.appendChild(b); }
+      // A click pins the pane to this row; a second click hands it back to the playhead.
+      row.addEventListener("click", (ev) => { if (ev.target && ev.target.closest && ev.target.closest("button, select, .wt-body")) return; if (board.open === k && board.pinnedAt) { board.pinnedAt = 0; board.sig = ""; boardTick(true); } else boardFocus(k, false, true); });
       row.append(time, main, aside);
       return row;
     };
@@ -2572,11 +2580,30 @@
         if (cur) listEl.replaceChild(fresh, cur); else listEl.appendChild(fresh);
       });
       while (listEl.children.length > board.list.length) listEl.removeChild(listEl.lastChild);
+      renderPane();
+    };
+    // The tips pane: the open chunk's tips in one fixed place — it follows the
+    // playhead unless the reader pinned a row (click), and "following ▸" hands it back.
+    const renderPane = () => {
+      const b = board.el; if (!b) return;
+      const pane = b.querySelector(".svb-pane"), head = pane.querySelector(".svb-ph"), body = pane.querySelector(".svb-pb");
+      const k = board.open, ch = board.list[k]; const ex = ch ? lineExplainCache.get(ch.text) : null;
+      const sig = [k, ch ? ch.text : "", ex ? 1 : 0, ex && ex.error ? ex.error : "", snapChunks, tipsExplain, board.loop, board.pinnedAt ? 1 : 0, tips.k === k ? 1 : 0].join("\u0001");
+      if (sig === board.paneSig) return; board.paneSig = sig;
+      head.textContent = ""; body.textContent = "";
+      if (!ch) { head.appendChild(mk("b", null, "Tips")); body.appendChild(mk("div", "wt-val svb-empty", "The tips of the playing chunk appear here.")); return; }
+      head.appendChild(mk("b", null, "Tips · " + fmtT(ch.startMs) + " · chunk " + (k + 1) + " / " + board.list.length));
+      const fol = mk("button", "svb-follow" + (board.pinnedAt ? "" : " on"), board.pinnedAt ? "follow ▸" : "following ▸"); fol.type = "button"; fol.title = board.pinnedAt ? "Back to the playing chunk" : "The pane follows the video";
+      fol.addEventListener("click", (ev) => { ev.stopPropagation(); board.pinnedAt = 0; board.open = board.ki; board.sig = ""; boardTick(true); }); head.appendChild(fol);
+      if (!ex) { body.appendChild(mk("div", "wt-val svb-empty", tips.k === k ? "Explaining…" : "Not explained yet.")); if (tips.k !== k) { const b2 = mk("button", "svb-explain", "Explain"); b2.type = "button"; b2.addEventListener("click", () => boardFocus(k, false)); body.appendChild(b2); } return; }
+      body.appendChild(buildTips(ex, ch));
+      body.appendChild(buildActions({ list: board.list, k0: k, n: snapChunks, setN: (m) => { snapChunks = m; board.sig = ""; boardTick(true); }, anchor: () => els.__orig }));
     };
     // Open a chunk on the board: explain it (cached), show its tips, follow it.
-    const boardFocus = (k, flash) => {
+    const boardFocus = (k, flash, pin) => {
       const list = board.list.length ? board.list : chunksNow(); board.list = list;
       const ch = list[k]; if (!ch) return;
+      if (pin) board.pinnedAt = performance.now(); // a reader's click holds the pane here
       board.open = k; board.sig = ""; boardTick(true); boardScrollTo(k, true);
       if (flash) { const row = board.el && board.el.querySelector('.svb-chunk[data-k="' + k + '"]'); if (row) { row.classList.add("flash"); setTimeout(() => row.classList.remove("flash"), 1200); } }
       if (!lineExplainCache.get(ch.text)) explainChunk(ch, list).then(() => { board.sig = ""; boardTick(true); });
@@ -2596,13 +2623,14 @@
       const list = chunksNow();
       const ki = curCue ? chunkOfCue(list, curCue) : -1;
       if (boardVisible()) tipsPump(list, ki); // the next chunks are explained before the playhead reaches them
-      // Tips at the start of each chunk: when the playing chunk changes and it
-      // is already explained, it opens by itself.
-      if (ki !== board.ki && ki >= 0 && lineExplainCache.get(list[ki].text)) board.open = ki;
+      // Tips at the start of each chunk: the pane opens the playing chunk by
+      // itself (it shows "Explaining…" until the pump delivers) — unless a
+      // row was pinned by a click in the last 20 s.
+      if (ki >= 0 && ki !== board.ki && (!board.pinnedAt || now - board.pinnedAt > 20000)) { board.open = ki; board.pinnedAt = 0; }
       const trN = list.reduce((n, ch) => n + ch.sentences.filter((x) => x.tr).length, 0);
       const exN = list.filter((ch) => lineExplainCache.has(ch.text)).length;
       const sig = [list.length, trN, ki, exN, board.open, snapChunks, tipsExplain, tips.inflight ? 1 : 0, tips.stopped ? 1 : 0, tips.all ? 1 : 0].join(":");
-      if (sig === board.sig) return;
+      if (sig === board.sig) { renderPane(); return; }
       const follow = ki !== board.ki;
       board.sig = sig; board.list = list; board.ki = ki;
       // A small state stamp for diagnosis from the page (the script's variables are not reachable there).
