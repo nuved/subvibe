@@ -2657,7 +2657,9 @@
       if (d && (d.synopsis || d.description)) { const sy = mk("div", "svs-syn", d.synopsis || d.description); sy.title = d.synopsis || d.description; idb.appendChild(sy); }
       ident.appendChild(idb);
       const now = s.querySelector(".svs-now"); now.textContent = "";
-      const scene = mk("div", "svs-scene", ex && ex.scene ? ex.scene : ex ? "" : ch && tips.k === board.ki ? "Explaining this chunk…" : ""); if (ex) scene.dir = explainDir(ex); now.appendChild(scene);
+      // The pill is a state, never an empty grey box: the scene when there is one, what the strip is waiting for (muted) when there is not, and no pill at all once a chunk is explained and has no scene.
+      const scene = ex && ex.scene ? mk("div", "svs-scene", ex.scene) : ch && tips.k === board.ki ? mk("div", "svs-scene muted", "Explaining this chunk…") : ex ? null : mk("div", "svs-scene muted", st.state === "stopped" ? "Tips paused — see the right" : "Tips follow the video as it plays");
+      if (scene) { if (ex && ex.scene) scene.dir = explainDir(ex); now.appendChild(scene); }
       const faces = mk("div", "svs-faces"); const who = ex ? SV_DOSSIER.whoFaces(ex.who, d && d.people) : [];
       who.forEach((f, i) => faces.appendChild(face(f.person, f.label, true, i === 0))); now.appendChild(faces);
       const cast = s.querySelector(".svs-cast"); cast.textContent = "";
