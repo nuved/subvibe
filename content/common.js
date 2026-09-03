@@ -2294,20 +2294,29 @@
         if (x.tr) { const tr = mk("div", "svb-tr", x.tr); tr.dir = "auto"; main.appendChild(tr); }
       });
       const ex = lineExplainCache.get(ch.text);
+      const aside = mk("div", "svb-aside"); // the third column: ✓ tips or Explain — never over the text
       if (k === board.open) {
         main.appendChild(buildTips(ex, ch));
         main.appendChild(buildActions({ list: board.list, k0: k, n: snapChunks, setN: (m) => { snapChunks = m; board.sig = ""; boardTick(true); }, anchor: () => els.__orig }));
-      } else if (ex && !ex.error) row.appendChild(mk("i", "svb-mark", "✓ tips"));
-      else if (on) { const b = mk("button", "svb-explain", "Explain"); b.type = "button"; b.addEventListener("click", (ev) => { ev.stopPropagation(); boardFocus(k, false); }); row.appendChild(b); }
+      } else if (ex && !ex.error) aside.appendChild(mk("i", "svb-mark", "✓ tips"));
+      else if (on) { const b = mk("button", "svb-explain", "Explain"); b.type = "button"; b.addEventListener("click", (ev) => { ev.stopPropagation(); boardFocus(k, false); }); aside.appendChild(b); }
       row.addEventListener("click", (ev) => { if (ev.target && ev.target.closest && ev.target.closest("button, select, .wt-body")) return; if (board.open === k) { board.open = -1; board.sig = ""; boardTick(true); } else boardFocus(k, false); });
-      row.append(time, main);
+      row.append(time, main, aside);
       return row;
     };
-    // Karaoke on the board: sweep the playing chunk's words (called every frame).
+    // Karaoke on the board (every frame): spoken words turn coral, the word
+    // being spoken sits on a warm pill, its sentence is the one in focus.
     const boardSung = (t) => {
       if (!board.el || board.collapsed || board.ki < 0) return;
       const row = board.el.querySelector(".svb-chunk.on"); if (!row) return;
-      for (const el of row.querySelectorAll(".svb-txt")) if (el.__svW) updateSung(el, t);
+      let live = null;
+      for (const el of row.querySelectorAll(".svb-txt")) {
+        const W = el.__svW; if (!W) continue;
+        let k = 0; while (k < W.units.length && W.units[k].s <= t) k++;
+        if (k !== W.k) { for (let j = 0; j < W.spans.length; j++) { W.spans[j].classList.toggle("sung", j < k); W.spans[j].classList.toggle("now", j === k - 1); } W.k = k; }
+        if (k > 0 && k < W.units.length) live = el; else if (k > 0 && !live) live = el;
+      }
+      for (const s of row.querySelectorAll(".svb-sent")) s.classList.toggle("live", !!live && s.contains(live));
     };
     const boardScrollTo = (k, smooth) => {
       const listEl = board.el && board.el.querySelector(".svb-list"); const row = listEl && listEl.querySelector('.svb-chunk[data-k="' + k + '"]');
