@@ -360,9 +360,10 @@
   const TOKPOS = new Set(["n", "v", "adj", "adv", "prep", "conj", "pron", "art", "num", "int", "part", "aux"]); // per-word "character" codes
   const LEVELS = new Set(["A1", "A2", "B1", "B2", "C1", "C2"]);
   // A note as the card shows it: what, part of speech, level, forms, why.
+  const cleanForms = (v) => { const t = String(v || "").trim(); return /^[\s\-–—·.,_/]*$/.test(t) || /^(none|n\/a|na|no forms?)$/i.test(t) ? "" : t; };
   function cleanNote(nt, k) {
     return { n: Number.isInteger(nt && nt.n) ? nt.n : k + 1, term: normText(nt && nt.term), text: normText(nt && nt.text),
-      pos: POS.has(String(nt && nt.pos || "").toLowerCase()) ? String(nt.pos).toLowerCase() : "", level: LEVELS.has(String(nt && nt.level || "").toUpperCase()) ? String(nt.level).toUpperCase() : "", forms: normText(nt && nt.forms) };
+      pos: POS.has(String(nt && nt.pos || "").toLowerCase()) ? String(nt.pos).toLowerCase() : "", level: LEVELS.has(String(nt && nt.level || "").toUpperCase()) ? String(nt.level).toUpperCase() : "", forms: cleanForms(normText(nt && nt.forms)) };
   }
   // Model output → card data. Version 2: the tips (grammar points, the simpler
   // version, the numbered notes) belong to the BLOCK — a chunk, a passage of a

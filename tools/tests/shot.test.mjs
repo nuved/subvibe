@@ -432,3 +432,10 @@ test("gender marks exist only for languages that have grammatical gender; the le
   assert.equal(S.isGendered("en"), false); assert.equal(S.isGendered("fa"), false); assert.equal(S.isGendered("de-DE"), true); assert.equal(S.isGendered("fr"), true);
   assert.equal(S.articleFor("de", "f"), "die"); assert.equal(S.articleFor("fr", "m"), "le"); assert.equal(S.articleFor("es", "n"), ""); assert.equal(S.articleFor("en", "f"), "");
 });
+
+test("buildStudy: a dash-only or 'none' forms field is no form", () => {
+  const input = { blocks: [{ b: "b0", sentences: [{ i: 0, text: "I go.", meaning: "می‌روم." }] }] };
+  const out = { blocks: [{ b: "b0", grammar: "", simple: "", notes: [{ n: 1, term: "go", pos: "verb", level: "A1", forms: "–", text: "present" }, { n: 2, term: "I", pos: "pronoun", level: "A1", forms: "none", text: "subject" }, { n: 3, term: "go", pos: "verb", level: "A1", forms: "go · went · gone · irregular", text: "x" }], sentences: [{ i: 0, tokens: [] }] }] };
+  const notes = S.buildStudy(input, out, "en")[0].notes;
+  assert.deepEqual(notes.map((x) => x.forms), ["", "", "go · went · gone · irregular"]);
+});
