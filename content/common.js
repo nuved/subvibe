@@ -850,7 +850,7 @@
     if (window.__svDub) try { window.__svDub.detach(); } catch {}
     const el = document.getElementById("copilot-subs");
     if (el) el.remove();
-    { const b = document.getElementById("sv-board"); if (b) b.remove(); }
+    { const b = document.getElementById("sv-board"); if (b) b.remove(); for (const el of document.querySelectorAll("[data-sv-fit]")) { el.style.right = el.dataset.svFitRight || ""; el.style.width = el.dataset.svFitWidth || ""; delete el.dataset.svFit; } }
   }
 
   // ─── track engine (YouTube) ──────────────────────────────────────────────────
@@ -2320,6 +2320,31 @@
     const setCtx = (cx) => { if (!cx || !cx.kind) return; board.ctx = cx; const el = board.el && board.el.querySelector(".svb-ctx"); if (el) { el.textContent = ctxLine(cx); el.title = [cx.kind, cx.about, cx.register ? "Register: " + cx.register : "", cx.speakers ? "Speakers: " + cx.speakers : ""].filter(Boolean).join("\n"); } };
     try { board.collapsed = localStorage.getItem("sv-board-collapsed") === "1"; board.linesOff = localStorage.getItem("sv-lines-off") === "1"; } catch (e) {}
     const boardVisible = () => !!(board.el && board.el.isConnected && !board.collapsed && !document.fullscreenElement && board.el.getClientRects().length > 0);
+    // Drawer mode: the picture makes room instead of hiding behind the drawer.
+    // The player's outermost viewport-sized box (Netflix: .watch-video) gets a
+    // right inset equal to the drawer's width; the video letterboxes inside it.
+    const fit = { el: null, prev: null, on: false };
+    const playerBox = () => {
+      const v = liveVideoEl(video) || video; if (!v) return null;
+      let el = v, best = null;
+      for (let i = 0; i < 12 && el && el !== document.body; i++, el = el.parentElement) {
+        const cs = getComputedStyle(el); const r = el.getBoundingClientRect();
+        if ((cs.position === "absolute" || cs.position === "fixed") && r.width >= innerWidth * 0.9) best = el;
+      }
+      return best;
+    };
+    const fitPlayer = (on) => {
+      const w = board.el && board.el.classList.contains("drawer") ? Math.round(board.el.getBoundingClientRect().width) : 0;
+      if (on && w > 0) {
+        const el = playerBox(); if (!el) return;
+        if (fit.el !== el) { fitPlayer(false); fit.el = el; fit.prev = { right: el.style.right, width: el.style.width, transition: el.style.transition }; }
+        if (!el.dataset.svFit) { el.dataset.svFit = "1"; el.dataset.svFitRight = fit.prev.right || ""; el.dataset.svFitWidth = fit.prev.width || ""; }
+        el.style.transition = "right .2s ease"; el.style.right = w + "px"; el.style.width = "auto"; fit.on = true;
+      } else if (fit.el) {
+        try { fit.el.style.right = fit.prev.right; fit.el.style.width = fit.prev.width; fit.el.style.transition = fit.prev.transition; delete fit.el.dataset.svFit; } catch (e) {}
+        fit.el = null; fit.prev = null; fit.on = false;
+      }
+    };
     const setBoardCollapsed = (v) => {
       board.collapsed = !!v; try { localStorage.setItem("sv-board-collapsed", board.collapsed ? "1" : ""); } catch (e) {}
       if (board.el) { board.el.classList.toggle("collapsed", board.collapsed); const t = board.el.querySelector(".svb-toggle"); if (t) t.textContent = board.collapsed ? "Show" : "Hide"; }
@@ -2341,7 +2366,7 @@
       const b = mk("div", "sv-board" + (board.collapsed ? " collapsed" : "") + (drawer ? " drawer" : "")); b.id = "sv-board"; b.dir = "auto";
       const head = mk("div", "svb-head");
       const toggle = mk("button", "svb-toggle", board.collapsed ? "Show" : "Hide"); toggle.type = "button";
-      toggle.addEventListener("click", () => { setBoardCollapsed(!board.collapsed); applyLinesOff(); });
+      toggle.addEventListener("click", () => { setBoardCollapsed(!board.collapsed); applyLinesOff(); if (b.classList.contains("drawer")) fitPlayer(!board.collapsed && !document.fullscreenElement); });
       const title = mk("span", "svb-title"); title.appendChild(mk("b", null, "Story board")); title.appendChild(mk("i", "svb-ctx", board.ctx ? ctxLine(board.ctx) : ""));
       head.append(mk("span", "svb-logo", "S"), title, mk("span", "svb-count", ""), toggle);
       const tools = mk("div", "svb-tools");
@@ -2465,6 +2490,7 @@
       board.at = now;
       const b = ensureBoard(); if (!b) return;
       b.classList.toggle("fs", !!document.fullscreenElement); // a drawer never sits over a fullscreen picture
+      if (b.classList.contains("drawer")) fitPlayer(!board.collapsed && !document.fullscreenElement); // the picture makes room (re-applied if the player re-renders)
       if (board.collapsed) return;
       const list = chunksNow();
       const ki = curCue ? chunkOfCue(list, curCue) : -1;
@@ -2954,7 +2980,7 @@
     audioCues = null;
     const el = document.getElementById("copilot-subs");
     if (el) el.remove();
-    { const b = document.getElementById("sv-board"); if (b) b.remove(); }
+    { const b = document.getElementById("sv-board"); if (b) b.remove(); for (const el of document.querySelectorAll("[data-sv-fit]")) { el.style.right = el.dataset.svFitRight || ""; el.style.width = el.dataset.svFitWidth || ""; delete el.dataset.svFit; } }
     currentRunKey = null;
     schedule(); // resume caption scraping if the page has its own captions
   }
