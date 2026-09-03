@@ -2415,7 +2415,7 @@
     // subtitles: every chunk in order with its translation, the playing one
     // highlighted and followed, the explained ones marked; the open chunk
     // shows its Translation · Grammar · Words and the actions row.
-    const board = { el: null, list: [], ki: -1, open: -1, sig: "", at: 0, collapsed: false, userScrollAt: 0, linesOff: false, loop: -1, stopAt: null, rate: 1, ctx: null, dossier: null, dossierAsked: false, dossierInFlight: false, dossierTries: 0, dossierRetryAt: 0, pinnedAt: 0, paneSig: "", stripHidden: false, stripSig: "" };
+    const board = { el: null, list: [], ki: -1, open: -1, sig: "", at: 0, collapsed: false, userScrollAt: 0, linesOff: false, loop: -1, stopAt: null, rate: 1, ctx: null, lastScene: null, dossier: null, dossierAsked: false, dossierInFlight: false, dossierTries: 0, dossierRetryAt: 0, pinnedAt: 0, paneSig: "", stripHidden: false, stripSig: "" };
     // "language lesson · walk & talk" — what kind of video the model took this for.
     const ctxLine = (cx) => cx && cx.kind ? [cx.kind, cx.about].filter(Boolean).join(" · ").slice(0, 90) : "";
     const setCtx = (cx) => { if (!cx || !cx.kind) return; board.ctx = cx; const el = board.el && board.el.querySelector(".svb-ctx"); if (el) { el.textContent = ctxLine(cx); el.title = [cx.kind, cx.about, cx.register ? "Register: " + cx.register : "", cx.speakers ? "Speakers: " + cx.speakers : ""].filter(Boolean).join("\n"); } };
@@ -2683,11 +2683,19 @@
         ident.appendChild(idb);
       });
       const who = ex ? SV_DOSSIER.whoFaces(ex.who, d && d.people) : [];
-      part("svs-now", [ch ? ch.text : "", ex ? (ex.scene || "") + (ex.who || []).join("|") : "", busyHere(ch) ? 1 : 0, st.state, d ? d.at : 0].join("\u0001"), (now) => {
-        // The pill is a state, never an empty grey box: the scene when there is one, what the strip is waiting for (muted) when there is not, and no pill at all once a chunk is explained and has no scene.
-        const scene = ex && ex.scene ? mk("div", "svs-scene", ex.scene) : busyHere(ch) ? mk("div", "svs-scene muted", "Explaining this chunk…") : ex ? null : mk("div", "svs-scene muted", st.state === "stopped" || st.state === "paused" ? "Tips paused — see the right" : "Tips follow the video as it plays");
-        if (scene) { if (ex && ex.scene) scene.dir = explainDir(ex); now.appendChild(scene); }
-        const faces = mk("div", "svs-faces"); who.forEach((f, i) => faces.appendChild(face(f.person, f.label, true, i === 0))); now.appendChild(faces);
+      // The Now box never goes blank between chunks: the last scene stays, dimmed, until the next one arrives.
+      if (ex && ex.scene) board.lastScene = { scene: ex.scene, who: ex.who || [], ex };
+      const last = ex && ex.scene ? null : board.lastScene;
+      part("svs-now", [ch ? ch.text : "", ex ? (ex.scene || "") + (ex.who || []).join("|") : "", busyHere(ch) ? 1 : 0, st.state, d ? d.at : 0, last ? last.scene : ""].join("\u0001"), (now) => {
+        if (ex && ex.scene) { const scene = mk("div", "svs-scene", ex.scene); scene.dir = explainDir(ex); now.appendChild(scene); }
+        else {
+          const waiting = busyHere(ch) ? "explaining this chunk…" : st.state === "stopped" || st.state === "paused" ? "tips paused — see the right" : ex ? "" : "tips follow the video as it plays";
+          if (last) { now.appendChild(mk("div", "svs-lbl", "Earlier" + (waiting ? " · " + waiting : ""))); const scene = mk("div", "svs-scene faded", last.scene); scene.dir = explainDir(last.ex); now.appendChild(scene); }
+          else if (waiting) now.appendChild(mk("div", "svs-scene muted", waiting[0].toUpperCase() + waiting.slice(1)));
+        }
+        const faces = mk("div", "svs-faces" + (ex && ex.scene ? "" : " faded"));
+        const list2 = ex && ex.scene ? who : last ? SV_DOSSIER.whoFaces(last.who, d && d.people) : [];
+        list2.forEach((f, i) => faces.appendChild(face(f.person, f.label, true, i === 0 && !!(ex && ex.scene)))); now.appendChild(faces);
       });
       const people = (d && d.people) || []; const shown = new Set(who.map((f) => f.person).filter(Boolean));
       part("svs-cast", [d ? d.at : 0, people.length, [...shown].map((p) => p.name).join("|")].join("\u0001"), (cast) => {
@@ -2733,8 +2741,17 @@
     // Called every frame from tick; does real work at most every 600 ms and
     // re-renders only when something changed (a new line, a translation, the
     // playing chunk, an explanation).
+    // Once a second: the overlay must sit in the LIVE player container (Netflix swaps it on
+    // an episode change) and every dragged line's edge correction is recomputed against the
+    // real box — a correction computed during the swap's animation parked lines top-left.
+    let healAt = 0;
+    const healOverlay = (now) => {
+      if (now - healAt < 1000) return; healAt = now;
+      try { const o = ensureOverlay(); if (o.classList.contains("copilot-pos-custom")) for (const ln of o.querySelectorAll(".copilot-subs__line")) keepLineInside(ln); } catch (e) {}
+    };
     const boardTick = (force) => {
       const now = performance.now();
+      healOverlay(now);
       if (!force && now - board.at < 600) return;
       board.at = now;
       const b = ensureBoard(); if (!b) return;
