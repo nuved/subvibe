@@ -484,9 +484,11 @@
 #sv-board .svb-dead { padding: 8px 12px; background: #FBEAE6; color: #A93521; font: 600 12px/1.4 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; border-bottom: 1px solid #F3D4CD; }
 
 /* ── Split drawer: compact rows over a tips pane that follows the playhead ── */
-#sv-board.drawer .svb-list { flex: 1 1 54%; min-height: 120px; }
+/* Growth factors, not a % basis: a percentage basis resolves against the whole board
+   (head and tools included), which turned the intended 54/46 into 47/53. */
+#sv-board.drawer .svb-list { flex: 54 1 0; min-height: 120px; }
 #sv-board .svb-pane { display: flex; flex-direction: column; min-height: 0; border-top: 2px solid #C93F2B; background: #fff; }
-#sv-board.drawer .svb-pane { flex: 0 0 46%; }
+#sv-board.drawer .svb-pane { flex: 46 1 0; min-height: 0; }
 #sv-board:not(.drawer) .svb-pane { max-height: min(40vh, 420px); }
 #sv-board:not(.drawer) .svb-list { max-height: min(44vh, 460px); }
 #sv-board.collapsed .svb-pane { display: none; }

@@ -2048,7 +2048,11 @@
     // Read live — a change must not restart the engine, only wake the pump.
     let tipsAhead = "3";
     try { chrome.storage.local.get("tipsAhead", (r) => { tipsAhead = String((r && r.tipsAhead) || "3"); }); } catch (e) {}
-    try { chrome.storage.onChanged.addListener((ch, area) => { if (area === "local" && ch.tipsAhead) { tipsAhead = String(ch.tipsAhead.newValue || "3"); tips.stopped = false; tips.errors = 0; tips.pausedUntil = 0; board.sig = ""; } }); } catch (e) {}
+    // One listener per page: a restarted engine drops the old one first, or every restart leaves a dead closure listening.
+    const onTipsAhead = (ch, area) => { if (area === "local" && ch.tipsAhead) { tipsAhead = String(ch.tipsAhead.newValue || "3"); tips.stopped = false; tips.errors = 0; tips.pausedUntil = 0; board.sig = ""; } };
+    try { if (window.__svTipsAheadListener) chrome.storage.onChanged.removeListener(window.__svTipsAheadListener); } catch (e) {}
+    window.__svTipsAheadListener = onTipsAhead;
+    try { chrome.storage.onChanged.addListener(onTipsAhead); } catch (e) {}
     const explainPayload = (ch, list) => ({ type: "VOCAB_EXPLAIN", base, s: ch.text, lang: vocabPoolLang, title: document.title, explain: tipsExplain, k: ch.k, n: list.length,
       before: list[ch.k - 1] ? [list[ch.k - 1].text] : [], after: list[ch.k + 1] ? [list[ch.k + 1].text] : [],
       // The background only needs the lines while the dossier is unknown or thin —
@@ -2551,7 +2555,8 @@
       else if (tips.k === k) aside.appendChild(mk("i", "svb-mark busy", "explaining"));
       else if (on) { const b = mk("button", "svb-explain", "Explain"); b.type = "button"; b.addEventListener("click", (ev) => { ev.stopPropagation(); boardFocus(k, false, true); }); aside.appendChild(b); }
       // A click pins the pane to this row; a second click hands it back to the playhead.
-      row.addEventListener("click", (ev) => { if (ev.target && ev.target.closest && ev.target.closest("button, select, .wt-body")) return; if (board.open === k && board.pinnedAt) { board.pinnedAt = 0; board.sig = ""; boardTick(true); } else boardFocus(k, false, true); });
+      // A second click unpins — and jumps back to the playing chunk, so "following" never shows a chunk minutes away.
+      row.addEventListener("click", (ev) => { if (ev.target && ev.target.closest && ev.target.closest("button, select, .wt-body")) return; if (board.open === k && board.pinnedAt) { board.pinnedAt = 0; board.open = board.ki; board.sig = ""; boardTick(true); } else boardFocus(k, false, true); });
       row.append(time, main, aside);
       return row;
     };
@@ -2614,7 +2619,8 @@
       const b = board.el; if (!b) return;
       const pane = b.querySelector(".svb-pane"), head = pane.querySelector(".svb-ph"), body = pane.querySelector(".svb-pb");
       const k = board.open, ch = board.list[k]; const ex = ch ? lineExplainCache.get(ch.text) : null;
-      const sig = [k, ch ? ch.text : "", ex ? 1 : 0, ex && ex.error ? ex.error : "", snapChunks, tipsExplain, board.loop, board.pinnedAt ? 1 : 0, tips.k === k ? 1 : 0].join("\u0001");
+      // board.list.length is in the signature because the head prints "chunk k / n": a growing cue list must redraw the total.
+      const sig = [k, ch ? ch.text : "", ex ? 1 : 0, ex && ex.error ? ex.error : "", snapChunks, tipsExplain, board.loop, board.pinnedAt ? 1 : 0, tips.k === k ? 1 : 0, board.list.length].join("\u0001");
       if (sig === board.paneSig) return; board.paneSig = sig;
       head.textContent = ""; body.textContent = "";
       if (!ch) { head.appendChild(mk("b", null, "Tips")); body.appendChild(mk("div", "wt-val svb-empty", "The tips of the playing chunk appear here.")); return; }
