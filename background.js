@@ -1242,7 +1242,7 @@ async function shareTips(msg) {
   });
   const { targets } = await chrome.storage.local.get("targets");
   const id = "sh" + Date.now().toString(36);
-  const rec = { id, at: Date.now(), base, title: String(msg.title || "Video"), url: String(msg.url || ""), lang: String((cx && cx.lang) || msg.lang || ""), target: String((Array.isArray(targets) && targets[0]) || "en"), explain: pref, ctx: (cx && cx.ctx) || null, chunks, explained: chunks.filter((c) => c.tips).length };
+  const rec = { id, at: Date.now(), base, title: String(msg.title || "Video"), url: String(msg.url || ""), lang: String((cx && cx.lang) || msg.lang || ""), target: String((Array.isArray(targets) && targets[0]) || "en"), explain: pref, ctx: (cx && cx.ctx) || null, dossier: (cx && cx.dossier) || null, chunks, explained: chunks.filter((c) => c.tips).length };
   await idbVocabPut("share:" + id, rec);
   await chrome.tabs.create({ url: chrome.runtime.getURL("share.html?id=" + id) });
   return { ok: true, id, explained: rec.explained, chunks: chunks.length };
