@@ -511,7 +511,7 @@
 /* ── The scene strip under the picture (drawer players) ── */
 #sv-strip { position: fixed; left: 0; bottom: 0; height: 136px; z-index: 2147483000; background: #FAF6F0; color: #241F1A; border-top: 1px solid #EDE5DA; box-shadow: 0 -6px 24px rgba(0,0,0,.3); display: grid; grid-template-columns: 340px minmax(0,1fr) auto 240px; font: 12.5px/1.4 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; }
 #sv-strip * { box-sizing: border-box; }
-#sv-strip > div { position: relative; padding: 9px 14px; min-width: 0; overflow: hidden; border-right: 1px solid #EDE5DA; }
+#sv-strip > div { position: relative; padding: 9px 14px; min-width: 0; overflow: clip; border-right: 1px solid #EDE5DA; }
 #sv-strip > div:hover, #sv-strip > div:focus-within { overflow: visible; }
 #sv-strip .svs-id { min-width: 0; }
 /* The sheet: hovering a section opens its full content upward over the picture's bottom band — the strip itself stays small. A short hover intent keeps a mouse crossing the strip from flashing sheets. */
@@ -537,10 +537,13 @@
 #sv-strip .svs-now > .svs-scene { grid-column: 1; align-self: start; }
 #sv-strip .svs-now > .svs-faces { grid-column: 2; grid-row: 2; align-self: start; flex-wrap: nowrap; }
 #sv-strip .svs-now > .svs-more { grid-column: 1 / -1; }
-#sv-strip .svs-scene { font: 500 13.5px/1.4 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: #241F1A; background: #F3EDE4; border-radius: 6px; padding: 4px 9px; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+#sv-strip .svs-scene { font: 500 15px/1.4 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: #241F1A; background: transparent; border-radius: 0; padding: 0; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
 /* Waiting, not empty: the muted pill is a line of text, no box around it. */
 #sv-strip .svs-scene.muted { color: #786D60; background: transparent; padding-left: 0; font-style: italic; }
 #sv-strip .svs-scene.faded, #sv-strip .svs-faces.faded { opacity: .55; }
+#sv-strip .svs-now.svs-swap > * { animation: svs-fade .22s ease-out; }
+@keyframes svs-fade { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { #sv-strip .svs-now.svs-swap > * { animation: none; } }
 #sv-strip .svs-now .svs-lbl { margin-bottom: 2px; }
 #sv-strip .svs-faces { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
 #sv-strip .svs-face { display: grid; justify-items: center; gap: 3px; width: 78px; }

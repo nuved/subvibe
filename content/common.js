@@ -2667,7 +2667,7 @@
       const nm = (p && (p.character || p.name)) || label;
       const av = mk("i", null, p && p.photo ? "" : SV_DOSSIER.initials(nm)); if (p && p.photo) av.style.backgroundImage = "url(" + p.photo + ")"; else av.style.background = "hsl(" + nameHue(nm) + " 38% 50%)";
       f.appendChild(av); f.appendChild(mk("b", null, (p && (p.character || p.name)) || label));
-      if (big) f.appendChild(mk("small", null, p ? (p.character ? p.name : p.role || "") : "")); f.title = p ? [p.character, p.name, p.role].filter(Boolean).join(" — ") : label;
+      if (big) f.appendChild(mk("small", null, p ? (p.character ? p.name : p.role || "") : ""));
       return f;
     };
     const renderStrip = () => {
@@ -2692,12 +2692,11 @@
       if (ex && ex.scene) board.lastScene = { scene: ex.scene, who: ex.who || [], ex };
       const last = ex && ex.scene ? null : board.lastScene;
       part("svs-now", [ch ? ch.text : "", ex ? (ex.scene || "") + (ex.who || []).join("|") : "", busyHere(ch) ? 1 : 0, st.state, d ? d.at : 0, last ? last.scene : ""].join("\u0001"), (now) => {
-        if (ex && ex.scene) { const scene = mk("div", "svs-scene", ex.scene); scene.dir = explainDir(ex); now.appendChild(scene); }
-        else {
-          const waiting = busyHere(ch) ? "explaining this chunk…" : st.state === "stopped" || st.state === "paused" ? "tips paused — see the right" : ex ? "" : "tips follow the video as it plays";
-          if (last) { now.appendChild(mk("div", "svs-lbl", "Earlier" + (waiting ? " · " + waiting : ""))); const scene = mk("div", "svs-scene faded", last.scene); scene.dir = explainDir(last.ex); now.appendChild(scene); }
-          else if (waiting) now.appendChild(mk("div", "svs-scene muted", waiting[0].toUpperCase() + waiting.slice(1)));
-        }
+        const waiting = busyHere(ch) ? "explaining this chunk…" : st.state === "stopped" || st.state === "paused" ? "tips paused — see the right" : ex ? "" : "tips follow the video as it plays";
+        if (ex && ex.scene) { now.appendChild(mk("div", "svs-lbl", "Now · " + fmtT(ch.startMs))); const scene = mk("div", "svs-scene", ex.scene); scene.dir = explainDir(ex); now.appendChild(scene); }
+        else if (last) { now.appendChild(mk("div", "svs-lbl", "Earlier" + (waiting ? " · " + waiting : ""))); const scene = mk("div", "svs-scene faded", last.scene); scene.dir = explainDir(last.ex); now.appendChild(scene); }
+        else if (waiting) { now.appendChild(mk("div", "svs-lbl", "Now")); now.appendChild(mk("div", "svs-scene muted", waiting[0].toUpperCase() + waiting.slice(1))); }
+        now.classList.remove("svs-swap"); void now.offsetWidth; now.classList.add("svs-swap"); // one cross-fade per change
         const faces = mk("div", "svs-faces" + (ex && ex.scene ? "" : " faded"));
         const list2 = ex && ex.scene ? who : last ? SV_DOSSIER.whoFaces(last.who, d && d.people) : [];
         list2.forEach((f, i) => faces.appendChild(face(f.person, f.label, true, i === 0))); now.appendChild(faces);
