@@ -95,7 +95,7 @@
   // reloaded under this tab). Chrome wakes an idle worker for a message, so this
   // is not the idle case. Say what to do instead of "Translation failed".
   const isNoReceiver = (m) => /Receiving end does not exist|Could not establish connection/i.test(m || "");
-  const NO_RECEIVER = "SubVibe's background isn't running — reload the extension (brave://extensions → SubVibe → Reload), then refresh this tab.";
+  const NO_RECEIVER = "SubVibe's background isn't running — reload the extension (brave://extensions → SubVibe → Reload); if the browser just updated itself, relaunch it. Then refresh this tab.";
   function deadReply(m) {
     if (isOrphanError(m)) { contextDead = true; try { haltOrphaned(); } catch {} return { error: "SubVibe was reloaded — refresh the tab.", dead: true }; }
     if (isNoReceiver(m)) { contextDead = true; try { haltOrphaned(NO_RECEIVER); } catch {} return { error: NO_RECEIVER, dead: true }; }
