@@ -100,3 +100,24 @@ test("chunkCues: a speaker change (>>) starts a new chunk; stripSpeakerMarks cle
   assert.equal(C.stripSpeakerMarks(">> I don't think so."), "I don't think so.");
   assert.equal(C.stripSpeakerMarks("Yes. >> No. » Maybe."), "Yes. No. Maybe.");
 });
+
+// ── pickWholeFile: which re-sent subtitle file is this video's own ──
+const file = (n, lastStartMs) => Array.from({ length: n }, (_, i) => ({ startMs: Math.round((i / Math.max(1, n - 1)) * lastStartMs), endMs: 0, text: "l" + i }));
+
+test("pickWholeFile: a trailer's file is out, the episode's own file (reaching the video's end) wins", () => {
+  const trailer = { cues: file(40, 118000) }, episode = { cues: file(767, 2655000) };
+  const best = C.pickWholeFile([trailer, episode], 2660000);
+  assert.equal(best.cues.length, 767);
+  assert.equal(C.pickWholeFile([trailer], 2660000), null, "only the trailer sniffed yet → nothing adopted, ask again later");
+});
+
+test("pickWholeFile: a file running far past the video's end belongs to another video", () => {
+  assert.equal(C.pickWholeFile([{ cues: file(500, 5000000) }], 2660000), null);
+  assert.equal(C.pickWholeFile([{ cues: file(500, 2700000) }], 2660000).cues.length, 500, "credits-length slack (5 %) is fine");
+});
+
+test("pickWholeFile: unknown duration → the longest sane file; too few cues or absurd times never count", () => {
+  assert.equal(C.pickWholeFile([{ cues: file(40, 118000) }, { cues: file(300, 1500000) }], 0).cues.length, 300);
+  assert.equal(C.pickWholeFile([{ cues: file(2, 5000) }, { cues: file(9, 900) }, { cues: file(9, 30000000) }], 0), null);
+  assert.equal(C.pickWholeFile([], 100), null);
+});

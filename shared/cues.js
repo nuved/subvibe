@@ -99,5 +99,20 @@
     return out;
   }
   const chunkOf = (chunks, idx) => (chunks || []).findIndex((ch) => idx >= ch.from && idx <= ch.to);
-  g.SV_CUES = { rechunkTimed, isTimed, chunkCues, chunkOf, stripSpeakerMarks, SPEAKER_MARK };
+  // A subtitle FILE re-sent by the page world (after an in-app navigation, or when it landed before
+  // the engine listened): of the files sniffed lately, the one that is this video's own. A file is
+  // out when its cues stop before 40 % of the video (a preview's, a trailer's) or run past its end
+  // (another video's); of the rest the longest wins. Unknown duration → the longest sane file.
+  function pickWholeFile(cands, durMs) {
+    let best = null;
+    for (const c of cands || []) {
+      const cues = Array.isArray(c && c.cues) ? c.cues : []; if (cues.length < 3) continue;
+      const maxStart = cues.reduce((m, x) => Math.max(m, (x && x.startMs) || 0), 0);
+      if (!(maxStart > 1000 && maxStart < 21600000)) continue;
+      if (durMs > 0 && (maxStart > durMs * 1.05 || maxStart < durMs * 0.4)) continue;
+      if (!best || maxStart > best.maxStart) best = { cues, maxStart };
+    }
+    return best;
+  }
+  g.SV_CUES = { rechunkTimed, isTimed, chunkCues, chunkOf, stripSpeakerMarks, SPEAKER_MARK, pickWholeFile };
 })(globalThis);

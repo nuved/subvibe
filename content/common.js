@@ -642,9 +642,20 @@
   // storage — interpreted on read, never migrated.
   const SIZE_FACTORS = { sm: 0.024, md: 0.030, lg: 0.038, xl: 0.048 };
   let appearanceSize = "md";
+  // Once a second (with sizeOverlay): the overlay sits in the LIVE player container — Netflix
+  // swaps it on an episode change — and every row in Position "custom" has its spot. The board's
+  // own heal covers only cue-list mode; the scrape engine never re-parented or re-laid rows.
+  function healOverlayParent() {
+    const el = document.getElementById("copilot-subs");
+    if (!el || !adapter || !adapter.matches || !adapter.matches()) return;
+    const fs = document.fullscreenElement, parent = adapter.getPlayerContainer ? adapter.getPlayerContainer() : null;
+    if (parent && parent !== el.parentElement && !(fs && !fs.contains(parent))) parent.appendChild(el);
+    if (el.classList.contains("copilot-pos-custom") && [...el.querySelectorAll(".copilot-subs__line")].some((ln) => !ln.style.left)) layoutCustomLines(); // a row without its spot sits half off the top-left corner
+  }
   function sizeOverlay() {
     const el = document.getElementById("copilot-subs");
     if (!el) return;
+    healOverlayParent();
     const v = liveVideoEl(adapter && adapter.getVideoEl ? adapter.getVideoEl() : null);
     const h = (v && v.clientHeight) || el.clientHeight || 0;
     if (!h) return;
@@ -989,9 +1000,14 @@
       const row = document.createElement("div");
       row.className = "copilot-subs__line" + (d.target ? "" : " copilot-subs__line--orig");
       row.dataset.lang = d.key;
+      row.dataset.csKey = d.key; // the slot a dragged position is saved under (the cue-list rows carry it too)
       els[d.key] = row;
       stack.appendChild(row);
     }
+    // Position "custom": each row at its saved spot. applyAppearance ran before the rows existed,
+    // so without this they had no left/top and sat half off the top-left corner — the first thing
+    // seen after an in-app navigation on Netflix, until a refresh.
+    layoutCustomLines();
 
     // The whole stack follows one cue — the most recent one whose primary
     // target translation is ready — so the original and its translation stay
@@ -1323,12 +1339,17 @@
     dbgSub.hold = "";
     return readVideoCueList(video);
   }
-  function onInterceptedCues(list) {
+  function onInterceptedCues(list, whole) {
     if (!Array.isArray(list) || !list.length) return;
     // Cues arriving for a different clip than the one we're holding → start fresh,
     // never merge two clips' cues into one list.
     const id = currentClipId();
     if (interceptedClipId !== id) { interceptedCues = null; interceptedClipId = id; }
+    // Two whole FILES under one clip id (a preview's, then the episode's own — Netflix fetches the
+    // episode's while the URL still says /browse): the far longer one is this video's. Replace,
+    // never blend; a running cue-list engine is rebuilt on the new file.
+    let replaced = false;
+    if (whole && interceptedCues && interceptedCues.length) { const held = interceptedCues[interceptedCues.length - 1].startMs, mx = list.reduce((m, c) => Math.max(m, (c && c.startMs) || 0), 0); if (mx > held * 2 && mx > held + 60000) { interceptedCues = null; replaced = true; } }
     if (!interceptedCues) interceptedCues = [];
     const seen = new Set(interceptedCues.map((c) => c.startMs));
     let added = false;
@@ -1340,7 +1361,7 @@
     if (audioActive) return;
     // First cues flip the stream adapter from line-by-line scraping to perfect-
     // sync cue-list mode. Once that mode runs, its reread loop ingests more.
-    if (!cueListActive) { currentRunKey = null; schedule(); }
+    if (!cueListActive || replaced) { currentRunKey = null; schedule(); }
   }
 
   // Drop the current clip's intercepted subtitle file. Called on a clip/page
@@ -2012,8 +2033,9 @@
     // Translations and tips are laid out by their LANGUAGE, not by their first letter
     // (a Latin name at the start of a Persian line must not flip it left-to-right).
     const tgCode = () => vocabTg || (settings.targets && settings.targets[0]) || "";
-    const dirOf = (code) => (code ? (isRTLLang(code) ? "rtl" : "ltr") : "auto");
+    const dirOf = (code) => (code && code !== "xx" ? (isRTLLang(code) ? "rtl" : "ltr") : "auto");
     const explainDir = (ex) => dirOf(tipsExplain === "same" ? (ex && ex.lang) || vocabPoolLang : tgCode());
+    const recapLang = () => (tipsExplain === "same" ? vocabPoolLang : tgCode()); // the story so far and the cast notes read in the tips' language, like the scenes
     const chunksNow = () => {
       const units = sentenceUnits();
       const C = globalThis.SV_CUES;
@@ -2143,6 +2165,7 @@
     const tipsRetry = () => { tips.stopped = false; tips.errors = 0; tips.rounds = 0; tips.pausedUntil = 0; board.sig = ""; boardTick(true); };
     // A person is a name: "Ray (Raymond)" counts as Ray; "the police", "radio advertisement voice" are roles.
     const cleanName = (w) => String(w || "").replace(/\s*\(.*$/, "").trim();
+    const namedOnly = (ws) => (ws || []).filter((w) => /^\p{Lu}/u.test(cleanName(w))); // "the man on the phone" is a description, not a person to show a face for
     const isRole = (k) => !/^\p{Lu}/u.test(k) || /['\u2019]s?\s/.test(k) || /\b(voice|advert|announcer|narrator|officer|police|crowd|men|man|woman|guy|guys|people|cop|cops|dealer|driver|radio|tv)\b/i.test(k) || k.split(/\s+/).length > 3; // "Andrés's partner" is a role, not a person
     // Faces: character pictures from the franchise's wiki, asked in small batches, remembered per name.
     let facesTimer = 0; const facesQueue = new Set();
@@ -2167,14 +2190,18 @@
     const frameRect = () => { const v = liveVideoEl(video) || video; const r = v && v.getBoundingClientRect(); if (!r || r.width < 120 || r.height < 60) return null;
       // the box the picture really occupies (letterboxed inside the element): assume 16:9 inside the element's rect
       const ar = 16 / 9; let w = r.width, h = r.height; if (w / h > ar) { w = h * ar; } else { h = w / ar; } return { x: r.left + (r.width - w) / 2, y: r.top + (r.height - h) / 2, w, h }; };
-    const snapChunkFrame = (k) => {
-      if (cam.inflight || cam.asked.has(k) || document.visibilityState !== "visible" || !stripOn()) return;
+    // A soft first frame (a cut, a fade, motion blur under the chunk's first second) is shot again
+    // 1.6 s later, twice at most, while the chunk still plays; the background keeps the sharper one.
+    const SHARP_MIN = 250;
+    const snapChunkFrame = (k, retry) => {
+      if (cam.inflight || (!retry && cam.asked.has(k)) || document.visibilityState !== "visible" || !stripOn()) return;
       if (cam.needGrant && performance.now() - cam.grantAt < 20000) return;
       const ch = board.list[k]; if (!ch) return;
       const r = frameRect(); if (!r) return;
       cam.asked.add(k); cam.inflight = true; overlay.classList.add("sv-snap-hide");
-      setTimeout(() => send({ type: "SCENE_FRAME", base, k, ms: ch.startMs, dpr: devicePixelRatio, rect: r })
-        .then((res) => { if (res && res.ok && res.frame) { cam.frames.set(k, res.frame); if (cam.needGrant) { cam.needGrant = false; board.stripSig = ""; } board.stripSig = ""; }
+      setTimeout(() => send({ type: "SCENE_FRAME", base, k, ms: ch.startMs, dpr: devicePixelRatio, rect: r, retry: retry || 0 })
+        .then((res) => { if (res && res.ok && res.frame) { cam.frames.set(k, res.frame); if (cam.needGrant) { cam.needGrant = false; board.stripSig = ""; } board.stripSig = "";
+            if (!res.cached && typeof res.sharp === "number" && res.sharp < SHARP_MIN && (retry || 0) < 2) setTimeout(() => { if (board.ki === k) snapChunkFrame(k, (retry || 0) + 1); }, 1600); }
           else if (res && res.error === "not-visible") cam.asked.delete(k);
           else if (res && res.error === "grant") { cam.asked.delete(k); if (!cam.needGrant) { cam.needGrant = true; board.stripSig = ""; } cam.grantAt = performance.now(); } })
         .catch(() => {}).finally(() => { overlay.classList.remove("sv-snap-hide"); cam.inflight = false; }), 70);
@@ -2192,7 +2219,7 @@
       if (scenes.length < 2) return;
       const lines = list.slice(Math.max(0, bucket - 4), bucket + 1).flatMap((c) => c.sentences.map((x) => x.s));
       recap.inflight = true;
-      send({ type: "STORY_RECAP", base, k: bucket, scenes, lines, lang: vocabPoolLang, upTo: fmtT(list[bucket].startMs) })
+      send({ type: "STORY_RECAP", base, k: bucket, scenes, lines, lang: recapLang(), upTo: fmtT(list[bucket].startMs) })
         .then((r) => { recap.inflight = false; if (r && r.ok && r.recap) { recap.k = bucket; recap.text = r.recap; recap.who = r.who || []; for (const c of r.cast || []) recap.cast.set(cleanName(c.name), c); board.sig = ""; board.stripSig = ""; askFaces(recap.who); } else recap.pausedUntil = performance.now() + 60000; })
         .catch(() => { recap.inflight = false; recap.pausedUntil = performance.now() + 60000; });
     };
@@ -2203,9 +2230,9 @@
     // Used by the ﹖ card over the video and by the story board beside it.
     // Word classes: verbs (both parts of a separated verb in the same colour),
     // nouns, adjectives, adverbs, phrases — from the explanation's word list.
-    const POS_CLASS = { noun: "n", verb: "v", "phrasal verb": "v", adjective: "adj", adverb: "adv", idiom: "x", expression: "x", preposition: "prep", conjunction: "conj", pronoun: "pron" };
+    const POS_CLASS = { noun: "n", verb: "v", "phrasal verb": "v", "modal verb": "v", "auxiliary verb": "v", modal: "v", adjective: "adj", adverb: "adv", idiom: "x", expression: "x", phrase: "x", collocation: "x", saying: "x", proverb: "x", slang: "x", interjection: "x", preposition: "prep", conjunction: "conj", pronoun: "pron", determiner: "o", article: "o", contraction: "o", number: "o" };
     const POS_LABEL = { v: "verb", n: "noun", adj: "adjective", adv: "adverb", x: "phrase", prep: "preposition" };
-    const normTok = (w) => String(w || "").toLowerCase().replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+    const normTok = (w) => String(w || "").toLowerCase().replace(/[\u2018\u2019\u02BC`\u00B4]/g, "'").replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ""); // the row's WOULD’VE and the term's would've are one token
     // Colour the term's words inside one sentence: each part is matched in
     // order (a separated verb's prefix comes later in the sentence).
     // A term's tip, drawn inside the row (never the browser's grey box): its number, the term,
@@ -2235,7 +2262,7 @@
       if (!spans.length || !words || !words.length) return;
       const toks = spans.map((s) => normTok(s.textContent));
       for (const w of words) {
-        const cls = POS_CLASS[String(w.pos || "").toLowerCase()]; if (!cls) continue;
+        const cls = POS_CLASS[String(w.pos || "").toLowerCase()] || "o"; // a kind the map does not know (a modal, a determiner…) still gets its number — the Words list has it under that number
         const parts = (Array.isArray(w.parts) && w.parts.length ? w.parts : String(w.w || "").split(" ")).map(normTok).filter(Boolean);
         if (!parts.length) continue;
         let from = 0; const idxs = [];
@@ -2800,7 +2827,7 @@
       });
       // ── now: the scene and who is in it; the story so far when the chunk has no tips yet ──
       if (ex && ex.scene) board.lastScene = { scene: ex.scene, who: ex.who || [], ex };
-      const who = ex ? SV_DOSSIER.whoFaces(ex.who, d && d.people) : [];
+      const who = ex ? SV_DOSSIER.whoFaces(namedOnly(ex.who), d && d.people) : [];
       askFaces(who.map((f) => (f.person && (f.person.character || f.person.name)) || f.label));
       const useRecap = !(ex && ex.scene) && !!recap.text, last = ex && ex.scene ? null : useRecap ? null : board.lastScene;
       const waiting = busyHere(ch) ? "explaining this chunk…" : st.state === "stopped" || st.state === "paused" ? "tips paused — see the board" : ex ? "" : "tips follow the video as it plays";
@@ -2809,14 +2836,15 @@
       part("svs-now", [ch ? ch.text : "", ex ? (ex.scene || "") + (ex.who || []).join("|") : "", busyHere(ch) ? 1 : 0, st.state, d ? d.at : 0, useRecap ? recap.k + recap.text.slice(0, 40) : "", last ? last.scene : "", board.facesV, frameNow ? frameNow.length : 0, cam.needGrant ? 1 : 0].join("|"), (now) => {
         let facesList = [];
         if (ex && ex.scene) { now.appendChild(mk("div", "svs-lbl", "Now · " + fmtT(ch.startMs))); const sc = mk("div", "svs-scene", ex.scene); sc.dir = explainDir(ex); now.appendChild(sc); facesList = who; }
-        else if (useRecap) { now.appendChild(mk("div", "svs-lbl", "Story so far · to " + fmtT(list[recap.k] ? list[recap.k].startMs : 0) + (busyHere(ch) ? " · explaining this chunk…" : ""))); const sc = mk("div", "svs-scene recap", recap.text); sc.dir = dirOf(vocabPoolLang); now.appendChild(sc); facesList = SV_DOSSIER.whoFaces(recap.who, d && d.people); }
-        else if (last) { now.appendChild(mk("div", "svs-lbl", "Earlier" + (waiting ? " · " + waiting : ""))); const sc = mk("div", "svs-scene faded", last.scene); sc.dir = explainDir(last.ex); now.appendChild(sc); facesList = SV_DOSSIER.whoFaces(last.who, d && d.people); }
+        else if (useRecap) { now.appendChild(mk("div", "svs-lbl", "Story so far · to " + fmtT(list[recap.k] ? list[recap.k].startMs : 0) + (busyHere(ch) ? " · explaining this chunk…" : ""))); const sc = mk("div", "svs-scene recap", recap.text); sc.dir = dirOf(recapLang()); now.appendChild(sc); facesList = SV_DOSSIER.whoFaces(namedOnly(recap.who), d && d.people); }
+        else if (last) { now.appendChild(mk("div", "svs-lbl", "Earlier" + (waiting ? " · " + waiting : ""))); const sc = mk("div", "svs-scene faded", last.scene); sc.dir = explainDir(last.ex); now.appendChild(sc); facesList = SV_DOSSIER.whoFaces(namedOnly(last.who), d && d.people); }
         else if (waiting) { now.appendChild(mk("div", "svs-lbl", "Now")); now.appendChild(mk("div", "svs-scene muted", waiting[0].toUpperCase() + waiting.slice(1))); }
-        const faces = mk("div", "svs-faces" + (ex && ex.scene ? "" : " faded")); facesList.slice(0, 4).forEach((f) => faces.appendChild(face(f.person, f.label, "md", false)));
-        if (facesList.length > 4) { const more = mk("span", "svs-face md plus"); more.appendChild(mk("i", null, "+" + (facesList.length - 4))); more.appendChild(mk("b", null, "more")); faces.appendChild(more); }
+        // Four slots whatever the count — four faces, or three and "+N" — in a column of fixed width (CSS), so the scene text keeps its width from chunk to chunk.
+        const faces = mk("div", "svs-faces" + (ex && ex.scene ? "" : " faded")); const shown = facesList.length > 4 ? facesList.slice(0, 3) : facesList; shown.forEach((f) => faces.appendChild(face(f.person, f.label, "md", false)));
+        if (facesList.length > shown.length) { const more = mk("span", "svs-face md plus"); more.appendChild(mk("i", null, "+" + (facesList.length - shown.length))); more.appendChild(mk("b", null, "more")); faces.appendChild(more); }
         now.appendChild(faces);
         if (frameNow) { const img = mk("img", "svs-frame"); img.src = frameNow; img.alt = ""; img.title = "This moment — click to open it as a Shot"; img.addEventListener("click", () => { snapChunksNow(list, board.ki, 1, els.__orig, () => {}); }); now.appendChild(img); }
-        else if (cam.needGrant) { const g = mk("div", "svs-frame-note", "Pictures: click the SubVibe icon once on this tab to allow them"); now.appendChild(g); }
+        else { const ph = mk("div", "svs-frame ph" + (cam.needGrant ? " note" : "")); if (cam.needGrant) { ph.textContent = "Pictures: click the SubVibe icon once on this tab"; ph.title = "The browser lets an extension picture a tab only after its icon was clicked there once"; } now.appendChild(ph); } // the slot keeps its width before the picture arrives — the text never re-wraps when it lands
         now.classList.remove("svs-swap"); void now.offsetWidth; now.classList.add("svs-swap");
       });
       // ── people: in this scene first, then most seen — tiny at rest, named when the section is open ──
@@ -2847,7 +2875,7 @@
           card.appendChild(face(x.p, x.label, "md", false)); const tx = mk("div", "svs-card-tx"); const h = mk("b", null, nm); tx.appendChild(h);
           const chips = mk("div", "svs-chips"); if (c) { if (ROLE_WORD[c.role]) chips.appendChild(mk("span", "svs-chip " + c.role, ROLE_WORD[c.role])); chips.appendChild(mk("span", "svs-chip " + c.weight, c.weight === "major" ? "drives the story" : "passes through")); }
           if (x.p && x.p.character && x.p.name) chips.appendChild(mk("span", "svs-chip", x.p.name)); if (chips.childElementCount) tx.appendChild(chips);
-          const note = c && c.note ? c.note : x.p && x.p.role ? x.p.role : ""; if (note) { const nt = mk("div", "svs-card-note", note); nt.dir = dirOf(vocabPoolLang); tx.appendChild(nt); }
+          const note = c && c.note ? c.note : x.p && x.p.role ? x.p.role : ""; if (note) { const nt = mk("div", "svs-card-note", note); nt.dir = dirOf(recapLang()); tx.appendChild(nt); }
           tx.appendChild(mk("div", "svs-card-meta", [x.n ? x.n + (x.n === 1 ? " scene" : " scenes") : "", since >= 0 ? "since " + fmtT(since) : ""].filter(Boolean).join(" · ")));
           // the album: this person's chunks that have a frame, newest first; a thumb plays from there
           const ks = []; for (let j = list.length - 1; j >= 0 && ks.length < 6; j--) { const e = lineExplainCache.get(list[j].text); if (e && (e.who || []).some((w) => sameName(w, nm)) && cam.frames.has(j)) ks.push(j); }
@@ -3562,6 +3590,7 @@
       if (cueList && cueList.length) { dbgSub.adopt = "cuelist(stream) " + cueList.length; liveYieldToCuelist(); await runCueListMode(settings, video, cueList, gen); return; }
       if (liveMode) { dbgSub.adopt = "scrape suppressed (live voice active)"; return; }
       dbgSub.adopt = "scrape (stream: no track cues yet)";
+      askSniffed(); // the file may have landed before this script listened, or under the previous clip's id
       await startStream(settings, video, gen);
       return;
     }
@@ -3730,6 +3759,17 @@
     }
   });
 
+  // Ask the page world (Netflix, Prime: the fetch sniffer) for the subtitle files it sniffed lately.
+  // The episode's file can land before the URL flips to the new clip, or in the second before the
+  // clip watcher notices — and a file is posted only once when it arrives. Asked again at 2, 5 and
+  // 10 s until this clip's file is held; the reply picks the one that fits the video's length.
+  let askT = [];
+  function askSniffed() {
+    for (const t of askT) clearTimeout(t); askT = [];
+    const ask = () => { if (interceptedCues && interceptedCues.length && interceptedClipId === currentClipId()) return; window.postMessage({ __copilotSubs: true, type: "SUBS_ASK" }, "*"); };
+    ask(); for (const ms of [2000, 5000, 10000]) askT.push(setTimeout(ask, ms));
+  }
+
   // Full cue list / subtitle-file URL captured by subs-intercept.js (MAIN world).
   window.addEventListener("message", (e) => {
     const d = e.data;
@@ -3747,8 +3787,19 @@
         // be fixed. This is how Netflix upgrades from reactive to look-ahead.
         const sane = cues.length >= 3 && maxStart > 1000 && maxStart < 21600000;
         console.info("[CopilotSubs] SUBS_TEXT →", cues.length, "cues, lastStart=" + Math.round(maxStart / 1000) + "s, adopted=" + sane);
-        if (sane) onInterceptedCues(cues);
+        if (sane) onInterceptedCues(cues, true);
       } catch (e) { console.warn("[CopilotSubs] SUBS_TEXT parse failed:", e && e.message); }
+    }
+    else if (d.type === "SUBS_REPLAY") { // the files the page world sniffed lately, re-sent on request (askSniffed)
+      try {
+        if (interceptedCues && interceptedCues.length && interceptedClipId === currentClipId()) return; // this clip's file is already held
+        const v = adapter && adapter.getVideoEl ? liveVideoEl(adapter.getVideoEl()) : null;
+        const durMs = v && isFinite(v.duration) && v.duration > 0 ? v.duration * 1000 : 0;
+        const cands = (Array.isArray(d.bodies) ? d.bodies : []).map((b) => { try { return { cues: parseSubtitleFile(b.text || "") }; } catch (e) { return { cues: [] }; } });
+        const best = SV_CUES.pickWholeFile(cands, durMs);
+        console.info("[CopilotSubs] SUBS_REPLAY →", cands.length, "files, video " + Math.round(durMs / 1000) + "s, adopted=" + (best ? best.cues.length + " cues to " + Math.round(best.maxStart / 1000) + "s" : "none"));
+        if (best) onInterceptedCues(best.cues, true);
+      } catch (e) { console.warn("[CopilotSubs] SUBS_REPLAY failed:", e && e.message); }
     }
     else if (d.type === "SUBS_TIME") {
       mainClockMs = d.t; mainClockAt = performance.now(); mainClockPaused = !!d.paused;
@@ -3789,7 +3840,13 @@
   let lastUrl = location.href, lastClip = currentClipId();
   setInterval(() => {
     const clip = currentClipId();
-    if (clip !== lastClip) { lastClip = clip; lastClipChangeAt = performance.now(); dropInterceptedCues(); schedule(); }
+    if (clip !== lastClip) {
+      lastClip = clip; lastClipChangeAt = performance.now();
+      // A file already held FOR this clip (it landed in the second before this tick) stays — dropping it
+      // left Netflix in line-by-line scrape with no board until a refresh. Track picks never carry over.
+      if (interceptedClipId !== clip) dropInterceptedCues(); else { userTrackPick = null; nativeCueTrack = null; }
+      askSniffed(); schedule();
+    }
     else if (location.href !== lastUrl) { lastUrl = location.href; schedule(); }
   }, 1000);
 

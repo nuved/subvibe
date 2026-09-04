@@ -690,8 +690,10 @@
 #sv-strip .svs-frame { grid-column: 2; grid-row: 1 / span 2; align-self: start; width: 128px; height: 72px; border-radius: 8px; object-fit: cover; box-shadow: 0 0 0 1px rgba(36,31,26,.14); cursor: pointer; transition: width .3s ease, height .3s ease; }
 #sv-strip[data-open="now"] .svs-frame { width: 200px; height: 112px; }
 #sv-strip .svs-now { grid-template-columns: minmax(0,1.6fr) auto auto; }
-#sv-strip .svs-now > .svs-faces { grid-column: 3; grid-row: 2; }
+#sv-strip .svs-now > .svs-faces { grid-column: 3; grid-row: 2; width: 292px; flex-shrink: 0; } /* four slots (64 px faces, 12 px gaps) whatever the count — the scene text keeps its width */
+#sv-strip[data-open="now"] .svs-now > .svs-faces { width: 308px; } /* the same four slots at the open size (68 px) */
 #sv-strip .svs-album { display: flex; gap: 4px; margin-top: 4px; }
 #sv-strip .svs-thumb { width: 56px; height: 32px; border-radius: 4px; object-fit: cover; box-shadow: 0 0 0 1px rgba(36,31,26,.14); cursor: pointer; }
 #sv-strip .svs-thumb:hover { box-shadow: 0 0 0 2px #C93F2B; }
-#sv-strip .svs-frame-note { grid-column: 2; grid-row: 1 / span 2; align-self: start; max-width: 150px; font: 500 10.5px/1.35 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: #786D60; border: 1px dashed #EDE5DA; border-radius: 8px; padding: 6px 8px; }
+#sv-strip .svs-frame.ph { background: #EDE5DA; box-shadow: inset 0 0 0 1px rgba(36,31,26,.06); cursor: default; } /* the slot before the picture arrives — same box, so the scene text never re-wraps */
+#sv-strip .svs-frame.ph.note { background: transparent; box-shadow: none; border: 1px dashed #D9CFC2; box-sizing: border-box; padding: 6px 8px; font: 500 10px/1.3 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: #786D60; overflow: hidden; }

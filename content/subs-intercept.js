@@ -127,6 +127,7 @@
   const STREAM_SNIFF_HOST = /(?:^|\.)netflix\.com$|(?:^|\.)primevideo\.com$|(?:^|\.)amazon\.(?:de|com)$/i;
   if (STREAM_SNIFF_HOST.test(location.hostname)) {
     let nflxLogs = 0;
+    const recent = []; // the last subtitle files sniffed (text, when, where) — re-sent when the engine asks
     const looksSub = (t) => {
       const h = (t || "").slice(0, 300);
       if (/^﻿?\s*WEBVTT/.test(h)) return true;                       // WebVTT
@@ -150,6 +151,7 @@
             if (dbg.subHeads.length > 6) dbg.subHeads.shift();
             if (nflxLogs++ < 6) console.info("[SubVibe/stream] subtitle body:", "ct=" + ct, "len=" + text.length, "head=", text.slice(0, 110).replace(/\s+/g, " "));
             window.postMessage({ __copilotSubs: true, type: "SUBS_TEXT", text }, "*");
+            recent.push({ text, at: Date.now(), href: location.href }); while (recent.length > 3) recent.shift();
           } else if (nflxLogs < 4 && /xml|vtt|ttml|dfxp|text|plain/i.test(ct || "")) {
             console.info("[SubVibe/stream] text resp (no subtitle magic):", "ct=" + ct, "head=", text.slice(0, 70).replace(/\s+/g, " "));
           }
@@ -351,6 +353,16 @@
         return oSend.apply(this, arguments);
       };
     } catch {}
+    // The engine asks for the files sniffed lately when it holds none for the clip now playing: after
+    // an in-app navigation (the episode's file can land before the URL flips, or in the second before
+    // the engine notices the new clip and drops what it held) and on a late start — a file is posted
+    // only once when it arrives. Files from the last five minutes are re-sent together; the engine
+    // keeps the one that fits the video's length.
+    window.addEventListener("message", (ev) => {
+      if (ev.source !== window || !ev.data || !ev.data.__copilotSubs || ev.data.type !== "SUBS_ASK") return;
+      const now = Date.now(), bodies = recent.filter((b) => now - b.at < 300000).map((b) => ({ text: b.text, at: b.at, href: b.href }));
+      window.postMessage({ __copilotSubs: true, type: "SUBS_REPLAY", bodies }, "*");
+    });
   }
 
   // Relay the playing clip's clock from the PAGE world. The extension's isolated

@@ -1300,15 +1300,31 @@ const eRank = (k) => (k.startsWith("e4") ? 3 : k.startsWith("e3") ? 2 : 1);
 // the name, has a picture and its intro mentions this title (not a namesake from
 // another game). Cached per name in clipexplain:<base>.faces for 30 days.
 const WIKI_SCHEMA = { name: "fandom_wiki", strict: true, schema: { type: "object", additionalProperties: false, properties: { wiki: { type: "string" }, tag: { type: "string" } }, required: ["wiki", "tag"] } };
+const wikiSitename = async (slug) => { try { const r = await fetch("https://" + slug + ".fandom.com/api.php?action=query&meta=siteinfo&format=json&origin=*"); if (!r.ok) return ""; const j = await r.json(); return String((j.query && j.query.general && j.query.general.sitename) || ""); } catch (e) { return ""; } };
+const titleWords = (s) => String(s || "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 async function ensureWiki(base, cx, d) {
-  if (d.wikiAt) return d.wiki || "";
-  try {
+  if (d.wikiGuessAt) return d.wiki || ""; // named or guessed, and checked against the wiki itself — once per video
+  if (!d.wikiAt) try {
     const r = await llmJSON(`You know the Fandom wiki subdomains of well-known titles (gta.fandom.com → "gta", breakingbad.fandom.com → "breakingbad", theoffice.fandom.com → "theoffice", strangerthings.fandom.com → "strangerthings", harrypotter.fandom.com → "harrypotter"). The user message carries {"title","show","kind","synopsis"}. Return STRICT JSON {"wiki":"<subdomain, or empty when no well-known wiki covers this title>","tag":"<the short tag that wiki uses for this specific game, series or film, e.g. GTA VI, or empty>"}. Never invent a wiki; empty is the right answer for most videos.`,
       { title: d.title || "", show: d.show || "", kind: d.kind || "", synopsis: (d.synopsis || d.description || "").slice(0, 300) }, WIKI_SCHEMA);
     const p = (r && r.parsed) || {};
     d.wiki = String(p.wiki || "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 40); d.tag = String(p.tag || "").trim().slice(0, 30);
   } catch (e) { d.wiki = ""; }
-  d.wikiAt = Date.now(); cx.dossier = d; await idbVocabPut("clipexplain:" + base, cx);
+  // The model's answer is checked against the wiki's own name; when it named none (most titles) the
+  // title itself is tried the way Fandom slugs them — "The Mentalist" → thementalist, "Breaking Bad" →
+  // breakingbad — and kept only when that wiki says it is about this title. A wiki about this ONE title
+  // (wikiSingle) lets faceLookup take its top hit for a name without the title in the page's categories.
+  const title = String(d.show || d.title || "").split(/\s*[:\u2013\u2014|(]\s*|\s+-\s+/)[0].trim(), want = titleWords(title);
+  const fits = (sitename) => { const s = titleWords(sitename).replace(/\s*wiki\s*$/, "").trim(); return !!want && !!s && (s.includes(want) || want.includes(s)); };
+  let ok = false;
+  if (d.wiki) { const sn = await wikiSitename(d.wiki); ok = !!sn; d.wikiSingle = fits(sn); }
+  if (!ok) {
+    d.wiki = ""; d.wikiSingle = false;
+    const slugs = [...new Set([want.replace(/\s+/g, ""), want.replace(/^the\s+/, "").replace(/\s+/g, "")].filter((s) => /^[a-z0-9]{3,40}$/.test(s)))];
+    for (const s of slugs) { const sn = await wikiSitename(s); if (sn && fits(sn)) { d.wiki = s; d.wikiSingle = true; break; } }
+  }
+  if (d.wiki) cx.faces3 = {}; // names looked up before this check were remembered as "no picture" (no wiki, or a single-title wiki judged by the old rule) — ask again
+  d.wikiAt = d.wikiAt || Date.now(); d.wikiGuessAt = Date.now(); cx.dossier = d; await idbVocabPut("clipexplain:" + base, cx);
   return d.wiki;
 }
 const FACE_TTL = 30 * 24 * 3600e3;
@@ -1329,6 +1345,7 @@ async function faceLookup(name, d) {
     const cats = (p.categories || []).map((c) => String(c.title || "").toLowerCase()).join(" | ");
     const text = (String(p.extract || "") + " " + t + " | " + cats).toLowerCase();
     if (!want.length || want.some((w) => text.includes(w))) return p.thumbnail.source;
+    if (d.wikiSingle && p.index === 1 && (!cats || /character/i.test(cats))) return p.thumbnail.source; // a wiki about this one title: its top hit for the name is the person (the categories say "Characters", never the title)
     // no intro and no categories to judge by: the top hit whose title is the name plus a surname is taken as the person
     if (!p.extract && !cats && p.index === 1 && t.split(/\s+/).length <= 3) return p.thumbnail.source;
   }
@@ -1550,11 +1567,24 @@ async function snapViaCapture(tab) {
 // site the extension already holds. The frame is cropped to the video's box, scaled to 640 px
 // and kept per video as frame:<base>:<k>. Only the active tab of its window is ever captured.
 const FRAME_W = 640;
+// How sharp a frame is: the variance of a 3×3 Laplacian over a 192×108 grey copy. A cut, a fade or motion
+// blur (a scene change under the chunk's first second) scores under ~250; a still, lit scene 500–4500;
+// a dark but sharp room ~1000+. Measured on 78 frames of one episode — the page retries a soft frame.
+function frameSharpness(bmp) {
+  const W = 192, H = 108, c = new OffscreenCanvas(W, H), ctx = c.getContext("2d"); ctx.drawImage(bmp, 0, 0, W, H);
+  const px = ctx.getImageData(0, 0, W, H).data, g = new Float32Array(W * H);
+  for (let i = 0; i < W * H; i++) g[i] = 0.299 * px[i * 4] + 0.587 * px[i * 4 + 1] + 0.114 * px[i * 4 + 2];
+  let s = 0, s2 = 0, n = 0;
+  for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) { const i = y * W + x, l = 4 * g[i] - g[i - 1] - g[i + 1] - g[i - W] - g[i + W]; s += l; s2 += l * l; n++; }
+  return Math.round(s2 / n - (s / n) * (s / n));
+}
 async function sceneFrame(msg, sender) {
   const tab = sender && sender.tab; if (!tab || tab.id == null) return { ok: false, error: "no-tab" };
   const base = String(msg.base || ""), k = msg.k | 0; if (!base) return { ok: false, error: "empty" };
   const key = "frame:" + base + ":" + k;
-  const have = await idbVocabGet(key); if (have && have.d) return { ok: true, k, frame: have.d, cached: true };
+  const have = await idbVocabGet(key);
+  // A retry (the first frame was soft) shoots again and keeps the sharper of the two; any other call returns what is kept.
+  if (have && have.d && !(msg.retry && have.sharp != null)) return { ok: true, k, frame: have.d, sharp: have.sharp, cached: true };
   let live = null; try { live = await chrome.tabs.get(tab.id); } catch (e) {}
   if (!live || !live.active) return { ok: false, error: "not-visible" };
   // captureVisibleTab needs activeTab, which the user grants for this tab by opening the popup once
@@ -1570,8 +1600,10 @@ async function sceneFrame(msg, sender) {
   c.getContext("2d").drawImage(bmp, sx, sy, sw, sh, 0, 0, c.width, c.height);
   const blob = await c.convertToBlob({ type: "image/jpeg", quality: 0.74 });
   const d = await new Promise((res) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.readAsDataURL(blob); });
-  await idbVocabPut(key, { base, k, ms: +msg.ms || 0, at: Date.now(), d });
-  return { ok: true, k, frame: d };
+  let sharp = 0; try { sharp = frameSharpness(bmp); } catch (e) { sharp = 0; }
+  if (have && have.d && have.sharp != null && have.sharp >= sharp) return { ok: true, k, frame: have.d, sharp: have.sharp, kept: true }; // the first shot was the better one
+  await idbVocabPut(key, { base, k, ms: +msg.ms || 0, at: Date.now(), d, sharp });
+  return { ok: true, k, frame: d, sharp };
 }
 async function sceneFrames(msg) {
   const base = String(msg.base || ""), ks = (Array.isArray(msg.ks) ? msg.ks : []).map((x) => x | 0).slice(0, 12);
