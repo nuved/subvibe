@@ -2717,6 +2717,7 @@
     // speaker list; the matching face in the Now box (and chip on the playing row) wears the ring.
     let spkLast = "";
     const sameName = (a, b) => { a = cleanName(a).toLowerCase(); b = cleanName(b).toLowerCase(); if (!a || !b) return false; if (a === b) return true; const fa = a.split(/\s+/)[0], fb = b.split(/\s+/)[0]; return fa.length >= 3 && fa === fb; };
+    const speaks = (nm, who) => String(who || "").split(/\s*[\/&,+]\s*|\s+and\s+/i).some((p) => p && sameName(nm, p)); // "Emily / Madeline" rings both
     const markSpeaker = (t) => {
       const ch = board.list[board.ki], ex = ch ? lineExplainCache.get(ch.text) : null;
       let name = "";
@@ -2724,7 +2725,8 @@
       if (name === spkLast) return; spkLast = name;
       const strip = document.getElementById("sv-strip");
       const nodes = [...(strip ? strip.querySelectorAll(".svs-now .svs-face") : []), ...(board.el ? board.el.querySelectorAll(".svb-chunk.on .svb-who") : [])];
-      for (const n of nodes) n.classList.toggle("talk", !!name && sameName(n.dataset.name || n.textContent, name));
+      for (const n of nodes) n.classList.toggle("talk", !!name && speaks(n.dataset.name || n.textContent, name));
+      const sp = strip && strip.querySelector(".svs-now .svs-spk"); if (sp) sp.textContent = name ? name + " speaking" : "";
     };
     const boardSung = (t) => {
       // Hear one sentence: pause at its end. Repeat a chunk: jump back at its end.
@@ -2840,24 +2842,40 @@
         ident.appendChild(idb);
       });
       // ── now: the scene and who is in it; the story so far when the chunk has no tips yet ──
-      if (ex && ex.scene) board.lastScene = { scene: ex.scene, who: ex.who || [], ex };
-      const who = ex ? SV_DOSSIER.whoFaces(namedOnly(ex.who), d && d.people) : [];
+      // The box holds a chunk's line for at least 4 s: quick back-and-forth makes chunks of a second or
+      // two, and a line that flips that fast cannot be read. A short chunk's line waits its turn; the
+      // one shown is the newest that has had its 4 s. Between chunks the last scene stays, as "Earlier".
+      const nowT = performance.now();
+      if (board.ki >= 0) board.kiSeenAt = nowT;
+      const wantK = board.ki >= 0 ? board.ki : nowT - (board.kiSeenAt || 0) < 2500 ? (board.nowK == null ? -1 : board.nowK) : -1; // a breath between two cues is not "Earlier" — 2.5 s of silence is
+      if (wantK !== board.nowK && (board.nowK == null || board.nowK < 0 || wantK < 0 || nowT - (board.nowSwapAt || 0) >= 4000)) { board.nowK = wantK; board.nowSwapAt = nowT; }
+      const chN = board.nowK >= 0 ? list[board.nowK] : null, exN = chN ? lineExplainCache.get(chN.text) : null;
+      if (exN && exN.scene) board.lastScene = { scene: exN.scene, who: exN.who || [], ex: exN, k: board.nowK };
+      const who = exN ? SV_DOSSIER.whoFaces(namedOnly(exN.who), d && d.people) : [];
       askFaces(who.map((f) => (f.person && (f.person.character || f.person.name)) || f.label));
-      const useRecap = !(ex && ex.scene) && !!recap.text, last = ex && ex.scene ? null : useRecap ? null : board.lastScene;
-      const waiting = busyHere(ch) ? "explaining this chunk…" : st.state === "stopped" || st.state === "paused" ? "tips paused — see the board" : ex ? "" : "tips follow the video as it plays";
-      if (board.ki >= 0) wantFrames([board.ki]);
-      const frameNow = board.ki >= 0 ? cam.frames.get(board.ki) : "";
-      part("svs-now", [ch ? ch.text : "", ex ? (ex.scene || "") + (ex.who || []).join("|") : "", busyHere(ch) ? 1 : 0, st.state, d ? d.at : 0, useRecap ? recap.k + recap.text.slice(0, 40) : "", last ? last.scene : "", board.facesV, frameNow ? frameNow.length : 0, cam.needGrant ? 1 : 0].join("|"), (now) => {
+      const useRecap = !(exN && exN.scene) && !!recap.text, last = exN && exN.scene ? null : useRecap ? null : board.lastScene;
+      const waiting = busyHere(chN || ch) ? "explaining this chunk…" : st.state === "stopped" || st.state === "paused" ? "tips paused — see the board" : exN ? "" : "tips follow the video as it plays";
+      // the line after this one, already explained by the pump: the reader sees it coming, and a swap is never a surprise
+      const chNext = board.nowK >= 0 ? list[board.nowK + 1] : null, exNext = chNext ? lineExplainCache.get(chNext.text) : null;
+      const nextScene = exN && exN.scene && exNext && exNext.scene ? exNext.scene : "";
+      // the picture of the chunk shown — the last one's while between chunks, so the slot is not empty in a pause of the dialogue
+      const showK = board.nowK >= 0 ? board.nowK : last && last.k >= 0 ? last.k : -1;
+      if (showK >= 0) wantFrames([showK]);
+      const frameNow = showK >= 0 ? cam.frames.get(showK) : "";
+      const nmOf = (f) => (f.person && (f.person.character || f.person.name)) || f.label;
+      part("svs-now", [board.nowK, chN ? chN.text : "", exN ? (exN.scene || "") + (exN.who || []).join("|") : "", busyHere(chN || ch) ? 1 : 0, st.state, d ? d.at : 0, useRecap ? recap.k + recap.text.slice(0, 40) : "", last ? last.scene : "", board.facesV, frameNow ? frameNow.length : 0, cam.needGrant ? 1 : 0, nextScene.slice(0, 40), spkLast].join("|"), (now) => {
         let facesList = [];
-        if (ex && ex.scene) { now.appendChild(mk("div", "svs-lbl", "Now · " + fmtT(ch.startMs))); const sc = mk("div", "svs-scene", ex.scene); sc.dir = explainDir(ex); now.appendChild(sc); facesList = who; }
+        const lbl = (text) => { const l = mk("div", "svs-lbl"); l.appendChild(mk("span", null, text)); l.appendChild(mk("span", "svs-spk", spkLast ? spkLast + " speaking" : "")); return l; }; // who is talking, in words — the ring alone was easy to miss
+        if (exN && exN.scene) { now.appendChild(lbl("Now · " + fmtT(chN.startMs))); const sc = mk("div", "svs-scene", exN.scene); sc.dir = explainDir(exN); now.appendChild(sc); facesList = who; }
         else if (useRecap) { now.appendChild(mk("div", "svs-lbl", "Story so far · to " + fmtT(list[recap.k] ? list[recap.k].startMs : 0) + (busyHere(ch) ? " · explaining this chunk…" : ""))); const sc = mk("div", "svs-scene recap", recap.text); sc.dir = dirOf(recapLang()); now.appendChild(sc); facesList = SV_DOSSIER.whoFaces(namedOnly(recap.who), d && d.people); }
-        else if (last) { now.appendChild(mk("div", "svs-lbl", "Earlier" + (waiting ? " · " + waiting : ""))); const sc = mk("div", "svs-scene faded", last.scene); sc.dir = explainDir(last.ex); now.appendChild(sc); facesList = SV_DOSSIER.whoFaces(namedOnly(last.who), d && d.people); }
+        else if (last) { now.appendChild(lbl("Earlier" + (waiting ? " · " + waiting : ""))); const sc = mk("div", "svs-scene faded", last.scene); sc.dir = explainDir(last.ex); now.appendChild(sc); facesList = SV_DOSSIER.whoFaces(namedOnly(last.who), d && d.people); }
         else if (waiting) { now.appendChild(mk("div", "svs-lbl", "Now")); now.appendChild(mk("div", "svs-scene muted", waiting[0].toUpperCase() + waiting.slice(1))); }
         // Four slots whatever the count — four faces, or three and "+N" — in a column of fixed width (CSS), so the scene text keeps its width from chunk to chunk.
-        const faces = mk("div", "svs-faces" + (ex && ex.scene ? "" : " faded")); const shown = facesList.length > 4 ? facesList.slice(0, 3) : facesList; shown.forEach((f) => faces.appendChild(face(f.person, f.label, "md", false)));
+        if (nextScene) { const nx = mk("div", "svs-next"); nx.appendChild(mk("span", "svs-next-l", "next")); const t = mk("span", null, nextScene); t.dir = explainDir(exNext); nx.appendChild(t); now.appendChild(nx); }
+        const faces = mk("div", "svs-faces" + (exN && exN.scene ? "" : " faded")); const shown = facesList.length > 4 ? facesList.slice(0, 3) : facesList; shown.forEach((f) => faces.appendChild(face(f.person, f.label, "md", !!spkLast && speaks(nmOf(f), spkLast))));
         if (facesList.length > shown.length) { const more = mk("span", "svs-face md plus"); more.appendChild(mk("i", null, "+" + (facesList.length - shown.length))); more.appendChild(mk("b", null, "more")); faces.appendChild(more); }
         now.appendChild(faces);
-        if (frameNow) { const img = mk("img", "svs-frame"); img.src = frameNow; img.alt = ""; img.title = "This moment — click to open it as a Shot"; img.addEventListener("click", () => { snapChunksNow(list, board.ki, 1, els.__orig, () => {}); }); now.appendChild(img); }
+        if (frameNow) { const img = mk("img", "svs-frame"); img.src = frameNow; img.alt = ""; img.title = "This moment — click to open it as a Shot"; img.addEventListener("click", () => { snapChunksNow(list, showK, 1, els.__orig, () => {}); }); now.appendChild(img); }
         else { const ph = mk("div", "svs-frame ph" + (cam.needGrant ? " note" : "")); if (cam.needGrant) { ph.textContent = "New scene pictures: click the SubVibe icon once on this tab"; ph.title = "The browser lets an extension take pictures of a tab only after its icon was clicked there once. That stays through refreshes; a new tab, an extension update or a browser restart asks again. Pictures already taken show without it."; } now.appendChild(ph); } // the slot keeps its width before the picture arrives — the text never re-wraps when it lands
         now.classList.remove("svs-swap"); void now.offsetWidth; now.classList.add("svs-swap");
       });
@@ -2973,6 +2991,7 @@
       if (sig === board.sig) { renderPane(); renderStrip(); renderPump(); return; }
       const follow = ki !== board.ki;
       if (follow && ki >= 0) { clearTimeout(cam.timer); const dur = list[ki] ? list[ki].endMs - list[ki].startMs : 0; cam.timer = setTimeout(() => { if (board.ki === ki) snapChunkFrame(ki); }, Math.min(1200, Math.max(250, dur / 2))); } // a second in, or halfway through a short chunk
+      if (follow) spkLast = ""; // a new chunk: the speaker is read afresh, so the ring lands on the new box's faces
       board.sig = sig; board.list = list; board.ki = ki;
       // A small state stamp for diagnosis from the page (the script's variables are not reachable there).
       try { document.documentElement.dataset.svBoard = JSON.stringify({ ki, open: board.open, loop: board.loop, stopAt: board.stopAt, rate: board.rate, tips: tipsStatus(list, ki).state, chunk: list[ki] ? [Math.round(list[ki].startMs), Math.round(list[ki].endMs)] : null }); } catch (e) {}
