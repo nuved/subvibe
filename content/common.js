@@ -2715,8 +2715,7 @@
     // Who is speaking right now: the sentence under the playhead and the explanation's per-sentence
     // speaker list; the matching face in the Now box (and chip on the playing row) wears the ring.
     let spkLast = "";
-    const sameName = (a, b) => { a = cleanName(a).toLowerCase(); b = cleanName(b).toLowerCase(); if (!a || !b) return false; if (a === b) return true; const fa = a.split(/\s+/)[0], fb = b.split(/\s+/)[0]; return fa.length >= 3 && fa === fb; };
-    const speaks = (nm, who) => String(who || "").split(/\s*[\/&,+]\s*|\s+and\s+/i).some((p) => p && sameName(nm, p)); // "Emily / Madeline" rings both
+    const sameName = SV_DOSSIER.sameName, speaks = SV_DOSSIER.speaks; // "Emily / Madeline" rings both (shared/dossier.js, tested)
     const markSpeaker = (t) => {
       const ch = board.list[board.ki], ex = ch ? lineExplainCache.get(ch.text) : null;
       let name = "";
@@ -2853,7 +2852,7 @@
       const chN = board.nowK >= 0 ? list[board.nowK] : null, exN = chN ? lineExplainCache.get(chN.text) : null;
       if (exN && exN.scene) board.lastScene = { scene: exN.scene, who: exN.who || [], ex: exN, k: board.nowK };
       const who = exN ? SV_DOSSIER.whoFaces(exN.who, d && d.people) : []; // everyone in the scene, named or not ("the French teacher" is a player too)
-      askFaces(who.map((f) => (f.person && (f.person.character || f.person.name)) || f.label));
+      askFaces(who.map((f) => (f.person && (f.person.character || f.person.name)) || f.label).concat(spkLast ? [spkLast] : [])); // the speaker's picture too, when the scene list missed them
       const useRecap = !(exN && exN.scene) && !!recap.text, last = exN && exN.scene ? null : useRecap ? null : board.lastScene;
       const waiting = busyHere(chN || ch) ? "explaining this chunk…" : st.state === "stopped" || st.state === "paused" ? "tips paused — see the board" : exN ? "" : "tips follow the video as it plays";
       // the line after this one, already explained by the pump: the reader sees it coming, and a swap is never a surprise
@@ -2877,8 +2876,9 @@
           const firstSpk = cleanName((exNext.spk || []).find(Boolean) || "");
           const chip = mk("span", "svs-next-l", "next" + (firstSpk ? " · " + firstSpk : "")); chip.dir = "ltr"; nx.appendChild(chip);
           nx.appendChild(mk("span", null, nextScene)); now.appendChild(nx); }
-        const faces = mk("div", "svs-faces" + (exN && exN.scene ? "" : " faded")); const shown = facesList.length > 4 ? facesList.slice(0, 3) : facesList; shown.forEach((f) => faces.appendChild(face(f.person, f.label, "md", !!spkLast && speaks(nmOf(f), spkLast))));
-        if (facesList.length > shown.length) { const more = mk("span", "svs-face md plus"); more.appendChild(mk("i", null, "+" + (facesList.length - shown.length))); more.appendChild(mk("b", null, "more")); faces.appendChild(more); }
+        const faces = mk("div", "svs-faces" + (exN && exN.scene ? "" : " faded")); const nf = SV_DOSSIER.nowFaces(facesList, spkLast, d && d.people, 4); // whoever speaks is in view, ringed
+        nf.shown.forEach((f) => faces.appendChild(face(f.person, f.label, "md", !!f.talk)));
+        if (nf.more) { const more = mk("span", "svs-face md plus"); more.appendChild(mk("i", null, "+" + nf.more)); more.appendChild(mk("b", null, "more")); faces.appendChild(more); }
         now.appendChild(faces);
         if (frameNow) { const img = mk("img", "svs-frame"); img.src = frameNow; img.alt = ""; img.title = "This moment — click to open it as a Shot"; img.addEventListener("click", () => { snapChunksNow(list, showK, 1, els.__orig, () => {}); }); now.appendChild(img); }
         else { const ph = mk("div", "svs-frame ph" + (cam.needGrant ? " note" : "")); if (cam.needGrant) { ph.textContent = "New scene pictures: click the SubVibe icon once on this tab"; ph.title = "The browser lets an extension take pictures of a tab only after its icon was clicked there once. That stays through refreshes; a new tab, an extension update or a browser restart asks again. Pictures already taken show without it."; } now.appendChild(ph); } // the slot keeps its width before the picture arrives — the text never re-wraps when it lands

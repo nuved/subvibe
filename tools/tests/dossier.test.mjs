@@ -77,3 +77,38 @@ test("aheadWindow: the first unexplained chunk in [ki, ki+ahead), nothing before
 test("initials: two letters from two words, one from one, ? for nothing", () => {
   assert.equal(D.initials("Ada Lee"), "AL"); assert.equal(D.initials("boobie"), "B"); assert.equal(D.initials("the doorman"), "TD"); assert.equal(D.initials(""), "?");
 });
+
+test("sameName / speaks: whole name or a first name of 3+ letters; 'Emily / Madeline' names both", () => {
+  assert.ok(D.sameName("Bjorn Ironside", "bjorn")); assert.ok(D.sameName("Ivar (the Boneless)", "Ivar"));
+  assert.ok(!D.sameName("Bo Ito", "Bo Lee"), "two letters is not a match"); assert.ok(!D.sameName("", "Ivar"));
+  assert.ok(D.speaks("Madeline", "Emily / Madeline")); assert.ok(D.speaks("Emily", "Emily and Gabriel")); assert.ok(!D.speaks("Oleg", "Ivar"));
+  assert.ok(!D.speaks("Oleg", ""));
+});
+
+const vik = [{ name: "Alex Høgh Andersen", character: "Ivar", photo: "p-ivar" }, { name: "Danila Kozlovsky", character: "Oleg", photo: "p-oleg" }];
+const who = (names) => D.whoFaces(names, vik);
+const names = (r) => r.shown.map((f) => (f.person && f.person.character) || f.label + (f.talk ? "*" : "")).map((n, i) => (r.shown[i].talk ? n.replace(/\*?$/, "*") : n));
+
+test("nowFaces: the speaker keeps their place and wears the ring; nobody else moves", () => {
+  const r = D.nowFaces(who(["Oleg", "Ivar", "Ubbe"]), "Ivar", vik, 4);
+  assert.deepEqual(names(r), ["Oleg", "Ivar*", "Ubbe"]); assert.equal(r.more, 0);
+  assert.deepEqual(names(D.nowFaces(who(["Oleg", "Ivar", "Ubbe"]), "", vik, 4)), ["Oleg", "Ivar", "Ubbe"], "no speaker: as listed, no ring");
+});
+
+test("nowFaces: a speaker the scene list missed is added, with their picture when the cast knows them", () => {
+  const r = D.nowFaces(who(["Ubbe", "Bjorn"]), "Ivar", vik, 4);
+  assert.deepEqual(names(r), ["Ubbe", "Bjorn", "Ivar*"]); assert.equal(r.shown[2].person.photo, "p-ivar");
+  const role = D.nowFaces(who(["Ubbe"]), "the French teacher", vik, 4);
+  assert.deepEqual(names(role), ["Ubbe", "the French teacher*"]); assert.equal(role.shown[1].person, null);
+});
+
+test("nowFaces: four slots — four faces, or three and +N; a speaker behind +N takes the last visible slot", () => {
+  const five = who(["Ubbe", "Bjorn", "Torvi", "Askold"]).concat(who(["Ivar"]));
+  const r = D.nowFaces(five, "Ivar", vik, 4);
+  assert.deepEqual(names(r), ["Ubbe", "Bjorn", "Ivar*"]); assert.equal(r.more, 2, "Torvi and Askold are behind +2");
+  assert.deepEqual(names(D.nowFaces(five, "", vik, 4)), ["Ubbe", "Bjorn", "Torvi"]);
+  const four = D.nowFaces(who(["Ubbe", "Bjorn", "Torvi", "Askold"]), "Ivar", vik, 4);
+  assert.deepEqual(names(four), ["Ubbe", "Bjorn", "Ivar*"]); assert.equal(four.more, 2, "a fifth face added by the speaker folds the row to three and +2");
+  const both = D.nowFaces(five, "Ivar / Askold", vik, 4);
+  assert.deepEqual(names(both), ["Ubbe", "Askold*", "Ivar*"]); assert.equal(both.more, 2, "two speakers: both in view, the two quiet faces from the front stay");
+});

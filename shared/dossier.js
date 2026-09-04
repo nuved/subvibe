@@ -55,10 +55,31 @@
     for (let k = from; k <= to; k++) if (!isExplained(k)) return k;
     return -1;
   }
+  // Who is speaking: "Emily / Madeline" names both; a first name of 3+ letters is the person ("Bjorn" is Bjorn Ironside).
+  const clean = (x) => s(x, 80).replace(/\s*\(.*$/, "").toLowerCase();
+  function sameName(a, b) { a = clean(a); b = clean(b); if (!a || !b) return false; if (a === b) return true; const fa = a.split(/\s+/)[0], fb = b.split(/\s+/)[0]; return fa.length >= 3 && fa === fb; }
+  const speakers = (spk) => String(spk || "").split(/\s*[\/&,+]\s*|\s+and\s+/i).map((x) => s(x, 60)).filter(Boolean);
+  function speaks(name, spk) { return speakers(spk).some((p) => sameName(name, p)); }
+  const nameOf = (f) => (f && f.person && (f.person.character || f.person.name)) || (f && f.label) || "";
+  // The Now box's faces: the scene's people as listed, and whoever is speaking always in view — added when the
+  // list missed them, moved into the last visible slot when they sat behind "+N". Four slots: four faces, or three and +N.
+  function nowFaces(faces, spk, people, max) {
+    max = max || 4; const list = (Array.isArray(faces) ? faces : []).filter(Boolean).slice(); const names = speakers(spk);
+    for (const sp of names) if (!list.some((f) => sameName(nameOf(f), sp))) list.push(whoFaces([sp], people)[0]);
+    let shown = list, more = 0;
+    if (list.length > max) {
+      const vis = max - 1; shown = list.slice(0, vis); more = list.length - vis;
+      const talking = (f) => names.some((n) => sameName(nameOf(f), n));
+      const hidden = list.slice(vis).filter(talking); // speakers behind +N, in list order
+      const slots = []; for (let i = vis - 1; i >= 0 && slots.length < hidden.length; i--) if (!talking(shown[i])) slots.unshift(i); // the last quiet slots, kept in order
+      slots.forEach((i, j) => { shown[i] = hidden[j]; });
+    }
+    return { shown: shown.map((f) => Object.assign({}, f, { talk: names.some((n) => sameName(nameOf(f), n)) })), more };
+  }
   function initials(name) {
     const w = s(name, 60).split(/\s+/).filter(Boolean);
     if (!w.length) return "?";
     return (w.length > 1 ? w[0][0] + w[w.length - 1][0] : w[0][0]).toUpperCase();
   }
-  g.SV_DOSSIER = { block, identityLine, sampleLines, whoFaces, aheadWindow, initials };
+  g.SV_DOSSIER = { block, identityLine, sampleLines, whoFaces, aheadWindow, initials, sameName, speaks, nowFaces };
 })(typeof globalThis !== "undefined" ? globalThis : this);
