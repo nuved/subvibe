@@ -2848,7 +2848,8 @@
       const nowT = performance.now();
       if (board.ki >= 0) board.kiSeenAt = nowT;
       const wantK = board.ki >= 0 ? board.ki : nowT - (board.kiSeenAt || 0) < 2500 ? (board.nowK == null ? -1 : board.nowK) : -1; // a breath between two cues is not "Earlier" — 2.5 s of silence is
-      if (wantK !== board.nowK && (board.nowK == null || board.nowK < 0 || wantK < 0 || nowT - (board.nowSwapAt || 0) >= 4000)) { board.nowK = wantK; board.nowSwapAt = nowT; }
+      const jumped = wantK >= 0 && board.nowK >= 0 && Math.abs(wantK - board.nowK) > 1; // a seek: no hold on a line the reader left behind
+      if (wantK !== board.nowK && (board.nowK == null || board.nowK < 0 || wantK < 0 || jumped || nowT - (board.nowSwapAt || 0) >= 4000)) { board.nowK = wantK; board.nowSwapAt = nowT; }
       const chN = board.nowK >= 0 ? list[board.nowK] : null, exN = chN ? lineExplainCache.get(chN.text) : null;
       if (exN && exN.scene) board.lastScene = { scene: exN.scene, who: exN.who || [], ex: exN, k: board.nowK };
       const who = exN ? SV_DOSSIER.whoFaces(namedOnly(exN.who), d && d.people) : [];
