@@ -1380,6 +1380,11 @@ async function ensureCredits(base, cx, d) {
 }
 async function faces(msg) {
   const base = String(msg.base || "");
+  if (msg.cachedOnly) { // everything already found for this video, no lookups — the board shows them the moment it opens
+    const cx = base ? await idbVocabGet("clipexplain:" + base) : null; const out = {};
+    for (const [n, c] of Object.entries((cx && cx.faces3) || {})) if (c && c.url) out[n] = c.url;
+    return { ok: true, faces: out, wiki: (cx && cx.dossier && cx.dossier.wiki) || "" };
+  }
   const names = (Array.isArray(msg.names) ? msg.names : []).map((x) => String(x).replace(/\s*\(.*$/, "").trim()).filter((x) => x && /^\p{Lu}/u.test(x)).slice(0, 12);
   if (!base || !names.length) return { ok: false, error: "empty" };
   const cx = await idbVocabGet("clipexplain:" + base);

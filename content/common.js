@@ -2183,6 +2183,9 @@
         if (facesQueue.size) askFaces([]);
       }, 1200);
     };
+    // Pictures already found for this video come up at once (one read, no lookups) — a refresh must not show
+    // letters while the wiki is asked again for names it already answered.
+    send({ type: "FACES", base, cachedOnly: true }).then((r) => { if (!r || !r.ok) return; let got = 0; for (const [n, u] of Object.entries(r.faces || {})) if (u && !board.faces.get(n)) { board.faces.set(n, u); got++; } if (got) { board.facesV++; board.sig = ""; board.stripSig = ""; } }).catch(() => {});
     // Scene camera: one small frame of the video a second into each chunk, through the same screen
     // route as Frame-from-screen (protected video works). The subtitle overlay hides for the
     // capture's few frames so the picture is clean. Only while the strip is shown and the tab is visible.
@@ -2844,7 +2847,7 @@
         if (facesList.length > shown.length) { const more = mk("span", "svs-face md plus"); more.appendChild(mk("i", null, "+" + (facesList.length - shown.length))); more.appendChild(mk("b", null, "more")); faces.appendChild(more); }
         now.appendChild(faces);
         if (frameNow) { const img = mk("img", "svs-frame"); img.src = frameNow; img.alt = ""; img.title = "This moment — click to open it as a Shot"; img.addEventListener("click", () => { snapChunksNow(list, board.ki, 1, els.__orig, () => {}); }); now.appendChild(img); }
-        else { const ph = mk("div", "svs-frame ph" + (cam.needGrant ? " note" : "")); if (cam.needGrant) { ph.textContent = "Pictures: click the SubVibe icon once on this tab"; ph.title = "The browser lets an extension picture a tab only after its icon was clicked there once"; } now.appendChild(ph); } // the slot keeps its width before the picture arrives — the text never re-wraps when it lands
+        else { const ph = mk("div", "svs-frame ph" + (cam.needGrant ? " note" : "")); if (cam.needGrant) { ph.textContent = "New scene pictures: click the SubVibe icon once on this tab"; ph.title = "The browser lets an extension take pictures of a tab only after its icon was clicked there once. That stays through refreshes; a new tab, an extension update or a browser restart asks again. Pictures already taken show without it."; } now.appendChild(ph); } // the slot keeps its width before the picture arrives — the text never re-wraps when it lands
         now.classList.remove("svs-swap"); void now.offsetWidth; now.classList.add("svs-swap");
       });
       // ── people: in this scene first, then most seen — tiny at rest, named when the section is open ──
