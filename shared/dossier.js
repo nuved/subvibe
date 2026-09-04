@@ -58,7 +58,14 @@
   // Who is speaking: "Emily / Madeline" names both; a first name of 3+ letters is the person ("Bjorn" is Bjorn Ironside).
   const clean = (x) => s(x, 80).replace(/\s*\(.*$/, "").toLowerCase();
   function sameName(a, b) { a = clean(a); b = clean(b); if (!a || !b) return false; if (a === b) return true; const fa = a.split(/\s+/)[0], fb = b.split(/\s+/)[0]; return fa.length >= 3 && fa === fb; }
-  const speakers = (spk) => String(spk || "").split(/\s*[\/&,+]\s*|\s+and\s+/i).map((x) => s(x, 60)).filter(Boolean);
+  const speakers = (spk) => String(spk || "").split(/\s*[\/&,+]\s*|\s+and\s+/i).map((x) => s(x, 60).replace(/\s*\(.*$/, "")).filter(Boolean);
+  // The chunk's main speaker: the name behind most of its sentences ("A / B" counts for both); a tie goes to the first heard.
+  function dominantSpeaker(spk) {
+    const count = new Map();
+    for (const e of Array.isArray(spk) ? spk : []) for (const n of speakers(e)) { const k = n.toLowerCase(); const c = count.get(k) || { n, c: 0 }; c.c++; count.set(k, c); }
+    let best = null; for (const c of count.values()) if (!best || c.c > best.c) best = c;
+    return best ? best.n : "";
+  }
   function speaks(name, spk) { return speakers(spk).some((p) => sameName(name, p)); }
   const nameOf = (f) => (f && f.person && (f.person.character || f.person.name)) || (f && f.label) || "";
   // The Now box's faces: the scene's people as listed, and whoever is speaking always in view — added when the
@@ -81,5 +88,5 @@
     if (!w.length) return "?";
     return (w.length > 1 ? w[0][0] + w[w.length - 1][0] : w[0][0]).toUpperCase();
   }
-  g.SV_DOSSIER = { block, identityLine, sampleLines, whoFaces, aheadWindow, initials, sameName, speaks, nowFaces };
+  g.SV_DOSSIER = { block, identityLine, sampleLines, whoFaces, aheadWindow, initials, sameName, speaks, nowFaces, dominantSpeaker };
 })(typeof globalThis !== "undefined" ? globalThis : this);

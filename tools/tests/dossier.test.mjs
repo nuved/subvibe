@@ -112,3 +112,10 @@ test("nowFaces: four slots — four faces, or three and +N; a speaker behind +N 
   const both = D.nowFaces(five, "Ivar / Askold", vik, 4);
   assert.deepEqual(names(both), ["Ubbe", "Askold*", "Ivar*"]); assert.equal(both.more, 2, "two speakers: both in view, the two quiet faces from the front stay");
 });
+
+test("dominantSpeaker: the name behind most sentences; 'A / B' counts for both; a tie goes to the first heard", () => {
+  assert.equal(D.dominantSpeaker(["Oleg", "Ivar", "Oleg"]), "Oleg");
+  assert.equal(D.dominantSpeaker(["Ivar", "Oleg / Ivar", "Oleg"]), "Ivar");
+  assert.equal(D.dominantSpeaker(["", "Ivar (the Boneless)"]), "Ivar");
+  assert.equal(D.dominantSpeaker(null), ""); assert.equal(D.dominantSpeaker(["", ""]), "");
+});

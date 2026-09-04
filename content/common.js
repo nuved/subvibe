@@ -2721,10 +2721,8 @@
       let name = "";
       if (ex && Array.isArray(ex.spk) && ex.spk.length) { let i = -1; for (let j = 0; j < ch.sentences.length; j++) if (ch.sentences[j].startMs <= t) i = j; if (i >= 0) name = ex.spk[i] || ""; }
       if (name === spkLast) return; spkLast = name;
-      const strip = document.getElementById("sv-strip");
-      const nodes = [...(strip ? strip.querySelectorAll(".svs-now .svs-face") : []), ...(board.el ? board.el.querySelectorAll(".svb-chunk.on .svb-who") : [])];
+      const nodes = board.el ? board.el.querySelectorAll(".svb-chunk.on .svb-who") : []; // the Now box marks its own speaker as it renders
       for (const n of nodes) n.classList.toggle("talk", !!name && speaks(n.dataset.name || n.textContent, name));
-      const sp = strip && strip.querySelector(".svs-now .svs-spk"); if (sp) sp.textContent = name ? name + " speaking" : "";
     };
     const boardSung = (t) => {
       // Hear one sentence: pause at its end. Repeat a chunk: jump back at its end.
@@ -2863,27 +2861,56 @@
       if (showK >= 0) wantFrames([showK]);
       const frameNow = showK >= 0 ? cam.frames.get(showK) : "";
       const nmOf = (f) => (f.person && (f.person.character || f.person.name)) || f.label;
-      part("svs-now", [board.nowK, chN ? chN.text : "", exN ? (exN.scene || "") + (exN.who || []).join("|") : "", busyHere(chN || ch) ? 1 : 0, st.state, d ? d.at : 0, useRecap ? recap.k + recap.text.slice(0, 40) : "", last ? last.scene : "", board.facesV, frameNow ? frameNow.length : 0, cam.needGrant ? 1 : 0, nextScene.slice(0, 40), spkLast].join("|"), (now) => {
-        let facesList = [];
-        const lbl = (text) => { const l = mk("div", "svs-lbl"); l.appendChild(mk("span", null, text)); l.appendChild(mk("span", "svs-spk", spkLast ? spkLast + " speaking" : "")); return l; }; // who is talking, in words — the ring alone was easy to miss
-        if (exN && exN.scene) { now.appendChild(lbl("Now · " + fmtT(chN.startMs))); const sc = mk("div", "svs-scene", exN.scene); sc.dir = explainDir(exN); now.appendChild(sc); facesList = who; }
-        else if (useRecap) { now.appendChild(mk("div", "svs-lbl", "Story so far · to " + fmtT(list[recap.k] ? list[recap.k].startMs : 0) + (busyHere(ch) ? " · explaining this chunk…" : ""))); const sc = mk("div", "svs-scene recap", recap.text); sc.dir = dirOf(recapLang()); now.appendChild(sc); facesList = SV_DOSSIER.whoFaces(recap.who, d && d.people); }
-        else if (last) { now.appendChild(lbl("Earlier" + (waiting ? " · " + waiting : ""))); const sc = mk("div", "svs-scene faded", last.scene); sc.dir = explainDir(last.ex); now.appendChild(sc); facesList = SV_DOSSIER.whoFaces(last.who, d && d.people); }
-        else if (waiting) { now.appendChild(mk("div", "svs-lbl", "Now")); now.appendChild(mk("div", "svs-scene muted", waiting[0].toUpperCase() + waiting.slice(1))); }
-        // Four slots whatever the count — four faces, or three and "+N" — in a column of fixed width (CSS), so the scene text keeps its width from chunk to chunk.
-        if (nextScene) { // the coming line in its own direction (a Persian line runs from the right, the chip at its start), two lines, with who opens it
-          const nx = mk("div", "svs-next"); nx.dir = explainDir(exNext);
-          const firstSpk = cleanName((exNext.spk || []).find(Boolean) || "");
-          const chip = mk("span", "svs-next-l", "next" + (firstSpk ? " · " + firstSpk : "")); chip.dir = "ltr"; nx.appendChild(chip);
-          nx.appendChild(mk("span", null, nextScene)); now.appendChild(nx); }
-        const faces = mk("div", "svs-faces" + (exN && exN.scene ? "" : " faded")); const nf = SV_DOSSIER.nowFaces(facesList, spkLast, d && d.people, 4); // whoever speaks is in view, ringed
-        nf.shown.forEach((f) => faces.appendChild(face(f.person, f.label, "md", !!f.talk)));
-        if (nf.more) { const more = mk("span", "svs-face md plus"); more.appendChild(mk("i", null, "+" + nf.more)); more.appendChild(mk("b", null, "more")); faces.appendChild(more); }
-        now.appendChild(faces);
-        if (frameNow) { const img = mk("img", "svs-frame"); img.src = frameNow; img.alt = ""; img.title = "This moment — click to open it as a Shot"; img.addEventListener("click", () => { snapChunksNow(list, showK, 1, els.__orig, () => {}); }); now.appendChild(img); }
-        else { const ph = mk("div", "svs-frame ph" + (cam.needGrant ? " note" : "")); if (cam.needGrant) { ph.textContent = "New scene pictures: click the SubVibe icon once on this tab"; ph.title = "The browser lets an extension take pictures of a tab only after its icon was clicked there once. That stays through refreshes; a new tab, an extension update or a browser restart asks again. Pictures already taken show without it."; } now.appendChild(ph); } // the slot keeps its width before the picture arrives — the text never re-wraps when it lands
-        now.classList.remove("svs-swap"); void now.offsetWidth; now.classList.add("svs-swap");
-      });
+      // ── the Now box: who says the line, the line, who says the next. Stable nodes updated in place — the pump,
+      // the camera, a found picture or a change of speaker touch only the words that changed, so nothing flashes;
+      // only a new line (a new chunk) fades in, and only that line. ──
+      const now = s.querySelector(".svs-now");
+      if (now && now.dataset.v !== "3") {
+        now.textContent = ""; now.dataset.v = "3";
+        const lbl = mk("div", "svs-lbl"); lbl.append(mk("span", "svs-lbl-l"), mk("span", "svs-lbl-r")); now.appendChild(lbl);
+        for (const cls of ["now", "next"]) { const q = mk("div", "svs-q " + cls); const body = mk("div", "svs-qb"); const hd = mk("div", "svs-qh"); hd.append(mk("b"), mk("span", "svs-qs")); body.append(hd, mk("p", "svs-qt")); q.append(mk("i", "svs-qa"), body); now.appendChild(q); }
+        const img = mk("img", "svs-frame"); img.alt = ""; img.title = "This moment — click to open it as a Shot"; img.addEventListener("click", () => { const k = +now.dataset.showK; if (k >= 0) snapChunksNow(board.list, k, 1, els.__orig, () => {}); }); now.appendChild(img);
+        const ph = mk("div", "svs-frame ph"); ph.title = "The browser lets an extension take pictures of a tab only after its icon was clicked there once. That stays through refreshes; a new tab, an extension update or a browser restart asks again. Pictures already taken show without it."; now.appendChild(ph);
+        now.appendChild(mk("div", "svs-faces"));
+      }
+      if (now) {
+        const [lbl, qNow, qNext, img, ph, facesEl] = now.children;
+        const setTxt = (el, t) => { t = t == null ? "" : String(t); if (el.textContent !== t) el.textContent = t; };
+        const setDir = (el, dir) => { dir = dir || ""; if ((el.getAttribute("dir") || "") !== dir) { if (dir) el.setAttribute("dir", dir); else el.removeAttribute("dir"); } };
+        const setAv = (av, url, name) => { if (url) { const v = "url(" + url + ")"; if (av.style.backgroundImage !== v) av.style.backgroundImage = v; if (av.style.backgroundColor) av.style.backgroundColor = ""; setTxt(av, ""); } else { if (av.style.backgroundImage) av.style.backgroundImage = ""; const c = "hsl(" + nameHue(name) + " 38% 50%)"; if (av.style.backgroundColor !== c) av.style.backgroundColor = c; setTxt(av, SV_DOSSIER.initials(name.replace(/^(the|a|an)\s+/i, ""))); } };
+        // a quote row: the speaker's face and name over the line — or the line alone (the story so far, a wait)
+        const fillQ = (row, q) => {
+          if (!q) { if (!row.hidden) row.hidden = true; return; } if (row.hidden) row.hidden = false;
+          const cls = "svs-q " + q.cls; if (row.className !== cls) row.className = cls; setDir(row, q.dir);
+          const av = row.firstChild, hd = row.lastChild.firstChild, tx = row.lastChild.lastChild;
+          if (q.name) { if (av.hidden) av.hidden = false; setAv(av, q.url, q.name); av.classList.toggle("talk", !!q.talk); } else if (!av.hidden) av.hidden = true;
+          if (q.name || q.tag) { if (hd.hidden) hd.hidden = false; setTxt(hd.firstChild, q.name || ""); setTxt(hd.lastChild, q.tag || ""); } else if (!hd.hidden) hd.hidden = true;
+          setTxt(tx, q.text);
+        };
+        const faceOf = (name) => { const f = SV_DOSSIER.whoFaces([name], d && d.people)[0]; return f ? photoOf(f.person, name) : board.faces.get(cleanName(name)) || ""; };
+        const live = board.nowK === board.ki ? cleanName(spkLast) : ""; // the sentence under the playhead names its speaker only while the box shows that chunk
+        let facesList = [], left = "", right = "", qn = null;
+        if (exN && exN.scene) { const name = live || cleanName(SV_DOSSIER.dominantSpeaker(exN.spk)); left = "Now · " + fmtT(chN.startMs); right = waiting; qn = { cls: "now", dir: explainDir(exN), text: exN.scene, name, url: name ? faceOf(name) : "", tag: live ? "speaking" : "", talk: !!live }; facesList = who; }
+        else if (useRecap) { left = "Story so far · to " + fmtT(list[recap.k] ? list[recap.k].startMs : 0); right = busyHere(ch) ? "explaining this chunk…" : ""; qn = { cls: "now recap", dir: dirOf(recapLang()), text: recap.text }; facesList = SV_DOSSIER.whoFaces(recap.who, d && d.people); }
+        else if (last) { const name = cleanName(SV_DOSSIER.dominantSpeaker(last.ex && last.ex.spk)); left = "Earlier"; right = waiting; qn = { cls: "now faded", dir: explainDir(last.ex), text: last.scene, name, url: name ? faceOf(name) : "" }; facesList = SV_DOSSIER.whoFaces(last.who, d && d.people); }
+        else { left = "Now"; qn = waiting ? { cls: "now muted", dir: "", text: waiting[0].toUpperCase() + waiting.slice(1) } : null; }
+        setTxt(lbl.firstChild, left); setTxt(lbl.lastChild, right);
+        fillQ(qNow, qn);
+        const nextName = exNext && exNext.scene ? cleanName(SV_DOSSIER.dominantSpeaker(exNext.spk)) : "";
+        fillQ(qNext, exNext && exNext.scene && chNext ? { cls: "next", dir: explainDir(exNext), text: exNext.scene, name: nextName, url: nextName ? faceOf(nextName) : "", tag: "next · " + fmtT(chNext.startMs) } : null);
+        if (nextName && !board.facesAsked.has(nextName)) askFaces([nextName]);
+        // the picture: the same <img> keeps its bytes until the chunk (or a sharper shot of it) changes
+        now.dataset.showK = showK;
+        if (frameNow) { const fk = showK + ":" + frameNow.length; if (img.hidden) img.hidden = false; if (!ph.hidden) ph.hidden = true; if (img.dataset.k !== fk) { img.dataset.k = fk; img.src = frameNow; } }
+        else { if (!img.hidden) img.hidden = true; if (ph.hidden) ph.hidden = false; ph.classList.toggle("note", !!cam.needGrant); setTxt(ph, cam.needGrant ? "New scene pictures: click the SubVibe icon once on this tab" : ""); }
+        // the scene's people: rebuilt only when the set or a picture changes; the ring moves in place
+        const nf = SV_DOSSIER.nowFaces(facesList, live, d && d.people, 4);
+        const fsig = nf.shown.map((f) => nmOf(f) + "=" + photoOf(f.person, nmOf(f))).join("|") + "|+" + nf.more;
+        if (facesEl.dataset.sig !== fsig) { facesEl.dataset.sig = fsig; facesEl.textContent = ""; nf.shown.forEach((f) => facesEl.appendChild(face(f.person, f.label, "md", false))); if (nf.more) { const more = mk("span", "svs-face md plus"); more.appendChild(mk("i", null, "+" + nf.more)); more.appendChild(mk("b", null, "more")); facesEl.appendChild(more); } }
+        facesEl.classList.toggle("faded", !(exN && exN.scene));
+        for (const el of facesEl.querySelectorAll(".svs-face")) { const f = nf.shown.find((x) => cleanName(nmOf(x)) === el.dataset.name); el.classList.toggle("talk", !!(f && f.talk)); }
+        if (now.dataset.k !== String(board.nowK)) { now.dataset.k = board.nowK; qNow.classList.remove("svs-in"); void qNow.offsetWidth; qNow.classList.add("svs-in"); } // a new line fades in; nothing else moves
+      }
       // ── people: in this scene first, then most seen — tiny at rest, named when the section is open ──
       const dp = (d && d.people) || [];
       if (!board.peopleSeen || board.peopleSeen.n !== st.doneN || board.peopleSeen.at !== (d ? d.at : 0)) {
