@@ -2165,7 +2165,6 @@
     const tipsRetry = () => { tips.stopped = false; tips.errors = 0; tips.rounds = 0; tips.pausedUntil = 0; board.sig = ""; boardTick(true); };
     // A person is a name: "Ray (Raymond)" counts as Ray; "the police", "radio advertisement voice" are roles.
     const cleanName = (w) => String(w || "").replace(/\s*\(.*$/, "").trim();
-    const namedOnly = (ws) => (ws || []).filter((w) => /^\p{Lu}/u.test(cleanName(w))); // "the man on the phone" is a description, not a person to show a face for
     const isRole = (k) => !/^\p{Lu}/u.test(k) || /['\u2019]s?\s/.test(k) || /\b(voice|advert|announcer|narrator|officer|police|crowd|men|man|woman|guy|guys|people|cop|cops|dealer|driver|radio|tv)\b/i.test(k) || k.split(/\s+/).length > 3; // "Andrés's partner" is a role, not a person
     // Faces: character pictures from the franchise's wiki, asked in small batches, remembered per name.
     let facesTimer = 0; const facesQueue = new Set();
@@ -2816,7 +2815,7 @@
       const nm = (p && (p.character || p.name)) || label;
       const f = mk("span", "svs-face " + size + (talk ? " talk" : "")); f.dataset.name = cleanName(nm);
       const url = photoOf(p, nm);
-      const av = mk("i", null, url ? "" : SV_DOSSIER.initials(nm)); if (url) av.style.backgroundImage = "url(" + url + ")"; else av.style.background = "hsl(" + nameHue(nm) + " 38% 50%)";
+      const av = mk("i", null, url ? "" : SV_DOSSIER.initials(nm.replace(/^(the|a|an)\s+/i, ""))); // "the French teacher" → FT, not TT if (url) av.style.backgroundImage = "url(" + url + ")"; else av.style.background = "hsl(" + nameHue(nm) + " 38% 50%)";
       f.appendChild(av); f.appendChild(mk("b", null, nm));
       if (size === "lg" && p && (p.character ? p.name : p.role)) f.appendChild(mk("small", null, p.character ? p.name : p.role));
       return f;
@@ -2852,7 +2851,7 @@
       if (wantK !== board.nowK && (board.nowK == null || board.nowK < 0 || wantK < 0 || jumped || nowT - (board.nowSwapAt || 0) >= 4000)) { board.nowK = wantK; board.nowSwapAt = nowT; }
       const chN = board.nowK >= 0 ? list[board.nowK] : null, exN = chN ? lineExplainCache.get(chN.text) : null;
       if (exN && exN.scene) board.lastScene = { scene: exN.scene, who: exN.who || [], ex: exN, k: board.nowK };
-      const who = exN ? SV_DOSSIER.whoFaces(namedOnly(exN.who), d && d.people) : [];
+      const who = exN ? SV_DOSSIER.whoFaces(exN.who, d && d.people) : []; // everyone in the scene, named or not ("the French teacher" is a player too)
       askFaces(who.map((f) => (f.person && (f.person.character || f.person.name)) || f.label));
       const useRecap = !(exN && exN.scene) && !!recap.text, last = exN && exN.scene ? null : useRecap ? null : board.lastScene;
       const waiting = busyHere(chN || ch) ? "explaining this chunk…" : st.state === "stopped" || st.state === "paused" ? "tips paused — see the board" : exN ? "" : "tips follow the video as it plays";
@@ -2868,11 +2867,15 @@
         let facesList = [];
         const lbl = (text) => { const l = mk("div", "svs-lbl"); l.appendChild(mk("span", null, text)); l.appendChild(mk("span", "svs-spk", spkLast ? spkLast + " speaking" : "")); return l; }; // who is talking, in words — the ring alone was easy to miss
         if (exN && exN.scene) { now.appendChild(lbl("Now · " + fmtT(chN.startMs))); const sc = mk("div", "svs-scene", exN.scene); sc.dir = explainDir(exN); now.appendChild(sc); facesList = who; }
-        else if (useRecap) { now.appendChild(mk("div", "svs-lbl", "Story so far · to " + fmtT(list[recap.k] ? list[recap.k].startMs : 0) + (busyHere(ch) ? " · explaining this chunk…" : ""))); const sc = mk("div", "svs-scene recap", recap.text); sc.dir = dirOf(recapLang()); now.appendChild(sc); facesList = SV_DOSSIER.whoFaces(namedOnly(recap.who), d && d.people); }
-        else if (last) { now.appendChild(lbl("Earlier" + (waiting ? " · " + waiting : ""))); const sc = mk("div", "svs-scene faded", last.scene); sc.dir = explainDir(last.ex); now.appendChild(sc); facesList = SV_DOSSIER.whoFaces(namedOnly(last.who), d && d.people); }
+        else if (useRecap) { now.appendChild(mk("div", "svs-lbl", "Story so far · to " + fmtT(list[recap.k] ? list[recap.k].startMs : 0) + (busyHere(ch) ? " · explaining this chunk…" : ""))); const sc = mk("div", "svs-scene recap", recap.text); sc.dir = dirOf(recapLang()); now.appendChild(sc); facesList = SV_DOSSIER.whoFaces(recap.who, d && d.people); }
+        else if (last) { now.appendChild(lbl("Earlier" + (waiting ? " · " + waiting : ""))); const sc = mk("div", "svs-scene faded", last.scene); sc.dir = explainDir(last.ex); now.appendChild(sc); facesList = SV_DOSSIER.whoFaces(last.who, d && d.people); }
         else if (waiting) { now.appendChild(mk("div", "svs-lbl", "Now")); now.appendChild(mk("div", "svs-scene muted", waiting[0].toUpperCase() + waiting.slice(1))); }
         // Four slots whatever the count — four faces, or three and "+N" — in a column of fixed width (CSS), so the scene text keeps its width from chunk to chunk.
-        if (nextScene) { const nx = mk("div", "svs-next"); nx.appendChild(mk("span", "svs-next-l", "next")); const t = mk("span", null, nextScene); t.dir = explainDir(exNext); nx.appendChild(t); now.appendChild(nx); }
+        if (nextScene) { // the coming line in its own direction (a Persian line runs from the right, the chip at its start), two lines, with who opens it
+          const nx = mk("div", "svs-next"); nx.dir = explainDir(exNext);
+          const firstSpk = cleanName((exNext.spk || []).find(Boolean) || "");
+          const chip = mk("span", "svs-next-l", "next" + (firstSpk ? " · " + firstSpk : "")); chip.dir = "ltr"; nx.appendChild(chip);
+          nx.appendChild(mk("span", null, nextScene)); now.appendChild(nx); }
         const faces = mk("div", "svs-faces" + (exN && exN.scene ? "" : " faded")); const shown = facesList.length > 4 ? facesList.slice(0, 3) : facesList; shown.forEach((f) => faces.appendChild(face(f.person, f.label, "md", !!spkLast && speaks(nmOf(f), spkLast))));
         if (facesList.length > shown.length) { const more = mk("span", "svs-face md plus"); more.appendChild(mk("i", null, "+" + (facesList.length - shown.length))); more.appendChild(mk("b", null, "more")); faces.appendChild(more); }
         now.appendChild(faces);
