@@ -2375,10 +2375,11 @@
       for (let k = k0; k < Math.min(list.length, k0 + snapChunks); k++) { const ch = list[k]; const ex = await explainChunk(ch, list); if (!ex || ex.error) continue; picked.push({ s: ch.text, tr: ex.tr, simple: ex.simple || "", scene: ex.scene || "", g: ex.g, lang: ex.lang || "", words: ex.words || [], sentences: ch.sentences.map((x) => ({ s: x.s, tr: x.tr })) }); }
       if (!picked.length) return { ok: false, error: "explain" };
       const v = liveVideoEl(video) || video; const vr = v.getBoundingClientRect();
+      const fr = frameRect() || { x: vr.left, y: vr.top, w: vr.width, h: vr.height }; // the picture's own 16:9 box, not the whole player (bars, controls, the strip)
       const ol = els.__orig && els.__orig.style.display !== "none" ? els.__orig : null; const lr = ol ? ol.getBoundingClientRect() : null;
       overlay.classList.add("sv-snap-hide");
-      return { ok: true, dpr: window.devicePixelRatio || 1, rect: { x: vr.left, y: vr.top, w: vr.width, h: vr.height },
-        lineRect: lr ? { x: lr.left - vr.left, y: lr.top - vr.top, w: lr.width, h: lr.height } : null,
+      return { ok: true, dpr: window.devicePixelRatio || 1, rect: { x: fr.x, y: fr.y, w: fr.w, h: fr.h },
+        lineRect: lr ? { x: lr.left - fr.x, y: lr.top - fr.y, w: lr.width, h: lr.height } : null,
         chunks: picked, lang: picked[0].lang || vocabPoolLang, title: document.title, url: location.href, base };
     };
     window.__svSnapDone = () => overlay.classList.remove("sv-snap-hide");
