@@ -2815,7 +2815,8 @@
       const nm = (p && (p.character || p.name)) || label;
       const f = mk("span", "svs-face " + size + (talk ? " talk" : "")); f.dataset.name = cleanName(nm);
       const url = photoOf(p, nm);
-      const av = mk("i", null, url ? "" : SV_DOSSIER.initials(nm.replace(/^(the|a|an)\s+/i, ""))); // "the French teacher" → FT, not TT if (url) av.style.backgroundImage = "url(" + url + ")"; else av.style.background = "hsl(" + nameHue(nm) + " 38% 50%)";
+      const av = mk("i", null, url ? "" : SV_DOSSIER.initials(nm.replace(/^(the|a|an)\s+/i, ""))); // "the French teacher" → FT, not TT
+      if (url) av.style.backgroundImage = "url(" + url + ")"; else av.style.background = "hsl(" + nameHue(nm) + " 38% 50%)";
       f.appendChild(av); f.appendChild(mk("b", null, nm));
       if (size === "lg" && p && (p.character ? p.name : p.role)) f.appendChild(mk("small", null, p.character ? p.name : p.role));
       return f;
