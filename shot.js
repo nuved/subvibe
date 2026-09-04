@@ -393,9 +393,9 @@
   const POSC = { v: "#C93F2B", n: "#1F5FBF", adj: "#2E7D32", adv: "#7B4DBF" }; // word-class colours on the Study card
   const GENDER = { m: ["#2F6FE4", "#E8F0FD"], f: ["#D64550", "#FCE9EB"], n: ["#2E9E5B", "#E6F5EC"] };
   const STUDY_LABELS = {
-    de: { m: "maskulin", f: "feminin", n: "neutrum", v: "Verbgruppe", vDe: "zweiteiliges Verb", note: "Hinweis", simple: "Einfacher gesagt", grammar: "Grammatik", notes: "Hinweise", summary: "Kurz gesagt", pv: "Verb", pn: "Nomen", padj: "Adjektiv", padv: "Adverb" },
-    fa: { m: "مذکر", f: "مؤنث", n: "خنثی", v: "گروه فعلی", vDe: "فعل دوبخشی", note: "نکته", simple: "ساده‌تر", grammar: "دستور زبان", notes: "نکته‌ها", summary: "خلاصه", pv: "فعل", pn: "اسم", padj: "صفت", padv: "قید" },
-    en: { m: "masculine", f: "feminine", n: "neuter", v: "verb group", vDe: "two-part verb", note: "note", simple: "Put simply", grammar: "Grammar", notes: "Notes", summary: "In short", pv: "verb", pn: "noun", padj: "adjective", padv: "adverb" },
+    de: { m: "maskulin", f: "feminin", n: "neutrum", v: "Verbgruppe", vDe: "zweiteiliges Verb", note: "Hinweis", simple: "Einfacher gesagt", scene: "Was passiert", grammar: "Grammatik", notes: "Hinweise", summary: "Kurz gesagt", pv: "Verb", pn: "Nomen", padj: "Adjektiv", padv: "Adverb" },
+    fa: { m: "مذکر", f: "مؤنث", n: "خنثی", v: "گروه فعلی", vDe: "فعل دوبخشی", note: "نکته", simple: "ساده‌تر", scene: "چه می‌گذرد", grammar: "دستور زبان", notes: "نکته‌ها", summary: "خلاصه", pv: "فعل", pn: "اسم", padj: "صفت", padv: "قید" },
+    en: { m: "masculine", f: "feminine", n: "neuter", v: "verb group", vDe: "two-part verb", note: "note", simple: "Put simply", scene: "What's happening", grammar: "Grammar", notes: "Notes", summary: "In short", pv: "verb", pn: "noun", padj: "adjective", padv: "adverb" },
   };
   const studyLabels = (lang) => STUDY_LABELS[(lang || "").split("-")[0]] || STUDY_LABELS.en;
   // A note = bold term + explanation. The term is its own run on the first
@@ -469,6 +469,16 @@
     blocksV2.forEach((blk, bi) => {
       brk();
       if (bi) { ops.push({ rule: true, y: y - px(6), h: 1 }); }
+      // 0) what is happening in this chunk — the scene line, first, as the headline the sentences hang from
+      if (blk.scene) {
+        mc.font = fM; const rtlSc = BI_RTL.test(blk.scene); const lines = wrapText(mc, blk.scene, innerW - px(26));
+        const h = px(8) + px(14) + lines.length * lhM + px(8);
+        ops.push({ softbox: true, y, h, bar: CORAL, fill: "#FBF1EE", rtl: rtlSc });
+        ops.push({ text: String(Ls.scene || L.scene || "What's happening").toUpperCase(), font: fLbl, color: MUTED, x: rtlSc ? innerW - px(12) : px(12), y: y + px(8), align: rtlSc ? "right" : "left", dir: "ltr", h: px(14) });
+        let yy = y + px(8) + px(14);
+        for (const ln of lines) { ops.push({ text: ln, font: fM, color: INK, x: rtlSc ? innerW - px(12) : px(12), y: yy, align: rtlSc ? "right" : "left", dir: rtlSc ? "rtl" : "ltr", h: lhM }); box(px(12), yy, innerW - px(24), lhM); yy += lhM; }
+        y += h + px(8); brk();
+      }
       const many = blk.sentences.length > 1;
       blk.sentences.forEach((snt, si) => {
         if (si) brk();

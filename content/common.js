@@ -2205,7 +2205,7 @@
       setTimeout(() => send({ type: "SCENE_FRAME", base, k, ms: ch.startMs, dpr: devicePixelRatio, rect: r, retry: retry || 0 })
         .then((res) => { if (res && res.ok && res.frame) { cam.frames.set(k, res.frame); if (cam.needGrant) { cam.needGrant = false; board.stripSig = ""; } board.stripSig = "";
             if (!res.cached && typeof res.sharp === "number" && res.sharp < SHARP_MIN && (retry || 0) < 2) setTimeout(() => { if (board.ki === k) snapChunkFrame(k, (retry || 0) + 1); }, 1600); }
-          else if (res && res.error === "not-visible") cam.asked.delete(k);
+          else if (res && (res.error === "not-visible" || res.error === "capture")) { cam.asked.delete(k); if ((retry || 0) < 2) setTimeout(() => { if (board.ki === k && !cam.asked.has(k)) snapChunkFrame(k, (retry || 0) + 1); }, 2500); } // another tab was in front, or the shot failed — once more while the chunk plays
           else if (res && res.error === "grant") { cam.asked.delete(k); if (!cam.needGrant) { cam.needGrant = true; board.stripSig = ""; } cam.grantAt = performance.now(); } })
         .catch(() => {}).finally(() => { overlay.classList.remove("sv-snap-hide"); cam.inflight = false; }), 70);
     };
@@ -2372,7 +2372,7 @@
       const list = board.list.length ? board.list : chunksNow(); if (!list.length) return { ok: false, error: "no-chunks" };
       let k0 = board.open >= 0 ? board.open : chunkOfCue(list, curCue); if (k0 < 0) k0 = Math.max(0, board.ki);
       const picked = [];
-      for (let k = k0; k < Math.min(list.length, k0 + snapChunks); k++) { const ch = list[k]; const ex = await explainChunk(ch, list); if (!ex || ex.error) continue; picked.push({ s: ch.text, tr: ex.tr, simple: ex.simple || "", g: ex.g, lang: ex.lang || "", words: ex.words || [], sentences: ch.sentences.map((x) => ({ s: x.s, tr: x.tr })) }); }
+      for (let k = k0; k < Math.min(list.length, k0 + snapChunks); k++) { const ch = list[k]; const ex = await explainChunk(ch, list); if (!ex || ex.error) continue; picked.push({ s: ch.text, tr: ex.tr, simple: ex.simple || "", scene: ex.scene || "", g: ex.g, lang: ex.lang || "", words: ex.words || [], sentences: ch.sentences.map((x) => ({ s: x.s, tr: x.tr })) }); }
       if (!picked.length) return { ok: false, error: "explain" };
       const v = liveVideoEl(video) || video; const vr = v.getBoundingClientRect();
       const ol = els.__orig && els.__orig.style.display !== "none" ? els.__orig : null; const lr = ol ? ol.getBoundingClientRect() : null;
@@ -2392,16 +2392,26 @@
       for (let k = k0; k < Math.min(list.length, k0 + n); k++) {
         const ch = list[k]; status("Explaining chunk " + (k - k0 + 1) + "/" + n + "…");
         const ex = await explainChunk(ch, list); if (!ex || ex.error) continue;
-        picked.push({ s: ch.text, tr: ex.tr, g: ex.g, lang: ex.lang || "", words: ex.words || [], sentences: ch.sentences.map((x) => ({ s: x.s, tr: x.tr })) });
+        picked.push({ s: ch.text, tr: ex.tr, simple: ex.simple || "", scene: ex.scene || "", g: ex.g, lang: ex.lang || "", words: ex.words || [], sentences: ch.sentences.map((x) => ({ s: x.s, tr: x.tr })) });
       }
       if (!picked.length) return { ok: false, error: "explain" };
       status("Snapping…");
       const v = liveVideoEl(video) || video;
       const vr = v.getBoundingClientRect(), lr = (anchor || els.__orig).getBoundingClientRect();
       const w = v.videoWidth || Math.round(vr.width), h = v.videoHeight || Math.round(vr.height);
-      let frame = null;
-      try { const cv = document.createElement("canvas"); cv.width = w; cv.height = h; cv.getContext("2d").drawImage(v, 0, 0, w, h); frame = cv.toDataURL("image/jpeg", 0.92); } catch (e) { frame = null; }
-      if (!frame || w < 8 || h < 8) return { ok: false, error: "drm" };
+      let frame = null, dark = false;
+      try { const cv = document.createElement("canvas"); cv.width = w; cv.height = h; cv.getContext("2d").drawImage(v, 0, 0, w, h); frame = cv.toDataURL("image/jpeg", 0.92);
+        const sc = document.createElement("canvas"); sc.width = 32; sc.height = 18; const sx = sc.getContext("2d"); sx.drawImage(v, 0, 0, 32, 18); const px = sx.getImageData(0, 0, 32, 18).data; let mx = 0; for (let i = 0; i < px.length; i += 4) mx = Math.max(mx, px[i], px[i + 1], px[i + 2]); dark = mx < 10; } catch (e) { frame = null; }
+      // Protected video (Netflix) draws black: the picture comes from the screen instead — the same
+      // route as "Frame + this chunk from the screen" — and, without the tab's grant, the chunk's own
+      // small frame already taken stands in.
+      if (!frame || w < 8 || h < 8 || dark) {
+        const r = await send({ type: "SNAP_VIA_CAPTURE" }).catch(() => null);
+        if (r && r.ok) return r;
+        const d = cam.frames.get(k0); if (!d) return r || { ok: false, error: "drm" };
+        const size = await new Promise((res) => { const im = new Image(); im.onload = () => res([im.naturalWidth || 640, im.naturalHeight || 360]); im.onerror = () => res([640, 360]); im.src = d; });
+        return send({ type: "TIPS_SNAP", base, lang: picked[0].lang || vocabPoolLang, title: document.title, url: location.href, frame: d, w: size[0], h: size[1], lineRect: null, line: picked[0], chunks: picked });
+      }
       const kx = w / (vr.width || 1), ky = h / (vr.height || 1);
       const lineRect = { x: (lr.left - vr.left) * kx, y: (lr.top - vr.top) * ky, w: lr.width * kx, h: lr.height * ky };
       return send({ type: "TIPS_SNAP", base, lang: picked[0].lang || vocabPoolLang, title: document.title, url: location.href, frame, w, h, lineRect, line: picked[0], chunks: picked });
@@ -2961,7 +2971,7 @@
       const sig = [list.length, trN, ki, exN, board.open, snapChunks, tipsExplain, tips.inflight.size, tips.stopped ? 1 : 0, tips.all ? 1 : 0].join(":");
       if (sig === board.sig) { renderPane(); renderStrip(); renderPump(); return; }
       const follow = ki !== board.ki;
-      if (follow && ki >= 0) { clearTimeout(cam.timer); cam.timer = setTimeout(() => { if (board.ki === ki) snapChunkFrame(ki); }, 1200); }
+      if (follow && ki >= 0) { clearTimeout(cam.timer); const dur = list[ki] ? list[ki].endMs - list[ki].startMs : 0; cam.timer = setTimeout(() => { if (board.ki === ki) snapChunkFrame(ki); }, Math.min(1200, Math.max(250, dur / 2))); } // a second in, or halfway through a short chunk
       board.sig = sig; board.list = list; board.ki = ki;
       // A small state stamp for diagnosis from the page (the script's variables are not reachable there).
       try { document.documentElement.dataset.svBoard = JSON.stringify({ ki, open: board.open, loop: board.loop, stopAt: board.stopAt, rate: board.rate, tips: tipsStatus(list, ki).state, chunk: list[ki] ? [Math.round(list[ki].startMs), Math.round(list[ki].endMs)] : null }); } catch (e) {}

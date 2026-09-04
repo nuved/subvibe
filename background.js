@@ -1628,7 +1628,7 @@ async function tipsSnap(msg, sender) {
   // the older single-line shape still arrives as `line`.
   const norm = (x) => String(x || "").replace(/\s+/g, " ").trim();
   const chunks = (Array.isArray(msg.chunks) && msg.chunks.length ? msg.chunks : [msg.line || {}]).slice(0, 3)
-    .map((c) => ({ s: norm(c.s), tr: norm(c.tr), simple: norm(c.simple), g: c.g, lang: c.lang, words: c.words || [], sentences: Array.isArray(c.sentences) ? c.sentences.map((x) => ({ s: norm(x.s), tr: norm(x.tr) })).filter((x) => x.s) : null }))
+    .map((c) => ({ s: norm(c.s), tr: norm(c.tr), simple: norm(c.simple), scene: norm(c.scene), g: c.g, lang: c.lang, words: c.words || [], sentences: Array.isArray(c.sentences) ? c.sentences.map((x) => ({ s: norm(x.s), tr: norm(x.tr) })).filter((x) => x.s) : null }))
     .filter((c) => c.s);
   const line = chunks[0] || {};
   const sTxt = line.s || "", tr = line.tr || "";
@@ -1650,7 +1650,7 @@ async function tipsSnap(msg, sender) {
     blocks, annots: [], crop: null, font: "", tabId: -1, windowId: -1, partial: false, truncated: "", sameLang: false, noKey: false,
   };
   if (sTxt && tr) {
-    const built = SV_SHOT.tipsSheet(chunks.map((c) => ({ s: c.s, tr: c.tr, simple: c.simple, g: c.g, words: c.words, sentences: c.sentences })));
+    const built = SV_SHOT.tipsSheet(chunks.map((c) => ({ s: c.s, tr: c.tr, simple: c.simple, scene: c.scene, g: c.g, words: c.words, sentences: c.sentences })));
     built.study.forEach((b, i) => { b.b = "b" + i; });
     rec.study = { [SV_SHOT.studyKey("source:" + (lang || "xx"), target)]: { v: 2, side: "source", lang: lang || "xx", explain: target, ts: Date.now(), provider: "tips", model: "", count: blocks.reduce((n, b) => n + b.pairs.length, 0), truncated: false, blocks: built.study } };
   }
@@ -3327,6 +3327,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         case "CLIP_TIPS": sendResponse(await clipTips(msg)); break;
         case "TIPS_CACHED": sendResponse(await tipsCached(msg)); break;
         case "FACES": try { sendResponse(await faces(msg)); } catch (e2) { sendResponse({ ok: false, error: String((e2 && e2.message) || e2) }); } break;
+        case "SNAP_VIA_CAPTURE": try { sendResponse(await snapViaCapture(sender && sender.tab)); } catch (e2) { sendResponse({ ok: false, error: String((e2 && e2.message) || e2) }); } break; // the page asks for the screen route (protected video draws black)
         case "SCENE_FRAME": try { sendResponse(await sceneFrame(msg, sender)); } catch (e2) { sendResponse({ ok: false, error: String((e2 && e2.message) || e2) }); } break;
         case "SCENE_FRAMES": try { sendResponse(await sceneFrames(msg)); } catch (e2) { sendResponse({ ok: false, error: String((e2 && e2.message) || e2) }); } break;
         case "STORY_RECAP": try { sendResponse(await storyRecap(msg)); } catch (e2) { sendResponse({ ok: false, error: String((e2 && e2.message) || e2) }); } break;

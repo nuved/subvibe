@@ -401,7 +401,7 @@
     const out = [];
     for (const b of blocks || []) {
       const v1 = (b.sentences || []).some((snt) => snt && (Array.isArray(snt.notes) || snt.simple != null || snt.grammar != null)) && !Array.isArray(b.notes);
-      if (!v1) { out.push({ b: b.b, grammar: b.grammar || "", simple: b.simple || "", notes: (b.notes || []).map(cleanNote), sentences: b.sentences || [] }); continue; }
+      if (!v1) { out.push({ b: b.b, grammar: b.grammar || "", simple: b.simple || "", scene: b.scene || "", notes: (b.notes || []).map(cleanNote), sentences: b.sentences || [] }); continue; }
       (b.sentences || []).forEach((snt, i) => out.push({ b: String(b.b) + "." + i, grammar: snt.grammar || "", simple: snt.simple || "", notes: (snt.notes || []).map(cleanNote), sentences: [{ text: snt.text, meaning: snt.meaning, tokens: snt.tokens || [] }] }));
     }
     return out;
@@ -445,7 +445,7 @@
           if (tok && tok.n.length < 2) { tok.n.push(num); break; }
         }
       }
-      study.push({ b: "t" + i, grammar: normText(e.g), simple: normText(e.simple), notes, sentences });
+      study.push({ b: "t" + i, grammar: normText(e.g), simple: normText(e.simple), scene: normText(e.scene), notes, sentences });
     });
     return { blocks, study };
   }
