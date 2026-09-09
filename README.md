@@ -6,7 +6,7 @@ Overlay **AI-translated subtitles** on streaming video, in your language — pre
 *ahead* of the playhead so there's no lag, perfectly synced to playback, and **cached
 locally** so re-watching costs nothing. Or **hear it translated aloud, live**, in your language.
 
-**Supported:** YouTube · Netflix · ZDF · Deutsche Welle · Amazon Prime Video · Udemy
+**Supported:** YouTube · Netflix · ZDF · Deutsche Welle · Amazon Prime Video · Udemy · X
 
 ## Features
 - **Pre-translated ahead** of the playhead — grabs the whole caption track up front and
@@ -90,7 +90,7 @@ files in this repo are exactly what ships and runs.**
 - `manifest.json` — MV3 config & permissions.
 - `background.js` — service worker: IndexedDB cache + provider calls (cross-origin lives here, never in a content script).
 - `content/common.js` — the engine: detect source, build per-language cues, render & sync the overlay.
-- `content/adapters/*` — per-site caption acquisition (YouTube, Netflix, ZDF, DW, Prime, Udemy).
+- `content/adapters/*` — per-site caption acquisition (YouTube, Netflix, ZDF, DW, Prime, Udemy, X).
 - `content/subs-intercept.js` — MAIN-world subtitle/segment sniffer + page-world playhead relay.
 - `offscreen-live.js` — the Live Translate audio session (tab capture ↔ Gemini ↔ playback).
 - `popup.html` / `popup.js` — settings (keys, languages, appearance, per-video).

@@ -64,7 +64,7 @@ routes this data through no other party.
 - No personal identifiers, browsing history, account information, or telemetry.
 - No advertising, profiling, data sharing, or data selling.
 - SubVibe reads page content only on the streaming sites it supports (YouTube, Netflix, ZDF,
-  DW, Amazon Prime Video, Udemy), to locate the caption track and draw the subtitle overlay — and,
+  DW, Amazon Prime Video, Udemy, X), to locate the caption track and draw the subtitle overlay — and,
   only when you invoke *Simplify* or *Screenshot* on a tab, on that one tab, to read the text you
   selected or captured. Screenshots are stored only on your device and leave it only through your
   own Download, Copy or Share action.

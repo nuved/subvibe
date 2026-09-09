@@ -1293,6 +1293,10 @@
   // URL doesn't look like a new clip.
   function currentClipId() {
     try {
+      // A site whose one clip lives at several URLs (X: the post, its media viewer,
+      // /i/status/…) names the clip itself.
+      const ad = adapter || pickAdapter();
+      if (ad && ad.clipId) { const c = ad.clipId(); if (c) return c; }
       let path = location.pathname;
       // Amazon/Prime append a VOLATILE tracking segment after the title id
       // (…/detail/<ASIN>/ref=atv_hm_… changes every visit), which would make each

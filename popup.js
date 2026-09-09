@@ -55,6 +55,7 @@ const SUPPORTED_SITES = [
   ["ZDF", /(^|\.)zdf\.de$/],
   ["DW", /(^|\.)dw\.com$/],
   ["Udemy", /(^|\.)udemy\.com$/],
+  ["X", /(^|\.)(x\.com|twitter\.com)$/],
 ];
 async function activeTabHost() {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true }).catch(() => []);

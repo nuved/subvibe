@@ -36,7 +36,11 @@
     "https://www.amazon.de/gp/video/*",
     "https://www.primevideo.com/*",
     "https://*.udemy.com/*",
-    "https://*.udemycdn.com/*"
+    "https://*.udemycdn.com/*",
+    "https://x.com/*",
+    "https://*.x.com/*",
+    "https://twitter.com/*",
+    "https://*.twitter.com/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -214,13 +218,42 @@
     },
     {
       "matches": [
+        "https://x.com/*",
+        "https://*.x.com/*",
+        "https://twitter.com/*",
+        "https://*.twitter.com/*"
+      ],
+      "js": [
+        "content/adapters/x.js",
+        "shared/title.js",
+        "shared/presets.js",
+        "shared/voices.js",
+        "content/dub.js",
+        "shared/textslice.js",
+        "shared/quotes.js",
+        "shared/cues.js",
+        "shared/dossier.js",
+        "content/common.js"
+      ],
+      "css": [
+        "styles/overlay.css"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    },
+    {
+      "matches": [
         "https://*.zdf.de/*",
         "https://*.dw.com/*",
         "https://*.youtube.com/*",
         "https://*.netflix.com/*",
         "https://www.amazon.de/gp/video/*",
         "https://www.primevideo.com/*",
-        "https://*.udemy.com/*"
+        "https://*.udemy.com/*",
+        "https://x.com/*",
+        "https://*.x.com/*",
+        "https://twitter.com/*",
+        "https://*.twitter.com/*"
       ],
       "js": [
         "shared/tribute.js",
