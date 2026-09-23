@@ -1032,6 +1032,15 @@ el("openLibrary").addEventListener("click", openLibrary);
 const shotDelayBtns = () => [...document.querySelectorAll("#shotDelayRow .shotdelay")];
 const showShotDelay = (d) => { for (const b of shotDelayBtns()) b.classList.toggle("on", +b.dataset.d === (+d || 0)); };
 for (const b of shotDelayBtns()) b.addEventListener("click", () => { const d = +b.dataset.d || 0; showShotDelay(d); persist({ shotDelay: d }); });
+// Chrome's raw injection errors say what failed, not why: name the page kinds
+// Chrome keeps every extension out of, so nobody hunts for a SubVibe bug.
+function shotFailText(detail) {
+  const d = String(detail || "");
+  if (/chrome-extension:\/\/ URL of different extension/i.test(d)) return "Screenshot: this page belongs to another extension, and Chrome doesn't let SubVibe into it";
+  if (/chrome:\/\/|chrome-untrusted|extensions gallery|webstore|cannot be scripted/i.test(d)) return "Screenshot: Chrome doesn't let extensions into this page (browser pages, Web Store, PDF viewer)";
+  return d ? "Screenshot: " + d : "Can't run on this page";
+}
+
 // Shot (translated screenshots): hand the mode to background, which injects
 // the capture script into the active tab, then get out of the way.
 for (const [id, mode] of [["shotVisible", "visible"], ["shotFull", "full"], ["shotArea", "area"], ["shotElement", "element"]]) {
@@ -1042,7 +1051,7 @@ for (const [id, mode] of [["shotVisible", "visible"], ["shotFull", "full"], ["sh
     try { const [t] = await chrome.tabs.query({ active: true, currentWindow: true }); tabId = t && t.id; } catch (e) {}
     chrome.runtime.sendMessage({ type: "SHOT_START", mode, tabId }, (res) => {
       if (chrome.runtime.lastError || !res || !res.ok) {
-        el("status").textContent = (res && res.detail) ? ("Screenshot: " + res.detail) : "Can't run on this page";
+        el("status").textContent = shotFailText(res && res.detail);
         return;
       }
       window.close();
