@@ -343,19 +343,43 @@
     const vn = $("viewNote");
     if (!lang) { vn.className = "note warn"; vn.textContent = "The original's language isn't known — translate first, or study the translation."; await ensureBiFont(); const lay = drawPairsCard($("stage"), 1); finishBilingual(lay); return; }
     studying = true; syncStudyRow();
-    showBusy("Analysing " + langName(lang) + " grammar" + (studyExplainLang() === lang ? " in " + langName(lang) : "") + "…");
+    // A study run is several model calls. Saying which one it is on, and how
+    // long it has been going, is the difference between "working" and "stuck":
+    // the same spinner sat there for three and a half minutes before it failed.
+    const head = "Analysing " + langName(lang) + " grammar" + (studyExplainLang() === lang ? " in " + langName(lang) : "");
+    const t0 = Date.now();
+    let prog = { done: 0, total: 0 };
+    const label = () => {
+      const secs = Math.round((Date.now() - t0) / 1000);
+      const of = prog.total ? " — chunk " + Math.min(prog.done + 1, prog.total) + " of " + prog.total : "";
+      showBusy(head + of + "… " + secs + "s");
+    };
+    label();
+    const tick = setInterval(label, 1000);
+    const onProgress = (m) => { if (m && m.type === "SHOT_STUDY_PROGRESS" && m.id === rec.id) { prog = m; label(); } };
+    chrome.runtime.onMessage.addListener(onProgress);
     const res = await new Promise((r) => chrome.runtime.sendMessage({ type: "SHOT_STUDY", id: rec.id, side, explain: studyExplainLang() }, (x) => r(chrome.runtime.lastError ? null : x)));
+    clearInterval(tick);
+    try { chrome.runtime.onMessage.removeListener(onProgress); } catch (e) {}
     studying = false;
     hideBusy();
     if (!res || !res.ok) {
       const err = (res && res.error) || "network";
+      // The reason was always there in res.detail; printing "network" instead
+      // sent the reader looking at their wifi while a call had timed out.
+      const why = String((res && res.detail) || "").replace(/^Claude Code bridge:\s*/, "").slice(0, 140);
       vn.className = "note warn";
       vn.textContent = err === "no-key" ? "Add an API key in the SubVibe popup (or connect Claude Code) to analyse grammar."
         : err === "empty" || err === "no-lang" ? "Nothing to analyse on this side yet — translate first."
-        : "Couldn't analyse the grammar (" + err + "). Try again.";
+        : why ? "Couldn't analyse the grammar: " + why + " — press Study again to retry."
+        : "Couldn't analyse the grammar. Press Study again to retry.";
       await ensureBiFont(); const lay = drawPairsCard($("stage"), 1); finishBilingual(lay); return;
     }
     const fresh = await getShot(rec.id); if (fresh) { rec = fresh; try { S.validateRecord(rec); } catch (e) {} }
+    if (res.missing) {
+      vn.className = "note warn";
+      vn.textContent = (res.chunks - res.missing) + " of " + res.chunks + " chunks analysed — press Study again for the rest.";
+    }
     if (view === "bilingual") renderBilingual();
   }
   // Stage bookkeeping shared by the fallback paths (mirrors renderBilingual's tail).

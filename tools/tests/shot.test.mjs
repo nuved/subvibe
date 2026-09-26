@@ -439,3 +439,39 @@ test("buildStudy: a dash-only or 'none' forms field is no form", () => {
   const notes = S.buildStudy(input, out, "en")[0].notes;
   assert.deepEqual(notes.map((x) => x.forms), ["", "", "go · went · gone · irregular"]);
 });
+
+// ── planStudyBatches ─────────────────────────────────────────────────────────
+// A 29-sentence study run went out as one call on 2026-09-26, ran past the
+// bridge's 75 s, and took the fallback down with it. Batches keep each call
+// inside its clock.
+const blocksOf = (...counts) => counts.map((n, i) => ({ b: i, sentences: Array.from({ length: n }, (_, k) => ({ i: k, text: "x" })) }));
+
+test("planStudyBatches: fills a batch up to the limit, then starts another", () => {
+  const out = S.planStudyBatches(blocksOf(2, 2, 2, 2), 6);
+  assert.deepEqual(out.map((b) => b.reduce((n, x) => n + x.sentences.length, 0)), [6, 2]);
+});
+
+test("planStudyBatches: a block longer than the limit travels alone, not split", () => {
+  const out = S.planStudyBatches(blocksOf(9), 6);
+  assert.equal(out.length, 1);
+  assert.equal(out[0][0].sentences.length, 9);
+});
+
+test("planStudyBatches: the run that broke — 29 sentences become several calls", () => {
+  const out = S.planStudyBatches(blocksOf(4, 5, 6, 7, 7), S.STUDY_BATCH_SENTENCES);
+  assert.ok(out.length >= 4, "29 sentences must not go out as one call: got " + out.length);
+  for (const batch of out) {
+    const n = batch.reduce((x, b) => x + b.sentences.length, 0);
+    assert.ok(n <= S.STUDY_BATCH_SENTENCES || batch.length === 1, "batch of " + n + " over the limit");
+  }
+});
+
+test("planStudyBatches: every block is kept exactly once", () => {
+  const out = S.planStudyBatches(blocksOf(3, 4, 1, 9, 2), 6);
+  assert.deepEqual(out.flat().map((b) => b.b), [0, 1, 2, 3, 4]);
+});
+
+test("planStudyBatches: nothing in, nothing out", () => {
+  assert.deepEqual(S.planStudyBatches([], 6), []);
+  assert.deepEqual(S.planStudyBatches(undefined, 6), []);
+});

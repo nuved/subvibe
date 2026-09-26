@@ -812,13 +812,21 @@ function cliSend(msg) {
 // call waits 75 s at most, the model is marked degraded for 10 minutes, and the call —
 // and every call meanwhile — goes to Sonnet instead. Nothing stalls for 3 minutes a batch.
 const CLI_FALLBACK = "claude-sonnet-5", CLI_DEGRADED_MS = 10 * 60 * 1000, CLI_CALL_SECONDS = 75;
+// A study call reads a whole chunk and writes a card per word, so it is the
+// slowest call SubVibe makes: it gets its own clock, and two run at once.
+const STUDY_CALL_SECONDS = 150, STUDY_CONCURRENCY = 2;
 const cliDegraded = new Map(); // cli model id → until (ms since epoch)
-async function cliChat(system, user, schema, model) {
+async function cliChat(system, user, schema, model, opts) {
   const want = SV_CLI.cliModel(model), fb = SV_CLI.cliModel(CLI_FALLBACK);
   let m = want;
   if (m !== fb && (cliDegraded.get(m) || 0) > Date.now()) m = fb;
-  const call = (mm, secs) => cliSend({ type: "chat", system, prompt: user, model: mm, schema: schema ? schema.schema : null, effort: "low", maxSeconds: secs }).then((reply) => SV_CLI.parseEnvelope(reply));
-  try { return await call(m, CLI_CALL_SECONDS); }
+  // A caller that knows its call is a long one says so. Judging Opus dead on
+  // the 75 s meant for a quick lookup is what broke study runs: the model was
+  // working, the clock wasn't its.
+  const budget = Math.max(CLI_CALL_SECONDS, (opts && opts.seconds) || 0);
+  const effort = (opts && opts.effort) || "low";
+  const call = (mm, secs) => cliSend({ type: "chat", system, prompt: user, model: mm, schema: schema ? schema.schema : null, effort, maxSeconds: secs }).then((reply) => SV_CLI.parseEnvelope(reply));
+  try { return await call(m, budget); }
   catch (e) {
     const msg = String((e && e.message) || e);
     if (m !== fb && /timed out|timeout/i.test(msg)) {
@@ -826,7 +834,7 @@ async function cliChat(system, user, schema, model) {
       const until = new Date(Date.now() + CLI_DEGRADED_MS);
       try { await logCall({ ts: Date.now(), site: "bridge", title: m + " timed out → " + fb + " until " + until.toTimeString().slice(0, 5), kind: "fallback", lines: 0, ms: CLI_CALL_SECONDS * 1000, inTok: 0, outTok: 0, ok: false, provider: "claude-cli", model: m }); } catch (e2) {}
       try { chrome.storage.local.set({ cliFallbackNote: m + " isn't answering — using " + fb + " until " + until.toTimeString().slice(0, 5) }); } catch (e2) {}
-      return await call(fb, 120);
+      return await call(fb, Math.max(120, budget));
     }
     throw e;
   }
@@ -1209,29 +1217,52 @@ async function shotStudy(msg) {
   const merged = { blocks: [] };
   // The video's kind, when this shot comes from one (snap / tips sheet); a web page has none.
   const ctx = rec.mode === "snap" || rec.mode === "tips" ? await videoContext(String(msg.base || rec.tipsBase || ""), rec.title, input.blocks.flatMap((b) => b.sentences.map((x) => x.text)), lang) : null;
-  try {
-    const batches = []; let cur = [], n = 0;
-    for (const b of input.blocks) { if (n && n + b.sentences.length > 10) { batches.push(cur); cur = []; n = 0; } cur.push(b); n += b.sentences.length; }
-    if (cur.length) batches.push(cur);
-    for (const batch of batches) {
-      const r = await llmJSON(studyPrompt(lang, explain, ctx), { blocks: batch.map((b) => ({ b: b.b, sentences: b.sentences.map((x) => ({ i: x.i, text: x.text })) })) }, STUDY_SCHEMA);
+  // Small batches, two in flight, and every answer kept. A study run used to
+  // be one long serial chain: one slow call past the clock failed the whole
+  // run and threw away the chunks that had already come back.
+  const batches = SV_SHOT.planStudyBatches(input.blocks, SV_SHOT.STUDY_BATCH_SENTENCES);
+  const total = batches.length;
+  let done = 0, failed = 0, lastErr = "";
+  const progress = () => { try { chrome.runtime.sendMessage({ type: "SHOT_STUDY_PROGRESS", id: rec.id, done, total, failed }); } catch (e) {} };
+  progress();
+  const runBatch = async (batch) => {
+    try {
+      const r = await llmJSON(
+        studyPrompt(lang, explain, ctx),
+        { blocks: batch.map((b) => ({ b: b.b, sentences: b.sentences.map((x) => ({ i: x.i, text: x.text })) })) },
+        STUDY_SCHEMA,
+        { seconds: STUDY_CALL_SECONDS },
+      );
       provider = r.provider; model = r.model;
       if (r.usage) { inTok += r.usage.prompt_tokens || 0; outTok += r.usage.completion_tokens || 0; cacheR += r.usage.cache_r || 0; cacheW += r.usage.cache_w || 0; }
       const pr = r.parsed || {};
       if (Array.isArray(pr.blocks)) merged.blocks.push(...pr.blocks);
+    } catch (e) {
+      failed++;
+      lastErr = String((e && e.message) || e);
     }
-  } catch (e) {
-    const m = String((e && e.message) || e);
-    await logCall({ ...meta, ms: Date.now() - started, inTok, outTok, cacheR, cacheW, ok: false, err: m, provider, model });
-    if (/key/i.test(m)) return { ok: false, error: "no-key" };
-    return { ok: false, error: "network", detail: m };
+    done++;
+    progress();
+  };
+  const queue = batches.slice();
+  const workers = Array.from({ length: Math.min(STUDY_CONCURRENCY, queue.length) }, async () => {
+    for (let batch = queue.shift(); batch; batch = queue.shift()) await runBatch(batch);
+  });
+  await Promise.all(workers);
+
+  // Nothing came back at all: that is the only case the reader gains nothing
+  // from. A partial run is saved — some grammar beats a spinner and a word.
+  if (!merged.blocks.length) {
+    await logCall({ ...meta, ms: Date.now() - started, inTok, outTok, cacheR, cacheW, ok: false, err: lastErr, provider, model });
+    if (/key/i.test(lastErr)) return { ok: false, error: "no-key" };
+    return { ok: false, error: "failed", detail: lastErr, chunks: total };
   }
-  await logCall({ ...meta, ms: Date.now() - started, inTok, outTok, cacheR, cacheW, ok: true, provider, model });
+  await logCall({ ...meta, ms: Date.now() - started, inTok, outTok, cacheR, cacheW, ok: !failed, err: lastErr, provider, model });
   const blocks = SV_SHOT.buildStudy(input, merged, lang);
   if (!rec.study || typeof rec.study !== "object") rec.study = {};
   rec.study[key] = { v: 2, side, lang, explain, ts: Date.now(), provider, model, truncated: input.truncated, count: input.count, blocks };
   await shotPut(rec);
-  return { ok: true, key };
+  return { ok: true, key, chunks: total, missing: failed, detail: failed ? lastErr : "" };
 }
 
 // One line's explanation (translation, grammar note, key words), cached per
@@ -1703,7 +1734,7 @@ function conjPrompt(source) {
 // enrichment/conjugation twin of translateChunk/translateChunkClaude, sharing
 // their retry, schema and error-shaping rules. schema=null → plain JSON mode
 // (json_object on OpenAI, prompt-dictated JSON on Claude).
-async function llmJSON(system, userPayload, schema) {
+async function llmJSON(system, userPayload, schema, opts) {
   const { apiKey, anthropicKey, translationProvider, claudeModel } =
     await chrome.storage.local.get(["apiKey", "anthropicKey", "translationProvider", "claudeModel"]);
   const provider = providerOf(translationProvider);
@@ -1716,7 +1747,7 @@ async function llmJSON(system, userPayload, schema) {
   const model = modelFor(provider, claudeModel);
   const user = JSON.stringify(userPayload);
   if (provider === "claude-cli") {
-    const r = await cliChat(system, user, schema, model);
+    const r = await cliChat(system, user, schema, model, opts);
     let parsed;
     try { parsed = r.parsed || SV_VOCAB.parseLooseJSON(r.content); } catch { throw new Error("the model returned malformed JSON"); }
     return { parsed, usage: r.usage, provider, model };

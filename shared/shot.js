@@ -332,6 +332,27 @@
   // the language shows gender without a distinct article.
   const ARTICLES = { de: { m: "der", f: "die", n: "das" }, fr: { m: "le", f: "la" }, es: { m: "el", f: "la" }, it: { m: "il", f: "la" }, pt: { m: "o", f: "a" }, ca: { m: "el", f: "la" }, ro: { m: "un", f: "o", n: "un" }, nl: { m: "de", f: "de", n: "het" }, sv: { m: "en", f: "en", n: "ett" }, da: { m: "en", f: "en", n: "et" }, nb: { m: "en", f: "ei", n: "et" }, no: { m: "en", f: "ei", n: "et" }, el: { m: "ο", f: "η", n: "το" }, ar: { m: "", f: "ة" }, he: { m: "", f: "ה" } };
   const articleFor = (lang, g) => { const a = ARTICLES[String(lang || "").toLowerCase().split(/[-_]/)[0]]; return a && a[g] ? a[g] : ""; };
+  // How a study run is cut into model calls. Small batches on purpose: one
+  // call per ~6 sentences answers inside the bridge's time budget, where a
+  // 29-line chunk in one call ran past 75 s, was judged a dead model, and
+  // took the retry down with it (2026-09-26). A block bigger than the batch
+  // size travels alone rather than being split — a block is the unit the
+  // model explains.
+  const STUDY_BATCH_SENTENCES = 6;
+  function planStudyBatches(blocks, perBatch) {
+    const max = Math.max(1, perBatch || STUDY_BATCH_SENTENCES);
+    const out = [];
+    let cur = [], n = 0;
+    for (const b of blocks || []) {
+      const len = (b.sentences || []).length;
+      if (n && n + len > max) { out.push(cur); cur = []; n = 0; }
+      cur.push(b); n += len;
+      if (n >= max) { out.push(cur); cur = []; n = 0; }
+    }
+    if (cur.length) out.push(cur);
+    return out;
+  }
+
   const studyKey = (lang, explain) => String(lang || "") + "|" + String(explain || "");
   // The sentences of one side of the shot, in reading order, each with the
   // other side as its meaning. `side` = "target" (study the translation) or
@@ -486,6 +507,6 @@
     frameLayout, filename, exportScale, validateRecord, newId,
     normCrop, isFullCrop, cropSrc, cropToView, viewToCrop,
     sideBySide, layoutNotes, annBounds, hitAnnot, moveAnnot, renumber, distributeTranslation,
-    STUDY_MAX_SENTENCES, studyKey, studySentences, buildStudy, normalizeStudy, studyMarks, tipsSheet, isGendered, articleFor, TOKPOS,
+    STUDY_MAX_SENTENCES, STUDY_BATCH_SENTENCES, planStudyBatches, studyKey, studySentences, buildStudy, normalizeStudy, studyMarks, tipsSheet, isGendered, articleFor, TOKPOS,
   };
 })(globalThis);
