@@ -338,6 +338,24 @@
   // took the retry down with it (2026-09-26). A block bigger than the batch
   // size travels alone rather than being split — a block is the unit the
   // model explains.
+  // Text that is in the DOM but not on the page. display:none,
+  // visibility:hidden and opacity:0 are the obvious three; the ones that
+  // slipped through are the screen-reader patterns — X's thread heading
+  // ("Conversation") is clipped to a 1px box, so it was invisible to the
+  // reader, invisible to those three tests, and the first "sentence" the
+  // study call spent a block and four word cards on (2026-09-26).
+  function isSrOnly(cs, rect) {
+    if (!cs) return false;
+    const clipPath = String(cs.clipPath || cs["clip-path"] || "");
+    if (/inset\(\s*(?:50|100)%/.test(clipPath) || /circle\(\s*0/.test(clipPath)) return true;
+    const clip = String(cs.clip || "").replace(/\s+/g, " ");
+    if (/^rect\(\s*(?:0(?:px)?|1px)[, ]/.test(clip)) return true;
+    const indent = parseFloat(cs.textIndent || cs["text-indent"] || "0");
+    if (indent <= -999) return true;
+    if (rect && ((rect.width || 0) <= 1 || (rect.height || 0) <= 1)) return true;
+    return false;
+  }
+
   const STUDY_BATCH_SENTENCES = 6;
   function planStudyBatches(blocks, perBatch) {
     const max = Math.max(1, perBatch || STUDY_BATCH_SENTENCES);
@@ -507,6 +525,6 @@
     frameLayout, filename, exportScale, validateRecord, newId,
     normCrop, isFullCrop, cropSrc, cropToView, viewToCrop,
     sideBySide, layoutNotes, annBounds, hitAnnot, moveAnnot, renumber, distributeTranslation,
-    STUDY_MAX_SENTENCES, STUDY_BATCH_SENTENCES, planStudyBatches, studyKey, studySentences, buildStudy, normalizeStudy, studyMarks, tipsSheet, isGendered, articleFor, TOKPOS,
+    STUDY_MAX_SENTENCES, STUDY_BATCH_SENTENCES, planStudyBatches, isSrOnly, studyKey, studySentences, buildStudy, normalizeStudy, studyMarks, tipsSheet, isGendered, articleFor, TOKPOS,
   };
 })(globalThis);

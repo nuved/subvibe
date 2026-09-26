@@ -24,7 +24,7 @@ const ANTHROPIC_VERSION = "2023-06-01";
 // The Claude model is user-selectable (popup → storage key `claudeModel`).
 // Resolve through an allowlist so corrupted/stale storage can never put an
 // unknown model id on the wire — unknown values fall back to Sonnet 5.
-const CLAUDE_MODELS = ["claude-sonnet-5", "claude-haiku-4-5", "claude-opus-5"];
+const CLAUDE_MODELS = ["claude-sonnet-5", "claude-haiku-4-5", "claude-opus-5", "claude-fable-5-1"];
 const resolveClaudeModel = (v) => (CLAUDE_MODELS.includes(v) ? v : CLAUDE_MODELS[0]);
 // max_tokens is REQUIRED on /v1/messages. 16k, not 8k: a 60-cue batch answers
 // with FOUR arrays (t + the condensed dub "d" ≈ two full Persian renditions),
@@ -815,6 +815,9 @@ const CLI_FALLBACK = "claude-sonnet-5", CLI_DEGRADED_MS = 10 * 60 * 1000, CLI_CA
 // A study call reads a whole chunk and writes a card per word, so it is the
 // slowest call SubVibe makes: it gets its own clock, and two run at once.
 const STUDY_CALL_SECONDS = 150, STUDY_CONCURRENCY = 2;
+// Fable takes long turns on purpose; judging it by Opus's clock would repeat
+// the timeout that started all this.
+const FABLE_CALL_SECONDS = 300;
 const cliDegraded = new Map(); // cli model id → until (ms since epoch)
 async function cliChat(system, user, schema, model, opts) {
   const want = SV_CLI.cliModel(model), fb = SV_CLI.cliModel(CLI_FALLBACK);
@@ -823,7 +826,8 @@ async function cliChat(system, user, schema, model, opts) {
   // A caller that knows its call is a long one says so. Judging Opus dead on
   // the 75 s meant for a quick lookup is what broke study runs: the model was
   // working, the clock wasn't its.
-  const budget = Math.max(CLI_CALL_SECONDS, (opts && opts.seconds) || 0);
+  let budget = Math.max(CLI_CALL_SECONDS, (opts && opts.seconds) || 0);
+  if (/fable/.test(m)) budget = Math.max(budget, FABLE_CALL_SECONDS);
   const effort = (opts && opts.effort) || "low";
   const call = (mm, secs) => cliSend({ type: "chat", system, prompt: user, model: mm, schema: schema ? schema.schema : null, effort, maxSeconds: secs }).then((reply) => SV_CLI.parseEnvelope(reply));
   try { return await call(m, budget); }
@@ -1244,7 +1248,13 @@ async function shotStudy(msg) {
     done++;
     progress();
   };
+  // The system prompt is the cached prefix (cache_control: ephemeral). Two
+  // calls fired together both MISS it and both pay the write; one call first
+  // warms it and every later call reads it. So: first batch alone, the rest
+  // in parallel.
   const queue = batches.slice();
+  const firstBatch = queue.shift();
+  if (firstBatch) await runBatch(firstBatch);
   const workers = Array.from({ length: Math.min(STUDY_CONCURRENCY, queue.length) }, async () => {
     for (let batch = queue.shift(); batch; batch = queue.shift()) await runBatch(batch);
   });

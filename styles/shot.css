@@ -11,8 +11,14 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 var(-
 .brand__logo { width: 26px; height: 26px; border-radius: 7px; }
 .brand__name { font: 800 20px/1 var(--display); color: var(--coral-600); letter-spacing: -.01em; }
 .brand__sub { font: 600 11px/1 var(--mono); color: var(--muted); letter-spacing: .06em; text-transform: uppercase; margin-left: 4px; }
-.pagelink { color: var(--ink); text-decoration: none; font-weight: 600; max-width: 34ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 3px 0; }
-.pagelink:hover { text-decoration: underline; }
+/* The title IS the way back to the page this shot came from, and it looked
+   exactly like plain text: same colour as the body, no underline, the cursor
+   the only hint. Nobody clicks what doesn't say it can be clicked. */
+.pagelink { color: var(--ink); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--ink) 28%, transparent); text-underline-offset: 3px; font-weight: 600; max-width: 34ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 3px 0; }
+.pagelink::after { content: " \2197"; font-weight: 500; opacity: .55; text-decoration: none; }
+.pagelink:hover { text-decoration-color: currentColor; }
+.pagelink:hover::after { opacity: 1; }
+.pagelink:focus-visible { outline: 2px solid var(--teal-600); outline-offset: 2px; border-radius: 3px; }
 .meta { color: var(--muted); font-size: 12px; white-space: nowrap; }
 .langpick { position: relative; }
 .langpick__btn { display: inline-flex; align-items: center; gap: 5px; background: var(--teal-100); color: var(--teal-600); border: 1px solid transparent; border-radius: 999px; padding: 4px 9px 4px 11px; font: 600 12px/1.4 var(--ui); cursor: pointer; }

@@ -208,14 +208,20 @@
   const normText = (t) => String(t || "").replace(/\s+/g, " ").trim();
   function makeHiddenCheck() {
     const cache = new Map();
+    const srOnly = (cs, rect) => (S() && S().isSrOnly ? S().isSrOnly(cs, rect) : false);
     return function hidden(e) {
       let cur = e;
       const path = [];
+      let first = true;
       while (cur && cur !== document.documentElement) {
         if (cache.has(cur)) { const v = cache.get(cur); for (const p of path) cache.set(p, v); return v; }
         path.push(cur);
         const cs = getComputedStyle(cur);
         if (cs.display === "none" || cs.visibility === "hidden" || cs.opacity === "0") { for (const p of path) cache.set(p, true); return true; }
+        // Screen-reader-only text. The box is measured for the text's own
+        // element only — one layout read per node, not per ancestor.
+        if (srOnly(cs, first ? cur.getBoundingClientRect() : null)) { for (const p of path) cache.set(p, true); return true; }
+        first = false;
         cur = cur.parentElement;
       }
       for (const p of path) cache.set(p, false);

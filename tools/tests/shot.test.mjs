@@ -475,3 +475,30 @@ test("planStudyBatches: nothing in, nothing out", () => {
   assert.deepEqual(S.planStudyBatches([], 6), []);
   assert.deepEqual(S.planStudyBatches(undefined, 6), []);
 });
+
+// ── isSrOnly ────────────────────────────────────────────────────────────────
+// X marks a thread with <h1>Conversation</h1> clipped to a 1x1 box: nothing a
+// reader sees, and it arrived as the first sentence of a shot (2026-09-26).
+// Measured on the live page: display block, visibility visible, opacity 1,
+// clip rect(1px, 1px, 1px, 1px), 1x1.
+test("isSrOnly: X's clipped thread heading is not page text", () => {
+  const cs = { display: "block", visibility: "visible", opacity: "1", clip: "rect(1px, 1px, 1px, 1px)", clipPath: "none", textIndent: "0px" };
+  assert.equal(S.isSrOnly(cs, { width: 1, height: 1 }), true);
+});
+
+test("isSrOnly: the other screen-reader patterns too", () => {
+  assert.equal(S.isSrOnly({ clipPath: "inset(50%)" }, { width: 80, height: 20 }), true);
+  assert.equal(S.isSrOnly({ clip: "rect(0px, 0px, 0px, 0px)" }, { width: 80, height: 20 }), true);
+  assert.equal(S.isSrOnly({ textIndent: "-9999px" }, { width: 80, height: 20 }), true);
+  assert.equal(S.isSrOnly({ clipPath: "none" }, { width: 300, height: 0 }), true);
+});
+
+test("isSrOnly: real text on the page stays", () => {
+  const cs = { display: "block", visibility: "visible", opacity: "1", clip: "auto", clipPath: "none", textIndent: "0px" };
+  assert.equal(S.isSrOnly(cs, { width: 582, height: 24 }), false);
+  assert.equal(S.isSrOnly(cs, { width: 12, height: 18 }), false); // a narrow column is still readable
+});
+
+test("isSrOnly: no style, no opinion", () => {
+  assert.equal(S.isSrOnly(null, { width: 10, height: 10 }), false);
+});

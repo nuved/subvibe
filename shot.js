@@ -1029,7 +1029,10 @@
 
   // ── panel ─────────────────────────────────────────────────────────────────
   function renderHeader() {
-    const link = $("pageLink"); link.textContent = rec.title || rec.url; link.href = rec.url; link.title = rec.url;
+    const link = $("pageLink"); link.textContent = rec.title || rec.url; link.href = rec.url;
+    // The tooltip said the URL twice over (the text already shows the title);
+    // say what the click does, then the address.
+    link.title = rec.url ? "Open the page this shot came from — " + rec.url : "";
     const chip = $("srcChip");
     chip.hidden = false;
     chip.textContent = (rec.source && rec.source !== "xx" ? code(rec.source) : "Auto") + " →";
