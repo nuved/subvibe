@@ -516,10 +516,12 @@
         let firstLine = null;
         for (const t of toks) { const need = t.tw + t.sw; if (x + need > innerW && line.length) flush(); if (!line.length && !firstLine) firstLine = line; line.push({ ...t, x }); x += need + sp; }
         flush(); y += px(4);
-        // 2) meaning (the other side of the pair), teal
-        if (snt.meaning && expl !== lang) {
-          mc.font = fM; const rtlM = BI_RTL.test(snt.meaning);
-          for (const ln of wrapText(mc, snt.meaning, innerW - numW)) { ops.push({ text: ln, font: fM, color: TEAL, x: rtlM ? innerW : numW, y, align: rtlM ? "right" : "left", dir: rtlM ? "rtl" : "ltr", h: lhM }); box(numW, y, innerW - numW, lhM); y += lhM; }
+        // 2) meaning (the other side of the pair), teal — whatever language explains the card
+        const meaning = S.studyMeaning(rec, d, snt);
+        if (meaning) {
+          const rtlM = BI_RTL.test(meaning), fMn = "400 " + px(15) + "px " + fontStack(rtlM); // set in its own script, not the explanation's
+          mc.font = fMn;
+          for (const ln of wrapText(mc, meaning, innerW - numW)) { ops.push({ text: ln, font: fMn, color: TEAL, x: rtlM ? innerW : numW, y, align: rtlM ? "right" : "left", dir: rtlM ? "rtl" : "ltr", h: lhM }); box(numW, y, innerW - numW, lhM); y += lhM; }
           y += px(6);
         }
       });
@@ -723,7 +725,8 @@
       toast(pages.length + (pages.length === 1 ? " slide" : " slides") + " · 1080×1350 · one zip");
     } finally { if (btn) btn.disabled = false; }
   }
-  if (location.protocol === "file:") window.__svShotDebug = { buildSlides }; // harness hook
+  // harness hooks; studyOps = the ops of the Study card now showing (null when it has no analysis)
+  if (location.protocol === "file:") window.__svShotDebug = { buildSlides, studyKey: () => studyKeyNow(), studyOps: () => { const d = studyData(); return d ? layoutStudy(document.createElement("canvas").getContext("2d"), d, null, 880, 1).ops : null; } };
 
   let sideBySidePainted = false; // last drawSideBySide used the painted page (set the note)
   // One entry for every bilingual layout; null when an ingredient is missing.

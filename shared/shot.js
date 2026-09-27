@@ -392,6 +392,21 @@
     }
     return { blocks, count: n, truncated };
   }
+  // The other side of the pair, drawn under a studied sentence, or "". It is
+  // shown whatever language explains the card: studying the Persian
+  // translation explained in Persian used to hide every original line
+  // (2026-09-27). Dropped only when there is nothing new to read: no other
+  // side, the same words again, or an other side in the studied language
+  // itself (a snap of an English video with English tips — the "translation"
+  // is a rewording, and the Put simply box already says it).
+  const baseLang = (l) => String(l || "").toLowerCase().split(/[-_]/)[0];
+  function studyMeaning(rec, d, snt) {
+    const meaning = normText(snt && snt.meaning);
+    if (!meaning || meaning.toLowerCase() === normText(snt && snt.text).toLowerCase()) return "";
+    const other = baseLang(d && d.side === "source" ? rec && rec.target : rec && rec.source);
+    if (other && other !== "xx" && other === baseLang(d && d.lang)) return "";
+    return meaning;
+  }
   // Model output → per-block card data, defensively. Tokens must be strings;
   // gender ∈ m/f/n; note numbers are kept only when the note exists; a
   // sentence the model skipped falls back to plain tokens (no marks).
@@ -525,6 +540,6 @@
     frameLayout, filename, exportScale, validateRecord, newId,
     normCrop, isFullCrop, cropSrc, cropToView, viewToCrop,
     sideBySide, layoutNotes, annBounds, hitAnnot, moveAnnot, renumber, distributeTranslation,
-    STUDY_MAX_SENTENCES, STUDY_BATCH_SENTENCES, planStudyBatches, isSrOnly, studyKey, studySentences, buildStudy, normalizeStudy, studyMarks, tipsSheet, isGendered, articleFor, TOKPOS,
+    STUDY_MAX_SENTENCES, STUDY_BATCH_SENTENCES, planStudyBatches, isSrOnly, studyKey, studySentences, studyMeaning, buildStudy, normalizeStudy, studyMarks, tipsSheet, isGendered, articleFor, TOKPOS,
   };
 })(globalThis);

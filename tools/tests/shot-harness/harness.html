@@ -116,6 +116,7 @@
         lastError: undefined,
         getURL: (p) => "../../../" + p,
         sendMessage: (msg, cb) => { if (cb) setTimeout(() => cb(msg && msg.type === "SHOT_TAB_ALIVE" ? { ok: true, alive: false } : { ok: false, error: "harness" }), 0); },
+        onMessage: { addListener() {}, removeListener() {} }, // a study run listens for its progress
       },
       storage: { local: { get: async () => ({}), set: async () => {} } },
       tabs: { create: () => {} },
@@ -170,6 +171,11 @@
         study: { "target:fa|en": { side: "target", lang: "fa", explain: "en", ts: Date.now(), count: 3, truncated: false, blocks: [
           { b: "b0", summary: "A greeting.", sentences: [{ text: "سلام دنیا.", meaning: "Hello world.", simple: "سلام.", tokens: [{ w: "سلام", g: "", v: 0, n: [1], p: "n" }, { w: "دنیا.", g: "m", v: 0, n: [] }], notes: [{ n: 1, term: "سلام", text: "Hello — the everyday greeting." }] }] },
           { b: "b1", summary: "", sentences: [{ text: "بلوک دوم اینجا.", meaning: "Second block here.", simple: "", tokens: [{ w: "بلوک", g: "f", v: 1, n: [] }, { w: "دوم", g: "", v: 0, n: [] }, { w: "اینجا.", g: "", v: 1, n: [1, 2] }], notes: [{ n: 1, term: "اینجا", text: "here" }, { n: 2, term: "بلوک … اینجا", text: "a two-part verb, for the test" }] }] },
+        ] },
+        // The reported case: the translation studied AND explained in Persian — the original must still show under every sentence.
+        "target:fa|fa": { v: 3, side: "target", lang: "fa", explain: "fa", ts: Date.now(), provider: "claude-cli", count: 2, truncated: false, blocks: [
+          { b: "b0", grammar: "", simple: "", notes: [{ n: 1, term: "سلام", o: "Hello", pos: "noun", level: "A1", forms: "", text: "رایج‌ترین احوال‌پرسی." }], sentences: [{ text: "سلام دنیا.", meaning: "Hello world.", tokens: [{ w: "سلام", g: "", v: 0, n: [1], p: "n" }, { w: "دنیا.", g: "", v: 0, n: [], p: "n" }] }] },
+          { b: "b1", grammar: "", simple: "", notes: [], sentences: [{ text: "بلوک دوم اینجا.", meaning: "Second block here.", tokens: [{ w: "بلوک", g: "", v: 0, n: [], p: "n" }, { w: "دوم", g: "", v: 0, n: [], p: "adj" }, { w: "اینجا.", g: "", v: 0, n: [], p: "adv" }] }] },
         ] } },
         partial: false, truncated: "", sameLang: false, noKey: false, font: "" };
       const d = await openDb();
@@ -321,6 +327,15 @@
       const pages = await window.__svShotDebug.buildSlides();
       check("Study card slices into 1080×1350 slides, button shown", pages.length >= 1 && pages.every((c) => c.width === 1080 && c.height === 1350) && !$("slidesBtn").hidden,
         "pages=" + pages.length + " size=" + (pages[0] && pages[0].width + "x" + pages[0].height) + " btnHidden=" + $("slidesBtn").hidden);
+
+      // 18) Explained in the studied language (target:fa|fa): the original still sits under every sentence.
+      document.querySelector('#studyExplBar [data-expl="same"]').click();
+      await until(() => window.__svShotDebug.studyKey() === "target:fa|fa" && !$("stageBusy").classList.contains("on"), 4000);
+      await sleep(200);
+      const opsFa = window.__svShotDebug.studyOps() || [];
+      const teal = opsFa.filter((o) => o.color === "#2c6a64" && typeof o.text === "string").map((o) => o.text);
+      check("Explained in Persian, the original line shows under every Persian sentence", window.__svShotDebug.studyKey() === "target:fa|fa" && teal.includes("Hello world.") && teal.includes("Second block here."),
+        "key=" + window.__svShotDebug.studyKey() + " teal=" + JSON.stringify(teal));
 
       const pass = results.filter((r) => r.ok).length;
       document.title = (pass === results.length ? "PASS " : "FAIL ") + pass + "/" + results.length;

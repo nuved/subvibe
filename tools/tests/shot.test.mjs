@@ -370,6 +370,23 @@ test("studySentences: one side of the pairs in reading order, the other side as 
   assert.equal(S.studyKey("de", "fa"), "de|fa");
 });
 
+test("studyMeaning: the other side of the pair shows under a studied sentence, whatever language explains it", () => {
+  const snt = { text: "نسل‌کشی عبارت است از کشتار عمدی.", meaning: "Genocide is the deliberate killing." };
+  // The reported case: the Persian translation studied, explained in Persian — the original was dropped.
+  assert.equal(S.studyMeaning({ source: "en", target: "fa" }, { side: "target", lang: "fa", explain: "fa" }, snt), "Genocide is the deliberate killing.");
+  assert.equal(S.studyMeaning({ source: "en", target: "fa" }, { side: "target", lang: "fa", explain: "en" }, snt), "Genocide is the deliberate killing.");
+  // An original whose language was never detected is still the original.
+  assert.equal(S.studyMeaning({ source: "xx", target: "fa" }, { side: "target", lang: "fa", explain: "fa" }, snt), "Genocide is the deliberate killing.");
+  // The original studied in its own language keeps its translation underneath.
+  const de = { text: "Hallo Welt.", meaning: "سلام دنیا." };
+  assert.equal(S.studyMeaning({ source: "de", target: "fa" }, { side: "source", lang: "de", explain: "de" }, de), "سلام دنیا.");
+  // A snap of an English video with English tips: the "translation" is a rewording in the same language, the Put simply box already says it.
+  assert.equal(S.studyMeaning({ source: "en", target: "en-US" }, { side: "source", lang: "en", explain: "en" }, { text: "Protect him.", meaning: "Keep him safe." }), "");
+  // Nothing to show: no other side, or the same words again.
+  assert.equal(S.studyMeaning({ source: "en", target: "fa" }, { side: "target", lang: "fa", explain: "en" }, { text: "Hamas", meaning: "" }), "");
+  assert.equal(S.studyMeaning({ source: "en", target: "fa" }, { side: "target", lang: "fa", explain: "en" }, { text: "Hamas", meaning: " Hamas " }), "");
+});
+
 test("buildStudy (v2): tips live on the chunk, marks on the sentences; invalid marks and unknown notes are dropped; skipped sentences fall back", () => {
   const input = { blocks: [{ b: "b0", sentences: [{ i: 0, text: "Das Modell hat gebrochen.", meaning: "مدل شکست." }, { i: 1, text: "Zweiter Satz.", meaning: "دوم." }] }] };
   const out = { blocks: [{ b: "b0", grammar: "Perfekt • Verbklammer", simple: "Das Modell brach. Zweiter Satz.",
