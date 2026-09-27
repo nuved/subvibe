@@ -944,7 +944,7 @@
     if (paintedCache.key === key && paintedCache.bmp) return paintedCache.bmp;
     await ensureBiFont();
     const c = document.createElement("canvas"); c.width = o.width; c.height = o.height;
-    const g = c.getContext("2d"); g.drawImage(o, 0, 0);
+    const g = c.getContext("2d", { willReadFrequently: true }); g.drawImage(o, 0, 0); // sampleBg reads it once per block
     const k = o.width / ((rec.rect && rec.rect.w) || rec.w || o.width); // device px per CSS px, same on both axes
     const rtl = S.isRtl(rec.target);
     for (const b of rec.blocks) {
