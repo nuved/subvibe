@@ -588,3 +588,46 @@ test("studySentences: a 1×1 block from an older shot is not studied; a block wi
   ] };
   assert.deepEqual(S.studySentences(rec, "source").blocks.map((b) => b.b), ["p", "n"]);
 });
+
+// ── Study v4 lessons ────────────────────────────────────────────────────────
+// 2026-09-27: the card coloured every word and labelled it n/v/art but never
+// said what tense a sentence was in or why. v4 teaches per sentence.
+test("lessonTokens: each word carries its part's role; the part's first word carries the label", () => {
+  const toks = S.lessonTokens("Hamas must be stopped now.", [{ r: "subject", t: "Hamas" }, { r: "verb", t: "must be stopped" }, { r: "adverbial", t: "now" }]);
+  assert.deepEqual(toks.map((t) => [t.w, t.r, t.rl]), [["Hamas", "subject", true], ["must", "verb", true], ["be", "verb", false], ["stopped", "verb", false], ["now.", "adverbial", true]]);
+});
+
+test("lessonTokens: a misquoted or unknown part is skipped, the words stay", () => {
+  const toks = S.lessonTokens("They watered it down.", [{ r: "subject", t: "Them" }, { r: "verb", t: "watered" }, { r: "topic", t: "it" }]);
+  assert.deepEqual(toks.map((t) => t.r), ["", "verb", "", ""]);
+  assert.equal(toks.map((t) => t.w).join(" "), "They watered it down.");
+});
+
+test("buildLesson: verb groups and words must be in the sentence; lists are capped; the meaning is kept", () => {
+  const input = { blocks: [{ b: "p", sentences: [{ i: 0, text: "It was motivated by intent.", meaning: "انگیزه‌اش نیت بود." }] }] };
+  const out = { blocks: [{ b: "p", sentences: [{ i: 0, kind: "simple", parts: [{ r: "subject", t: "It" }],
+    verbs: [{ t: "was motivated", tense: "past simple", voice: "passive" }, { t: "is defined", tense: "x", voice: "passive" }],
+    why: ["a", "b", "c", "d", "e"], pattern: "X was [past participle] by Y",
+    words: [{ w: "motivated", pos: "verb", level: "B1", forms: "motivate · motivated", text: "from motive" }, { w: "invented", pos: "verb", level: "B1", forms: "", text: "not here" }] }] }] };
+  const [blk] = S.buildLesson(input, out);
+  const snt = blk.sentences[0];
+  assert.deepEqual(snt.verbs, [{ t: "was motivated", tense: "past simple", voice: "passive" }]);
+  assert.deepEqual(snt.words.map((w) => w.w), ["motivated"]);
+  assert.equal(snt.why.length, 4);
+  assert.equal(snt.meaning, "انگیزه‌اش نیت بود.");
+  assert.deepEqual(blk.notes, []);
+});
+
+test("buildLesson: a sentence the model skipped still shows its words, without a lesson", () => {
+  const input = { blocks: [{ b: "p", sentences: [{ i: 3, text: "Hamas must be stopped.", meaning: "" }] }] };
+  const [blk] = S.buildLesson(input, { blocks: [] });
+  assert.equal(blk.sentences[0].tokens.length, 4);
+  assert.deepEqual([blk.sentences[0].verbs, blk.sentences[0].why, blk.sentences[0].words], [[], [], []]);
+});
+
+test("buildLesson: a split verb group (\"watered ... down\") is kept when its pieces are in order", () => {
+  const input = { blocks: [{ b: "p", sentences: [{ i: 0, text: "They watered it down recently.", meaning: "" }] }] };
+  const mk = (t) => ({ blocks: [{ b: "p", sentences: [{ i: 0, kind: "", parts: [], verbs: [{ t, tense: "past simple", voice: "active" }], why: [], pattern: "", words: [] }] }] });
+  assert.deepEqual(S.buildLesson(input, mk("watered ... down"))[0].sentences[0].verbs.map((v) => v.t), ["watered … down"]);
+  assert.deepEqual(S.buildLesson(input, mk("down ... watered"))[0].sentences[0].verbs, []);
+});

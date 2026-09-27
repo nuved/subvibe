@@ -503,6 +503,59 @@
     }
     return blocks;
   }
+  // ── Study v4: a lesson per sentence ───────────────────────────────────────
+  // The model names the sentence's parts as exact runs of its words; the card
+  // colours those runs, so each word token here carries the role of the run it
+  // sits in (`r`) and the run's first word carries the label (`rl`: true).
+  // Parts the model misquotes are skipped, never guessed at.
+  const ROLES = new Set(["subject", "verb", "object", "complement", "adverbial", "clause"]);
+  function lessonTokens(text, parts) {
+    const t = normText(text);
+    const spans = []; let from = 0;
+    for (const p of Array.isArray(parts) ? parts : []) {
+      const r = String(p && p.r || "").toLowerCase(), q = normText(p && p.t);
+      if (!ROLES.has(r) || !q) continue;
+      const k = t.indexOf(q, from);
+      if (k < 0) continue;
+      spans.push([k, k + q.length, r]); from = k + q.length;
+    }
+    const out = []; let at = 0, prev = null;
+    for (const w of t.split(" ").filter(Boolean)) {
+      const k = t.indexOf(w, at); at = k + w.length;
+      const mid = k + Math.floor(w.length / 2);
+      const sp = spans.find(([a, b]) => mid >= a && mid < b);
+      const r = sp ? sp[2] : "";
+      out.push({ w, r, rl: !!(sp && sp !== prev) });
+      prev = sp || null;
+    }
+    return out;
+  }
+  // Model output → card data for the v4 lesson card. One block per input
+  // block; per sentence its tokens (with roles), the sentence type, every
+  // verb group with its tense and voice, 2–4 "why" points, a reusable
+  // pattern, and 0–3 words explained through the original's own words.
+  const cleanWord = (x) => ({ w: normText(x && x.w), pos: POS.has(String(x && x.pos || "").toLowerCase()) ? String(x.pos).toLowerCase() : "", level: LEVELS.has(String(x && x.level || "").toUpperCase()) ? String(x.level).toUpperCase() : "", forms: cleanForms(x && x.forms), text: normText(x && x.text) });
+  // A verb group split by other words comes back as "watered … down": each
+  // piece must be in the sentence, in that order.
+  const inOrder = (text, t) => { let at = 0; for (const piece of t.split(" … ")) { const k = text.indexOf(piece, at); if (k < 0) return false; at = k + piece.length; } return true; };
+  function buildLesson(input, out) {
+    const byBlock = new Map();
+    for (const b of (out && Array.isArray(out.blocks)) ? out.blocks : []) if (b && b.b != null) byBlock.set(String(b.b), b);
+    return input.blocks.map((blk) => {
+      const m = byBlock.get(String(blk.b)) || {};
+      const bySent = new Map();
+      for (const sm of Array.isArray(m.sentences) ? m.sentences : []) if (sm && Number.isInteger(sm.i)) bySent.set(sm.i, sm);
+      const sentences = blk.sentences.map((src) => {
+        const sm = bySent.get(src.i) || {};
+        const verbs = (Array.isArray(sm.verbs) ? sm.verbs : []).map((v) => ({ t: normText(v && v.t), tense: normText(v && v.tense), voice: v && v.voice === "passive" ? "passive" : "active" }))
+          .map((v) => ({ ...v, t: v.t.replace(/\s*(?:\.\.\.|…)\s*/g, " … ") })).filter((v) => v.t && inOrder(src.text, v.t)).slice(0, 4);
+        const words = (Array.isArray(sm.words) ? sm.words : []).map(cleanWord).filter((x) => x.w && x.text && src.text.toLowerCase().includes(x.w.toLowerCase())).slice(0, 3);
+        const why = (Array.isArray(sm.why) ? sm.why : []).map(normText).filter(Boolean).slice(0, 4);
+        return { text: src.text, meaning: src.meaning, tokens: lessonTokens(src.text, sm.parts), kind: normText(sm.kind), verbs, why, pattern: normText(sm.pattern), words };
+      });
+      return { b: blk.b, grammar: "", simple: "", notes: [], sentences };
+    });
+  }
   // Older analyses kept the tips on each sentence: lift them so every sentence
   // becomes its own block — the card then draws one shape for both.
   function normalizeStudy(blocks) {
@@ -594,6 +647,6 @@
     frameLayout, filename, exportScale, validateRecord, newId,
     normCrop, isFullCrop, cropSrc, cropToView, viewToCrop,
     sideBySide, layoutNotes, annBounds, hitAnnot, moveAnnot, renumber, distributeTranslation,
-    STUDY_MAX_SENTENCES, STUDY_BATCH_SENTENCES, planStudyBatches, mergeStudyParts, isSrOnly, isHiddenBlock, studyKey, studySentences, studyMeaning, defaultStudySide, buildStudy, normalizeStudy, studyMarks, tipsSheet, isGendered, articleFor, TOKPOS,
+    STUDY_MAX_SENTENCES, STUDY_BATCH_SENTENCES, planStudyBatches, mergeStudyParts, isSrOnly, isHiddenBlock, lessonTokens, buildLesson, studyKey, studySentences, studyMeaning, defaultStudySide, buildStudy, normalizeStudy, studyMarks, tipsSheet, isGendered, articleFor, TOKPOS,
   };
 })(globalThis);

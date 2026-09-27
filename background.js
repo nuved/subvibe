@@ -1167,40 +1167,44 @@ function explainPrompt(source, target, dossier) {
 // ── Study card: grammar hints for one side of a Shot ─────────────────────────
 // Spec: docs/superpowers/specs/2026-09-02-shot-study-card-design.md. One
 // analysis per shot/side/explanation language, cached on the record.
-const STUDY_SCHEMA = { name: "study_card", strict: true, schema: { type: "object", additionalProperties: false,
+// v4 (2026-09-27): a lesson per sentence. The v3 card coloured and labelled
+// every word (n, v, art) and never said what tense a sentence was in or why;
+// it also taught words through their translation. Now each sentence gets its
+// parts, every verb group's tense and voice, why it is built that way, a
+// pattern to reuse, and a few words explained through the original's own words.
+const LESSON_SCHEMA = { name: "study_lesson", strict: true, schema: { type: "object", additionalProperties: false,
   properties: {
     blocks: { type: "array", items: { type: "object", additionalProperties: false, properties: {
       b: { type: "string" },
-      grammar: { type: "string" },
-      simple: { type: "string" },
-      notes: { type: "array", items: { type: "object", additionalProperties: false, properties: { n: { type: "integer" }, term: { type: "string" }, o: { type: "string" }, pos: { type: "string" }, level: { type: "string" }, forms: { type: "string" }, text: { type: "string" } }, required: ["n", "term", "o", "pos", "level", "forms", "text"] } },
       sentences: { type: "array", items: { type: "object", additionalProperties: false, properties: {
         i: { type: "integer" },
-        tokens: { type: "array", items: { type: "object", additionalProperties: false, properties: {
-          w: { type: "string" }, g: { type: "string", enum: ["", "m", "f", "n"] }, v: { type: "integer" }, n: { type: "array", items: { type: "integer" } }, p: { type: "string", enum: ["", "n", "v", "aux", "adj", "adv", "prep", "conj", "pron", "art", "num", "int", "part"] } }, required: ["w", "g", "v", "n", "p"] } },
-      }, required: ["i", "tokens"] } },
-    }, required: ["b", "grammar", "simple", "notes", "sentences"] } },
+        kind: { type: "string" },
+        parts: { type: "array", items: { type: "object", additionalProperties: false, properties: { r: { type: "string", enum: ["subject", "verb", "object", "complement", "adverbial", "clause"] }, t: { type: "string" } }, required: ["r", "t"] } },
+        verbs: { type: "array", items: { type: "object", additionalProperties: false, properties: { t: { type: "string" }, tense: { type: "string" }, voice: { type: "string", enum: ["active", "passive"] } }, required: ["t", "tense", "voice"] } },
+        why: { type: "array", items: { type: "string" } },
+        pattern: { type: "string" },
+        words: { type: "array", items: { type: "object", additionalProperties: false, properties: { w: { type: "string" }, pos: { type: "string" }, level: { type: "string" }, forms: { type: "string" }, text: { type: "string" } }, required: ["w", "pos", "level", "forms", "text"] } },
+      }, required: ["i", "kind", "parts", "verbs", "why", "pattern", "words"] } },
+    }, required: ["b", "sentences"] } },
   }, required: ["blocks"] } };
-// CACHE-STABLE per (lang, explain).
-function studyPrompt(lang, explain, ctx) {
+// CACHE-STABLE per (lang, explain). Examples stay abstract: a concrete one in
+// a verbatim field gets copied into answers (2026-09-27, "is defined as").
+function lessonPrompt(lang, explain, ctx) {
   const L = langName(lang), E = langName(explain), same = (lang || "").split("-")[0] === (explain || "").split("-")[0];
   const fa = (explain || "").split("-")[0] === "fa";
   const inE = same ? "simple " + L + " (A2 words, short sentences)" : E;
-  return `You are a patient ${L} teacher for learners at A2–B1${same ? "" : " whose first language is " + E}. The user message carries ` +
-    `{"blocks":[{"b":"<id>","sentences":[{"i":<n>,"text":"<${L} sentence>","meaning":"<the same sentence on the other side of the pair — its original or its translation — or empty>"}]}]} — each block is a CHUNK, a passage of sentences that belong together.\n` +
+  return `You teach ${L} grammar to a B1 learner${same ? "" : " whose first language is " + E}. The user message carries ` +
+    `{"blocks":[{"b":"<id>","sentences":[{"i":<n>,"text":"<${L} sentence>","meaning":"<its translation, for your understanding only>"}]}]}.\n` +
     contextLine(ctx) +
-    `Return STRICT JSON {"blocks":[{"b","grammar","simple","notes":[…],"sentences":[{"i","tokens":[…]}]}]}: one block per input block (same b), one sentence entry per input sentence (same i). The tips (grammar, simple, notes) are given ONCE per chunk, never per sentence.\n` +
-    `For each sentence:\n` +
-    `- tokens: the sentence split into words IN ORDER; punctuation stays attached to the word before it; joining the tokens with single spaces must reproduce the sentence exactly. Each token is {w, g, v, n, p}.\n` +
-    `  p: the word's character: n (noun), v (verb), aux (auxiliary or modal), adj, adv, prep, conj, pron, art (article/determiner), num, int (interjection), part (particle, incl. a separable prefix); "" for names and punctuation-only tokens.\n` +
-    `  g: grammatical gender "m", "f" or "n" on every NOUN and on the article, pronoun or adjective that agrees with that noun — ONLY if ${L} has grammatical gender (German, French, Spanish, Russian …); for a language without it (English, Persian, Turkish …) ALWAYS ""; also "" for verbs, adverbs, prepositions, names, numbers and plurals without a clear gender.\n` +
-    `  v: the parts of ONE verb group share one number (1, 2, …): auxiliary + participle (hat … gebrochen, has … broken), modal + infinitive (kann … gleichkommen, could say), separable prefix + stem (geht … weiter), phrasal verb (mix … up), verb + zu/to + infinitive; 0 otherwise.\n` +
-    `  n: the numbers of the chunk's notes this token belongs to — put a note's number on the LAST token of its phrase, and for a verb group on the verb's last part, so every underlined verb carries its note; at most 2 per token; [] otherwise.\n` +
-    `For each chunk (block):\n` +
-    `- notes: 4 to 10 for the whole chunk, numbered 1… in reading order across its sentences, each {n, term: the exact words as they appear, o: the words of the sentence's "meaning" that this term corresponds to — a contiguous run of words that appears in the meaning of the sentence the term is in, exactly as written there; if you cannot point to it there, give "", pos: one of noun|verb|phrasal verb|adjective|adverb|idiom|expression|preposition|conjunction|pronoun|article|number|other, level: CEFR A1–C2 for a learner, forms: for a verb its base · past · participle plus "regular"/"irregular" (e.g. "gehen · ging · gegangen · irregular"), for a noun its plural with the article where the language has one, for an adjective an irregular comparative, else "", text: at most 25 words in ${inE}}. Say WHAT the form is and WHY it is that form; name the rule and the specific words; add the everyday version where useful. Prefer: the case after prepositions and verbs, the verb bracket and word order, separable and two-part verbs, adjective endings, comparatives, plurals, idioms, false friends, and anything the video context makes special (slang, a chant, a game command).\n` +
-    `- simple: the whole chunk said more simply in ${L}: A2 vocabulary, short clauses, same meaning, no longer than 1.3× the original.\n` +
-    `- grammar: how the chunk is built, as 2–5 short points in ${inE} separated by " • ": the clauses and their order, the tenses or moods, what moves where and why — the skeleton, not the word notes.\n` +
-    `Never invent words that are not in the sentence. Be concrete and encouraging; whenever you use a grammar term, put the everyday word next to it.` +
+    `Return STRICT JSON {"blocks":[{"b","sentences":[{"i","kind","parts","verbs","why","pattern","words"}]}]}: one block per input block (same b), one entry per input sentence (same i).\n` +
+    `For EACH sentence:\n` +
+    `- parts: the sentence's skeleton in reading order, each {r, t}: r = subject | verb | object | complement | adverbial | clause (a whole subordinate or coordinated clause); t = the EXACT words copied from the sentence, contiguous. Cover the main clause; skip nothing important, invent nothing.\n` +
+    `- kind: simple / compound / complex, written in ${inE} with the English term in brackets.\n` +
+    `- verbs: EVERY verb group in the sentence, including those inside clauses, each {t: its exact words from the sentence (auxiliaries and particles included), tense: the tense or modal form in ${inE} with the English name in brackets, voice: active | passive}.\n` +
+    `- why: 2 to 4 short points in ${inE} that TEACH how this sentence is built: the form of each verb group (auxiliary + which verb form), why this tense or voice fits here, who does the action in a passive, how the clauses connect and what the connecting word does, word order worth noticing. Quote the sentence's own words in ${L}. No filler, no praise.\n` +
+    `- pattern: one reusable ${L} frame built from this sentence with slots in square brackets for the parts a learner would swap.\n` +
+    `- words: 0 to 3 words or phrases a B1 learner would not know (never articles, pronouns, names, or words already explained in "why"), each {w: exact words from the sentence, pos: noun|verb|phrasal verb|adjective|adverb|idiom|expression|preposition|conjunction|other, level: CEFR A1–C2, forms: a verb's base · past · participle (+ regular/irregular), a noun's plural, else "", text: at most 20 words in ${inE} on the word's CHARACTER in ${L}: what it does in this sentence, how it is formed (prefix, suffix, root), its word family and what it usually goes with — quoting ${L} words. NEVER give its translation, meaning or a synonym in ${E} — when the meaning matters, give it in ${L} words in quotes (a ${L} synonym or a short ${L} definition); the learner sees the whole sentence's translation already}.\n` +
+    `Be exact and concrete; next to a grammar term put the everyday word once.` +
     (fa ? `\nفارسیِ سادهٔ روزمره. STANDARD IRANIAN FARSI — no Urdu letters/words.` : "");
 }
 // Analyses one side of a shot (≤ 30 sentences, batches of ~10) and caches the
@@ -1232,9 +1236,9 @@ async function shotStudy(msg) {
   const runBatch = async (batch) => {
     try {
       const r = await llmJSON(
-        studyPrompt(lang, explain, ctx),
+        lessonPrompt(lang, explain, ctx),
         { blocks: batch.map((b) => ({ b: b.b, sentences: b.sentences.map((x) => ({ i: x.i, text: x.text, meaning: x.meaning })) })) }, // the meaning lets each note name the original's words
-        STUDY_SCHEMA,
+        LESSON_SCHEMA,
         { seconds: STUDY_CALL_SECONDS },
       );
       provider = r.provider; model = r.model;
@@ -1268,9 +1272,9 @@ async function shotStudy(msg) {
     return { ok: false, error: "failed", detail: lastErr, chunks: total };
   }
   await logCall({ ...meta, ms: Date.now() - started, inTok, outTok, cacheR, cacheW, ok: !failed, err: lastErr, provider, model });
-  const blocks = SV_SHOT.buildStudy(input, { blocks: SV_SHOT.mergeStudyParts(merged.blocks) }, lang);
+  const blocks = SV_SHOT.buildLesson(input, { blocks: SV_SHOT.mergeStudyParts(merged.blocks) });
   if (!rec.study || typeof rec.study !== "object") rec.study = {};
-  rec.study[key] = { v: 3, side, lang, explain, ts: Date.now(), provider, model, truncated: input.truncated, count: input.count, blocks }; // v3: notes carry the original's words (o)
+  rec.study[key] = { v: 4, side, lang, explain, ts: Date.now(), provider, model, truncated: input.truncated, count: input.count, blocks }; // v4: a lesson per sentence (parts, verbs, why, pattern, words)
   await shotPut(rec);
   return { ok: true, key, chunks: total, missing: failed, detail: failed ? lastErr : "" };
 }

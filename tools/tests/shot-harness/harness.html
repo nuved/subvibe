@@ -237,6 +237,14 @@
         "target:fa|fa": { v: 3, side: "target", lang: "fa", explain: "fa", ts: Date.now(), provider: "claude-cli", count: 2, truncated: false, blocks: [
           { b: "b0", grammar: "", simple: "", notes: [{ n: 1, term: "سلام", o: "Hello", pos: "noun", level: "A1", forms: "", text: "رایج‌ترین احوال‌پرسی." }], sentences: [{ text: "سلام دنیا.", meaning: "Hello world.", tokens: [{ w: "سلام", g: "", v: 0, n: [1], p: "n" }, { w: "دنیا.", g: "", v: 0, n: [], p: "n" }] }] },
           { b: "b1", grammar: "", simple: "", notes: [], sentences: [{ text: "بلوک دوم اینجا.", meaning: "Second block here.", tokens: [{ w: "بلوک", g: "", v: 0, n: [], p: "n" }, { w: "دوم", g: "", v: 0, n: [], p: "adj" }, { w: "اینجا.", g: "", v: 0, n: [], p: "adv" }] }] },
+        ] },
+        // v4 (2026-09-27): a lesson per sentence — parts on the words, each verb group's tense and voice, why, a pattern, words through the original's own words.
+        "source:en|fa": { v: 4, side: "source", lang: "en", explain: "fa", ts: Date.now(), provider: "claude-cli", count: 1, truncated: false, blocks: [
+          { b: "b0", grammar: "", simple: "", notes: [], sentences: [{ text: "Hamas must be stopped.", meaning: "Hamas باید متوقف شود.",
+            tokens: [{ w: "Hamas", r: "subject", rl: true }, { w: "must", r: "verb", rl: true }, { w: "be", r: "verb", rl: false }, { w: "stopped.", r: "verb", rl: false }],
+            kind: "ساده (simple)", verbs: [{ t: "must be stopped", tense: "مجهول وجهی (modal passive)", voice: "passive" }],
+            why: ["ساخت: must + be + قسمت سوم فعل."], pattern: "X must be [past participle].",
+            words: [{ w: "stopped", pos: "verb", level: "A2", forms: "stop · stopped · stopped (regular)", text: "قسمت سوم \"stop\"؛ p دوبار می‌شود." }] }] },
         ] } },
         partial: false, truncated: "", sameLang: false, noKey: false, font: "" };
       const d = await openDb();
@@ -391,7 +399,7 @@
 
       // 18) An analysis from before notes named the original's words (no v) offers to run again — it never re-runs by itself.
       await until(() => window.__svShotDebug.studyKey() === "target:fa|en" && !$("studyDeeper").hidden, 2000);
-      check("An old analysis offers \"Analyse again\"", !$("studyDeeper").hidden && $("studyDeeper").textContent === "Analyse again" && /original's words/.test($("studyDeeper").title),
+      check("An old analysis offers \"Analyse again\"", !$("studyDeeper").hidden && $("studyDeeper").textContent === "Analyse again" && /each sentence/.test($("studyDeeper").title),
         "hidden=" + $("studyDeeper").hidden + " label=" + $("studyDeeper").textContent + " title=" + $("studyDeeper").title);
 
       // 19) Explained in the studied language (target:fa|fa): the original still sits under every sentence.
@@ -403,11 +411,24 @@
       check("Explained in Persian, the original line shows under every Persian sentence", window.__svShotDebug.studyKey() === "target:fa|fa" && teal.includes("Hello world.") && teal.includes("Second block here."),
         "key=" + window.__svShotDebug.studyKey() + " teal=" + JSON.stringify(teal));
 
-      // 20) A note's head carries the original's words as its own run (teal, left-to-right inside the Persian line); a v3 analysis hides "Analyse again".
+      // 20) A note's head carries the original's words as its own run (teal, left-to-right inside the Persian line); a v3 analysis is old now and offers "Analyse again".
       const head = opsFa.find((o) => o.runs && o.runs.some((r) => r.text === "سلام"));
       const oRun = head && head.runs.find((r) => r.text === "Hello");
-      check("A note names the original's words as one teal run after its term", oRun && oRun.color === "#2c6a64" && oRun.dir === "ltr" && head.runs[0].dir === "rtl" && oRun.dx > head.runs[0].w && $("studyDeeper").hidden,
+      check("A note names the original's words as one teal run after its term", oRun && oRun.color === "#2c6a64" && oRun.dir === "ltr" && head.runs[0].dir === "rtl" && oRun.dx > head.runs[0].w && !$("studyDeeper").hidden,
         JSON.stringify(head && head.runs.map((r) => [r.text, r.dir, Math.round(r.dx)])) + " deeperHidden=" + $("studyDeeper").hidden);
+
+      // 21) A v4 lesson: the parts carry their roles and Persian labels, the verb group reads with its tense and "passive" in coral, the why and the pattern are drawn, no "Analyse again".
+      pick("studySideSel", "source"); await sleep(50); pick("studyExplSel", "other");
+      await until(() => window.__svShotDebug.studyKey() === "source:en|fa" && !$("stageBusy").classList.contains("on"), 4000);
+      await sleep(200);
+      const opsL = window.__svShotDebug.studyOps() || [];
+      const toksL = opsL.filter((o) => o.tokens).flatMap((o) => o.tokens);
+      const verbLine = opsL.find((o) => o.runs && o.runs.some((r) => r.text === "must be stopped"));
+      const passiveRun = verbLine && verbLine.runs.find((r) => r.text === "مجهول");
+      const texts = opsL.filter((o) => typeof o.text === "string").map((o) => o.text);
+      check("A v4 lesson draws parts, verb tense and voice, why and pattern", toksL.some((t) => t.r === "subject" && t.rl === "فاعل") && toksL.filter((t) => t.r === "verb").length === 3 && passiveRun && passiveRun.color === "#C93F2B"
+        && texts.some((t) => /must \+ be/.test(t)) && texts.includes("X must be [past participle].") && $("studyDeeper").hidden,
+        "key=" + window.__svShotDebug.studyKey() + " roles=" + JSON.stringify(toksL.map((t) => [t.w, t.r, t.rl])) + " verb=" + JSON.stringify(verbLine && verbLine.runs.map((r) => r.text)) + " deeperHidden=" + $("studyDeeper").hidden);
 
       const pass = results.filter((r) => r.ok).length;
       document.title = (pass === results.length ? "PASS " : "FAIL ") + pass + "/" + results.length;

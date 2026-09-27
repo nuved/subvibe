@@ -425,9 +425,9 @@
     const d = studyData(); const deeper = $("studyDeeper");
     if (deeper) {
       if (deeper.dataset.label == null) { deeper.dataset.label = deeper.textContent; deeper.dataset.title = deeper.title || ""; }
-      const tips = !!(d && d.provider === "tips"), old = !!(d && !tips && !(d.v >= 3));
+      const tips = !!(d && d.provider === "tips"), old = !!(d && !tips && !(d.v >= 4));
       deeper.hidden = !(tips || old); deeper.disabled = studying;
-      deeper.textContent = old ? "Analyse again" : deeper.dataset.label; deeper.title = old ? "Adds the original's words to every note" : deeper.dataset.title;
+      deeper.textContent = old ? "Analyse again" : deeper.dataset.label; deeper.title = old ? "Teaches each sentence: its parts, every verb's tense and voice, why it's built that way" : deeper.dataset.title;
     }
     const sideSel = $("studySideSel");
     for (const o of sideSel.options) {
@@ -447,11 +447,14 @@
   }
   $("studyDeeper") && $("studyDeeper").addEventListener("click", () => { if (rec && !studying && view === "bilingual") fetchStudy(); });
   const POSC = { v: "#C93F2B", n: "#1F5FBF", adj: "#2E7D32", adv: "#7B4DBF" }; // word-class colours on the Study card
+  // v4 lessons colour a sentence's parts, not its word classes; a clause is underlined dashed.
+  const ROLEC = { subject: "#1F5FBF", verb: "#C93F2B", object: "#2E7D32", complement: "#2E7D32", adverbial: "#7B4DBF", clause: "#6B6052" };
+  const ROLEKEY = { subject: "rs", verb: "rv", object: "ro", complement: "rc", adverbial: "ra", clause: "rcl" };
   const GENDER = { m: ["#2F6FE4", "#E8F0FD"], f: ["#D64550", "#FCE9EB"], n: ["#2E9E5B", "#E6F5EC"] };
   const STUDY_LABELS = {
-    de: { m: "maskulin", f: "feminin", n: "neutrum", v: "Verbgruppe", vDe: "zweiteiliges Verb", note: "Hinweis", simple: "Einfacher gesagt", scene: "Was passiert", grammar: "Grammatik", notes: "Hinweise", summary: "Kurz gesagt", pv: "Verb", pn: "Nomen", padj: "Adjektiv", padv: "Adverb" },
-    fa: { m: "مذکر", f: "مؤنث", n: "خنثی", v: "گروه فعلی", vDe: "فعل دوبخشی", note: "نکته", simple: "ساده‌تر", scene: "چه می‌گذرد", grammar: "دستور زبان", notes: "نکته‌ها", summary: "خلاصه", pv: "فعل", pn: "اسم", padj: "صفت", padv: "قید" },
-    en: { m: "masculine", f: "feminine", n: "neuter", v: "verb group", vDe: "two-part verb", note: "note", simple: "Put simply", scene: "What's happening", grammar: "Grammar", notes: "Notes", summary: "In short", pv: "verb", pn: "noun", padj: "adjective", padv: "adverb" },
+    de: { rs: "Subjekt", rv: "Verb", ro: "Objekt", rc: "Ergänzung", ra: "Angabe", rcl: "Teilsatz", why: "So ist der Satz gebaut", pattern: "Muster", words: "Wörter", active: "Aktiv", passive: "Passiv", m: "maskulin", f: "feminin", n: "neutrum", v: "Verbgruppe", vDe: "zweiteiliges Verb", note: "Hinweis", simple: "Einfacher gesagt", scene: "Was passiert", grammar: "Grammatik", notes: "Hinweise", summary: "Kurz gesagt", pv: "Verb", pn: "Nomen", padj: "Adjektiv", padv: "Adverb" },
+    fa: { rs: "فاعل", rv: "فعل", ro: "مفعول", rc: "متمم", ra: "قید", rcl: "بند", why: "ساختار جمله", pattern: "الگو", words: "واژه‌ها", active: "معلوم", passive: "مجهول", m: "مذکر", f: "مؤنث", n: "خنثی", v: "گروه فعلی", vDe: "فعل دوبخشی", note: "نکته", simple: "ساده‌تر", scene: "چه می‌گذرد", grammar: "دستور زبان", notes: "نکته‌ها", summary: "خلاصه", pv: "فعل", pn: "اسم", padj: "صفت", padv: "قید" },
+    en: { rs: "subject", rv: "verb", ro: "object", rc: "complement", ra: "adverbial", rcl: "clause", why: "How it's built", pattern: "Pattern", words: "Words", active: "active", passive: "passive", m: "masculine", f: "feminine", n: "neuter", v: "verb group", vDe: "two-part verb", note: "note", simple: "Put simply", scene: "What's happening", grammar: "Grammar", notes: "Notes", summary: "In short", pv: "verb", pn: "noun", padj: "adjective", padv: "adverb" },
   };
   const studyLabels = (lang) => STUDY_LABELS[(lang || "").split("-")[0]] || STUDY_LABELS.en;
   // A note = its head (the term line; `termW` = its drawn width plus the gap)
@@ -492,14 +495,17 @@
     const fPos = "600 " + px(8.5) + "px ui-monospace, Menlo, Consolas, monospace", posH = px(11); // the word's character under it
     const fNum = "700 " + px(10) + "px ui-monospace, Menlo, Consolas, monospace"; // sentence numbers inside a chunk (grey badge)
     const POSLBL = { n: "n", v: "v", aux: "aux", adj: "adj", adv: "adv", prep: "prep", conj: "conj", pron: "pron", art: "art", num: "num", int: "int", part: "part" };
-    const showPos = blocksV2.some((b) => (b.sentences || []).some((snt) => (snt.tokens || []).some((t) => t.p)));
-    const lhTok = lhS + (showPos ? posH : 0);
+    const lesson = d.v >= 4; // a lesson per sentence (parts, verbs, why, pattern, words)
+    const showPos = !lesson && blocksV2.some((b) => (b.sentences || []).some((snt) => (snt.tokens || []).some((t) => t.p)));
+    const showRole = lesson && blocksV2.some((b) => (b.sentences || []).some((snt) => (snt.tokens || []).some((t) => t.rl)));
+    const fRole = "600 " + px(10) + "px " + fontStack(rtlE), roleH = px(13); // the part's name under its first word, in the explanation's script
+    const lhTok = lhS + (showPos ? posH : 0) + (showRole ? roleH : 0);
     const fLegend = "600 " + px(11) + "px ui-monospace, Menlo, Consolas, monospace";
     // Labels, legend and forms are set in monospace — which letter-spaces
     // Persian into broken-looking pieces. A run in Arabic script gets the
     // Vazirmatn stack one px up (it reads smaller) and its own direction.
     const faceOf = (text, font) => BI_RTL.test(text) ? { font: font.replace(/(\d+(?:\.\d+)?)px .*$/, (m, n) => (+n + px(1)) + "px " + fontStack(true)), dir: "rtl" } : { font, dir: "ltr" };
-    const INK = "#1f1c18", INK2 = "#3d362f", MUTED = "#8a7d6f", TEAL = "#2c6a64", CORAL = "#C93F2B", LINE = "#ebe4d9";
+    const INK = "#1f1c18", INK2 = "#3d362f", MUTED = "#6f6354", TEAL = "#2c6a64", CORAL = "#C93F2B", LINE = "#ebe4d9";
     const fArrow = "400 " + px(12) + "px " + UI_FONT;
     // A run = one whole string measured in the face that paints it; placeRuns
     // sets each run's offset (`dx`, along the reading direction) and returns the width.
@@ -510,9 +516,13 @@
     const brk = () => ops.push({ brk: true, y, h: 0 });
     if (frameBmp) { const fh = Math.round(innerW * frameBmp.height / frameBmp.width); ops.push({ frame: true, y, h: fh }); y += fh + px(18); brk(); }
     // legend: only the marks that occur
-    const gendered = S.isGendered(lang);
-    const marks = S.studyMarks(blocksV2);
+    const gendered = !lesson && S.isGendered(lang);
+    const marks = lesson ? {} : S.studyMarks(blocksV2);
     const legend = [];
+    if (lesson) {
+      const seen = new Set(); for (const b of blocksV2) for (const snt of b.sentences || []) for (const t of snt.tokens || []) if (t.r) seen.add(t.r === "complement" ? "object" : t.r);
+      for (const r of ["subject", "verb", "object", "adverbial", "clause"]) if (seen.has(r)) legend.push({ bar: ROLEC[r], dash: r === "clause", text: r === "object" && [...blocksV2].some((b) => (b.sentences || []).some((x) => (x.tokens || []).some((t) => t.r === "complement"))) ? L.ro + " / " + L.rc : L[ROLEKEY[r]] });
+    }
     if (gendered) for (const g of ["m", "f", "n"]) if (marks[g]) { const art = S.articleFor(lang, g); legend.push({ dot: GENDER[g][0], text: (art ? art + " · " : "") + L[g] }); }
     if (marks.v) legend.push({ bar: CORAL, text: (lang || "").split("-")[0] === "de" ? L.vDe : L.v });
     // Word classes: verbs coral, nouns blue (where gender colours don't already say it), adjectives green, adverbs purple.
@@ -531,6 +541,54 @@
         ops.push({ legend: it, x: rtlE ? innerW - x : x, rtl: rtlE, y, h: px(18) }); x += w; // right-to-left card: x is the item's right edge, first item rightmost
       }
       y += px(18); ops.push({ rule: true, y, h: 1 }); y += px(14);
+    }
+    // One sentence's lesson, under its translation: the sentence type, each
+    // verb group with its tense and voice, why it is built so, a pattern,
+    // and the words explained through the original's own words.
+    const fChip = "600 " + px(13) + "px " + fontStack(rtlE), fVerb = "700 " + px(14) + "px " + fontStack(rtlS);
+    const fPat = "500 " + px(13) + "px ui-monospace, Menlo, Consolas, monospace", lhPat = px(13 * 1.6);
+    function layLesson(snt, indent) {
+      const x0 = rtlE ? innerW - indent : indent, w0 = innerW - indent, al = rtlE ? "right" : "left";
+      const hasAny = snt.kind || (snt.verbs || []).length || (snt.why || []).length || snt.pattern || (snt.words || []).length;
+      if (!hasAny) return;
+      y += px(2);
+      if (snt.kind) { ops.push({ text: snt.kind, ...faceOf(snt.kind, fLbl), color: MUTED, x: x0, y, align: al, h: px(16) }); y += px(18); }
+      for (const v of snt.verbs || []) { // "was motivated · past simple · passive" — the verb in its own script, the rest in the explanation's
+        const runs = [run(v.t, fVerb, ROLEC.verb, 0), run(v.tense, fChip, INK2, px(10)), run(v.voice === "passive" ? L.passive : L.active, fChip, v.voice === "passive" ? CORAL : MUTED, px(10))];
+        if (placeRuns(runs) > w0) { ops.push({ runs: [runs[0]].map((r) => ({ ...r })), x: x0, y, align: al, h: lhM }); y += lhM; placeRuns([{ ...runs[1], gap: 0 }, runs[2]]); ops.push({ runs: [{ ...runs[1], gap: 0, dx: 0 }, { ...runs[2], dx: runs[1].w + px(10) }], x: x0, y, align: al, h: lhM }); }
+        else ops.push({ runs: runs.map((r) => ({ ...r })), x: x0, y, align: al, h: lhM });
+        box(indent, y, w0, lhM); y += lhM;
+      }
+      if ((snt.why || []).length) {
+        y += px(4); mc.font = fM; const bi = px(14);
+        for (const pt of snt.why) {
+          const lines = wrapText(mc, pt, w0 - bi);
+          ops.push({ text: "•", font: fM, color: CORAL, x: x0, y, align: al, dir: "ltr", h: lhM });
+          lines.forEach((ln) => { ops.push({ text: ln, font: fM, color: INK, x: rtlE ? x0 - bi : x0 + bi, y, align: al, dir: rtlE ? "rtl" : "ltr", h: lhM }); box(indent, y, w0, lhM); y += lhM; });
+          y += px(3);
+        }
+      }
+      if (snt.pattern) { // the frame to reuse, in the studied language
+        mc.font = fPat; const lines = wrapText(mc, snt.pattern, w0 - px(24));
+        const h = px(8) + px(14) + lines.length * lhPat + px(6);
+        ops.push({ softbox: true, y, h, bar: "#E7B27C", fill: "#FBF7F0", rtl: rtlS });
+        ops.push({ text: L.pattern.toUpperCase(), ...faceOf(L.pattern, fLbl), color: MUTED, x: rtlE ? innerW - px(12) : px(12), y: y + px(7), align: al, h: px(14) });
+        let yy = y + px(8) + px(14);
+        for (const ln of lines) { ops.push({ text: ln, font: fPat, color: INK2, x: rtlS ? innerW - px(12) : px(12), y: yy, align: rtlS ? "right" : "left", dir: rtlS ? "rtl" : "ltr", h: lhPat }); box(px(12), yy, innerW - px(24), lhPat); yy += lhPat; }
+        y += h + px(6);
+      }
+      for (const wd of snt.words || []) { // the word, what it is, then how it works in the original
+        const tag = [wd.pos, wd.level].filter(Boolean).join(" · ");
+        const head = [run(wd.w, fTerm, INK, 0), ...(tag ? [{ ...run(tag, fLbl, MUTED, px(8)), dy: px(4) }] : [])];
+        const headW = placeRuns(head);
+        const nl = wrapNote(mc, headW + px(8), wd.text, fNote, w0);
+        ops.push({ runs: head.map((r) => ({ ...r })), x: x0, y: y + px(2), align: al, h: lhNote });
+        if (nl.termAlone) { box(indent, y, w0, lhNote); y += lhNote; }
+        nl.lines.forEach((ln, i) => { const off = i === 0 ? nl.termW : 0; ops.push({ text: ln, font: fNote, color: INK2, x: rtlE ? x0 - off : x0 + off, y: y + px(2), align: al, dir: rtlE ? "rtl" : "ltr", h: lhNote }); box(indent, y, w0, lhNote); y += lhNote; });
+        if (wd.forms) { ops.push({ text: wd.forms, ...faceOf(wd.forms, fLbl), color: MUTED, x: x0, y: y + px(1), align: al, h: px(14) }); y += px(14); }
+        y += px(3);
+      }
+      y += px(8);
     }
     blocksV2.forEach((blk, bi) => {
       brk();
@@ -551,11 +609,13 @@
         if (si) brk();
         // 1) the marked sentence — wrap by tokens (a token = word + its superscript); numbered inside a chunk
         mc.font = fS;
-        const toks = snt.tokens.map((t) => { mc.font = fS; const tw = mc.measureText(t.w).width; mc.font = fSup; const sup = t.n && t.n.length ? t.n.join(",") : ""; const sw = sup ? mc.measureText(sup).width + px(2) : 0; const pw = showPos && t.p ? (mc.font = fPos, mc.measureText(POSLBL[t.p] || t.p).width) : 0; return { w: t.w, g: t.g, v: t.v, p: t.p || "", tw, sup, sw, pw }; });
+        const toks = snt.tokens.map((t, ti) => { mc.font = fS; const tw = mc.measureText(t.w).width; mc.font = fSup; const sup = t.n && t.n.length ? t.n.join(",") : ""; const sw = sup ? mc.measureText(sup).width + px(2) : 0; const rl = showRole && t.rl && t.r ? L[ROLEKEY[t.r]] || "" : ""; const nt = snt.tokens[ti + 1], runsOn = !!(rl && nt && nt.r === t.r && !nt.rl); // a part longer than one word: its name starts under the first word and runs on under the next, no widened slot
+          const pw = showPos && t.p ? (mc.font = fPos, mc.measureText(POSLBL[t.p] || t.p).width) : rl && !runsOn ? (mc.font = fRole, mc.measureText(rl).width + px(4)) : 0; return { w: t.w, g: t.g, v: t.v, p: t.p || "", r: t.r || "", rl, runsOn, tw, sup, sw, pw }; });
         mc.font = fS; const sp = mc.measureText(" ").width;
         const numW = many ? px(22) : 0;
         let x = numW; let line = [];
-        const flush = () => { if (!line.length) return; ops.push({ tokens: line, y, rtl: rtlS, h: lhTok, num: many && line === firstLine ? si + 1 : 0 }); box(0, y, innerW, lhTok); y += lhTok; line = []; x = numW; };
+        const flush = () => { if (!line.length) return; line.forEach((t, k) => { const n = line[k + 1]; if (t.r && n && n.r === t.r && !n.rl) t.nx = n.x; }); // a part's underline runs on to its next word on the line
+          ops.push({ tokens: line, y, rtl: rtlS, h: lhTok, num: many && line === firstLine ? si + 1 : 0 }); box(0, y, innerW, lhTok); y += lhTok; line = []; x = numW; };
         let firstLine = null;
         // A short word's slot is as wide as its character label ("prep" under "را"), the word centred in it — labels never run into each other.
         for (const t of toks) { const need = Math.max(t.tw + t.sw, t.pw); if (x + need > innerW && line.length) flush(); if (!line.length && !firstLine) firstLine = line; line.push({ ...t, x: x + (need - t.tw - t.sw) / 2 }); x += need + sp; }
@@ -568,9 +628,10 @@
           for (const ln of wrapText(mc, meaning, innerW - numW)) { ops.push({ text: ln, font: fMn, color: TEAL, x: rtlM ? innerW : numW, y, align: rtlM ? "right" : "left", dir: rtlM ? "rtl" : "ltr", h: lhM }); box(numW, y, innerW - numW, lhM); y += lhM; }
           y += px(6);
         }
+        if (lesson) layLesson(snt, numW);
       });
       const snt = blk; // the chunk's tips (grammar · simple · notes) follow its sentences
-      {
+      if (!lesson) {
         brk();
         // 3a) the grammar note (tips sheets and snaps), in a soft box like the simpler version
         if (snt.grammar) {
@@ -642,14 +703,18 @@
         y += px(10);
       }
     });
-    return { ops, boxes, height: Math.max(y, lhS), innerW, PAD, paperW, fonts: { fS, fSup, fLegend, fPos, fNum }, lhS, px, gendered, showPos, POSLBL };
+    return { ops, boxes, height: Math.max(y, lhS), innerW, PAD, paperW, fonts: { fS, fSup, fLegend, fPos, fNum, fRole }, lhS, px, gendered, showPos, showRole, POSLBL };
   }
   // Paint ops at (ox, oy); `clipY` = [from, to) in op space for a slide page.
   function paintStudyOps(g, L, ox, oy, frameBmp, clipY) {
-    const { ops, innerW, lhS, px, fonts, POSLBL } = L; const { fS, fSup, fLegend, fPos, fNum } = fonts;
-    const CORAL = "#C93F2B", LINE = "#ebe4d9", INK = "#1f1c18", MUTED = "#8a7d6f";
+    const { ops, innerW, lhS, px, fonts, POSLBL } = L; const { fS, fSup, fLegend, fPos, fNum, fRole } = fonts;
+    const CORAL = "#C93F2B", LINE = "#ebe4d9", INK = "#1f1c18", MUTED = "#6f6354";
     const from = clipY ? clipY[0] : -Infinity, to = clipY ? clipY[1] : Infinity;
     const dashUnder = (x, yy, w) => { g.save(); g.strokeStyle = CORAL; g.lineWidth = Math.max(1.5, px(1.5)); g.setLineDash([px(2.5), px(2.5)]); g.beginPath(); g.moveTo(ox + x, oy + yy); g.lineTo(ox + x + w, oy + yy); g.stroke(); g.restore(); };
+    const legendBar = (it, x, yy) => { // x, yy: canvas coordinates of the mark's left end
+      if (it.dash) { g.save(); g.strokeStyle = it.bar; g.lineWidth = px(2); g.setLineDash([px(3), px(2)]); g.beginPath(); g.moveTo(x, yy); g.lineTo(x + px(12), yy); g.stroke(); g.restore(); }
+      else { g.fillStyle = it.bar; g.fillRect(x, yy - px(1.5), px(12), px(3)); }
+    };
     for (const op0 of ops) {
       if (op0.brk) continue;
       if (op0.y < from || op0.y >= to) continue;
@@ -661,13 +726,13 @@
         let x = ox + op.x; const yy = oy + op.y + px(6);
         if (op.rtl) { // mirrored: the mark on the right, its text to its left
           if (op.legend.dot) { g.fillStyle = op.legend.dot; g.beginPath(); g.arc(x - px(4.5), yy, px(4.5), 0, Math.PI * 2); g.fill(); x -= px(14); }
-          else if (op.legend.bar) { g.fillStyle = op.legend.bar; g.fillRect(x - px(12), yy - px(1.5), px(12), px(3)); x -= px(16); }
+          else if (op.legend.bar) { legendBar(op.legend, x - px(12), yy); x -= px(16); }
           else if (op.legend.sup) { g.font = fSup; g.fillStyle = CORAL; g.textBaseline = "middle"; g.textAlign = "right"; g.direction = "ltr"; g.fillText(op.legend.sup, x, yy); x -= px(10); }
           g.font = op.legend.font || fLegend; g.fillStyle = MUTED; g.textBaseline = "middle"; g.textAlign = "right"; g.direction = op.legend.dir || "ltr"; g.fillText(op.legend.text, x, yy);
           continue;
         }
         if (op.legend.dot) { g.fillStyle = op.legend.dot; g.beginPath(); g.arc(x + px(4.5), yy, px(4.5), 0, Math.PI * 2); g.fill(); x += px(14); }
-        else if (op.legend.bar) { g.fillStyle = op.legend.bar; g.fillRect(x, yy - px(1.5), px(12), px(3)); x += px(16); }
+        else if (op.legend.bar) { legendBar(op.legend, x, yy); x += px(16); }
         else if (op.legend.sup) { g.font = fSup; g.fillStyle = CORAL; g.textBaseline = "middle"; g.textAlign = "left"; g.direction = "ltr"; g.fillText(op.legend.sup, x, yy); x += px(10); }
         g.font = op.legend.font || fLegend; g.fillStyle = MUTED; g.textBaseline = "middle"; g.textAlign = "left"; g.direction = op.legend.dir || "ltr"; g.fillText(op.legend.text, x, yy);
         continue;
@@ -685,9 +750,18 @@
           const wordX = op.rtl ? tx + t.sw : tx; // in RTL the superscript sits to the LEFT of the word
           const gm = L.gendered && t.g && GENDER[t.g] ? t.g : "";
           if (gm) { g.fillStyle = GENDER[gm][1]; roundRect(g, ox + wordX - px(3), oy + ty + px(2), t.tw + px(6), lhS - px(6), px(4)); g.fill(); }
-          g.font = fS; g.fillStyle = gm ? GENDER[gm][0] : t.v ? POSC.v : (POSC[t.p] || INK); g.textBaseline = "top"; g.textAlign = "left"; g.direction = op.rtl ? "rtl" : "ltr"; // a Persian word's full stop sits after it, on its left
+          g.font = fS; g.fillStyle = t.r ? ROLEC[t.r] || INK : gm ? GENDER[gm][0] : t.v ? POSC.v : (POSC[t.p] || INK); g.textBaseline = "top"; g.textAlign = "left"; g.direction = op.rtl ? "rtl" : "ltr"; // a Persian word's full stop sits after it, on its left
           g.fillText(t.w, ox + wordX, oy + ty + px(4));
           if (t.v) dashUnder(wordX, ty + lhS - px(8), t.tw);
+          if (t.r) { // the part's underline, joined across the gap to the next word of the same part; its name under the first word
+            const uy = oy + ty + lhS - px(6); g.save(); g.strokeStyle = ROLEC[t.r] || INK; g.lineWidth = Math.max(1.5, px(2)); if (t.r === "clause") g.setLineDash([px(3), px(2.5)]);
+            const x1 = t.nx == null ? wordX + t.tw : op.rtl ? wordX + t.tw : t.nx, x0u = t.nx == null || !op.rtl ? wordX : innerW - t.nx;
+            g.beginPath(); g.moveTo(ox + x0u, uy); g.lineTo(ox + x1, uy); g.stroke(); g.restore();
+            if (t.rl && L.showRole) { g.font = fRole; g.fillStyle = ROLEC[t.r] || MUTED; g.direction = BI_RTL.test(t.rl) ? "rtl" : "ltr";
+              if (t.runsOn) { g.textAlign = op.rtl ? "right" : "left"; g.fillText(t.rl, ox + (op.rtl ? wordX + t.tw : wordX), oy + ty + lhS - px(1)); }
+              else { g.textAlign = "center"; g.fillText(t.rl, ox + wordX + t.tw / 2, oy + ty + lhS - px(1)); }
+              g.textAlign = "left"; }
+          }
           if (t.sup) { g.font = fSup; g.fillStyle = CORAL; g.fillText(t.sup, ox + (op.rtl ? tx : tx + t.tw + px(2)), oy + ty + px(1)); }
           if (t.p && L.showPos) { g.font = fPos; g.fillStyle = MUTED; g.textAlign = "center"; g.direction = "ltr"; g.fillText(POSLBL[t.p] || t.p, ox + wordX + t.tw / 2, oy + ty + lhS - px(2)); g.textAlign = "left"; }
         }
@@ -755,7 +829,7 @@
       g.restore();
       // footer: page counter and the badge
       g.font = "700 15px ui-monospace, Menlo, Consolas, monospace"; g.textBaseline = "middle"; g.direction = "ltr";
-      g.fillStyle = "#8a7d6f"; g.textAlign = "left"; g.fillText((i + 1) + " / " + pages.length, EDGE + L.PAD, H - EDGE - 24);
+      g.fillStyle = "#6f6354"; g.textAlign = "left"; g.fillText((i + 1) + " / " + pages.length, EDGE + L.PAD, H - EDGE - 24);
       const label = "SUBVIBE · " + code(rec.source === "xx" ? "" : rec.source) + (rec.source === "xx" ? "" : " → ") + code(rec.target);
       g.fillStyle = "#A93521"; g.textAlign = "right"; g.fillText(label, W - EDGE - L.PAD, H - EDGE - 24);
       out.push(c);
