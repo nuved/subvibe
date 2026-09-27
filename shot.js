@@ -1657,6 +1657,10 @@
     }
     try { S.validateRecord(r); } catch (e) { showEmpty("This shot is damaged and can't be opened."); return; }
     rec = r; annots = Array.isArray(rec.annots) ? rec.annots : [];
+    // An older shot saved without its source language learns it now (kept on the record).
+    if ((!rec.source || rec.source === "xx") && hasPairs()) {
+      try { const f = await new Promise((res) => chrome.runtime.sendMessage({ type: "SHOT_FILL_SOURCE", id: rec.id }, (x) => res(chrome.runtime.lastError ? null : x))); if (f && f.source) rec.source = f.source; } catch (e) {}
+    }
     try { const a = await new Promise((res) => chrome.runtime.sendMessage({ type: "SHOT_TAB_ALIVE", id: rec.id }, (x) => res(chrome.runtime.lastError ? null : x))); tabAlive = !a || a.alive !== false; } catch (e) { tabAlive = true; }
     view = rec.layout === "original" ? "original" : rec.layout;
     if (view === "bilingual" && !hasPairs()) view = "original"; // nothing to pair yet

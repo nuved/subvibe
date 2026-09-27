@@ -2172,6 +2172,16 @@ async function shotPut(rec) {
     r.onsuccess = () => resolve(); r.onerror = () => reject(r.error);
   });
 }
+// A shot whose capture never learned its source language (detection ran on
+// nothing, or the flow skipped it) shows "Original" with no language, and its
+// Study card can't open on the original. Its own original text says it.
+async function shotFillSource(rec) {
+  if (rec.source && rec.source !== "xx") return rec.source;
+  const lines = (rec.blocks || []).flatMap((b) => (Array.isArray(b.pairs) && b.pairs.length ? b.pairs.map((p) => p.o) : [b.text])).filter(Boolean);
+  if (!lines.length) return "";
+  const det = await detectClipLang(lines.map((o) => ({ o })));
+  return det && det !== "xx" && det !== String(rec.target || "").split("-")[0] ? det : "";
+}
 async function shotGet(id) {
   const d = await db();
   return new Promise((resolve, reject) => {
@@ -2360,6 +2370,7 @@ async function shotCompose(msg, sender) {
     partial: !!msg.partial, truncated: msg.truncated === "text" || msg.truncated === "height" ? msg.truncated : "",
     sameLang: !!msg.sameLang, noKey: !!msg.noKey, font: typeof msg.font === "string" ? msg.font : "", tabId: sess.tabId, windowId: sess.windowId,
   };
+  if (rec.source === "xx") { try { rec.source = (await shotFillSource(rec)) || "xx"; } catch (e) {} }
   // Per-view blob cache: a view renders at most once, then it's instant in the
   // editor and never re-touches the page. Other views fill in lazily via
   // re-shoot and are cached the same way. Keyed by view name.
@@ -3363,6 +3374,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         case "SHOT_TAB_ALIVE": sendResponse(await shotTabAlive(msg.id)); break;
         case "SHOT_RETRANSLATE": sendResponse(await shotRetranslate(msg, sender)); break;
         case "SHOT_STUDY": sendResponse(await shotStudy(msg)); break;
+        case "SHOT_FILL_SOURCE": {
+          const rec = await shotGet(String(msg.id || ""));
+          const source = rec ? await shotFillSource(rec) : "";
+          if (rec && source && rec.source !== source) { rec.source = source; await shotPut(rec); }
+          sendResponse({ ok: !!source, source }); break;
+        }
         case "TIPS_SHEET": sendResponse(await tipsSheet(msg)); break;
         case "TIPS_SNAP": sendResponse(await tipsSnap(msg, sender)); break;
         case "CLIP_TIPS": sendResponse(await clipTips(msg)); break;
