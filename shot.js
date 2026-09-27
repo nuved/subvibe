@@ -399,7 +399,15 @@
     const side = effStudySide(), lang = studyLangOf(side);
     // A snap / sheet has one language to study: hide that choice, keep "Explain in".
     const sideBar = $("studySideBar"); sideBar.hidden = fixedSide(); if (sideBar.previousElementSibling) sideBar.previousElementSibling.hidden = fixedSide();
-    const d = studyData(); const deeper = $("studyDeeper"); if (deeper) { deeper.hidden = !(d && d.provider === "tips"); deeper.disabled = studying; }
+    // The same button re-runs an analysis from before notes named the original's
+    // words (v < 3) — never silently: the reader chooses to spend the call.
+    const d = studyData(); const deeper = $("studyDeeper");
+    if (deeper) {
+      if (deeper.dataset.label == null) { deeper.dataset.label = deeper.textContent; deeper.dataset.title = deeper.title || ""; }
+      const tips = !!(d && d.provider === "tips"), old = !!(d && !tips && !(d.v >= 3));
+      deeper.hidden = !(tips || old); deeper.disabled = studying;
+      deeper.textContent = old ? "Analyse again" : deeper.dataset.label; deeper.title = old ? "Adds the original's words to every note" : deeper.dataset.title;
+    }
     for (const b of $("studySideBar").querySelectorAll("button")) {
       const l = studyLangOf(b.dataset.side);
       b.textContent = l ? langName(l) : (b.dataset.side === "source" ? "Original" : "Translation");
@@ -422,11 +430,11 @@
     en: { m: "masculine", f: "feminine", n: "neuter", v: "verb group", vDe: "two-part verb", note: "note", simple: "Put simply", scene: "What's happening", grammar: "Grammar", notes: "Notes", summary: "In short", pv: "verb", pn: "noun", padj: "adjective", padv: "adverb" },
   };
   const studyLabels = (lang) => STUDY_LABELS[(lang || "").split("-")[0]] || STUDY_LABELS.en;
-  // A note = bold term + explanation. The term is its own run on the first
-  // line; the explanation wraps as whole-line strings so the canvas can shape
+  // A note = its head (the term line; `termW` = its drawn width plus the gap)
+  // + explanation. The explanation starts right after the head on the first
+  // line and wraps as whole-line strings so the canvas can shape
   // mixed-direction text (Latin words inside Persian) correctly.
-  function wrapNote(ctx, term, text, fTerm, fText, maxW) {
-    ctx.font = fTerm; const termW = term ? ctx.measureText(term + " —").width + 6 : 0;
+  function wrapNote(ctx, termW, text, fText, maxW) {
     const termAlone = termW > maxW * 0.7;
     ctx.font = fText;
     const words = String(text || "").split(" ").filter(Boolean);
@@ -464,6 +472,11 @@
     const lhTok = lhS + (showPos ? posH : 0);
     const fLegend = "600 " + px(11) + "px ui-monospace, Menlo, Consolas, monospace";
     const INK = "#1f1c18", INK2 = "#3d362f", MUTED = "#8a7d6f", TEAL = "#2c6a64", CORAL = "#C93F2B", LINE = "#ebe4d9";
+    const fArrow = "400 " + px(12) + "px " + UI_FONT;
+    // A run = one whole string measured in the face that paints it; placeRuns
+    // sets each run's offset (`dx`, along the reading direction) and returns the width.
+    const run = (text, font, color, gap) => { mc.font = font; return { text, font, color, gap, w: mc.measureText(text).width, dir: BI_RTL.test(text) ? "rtl" : "ltr", dy: 0 }; };
+    const placeRuns = (runs) => { let x = 0; for (const r of runs) { x += r.gap; r.dx = x; x += r.w; } return x; };
     const ops = []; let y = 0;
     const boxes = []; const box = (x, yy, w, h) => boxes.push({ x, y: yy, w, h }); // text lines for the text-highlight tool
     const brk = () => ops.push({ brk: true, y, h: 0 });
@@ -561,19 +574,27 @@
         }
         // 4) notes: number, bold term, explanation
         if (snt.notes.length) {
+          const showO = blk.sentences.some((x) => S.studyMeaning(rec, d, x)); // the original's words only where its line shows
           ops.push({ text: L.notes.toUpperCase(), font: fLbl, color: MUTED, x: rtlE ? innerW : 0, y, align: rtlE ? "right" : "left", dir: "ltr", h: px(14) }); y += px(14);
           const numW = px(16);
           for (const nt of snt.notes) {
             brk();
             const maxW = innerW - numW - px(6), x0 = rtlE ? innerW - numW - px(6) : numW + px(6);
             const tag = [nt.pos, nt.level].filter(Boolean).join(" · ");
-            const termText = nt.term ? nt.term + (tag ? "  ·  " + tag : "") + " —" : "";
-            const nl = wrapNote(mc, termText ? termText.replace(/ —$/, "") : "", nt.text, fTerm, fNote, maxW);
+            // The head: term ↔ the original's words · tag. Each run is one whole
+            // string in its own script's face and direction — placed word by
+            // word, a Latin run inside a Persian line comes out reversed.
+            const tRun = run(nt.term, fTerm, INK, 0), tagRuns = tag ? [{ ...run(tag, fLbl, MUTED, px(8)), dy: px(4) }] : [];
+            const oRuns = showO && nt.o ? [run("↔", fArrow, MUTED, px(7)), run(nt.o, "400 " + px(13.5) + "px " + fontStack(BI_RTL.test(nt.o)), TEAL, px(7))] : [];
+            let heads = nt.term ? [[tRun, ...oRuns, ...tagRuns]] : [];
+            if (heads.length && placeRuns(heads[0]) > maxW && oRuns.length) heads = [[tRun, ...tagRuns], [{ ...oRuns[0], gap: 0 }, oRuns[1]]]; // too wide: the original's words get their own line
+            const headW = heads.reduce((w, runs) => placeRuns(runs), 0); // every line placed; the last one's width is where the explanation starts
+            const nl = wrapNote(mc, headW ? headW + px(8) : 0, nt.text, fNote, maxW);
             ops.push({ text: String(nt.n), font: fSup, color: CORAL, x: rtlE ? innerW - numW / 2 : numW / 2, y: y + px(1), align: "center", dir: "ltr", h: lhNote });
-            if (nt.term) {
-              ops.push({ term: true, text: nt.term, tag, font: fTerm, tagFont: fLbl, color: INK, x: x0, y: y + px(2), align: rtlE ? "right" : "left", dir: "ltr", h: lhNote });
-              if (nl.termAlone) { box(numW, y, innerW - numW, lhNote); y += lhNote; }
-            }
+            heads.forEach((runs, k) => {
+              ops.push({ runs: runs.map((r) => ({ ...r })), x: x0, y: y + px(2), align: rtlE ? "right" : "left", h: lhNote });
+              if (k < heads.length - 1 || nl.termAlone) { box(numW, y, innerW - numW, lhNote); y += lhNote; }
+            });
             nl.lines.forEach((ln, i) => {
               const off = i === 0 ? nl.termW : 0;
               ops.push({ text: ln, font: fNote, color: INK2, x: rtlE ? x0 - off : x0 + off, y: y + px(2), align: rtlE ? "right" : "left", dir: rtlE ? "rtl" : "ltr", h: lhNote });
@@ -634,10 +655,9 @@
         }
         continue;
       }
-      if (op.term) { // bold term, then its part of speech · level in the label face
-        g.font = op.font; g.fillStyle = op.color; g.textBaseline = "top"; g.textAlign = op.align; g.direction = "ltr";
-        g.fillText(op.text, ox + op.x, oy + op.y);
-        if (op.tag) { const tw = g.measureText(op.text).width; g.font = op.tagFont; g.fillStyle = MUTED; g.fillText(op.tag, ox + (op.align === "right" ? op.x - tw - px(8) : op.x + tw + px(8)), oy + op.y + px(4)); }
+      if (op.runs) { // a note's head: whole runs at the offsets the layout measured, each in its own direction
+        g.textBaseline = "top"; g.textAlign = op.align;
+        for (const r of op.runs) { g.font = r.font; g.fillStyle = r.color; g.direction = r.dir; g.fillText(r.text, ox + (op.align === "right" ? op.x - r.dx : op.x + r.dx), oy + op.y + r.dy); }
         continue;
       }
       g.font = op.font; g.fillStyle = op.color; g.textBaseline = "top"; g.textAlign = op.align; g.direction = op.dir;

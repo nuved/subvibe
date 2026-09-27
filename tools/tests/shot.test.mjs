@@ -457,6 +457,21 @@ test("buildStudy: a dash-only or 'none' forms field is no form", () => {
   assert.deepEqual(notes.map((x) => x.forms), ["", "", "go · went · gone · irregular"]);
 });
 
+test("buildStudy: a note keeps the original's words it names only when they are in a meaning of its chunk", () => {
+  const input = { blocks: [{ b: "b0", sentences: [{ i: 0, text: "نسل‌کشی عبارت است از کشتار عمدی.", meaning: "Genocide is defined as the deliberate killing." }, { i: 1, text: "این جرم است.", meaning: "It is a crime." }] }] };
+  const out = { blocks: [{ b: "b0", grammar: "", simple: "", sentences: [], notes: [
+    { n: 1, term: "عبارت است از", o: " is  defined as ", pos: "expression", level: "B2", forms: "", text: "تعریف چیزی را می‌آورد." },
+    { n: 2, term: "جرم", o: "CRIME", pos: "noun", level: "B1", forms: "", text: "کار خلاف قانون." },
+    { n: 3, term: "عمدی", o: "on purpose", pos: "adjective", level: "B1", forms: "", text: "با قصد." },
+    { n: 4, term: "این", pos: "pronoun", level: "A1", forms: "", text: "اشاره به نزدیک." },
+  ] }] };
+  const notes = S.buildStudy(input, out, "fa")[0].notes;
+  assert.deepEqual(notes.map((x) => x.o || ""), ["is defined as", "CRIME", "", ""], "normalised; case-insensitive match kept; invented words and a missing field are no original");
+  assert.equal(S.normalizeStudy([{ b: "b0", notes: [{ n: 1, term: "جرم", o: "crime", text: "x" }], sentences: [] }])[0].notes[0].o, "crime", "a stored note keeps its original's words");
+  const tips = S.tipsSheet([{ s: "Ich gehe.", tr: "می‌روم.", g: "", words: [{ w: "gehe", m: "می‌روم" }] }]);
+  assert.equal(tips.study[0].notes[0].o, undefined, "tips-sheet notes carry no original's words");
+});
+
 // ── planStudyBatches ─────────────────────────────────────────────────────────
 // A 29-sentence study run went out as one call on 2026-09-26, ran past the
 // bridge's 75 s, and took the fallback down with it. Batches keep each call

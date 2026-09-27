@@ -1173,7 +1173,7 @@ const STUDY_SCHEMA = { name: "study_card", strict: true, schema: { type: "object
       b: { type: "string" },
       grammar: { type: "string" },
       simple: { type: "string" },
-      notes: { type: "array", items: { type: "object", additionalProperties: false, properties: { n: { type: "integer" }, term: { type: "string" }, pos: { type: "string" }, level: { type: "string" }, forms: { type: "string" }, text: { type: "string" } }, required: ["n", "term", "pos", "level", "forms", "text"] } },
+      notes: { type: "array", items: { type: "object", additionalProperties: false, properties: { n: { type: "integer" }, term: { type: "string" }, o: { type: "string" }, pos: { type: "string" }, level: { type: "string" }, forms: { type: "string" }, text: { type: "string" } }, required: ["n", "term", "o", "pos", "level", "forms", "text"] } },
       sentences: { type: "array", items: { type: "object", additionalProperties: false, properties: {
         i: { type: "integer" },
         tokens: { type: "array", items: { type: "object", additionalProperties: false, properties: {
@@ -1187,7 +1187,7 @@ function studyPrompt(lang, explain, ctx) {
   const fa = (explain || "").split("-")[0] === "fa";
   const inE = same ? "simple " + L + " (A2 words, short sentences)" : E;
   return `You are a patient ${L} teacher for learners at A2–B1${same ? "" : " whose first language is " + E}. The user message carries ` +
-    `{"blocks":[{"b":"<id>","sentences":[{"i":<n>,"text":"<${L} sentence>"}]}]} — each block is a CHUNK, a passage of sentences that belong together.\n` +
+    `{"blocks":[{"b":"<id>","sentences":[{"i":<n>,"text":"<${L} sentence>","meaning":"<the same sentence on the other side of the pair — its original or its translation — or empty>"}]}]} — each block is a CHUNK, a passage of sentences that belong together.\n` +
     contextLine(ctx) +
     `Return STRICT JSON {"blocks":[{"b","grammar","simple","notes":[…],"sentences":[{"i","tokens":[…]}]}]}: one block per input block (same b), one sentence entry per input sentence (same i). The tips (grammar, simple, notes) are given ONCE per chunk, never per sentence.\n` +
     `For each sentence:\n` +
@@ -1197,7 +1197,7 @@ function studyPrompt(lang, explain, ctx) {
     `  v: the parts of ONE verb group share one number (1, 2, …): auxiliary + participle (hat … gebrochen, has … broken), modal + infinitive (kann … gleichkommen, could say), separable prefix + stem (geht … weiter), phrasal verb (mix … up), verb + zu/to + infinitive; 0 otherwise.\n` +
     `  n: the numbers of the chunk's notes this token belongs to — put a note's number on the LAST token of its phrase, and for a verb group on the verb's last part, so every underlined verb carries its note; at most 2 per token; [] otherwise.\n` +
     `For each chunk (block):\n` +
-    `- notes: 4 to 10 for the whole chunk, numbered 1… in reading order across its sentences, each {n, term: the exact words as they appear, pos: one of noun|verb|phrasal verb|adjective|adverb|idiom|expression|preposition|conjunction|pronoun|article|number|other, level: CEFR A1–C2 for a learner, forms: for a verb its base · past · participle plus "regular"/"irregular" (e.g. "gehen · ging · gegangen · irregular"), for a noun its plural with the article where the language has one, for an adjective an irregular comparative, else "", text: at most 25 words in ${inE}}. Say WHAT the form is and WHY it is that form; name the rule and the specific words; add the everyday version where useful. Prefer: the case after prepositions and verbs, the verb bracket and word order, separable and two-part verbs, adjective endings, comparatives, plurals, idioms, false friends, and anything the video context makes special (slang, a chant, a game command).\n` +
+    `- notes: 4 to 10 for the whole chunk, numbered 1… in reading order across its sentences, each {n, term: the exact words as they appear, o: the words of the sentence's "meaning" that this term corresponds to, copied VERBATIM from the meaning of the sentence the term is in (e.g. term "عبارت است از" → o "is defined as"); "" when that sentence has no meaning or nothing in it corresponds, pos: one of noun|verb|phrasal verb|adjective|adverb|idiom|expression|preposition|conjunction|pronoun|article|number|other, level: CEFR A1–C2 for a learner, forms: for a verb its base · past · participle plus "regular"/"irregular" (e.g. "gehen · ging · gegangen · irregular"), for a noun its plural with the article where the language has one, for an adjective an irregular comparative, else "", text: at most 25 words in ${inE}}. Say WHAT the form is and WHY it is that form; name the rule and the specific words; add the everyday version where useful. Prefer: the case after prepositions and verbs, the verb bracket and word order, separable and two-part verbs, adjective endings, comparatives, plurals, idioms, false friends, and anything the video context makes special (slang, a chant, a game command).\n` +
     `- simple: the whole chunk said more simply in ${L}: A2 vocabulary, short clauses, same meaning, no longer than 1.3× the original.\n` +
     `- grammar: how the chunk is built, as 2–5 short points in ${inE} separated by " • ": the clauses and their order, the tenses or moods, what moves where and why — the skeleton, not the word notes.\n` +
     `Never invent words that are not in the sentence. Be concrete and encouraging; whenever you use a grammar term, put the everyday word next to it.` +
@@ -1233,7 +1233,7 @@ async function shotStudy(msg) {
     try {
       const r = await llmJSON(
         studyPrompt(lang, explain, ctx),
-        { blocks: batch.map((b) => ({ b: b.b, sentences: b.sentences.map((x) => ({ i: x.i, text: x.text })) })) },
+        { blocks: batch.map((b) => ({ b: b.b, sentences: b.sentences.map((x) => ({ i: x.i, text: x.text, meaning: x.meaning })) })) }, // the meaning lets each note name the original's words
         STUDY_SCHEMA,
         { seconds: STUDY_CALL_SECONDS },
       );
@@ -1270,7 +1270,7 @@ async function shotStudy(msg) {
   await logCall({ ...meta, ms: Date.now() - started, inTok, outTok, cacheR, cacheW, ok: !failed, err: lastErr, provider, model });
   const blocks = SV_SHOT.buildStudy(input, merged, lang);
   if (!rec.study || typeof rec.study !== "object") rec.study = {};
-  rec.study[key] = { v: 2, side, lang, explain, ts: Date.now(), provider, model, truncated: input.truncated, count: input.count, blocks };
+  rec.study[key] = { v: 3, side, lang, explain, ts: Date.now(), provider, model, truncated: input.truncated, count: input.count, blocks }; // v3: notes carry the original's words (o)
   await shotPut(rec);
   return { ok: true, key, chunks: total, missing: failed, detail: failed ? lastErr : "" };
 }

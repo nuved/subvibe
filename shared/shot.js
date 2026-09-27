@@ -413,11 +413,14 @@
   const POS = new Set(["noun", "verb", "phrasal verb", "adjective", "adverb", "idiom", "expression", "preposition", "conjunction", "pronoun", "article", "number", "other"]);
   const TOKPOS = new Set(["n", "v", "adj", "adv", "prep", "conj", "pron", "art", "num", "int", "part", "aux"]); // per-word "character" codes
   const LEVELS = new Set(["A1", "A2", "B1", "B2", "C1", "C2"]);
-  // A note as the card shows it: what, part of speech, level, forms, why.
+  // A note as the card shows it: what, part of speech, level, forms, why, and
+  // `o` — the words of the other side (the original) this term stands for,
+  // present only when there are some (tips-sheet notes never have them).
   const cleanForms = (v) => { const t = String(v || "").trim(); return /^[\s\-–—·.,_/]*$/.test(t) || /^(none|n\/a|na|no forms?)$/i.test(t) ? "" : t; };
   function cleanNote(nt, k) {
+    const o = normText(nt && nt.o);
     return { n: Number.isInteger(nt && nt.n) ? nt.n : k + 1, term: normText(nt && nt.term), text: normText(nt && nt.text),
-      pos: POS.has(String(nt && nt.pos || "").toLowerCase()) ? String(nt.pos).toLowerCase() : "", level: LEVELS.has(String(nt && nt.level || "").toUpperCase()) ? String(nt.level).toUpperCase() : "", forms: cleanForms(normText(nt && nt.forms)) };
+      pos: POS.has(String(nt && nt.pos || "").toLowerCase()) ? String(nt.pos).toLowerCase() : "", level: LEVELS.has(String(nt && nt.level || "").toUpperCase()) ? String(nt.level).toUpperCase() : "", forms: cleanForms(normText(nt && nt.forms)), ...(o ? { o } : {}) };
   }
   // Model output → card data. Version 2: the tips (grammar points, the simpler
   // version, the numbered notes) belong to the BLOCK — a chunk, a passage of a
@@ -432,6 +435,10 @@
     for (const blk of input.blocks) {
       const m = byBlock.get(String(blk.b)) || {};
       const notes = (Array.isArray(m.notes) ? m.notes : []).map(cleanNote).filter((nt) => nt.text).slice(0, 10);
+      // The card never shows generated "original" words: an `o` that is not in
+      // a meaning of this chunk's sentences is dropped.
+      const meanings = blk.sentences.map((s) => normText(s.meaning).toLowerCase());
+      for (const nt of notes) if (nt.o && !meanings.some((mm) => mm.includes(nt.o.toLowerCase()))) delete nt.o;
       const ids = new Set(notes.map((nt) => nt.n));
       const bySent = new Map();
       for (const sm of Array.isArray(m.sentences) ? m.sentences : []) if (sm && Number.isInteger(sm.i)) bySent.set(sm.i, sm);

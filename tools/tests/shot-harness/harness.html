@@ -70,7 +70,7 @@
           <div class="note" id="viewNote"></div>
           <div class="bi-pick" id="biPick" hidden>
             <div class="bi-row"><span class="bi-pick__lbl">Reading card</span><div class="seg seg-sm" id="biBar"><button data-bi="A">Blocks</button><button data-bi="B">Pairs</button><button data-bi="C">Columns</button><button data-bi="G">Study</button></div></div>
-            <div class="bi-row" id="studyRow" hidden><div class="seg seg-sm" id="studySideBar"><button data-side="target">Translation</button><button data-side="source">Original</button></div><div class="seg seg-sm" id="studyExplBar"><button data-expl="other">Your language</button><button data-expl="same">Same language</button></div><button class="btn-secondary" id="studyDeeper" hidden>Analyse grammar in depth</button></div>
+            <div class="bi-row" id="studyRow" hidden><div class="seg seg-sm" id="studySideBar"><button data-side="target">Translation</button><button data-side="source">Original</button></div><div class="seg seg-sm" id="studyExplBar"><button data-expl="other">Your language</button><button data-expl="same">Same language</button></div><button class="btn-secondary" id="studyDeeper" hidden title="Run the full grammar analysis: gender colours, numbered notes that say why, a simpler version">Analyse grammar in depth</button></div>
             <div class="bi-row"><span class="bi-pick__lbl">On the page</span><div class="seg seg-sm" id="biPageBar"><button data-bi="N">Notes</button><button data-bi="S">Side by side</button></div></div>
             <div class="bi-row" id="biStyleRow"><span class="bi-pick__lbl">Translation line</span><div class="seg seg-sm" id="biStyleBar"><button data-bistyle="quiet">Quiet</button><button data-bistyle="balanced">Balanced</button><button data-bistyle="equal">Equal</button></div></div>
             <div class="note" id="biHint"></div>
@@ -328,7 +328,12 @@
       check("Study card slices into 1080×1350 slides, button shown", pages.length >= 1 && pages.every((c) => c.width === 1080 && c.height === 1350) && !$("slidesBtn").hidden,
         "pages=" + pages.length + " size=" + (pages[0] && pages[0].width + "x" + pages[0].height) + " btnHidden=" + $("slidesBtn").hidden);
 
-      // 18) Explained in the studied language (target:fa|fa): the original still sits under every sentence.
+      // 18) An analysis from before notes named the original's words (no v) offers to run again — it never re-runs by itself.
+      await until(() => window.__svShotDebug.studyKey() === "target:fa|en" && !$("studyDeeper").hidden, 2000);
+      check("An old analysis offers \"Analyse again\"", !$("studyDeeper").hidden && $("studyDeeper").textContent === "Analyse again" && /original's words/.test($("studyDeeper").title),
+        "hidden=" + $("studyDeeper").hidden + " label=" + $("studyDeeper").textContent + " title=" + $("studyDeeper").title);
+
+      // 19) Explained in the studied language (target:fa|fa): the original still sits under every sentence.
       document.querySelector('#studyExplBar [data-expl="same"]').click();
       await until(() => window.__svShotDebug.studyKey() === "target:fa|fa" && !$("stageBusy").classList.contains("on"), 4000);
       await sleep(200);
@@ -336,6 +341,12 @@
       const teal = opsFa.filter((o) => o.color === "#2c6a64" && typeof o.text === "string").map((o) => o.text);
       check("Explained in Persian, the original line shows under every Persian sentence", window.__svShotDebug.studyKey() === "target:fa|fa" && teal.includes("Hello world.") && teal.includes("Second block here."),
         "key=" + window.__svShotDebug.studyKey() + " teal=" + JSON.stringify(teal));
+
+      // 20) A note's head carries the original's words as its own run (teal, left-to-right inside the Persian line); a v3 analysis hides "Analyse again".
+      const head = opsFa.find((o) => o.runs && o.runs.some((r) => r.text === "سلام"));
+      const oRun = head && head.runs.find((r) => r.text === "Hello");
+      check("A note names the original's words as one teal run after its term", oRun && oRun.color === "#2c6a64" && oRun.dir === "ltr" && head.runs[0].dir === "rtl" && oRun.dx > head.runs[0].w && $("studyDeeper").hidden,
+        JSON.stringify(head && head.runs.map((r) => [r.text, r.dir, Math.round(r.dx)])) + " deeperHidden=" + $("studyDeeper").hidden);
 
       const pass = results.filter((r) => r.ok).length;
       document.title = (pass === results.length ? "PASS " : "FAIL ") + pass + "/" + results.length;
