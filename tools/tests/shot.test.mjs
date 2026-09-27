@@ -576,3 +576,15 @@ test("defaultStudySide: the learned language wins, then never the reader's own l
   assert.equal(d({ source: "en", target: "fa", learnLang: "", nativeLang: "" }), "target", "reader's language unknown: as before");
   assert.equal(d({ source: "xx", target: "de", learnLang: "xx", nativeLang: "" }), "target", "an unknown learned language matches nothing");
 });
+
+// ── isHiddenBlock ───────────────────────────────────────────────────────────
+// An X shot from before 834d636 carries the 1×1 "Conversation" heading as its
+// first block; the Study card analysed it as a chunk of its own (2026-09-27).
+test("studySentences: a 1×1 block from an older shot is not studied; a block without a rect is", () => {
+  const rec = { blocks: [
+    { id: "h", text: "Conversation", tr: "گفتگو", rect: { x: 0, y: 0, w: 1, h: 1 } },
+    { id: "p", text: "Hamas must be stopped.", tr: "Hamas باید متوقف شود.", rect: { x: 0, y: 10, w: 580, h: 24 } },
+    { id: "n", text: "No rect here.", tr: "بدون اندازه.", rect: { x: 0, y: 0, w: 0, h: 0 } },
+  ] };
+  assert.deepEqual(S.studySentences(rec, "source").blocks.map((b) => b.b), ["p", "n"]);
+});

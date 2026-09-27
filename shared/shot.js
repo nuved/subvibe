@@ -344,6 +344,11 @@
   // ("Conversation") is clipped to a 1px box, so it was invisible to the
   // reader, invisible to those three tests, and the first "sentence" the
   // study call spent a block and four word cards on (2026-09-26).
+  // A block saved before capture skipped screen-reader text (834d636,
+  // 2026-09-26 22:03) can still be one: X's "Conversation" heading sits in a
+  // 1×1 box. No text a reader sees is 2 px tall or wide. A block with no
+  // rect at all (0×0) is kept: that is a missing measurement, not hidden text.
+  const isHiddenBlock = (b) => { const r = (b && b.rect) || {}; const w = +r.w || 0, h = +r.h || 0; return w > 0 && h > 0 && (w <= 2 || h <= 2); };
   function isSrOnly(cs, rect) {
     if (!cs) return false;
     const clipPath = String(cs.clipPath || cs["clip-path"] || "");
@@ -408,6 +413,7 @@
     const max = cap || STUDY_MAX_SENTENCES;
     const blocks = []; let n = 0, truncated = false;
     for (const b of (rec && rec.blocks) || []) {
+      if (isHiddenBlock(b)) continue;
       const pairs = Array.isArray(b.pairs) && b.pairs.length ? b.pairs : (b.tr ? [{ o: b.text, t: b.tr }] : []);
       const sents = [];
       for (const p of pairs) {
@@ -588,6 +594,6 @@
     frameLayout, filename, exportScale, validateRecord, newId,
     normCrop, isFullCrop, cropSrc, cropToView, viewToCrop,
     sideBySide, layoutNotes, annBounds, hitAnnot, moveAnnot, renumber, distributeTranslation,
-    STUDY_MAX_SENTENCES, STUDY_BATCH_SENTENCES, planStudyBatches, mergeStudyParts, isSrOnly, studyKey, studySentences, studyMeaning, defaultStudySide, buildStudy, normalizeStudy, studyMarks, tipsSheet, isGendered, articleFor, TOKPOS,
+    STUDY_MAX_SENTENCES, STUDY_BATCH_SENTENCES, planStudyBatches, mergeStudyParts, isSrOnly, isHiddenBlock, studyKey, studySentences, studyMeaning, defaultStudySide, buildStudy, normalizeStudy, studyMarks, tipsSheet, isGendered, articleFor, TOKPOS,
   };
 })(globalThis);
