@@ -508,7 +508,7 @@
         Object.assign(it, faceOf(it.text, fLegend)); mc.font = it.font; // measured in the face that paints it
         const w = mc.measureText(it.text).width + px(14) + px(16);
         if (x + w > innerW) { x = 0; y += px(18); }
-        ops.push({ legend: it, x, y, h: px(18) }); x += w;
+        ops.push({ legend: it, x: rtlE ? innerW - x : x, rtl: rtlE, y, h: px(18) }); x += w; // right-to-left card: x is the item's right edge, first item rightmost
       }
       y += px(18); ops.push({ rule: true, y, h: 1 }); y += px(14);
     }
@@ -639,6 +639,13 @@
       if (op.softbox) { g.fillStyle = op.fill; roundRect(g, ox, oy + op.y, innerW, op.h, px(6)); g.fill(); if (op.bar) { g.fillStyle = op.bar; g.fillRect(op.rtl ? ox + innerW - px(3) : ox, oy + op.y, px(3), op.h); } continue; }
       if (op.legend) {
         let x = ox + op.x; const yy = oy + op.y + px(6);
+        if (op.rtl) { // mirrored: the mark on the right, its text to its left
+          if (op.legend.dot) { g.fillStyle = op.legend.dot; g.beginPath(); g.arc(x - px(4.5), yy, px(4.5), 0, Math.PI * 2); g.fill(); x -= px(14); }
+          else if (op.legend.bar) { g.fillStyle = op.legend.bar; g.fillRect(x - px(12), yy - px(1.5), px(12), px(3)); x -= px(16); }
+          else if (op.legend.sup) { g.font = fSup; g.fillStyle = CORAL; g.textBaseline = "middle"; g.textAlign = "right"; g.direction = "ltr"; g.fillText(op.legend.sup, x, yy); x -= px(10); }
+          g.font = op.legend.font || fLegend; g.fillStyle = MUTED; g.textBaseline = "middle"; g.textAlign = "right"; g.direction = op.legend.dir || "ltr"; g.fillText(op.legend.text, x, yy);
+          continue;
+        }
         if (op.legend.dot) { g.fillStyle = op.legend.dot; g.beginPath(); g.arc(x + px(4.5), yy, px(4.5), 0, Math.PI * 2); g.fill(); x += px(14); }
         else if (op.legend.bar) { g.fillStyle = op.legend.bar; g.fillRect(x, yy - px(1.5), px(12), px(3)); x += px(16); }
         else if (op.legend.sup) { g.font = fSup; g.fillStyle = CORAL; g.textBaseline = "middle"; g.textAlign = "left"; g.direction = "ltr"; g.fillText(op.legend.sup, x, yy); x += px(10); }
