@@ -59,7 +59,7 @@
     .navlink { display: flex; align-items: center; gap: 11px; width: 100%; text-align: left;
       border: 0; background: transparent; color: var(--muted); cursor: pointer;
       font-weight: 600; font-size: 13.5px; padding: 9px 11px; border-radius: 10px;
-      position: relative; transition: background .12s, color .12s; }
+      position: relative; transition: background .12s, color .12s; text-decoration: none; }
     .navlink svg { width: 18px; height: 18px; flex: none; }
     .navlink:hover { background: var(--surface-2); color: var(--text); }
     .navlink.on { background: var(--brand-soft); color: var(--text); }
@@ -273,6 +273,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
           Activity
         </button>
+        <a class="navlink" href="shots.html">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8V6a2 2 0 0 1 2-2h2"/><path d="M16 4h2a2 2 0 0 1 2 2v2"/><path d="M20 16v2a2 2 0 0 1-2 2h-2"/><path d="M8 20H6a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="3"/></svg>
+          Shots
+        </a>
       </nav>
 
       <div class="side-controls" id="videosNav">

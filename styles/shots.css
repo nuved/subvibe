@@ -1,0 +1,167 @@
+/* Shots gallery (shots.html) — Daylight tokens + components. The sidebar shell
+   repeats library.html's (its styles live inline in that page) so the two read
+   as one app; the grid, the cards, the states and the confirm are this page's.
+   Labels and counts use --muted, not --faint: they are text and need 4.5:1. */
+
+/* Baloo 2 (bundled) — the wordmark only, same files library.html uses. */
+@font-face { font-family: "Baloo 2"; font-weight: 800; font-display: swap;
+  src: url("../fonts/Baloo2-ExtraBold-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+2000-206F, U+2212; }
+@font-face { font-family: "Baloo 2"; font-weight: 800; font-display: swap;
+  src: url("../fonts/Baloo2-ExtraBold-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-024F, U+1E00-1EFF; }
+
+html, body { min-height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 var(--ui);
+  -webkit-font-smoothing: antialiased; }
+button, input { font-family: inherit; }
+
+/* ── app shell: fixed sidebar + fluid canvas (as library.html) ─────────────── */
+.app { display: flex; align-items: flex-start; min-height: 100vh; }
+.sidebar { flex: none; width: 240px; align-self: stretch; position: sticky; top: 0;
+  height: 100vh; overflow-y: auto; background: var(--surface);
+  border-right: 1px solid var(--border); padding: 22px 16px 18px;
+  display: flex; flex-direction: column; gap: 20px; }
+.brand { display: flex; align-items: center; gap: 11px; padding: 2px 6px; }
+.brand__logo { width: 34px; height: 34px; border-radius: 9px; }
+.brand__name { font-family: var(--display); font-size: 20px; line-height: 1; letter-spacing: .2px; }
+.brand__sub { color: var(--muted); font-size: 11.5px; margin-top: 3px; letter-spacing: .35px; text-transform: uppercase; }
+
+.nav { display: flex; flex-direction: column; gap: 3px; }
+.navlink { display: flex; align-items: center; gap: 11px; width: 100%;
+  color: var(--muted); text-decoration: none; font-weight: 600; font-size: 13.5px;
+  padding: 9px 11px; border-radius: 10px; position: relative; transition: background var(--t-fast), color var(--t-fast); }
+.navlink svg { width: 18px; height: 18px; flex: none; }
+.navlink:hover { background: var(--surface-2); color: var(--ink); }
+.navlink.on { background: var(--coral-100); color: var(--ink); }
+.navlink.on::before { content: ""; position: absolute; left: -16px; top: 8px; bottom: 8px;
+  width: 3px; border-radius: 0 3px 3px 0; background: var(--coral-600); }
+
+.side-controls { display: flex; flex-direction: column; gap: 20px; }
+.side-block { display: flex; flex-direction: column; gap: 9px; }
+.side-label { color: var(--muted); font-size: 10.5px; font-weight: 700; letter-spacing: .7px;
+  text-transform: uppercase; padding: 0 4px; }
+
+.search { position: relative; display: flex; align-items: center; }
+.search svg { position: absolute; left: 11px; width: 15px; height: 15px; color: var(--muted); pointer-events: none; }
+.search input { width: 100%; padding: 9px 11px 9px 33px; border-radius: 10px; font-size: 13px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--ink); }
+.search input::placeholder { color: var(--muted); }
+.search input:focus { outline: none; border-color: var(--coral-600); }
+.search input:focus-visible { outline: 2px solid var(--coral-600); outline-offset: 1px; }
+
+/* site filter — the Library's platform list, minus the colour swatch */
+.sites { display: flex; flex-direction: column; gap: 2px; }
+.pf { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  border: 0; background: transparent; color: var(--muted); cursor: pointer; min-height: 32px;
+  font-size: 13px; font-weight: 600; padding: 6px 10px; border-radius: 9px; transition: background var(--t-fast), color var(--t-fast); }
+.pf:hover, .pf.on { background: var(--surface-2); color: var(--ink); }
+.pf .pf-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pf .pf-count { color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; }
+
+/* ── main canvas ───────────────────────────────────────────────────────────── */
+.canvas { flex: 1 1 auto; min-width: 0; width: 100%; padding: 26px 40px 64px; }
+.view-head { display: flex; align-items: baseline; gap: 12px; margin: 0 0 20px; }
+.view-head h1 { font-family: var(--display); font-size: 22px; margin: 0; }
+.view-head .sub { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.status { color: var(--ink-2); font-size: 12.5px; margin: -8px 0 14px; }
+.status:empty { display: none; }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(250px, 100%), 1fr)); gap: 20px; }
+
+/* ── a card: the whole thing is one link; Delete sits on top of it ─────────── */
+.shot { position: relative; display: flex; background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r-lg); box-shadow: var(--shadow-rest);
+  transition: transform var(--t-fast), box-shadow var(--t-fast); }
+.shot:not(.skel):hover { transform: translateY(-3px); box-shadow: var(--shadow-raised); }
+.shot__open { flex: 1; min-width: 0; display: flex; flex-direction: column; color: inherit; text-decoration: none;
+  border-radius: var(--r-lg); }
+.shot__open:focus-visible { outline: 2px solid var(--coral-600); outline-offset: 3px; border-radius: var(--r-lg); }
+
+/* Fixed box; a tall full-page shot shows its top, like the page did when it was taken. */
+.shot__pic { aspect-ratio: 16 / 10; overflow: hidden; background: var(--surface-2);
+  border-radius: calc(var(--r-lg) - 1px) calc(var(--r-lg) - 1px) 0 0; border-bottom: 1px solid var(--border); }
+.shot__pic img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top; }
+.shot.skel .shot__pic { border-radius: calc(var(--r-lg) - 1px) calc(var(--r-lg) - 1px) 0 0; min-height: 0; }
+
+/* no picture: the first sentence and its translation, on paper */
+.shot__pic.is-text { background: var(--bg); }
+.shot__text { height: 100%; padding: 16px 18px; display: flex; flex-direction: column; justify-content: center; gap: 8px; }
+.shot__text p { margin: 0; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+.shot__text .o { color: var(--ink-2); font-size: 13px; line-height: 1.45; }
+.shot__text .t { color: var(--ink); font-size: 14.5px; font-weight: 600; line-height: 1.5; }
+.shot__text .none { color: var(--muted); font-size: 12.5px; text-align: center; }
+
+.shot__body { flex: 1; display: flex; flex-direction: column; gap: 5px; padding: 12px 14px 12px; min-width: 0; }
+.shot__title { font-weight: 650; font-size: 14.5px; line-height: 1.35;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+/* Site and time share a line when they fit; when they don't, the time wraps
+   under the site. Every item starts with a 12px separator slot and the row is
+   pulled 12px left and clipped there, so the dot that would begin a wrapped
+   line is never seen. */
+.shot__meta { display: flex; flex-wrap: wrap; margin-left: -12px; clip-path: inset(0 0 0 12px);
+  color: var(--muted); font-size: 12px; }
+.shot__meta > * { position: relative; min-width: 0; max-width: 100%; padding-left: 12px; white-space: nowrap; }
+.shot__meta .host { overflow: hidden; text-overflow: ellipsis; }
+.shot__meta .when { font-variant-numeric: tabular-nums; }
+.shot__meta .when::before { content: "·"; position: absolute; left: 0; width: 12px; text-align: center; }
+.shot__tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; padding: 5px 40px 0 0; }
+.shot__tags .chip { font-weight: 600; }
+
+.shot__del { position: absolute; right: 9px; bottom: 9px; width: 32px; height: 32px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
+  border: 1px solid transparent; border-radius: var(--r-sm); background: transparent; color: var(--muted);
+  transition: background var(--t-fast), color var(--t-fast), border-color var(--t-fast); }
+.shot__del svg { width: 17px; height: 17px; }
+.shot__del:hover { color: var(--red-600); border-color: var(--red-600); background: color-mix(in srgb, var(--red-600) 8%, var(--surface)); }
+
+/* skeleton card lines */
+.shot.skel { flex-direction: column; }
+.shot.skel .shot__body { gap: 9px; padding: 14px; }
+.sk-title { width: 78%; height: 14px; }
+.sk-meta { width: 46%; height: 11px; min-height: 11px; }
+
+/* ── empty · no hits · error ───────────────────────────────────────────────── */
+.state { max-width: 520px; margin: 0 auto; padding: 72px 20px; text-align: center; color: var(--ink-2); }
+.state__ico { width: 56px; height: 56px; margin: 0 auto 16px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--coral-100); color: var(--coral-600); }
+.state__ico svg { width: 26px; height: 26px; }
+.state.error .state__ico { background: color-mix(in srgb, var(--red-600) 12%, var(--surface)); color: var(--red-600); }
+.state h2 { margin: 0 0 8px; font-size: 17px; color: var(--ink); }
+.state p { margin: 6px 0 0; font-size: 13.5px; line-height: 1.55; }
+.state button { margin-top: 18px; }
+
+/* ── delete confirm ────────────────────────────────────────────────────────── */
+.confirm { width: min(420px, calc(100vw - 32px)); padding: 22px 22px 18px; border: 1px solid var(--border);
+  border-radius: var(--r-lg); background: var(--surface); color: var(--ink); box-shadow: var(--shadow-raised); }
+.confirm::backdrop { background: rgba(36, 31, 26, .38); }
+.confirm h2 { margin: 0 0 10px; font-size: 17px; }
+.confirm p { margin: 0; }
+.confirm__name { font-weight: 650; font-size: 14.5px; line-height: 1.4; overflow-wrap: anywhere; unicode-bidi: plaintext; }
+.confirm__meta { margin-top: 3px !important; color: var(--muted); font-size: 12.5px; }
+.confirm__note { margin-top: 12px !important; color: var(--ink-2); font-size: 13px; }
+.confirm__acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+
+/* ── narrow screens: the sidebar becomes a top bar (as library.html) ───────── */
+@media (max-width: 880px) {
+  .app { flex-direction: column; }
+  .sidebar { position: static; width: 100%; height: auto; flex-direction: row; flex-wrap: wrap;
+    align-items: center; gap: 12px 16px; border-right: 0; border-bottom: 1px solid var(--border); padding: 16px; }
+  .brand { flex: 1; }
+  .nav { flex-direction: row; flex-wrap: wrap; }
+  .navlink { width: auto; }
+  .navlink.on::before { display: none; }
+  .side-controls { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 12px; width: 100%; }
+  .side-block { flex: 1; min-width: 180px; }
+  /* one row that scrolls sideways, so the shots start near the top of a phone screen */
+  .sites { flex-direction: row; overflow-x: auto; scrollbar-width: none; margin: 0 -16px; padding: 0 16px; }
+  .sites::-webkit-scrollbar { display: none; }
+  .pf { width: auto; flex: none; }
+  .canvas { padding: 22px 16px 56px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shot, .navlink, .pf, .shot__del { transition: none; }
+  .shot:not(.skel):hover { transform: none; }
+}
