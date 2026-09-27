@@ -24,7 +24,7 @@ const ANTHROPIC_VERSION = "2023-06-01";
 // The Claude model is user-selectable (popup → storage key `claudeModel`).
 // Resolve through an allowlist so corrupted/stale storage can never put an
 // unknown model id on the wire — unknown values fall back to Sonnet 5.
-const CLAUDE_MODELS = ["claude-sonnet-5", "claude-haiku-4-5", "claude-opus-5", "claude-fable-5-1"];
+const CLAUDE_MODELS = ["claude-sonnet-5", "claude-haiku-4-5", "claude-opus-5", "claude-opus-5-5", "claude-fable-5-1"];
 const resolveClaudeModel = (v) => (CLAUDE_MODELS.includes(v) ? v : CLAUDE_MODELS[0]);
 // max_tokens is REQUIRED on /v1/messages. 16k, not 8k: a 60-cue batch answers
 // with FOUR arrays (t + the condensed dub "d" ≈ two full Persian renditions),
@@ -814,7 +814,7 @@ function cliSend(msg) {
 const CLI_FALLBACK = "claude-sonnet-5", CLI_DEGRADED_MS = 10 * 60 * 1000, CLI_CALL_SECONDS = 75;
 // A study call reads a whole chunk and writes a card per word, so it is the
 // slowest call SubVibe makes: it gets its own clock, and two run at once.
-const STUDY_CALL_SECONDS = 150, STUDY_CONCURRENCY = 2;
+const STUDY_CALL_SECONDS = 150, STUDY_CONCURRENCY = 3;
 // Fable takes long turns on purpose; judging it by Opus's clock would repeat
 // the timeout that started all this.
 const FABLE_CALL_SECONDS = 300;
@@ -1253,8 +1253,8 @@ async function shotStudy(msg) {
   // warms it and every later call reads it. So: first batch alone, the rest
   // in parallel.
   const queue = batches.slice();
-  const firstBatch = queue.shift();
-  if (firstBatch) await runBatch(firstBatch);
+  const { translationProvider: tpNow } = await chrome.storage.local.get(["translationProvider"]);
+  if (providerOf(tpNow) !== "claude-cli") { const firstBatch = queue.shift(); if (firstBatch) await runBatch(firstBatch); } // Claude Code: its fixed prefix costs ~2 s, not worth a serial wait
   const workers = Array.from({ length: Math.min(STUDY_CONCURRENCY, queue.length) }, async () => {
     for (let batch = queue.shift(); batch; batch = queue.shift()) await runBatch(batch);
   });
@@ -1268,7 +1268,7 @@ async function shotStudy(msg) {
     return { ok: false, error: "failed", detail: lastErr, chunks: total };
   }
   await logCall({ ...meta, ms: Date.now() - started, inTok, outTok, cacheR, cacheW, ok: !failed, err: lastErr, provider, model });
-  const blocks = SV_SHOT.buildStudy(input, merged, lang);
+  const blocks = SV_SHOT.buildStudy(input, { blocks: SV_SHOT.mergeStudyParts(merged.blocks) }, lang);
   if (!rec.study || typeof rec.study !== "object") rec.study = {};
   rec.study[key] = { v: 3, side, lang, explain, ts: Date.now(), provider, model, truncated: input.truncated, count: input.count, blocks }; // v3: notes carry the original's words (o)
   await shotPut(rec);

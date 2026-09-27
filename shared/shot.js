@@ -363,12 +363,41 @@
     let cur = [], n = 0;
     for (const b of blocks || []) {
       const len = (b.sentences || []).length;
+      // A paragraph longer than a batch goes out in pieces, each its own call:
+      // one 15-sentence post as one call ran past Opus's clock (2026-09-27).
+      // mergeStudyParts joins the answers back into one chunk.
+      if (len > max) {
+        if (cur.length) { out.push(cur); cur = []; n = 0; }
+        for (let k = 0; k < len; k += max) out.push([{ ...b, sentences: b.sentences.slice(k, k + max) }]);
+        continue;
+      }
       if (n && n + len > max) { out.push(cur); cur = []; n = 0; }
       cur.push(b); n += len;
       if (n >= max) { out.push(cur); cur = []; n = 0; }
     }
     if (cur.length) out.push(cur);
     return out;
+  }
+
+  // The model's answers for the pieces of one paragraph, joined back into one
+  // chunk in reading order: sentences and notes concatenated, each later
+  // piece's note numbers shifted past the earlier ones (on the notes and on
+  // the tokens that point at them), the simpler versions run together.
+  function mergeStudyParts(parts) {
+    const firstI = (p) => Math.min(...((p && p.sentences) || []).map((x) => (Number.isInteger(x && x.i) ? x.i : Infinity)), Infinity);
+    const byB = new Map(), order = [];
+    for (const p of (parts || []).filter((x) => x && x.b != null).slice().sort((a, c) => firstI(a) - firstI(c))) {
+      const k = String(p.b);
+      const cur = byB.get(k);
+      if (!cur) { byB.set(k, { ...p, notes: Array.isArray(p.notes) ? p.notes.slice() : [], sentences: Array.isArray(p.sentences) ? p.sentences.slice() : [] }); order.push(k); continue; }
+      const off = cur.notes.reduce((m, nt) => Math.max(m, Number.isInteger(nt && nt.n) ? nt.n : 0), 0);
+      for (const nt of Array.isArray(p.notes) ? p.notes : []) cur.notes.push(Number.isInteger(nt && nt.n) ? { ...nt, n: nt.n + off } : nt);
+      for (const sn of Array.isArray(p.sentences) ? p.sentences : []) {
+        cur.sentences.push(sn && Array.isArray(sn.tokens) ? { ...sn, tokens: sn.tokens.map((t) => (t && Array.isArray(t.n) ? { ...t, n: t.n.map((x) => (Number.isInteger(x) ? x + off : x)) } : t)) } : sn);
+      }
+      for (const f of ["simple", "grammar"]) { const a = normText(cur[f]), c = normText(p[f]); cur[f] = a && c ? a + (f === "grammar" ? " • " : " ") + c : a || c; }
+    }
+    return order.map((k) => byB.get(k));
   }
 
   const studyKey = (lang, explain) => String(lang || "") + "|" + String(explain || "");
@@ -446,7 +475,7 @@
     const blocks = [];
     for (const blk of input.blocks) {
       const m = byBlock.get(String(blk.b)) || {};
-      const notes = (Array.isArray(m.notes) ? m.notes : []).map(cleanNote).filter((nt) => nt.text).slice(0, 10);
+      const notes = (Array.isArray(m.notes) ? m.notes : []).map(cleanNote).filter((nt) => nt.text).slice(0, 30); // up to 10 per piece of a long paragraph
       // The card never shows generated "original" words: an `o` that is not in
       // a meaning of this chunk's sentences is dropped.
       const meanings = blk.sentences.map((s) => normText(s.meaning).toLowerCase());
@@ -559,6 +588,6 @@
     frameLayout, filename, exportScale, validateRecord, newId,
     normCrop, isFullCrop, cropSrc, cropToView, viewToCrop,
     sideBySide, layoutNotes, annBounds, hitAnnot, moveAnnot, renumber, distributeTranslation,
-    STUDY_MAX_SENTENCES, STUDY_BATCH_SENTENCES, planStudyBatches, isSrOnly, studyKey, studySentences, studyMeaning, defaultStudySide, buildStudy, normalizeStudy, studyMarks, tipsSheet, isGendered, articleFor, TOKPOS,
+    STUDY_MAX_SENTENCES, STUDY_BATCH_SENTENCES, planStudyBatches, mergeStudyParts, isSrOnly, studyKey, studySentences, studyMeaning, defaultStudySide, buildStudy, normalizeStudy, studyMarks, tipsSheet, isGendered, articleFor, TOKPOS,
   };
 })(globalThis);

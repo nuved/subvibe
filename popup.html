@@ -337,6 +337,8 @@
        the border snapping back on is the "this is active now" cue, so the
        dropdown needs no "(model below)" instruction text. */
     #claudeModelRow { transition: opacity .18s ease; }
+    #claudeModelRow .seg2 { flex-wrap: wrap; }
+    #claudeModelRow .segopt { flex: 1 1 30%; }
     #claudeModelRow.dim { opacity: .4; }
     #claudeModelRow.dim .segopt.on { border-color: var(--border); background: var(--panel); }
 
@@ -617,7 +619,8 @@
       <div class="seg2" role="radiogroup" aria-label="Claude model">
         <button type="button" class="segopt" data-model="claude-sonnet-5"><b>Sonnet 5</b><small>quick and cheap</small></button>
         <button type="button" class="segopt" data-model="claude-haiku-4-5"><b>Haiku 4.5</b><small>fastest, ~3× cheaper</small></button>
-        <button type="button" class="segopt" data-model="claude-opus-5"><b>Opus 5</b><small>strong, the default</small></button>
+        <button type="button" class="segopt" data-model="claude-opus-5"><b>Opus 5</b><small>strong</small></button>
+        <button type="button" class="segopt" data-model="claude-opus-5-5"><b>Opus 5.5</b><small>newest, strong</small></button>
         <button type="button" class="segopt" data-model="claude-fable-5-1"><b>Fable 5.1</b><small>most capable, slowest</small></button>
       </div>
     </div>

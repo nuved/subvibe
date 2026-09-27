@@ -483,10 +483,31 @@ test("planStudyBatches: fills a batch up to the limit, then starts another", () 
   assert.deepEqual(out.map((b) => b.reduce((n, x) => n + x.sentences.length, 0)), [6, 2]);
 });
 
-test("planStudyBatches: a block longer than the limit travels alone, not split", () => {
-  const out = S.planStudyBatches(blocksOf(9), 6);
-  assert.equal(out.length, 1);
-  assert.equal(out[0][0].sentences.length, 9);
+// It used to travel alone and whole; a 15-sentence X post as one call ran
+// past Opus's 150 s (2026-09-27). Now it goes in pieces, merged afterwards.
+test("planStudyBatches: a block longer than the limit goes out in pieces of the limit", () => {
+  const out = S.planStudyBatches(blocksOf(2, 9, 1), 6);
+  assert.deepEqual(out.map((b) => b.map((x) => [x.b, x.sentences.length])), [[[0, 2]], [[1, 6]], [[1, 3]], [[2, 1]]]);
+  assert.deepEqual(out[2][0].sentences.map((x) => x.i), [6, 7, 8]);
+});
+
+test("mergeStudyParts: pieces of one paragraph join in reading order, later note numbers shifted", () => {
+  const second = { b: "1", simple: "B.", grammar: "g2", notes: [{ n: 1, term: "y" }], sentences: [{ i: 6, tokens: [{ w: "y", n: [1] }] }] };
+  const first = { b: "1", simple: "A.", grammar: "g1", notes: [{ n: 1, term: "x" }, { n: 2, term: "x2" }], sentences: [{ i: 0, tokens: [{ w: "x", n: [1, 2] }] }] };
+  const other = { b: "2", notes: [{ n: 1, term: "z" }], sentences: [{ i: 9, tokens: [] }] };
+  const out = S.mergeStudyParts([second, other, first]);
+  assert.deepEqual(out.map((b) => b.b), ["1", "2"]);
+  assert.deepEqual(out[0].notes.map((nt) => [nt.n, nt.term]), [[1, "x"], [2, "x2"], [3, "y"]]);
+  assert.deepEqual(out[0].sentences.map((x) => [x.i, x.tokens[0].n]), [[0, [1, 2]], [6, [3]]]);
+  assert.equal(out[0].simple, "A. B.");
+  assert.equal(out[0].grammar, "g1 • g2");
+  assert.deepEqual(out[1].notes.map((nt) => nt.n), [1]);
+  assert.deepEqual(first.notes.map((nt) => nt.n), [1, 2], "inputs are not mutated");
+});
+
+test("mergeStudyParts: nothing in, nothing out", () => {
+  assert.deepEqual(S.mergeStudyParts([]), []);
+  assert.deepEqual(S.mergeStudyParts(undefined), []);
 });
 
 test("planStudyBatches: the run that broke — 29 sentences become several calls", () => {
@@ -498,9 +519,11 @@ test("planStudyBatches: the run that broke — 29 sentences become several calls
   }
 });
 
-test("planStudyBatches: every block is kept exactly once", () => {
+test("planStudyBatches: every sentence is kept exactly once, in reading order", () => {
   const out = S.planStudyBatches(blocksOf(3, 4, 1, 9, 2), 6);
-  assert.deepEqual(out.flat().map((b) => b.b), [0, 1, 2, 3, 4]);
+  const seen = out.flat().flatMap((b) => b.sentences.map((x) => b.b + ":" + x.i));
+  const want = blocksOf(3, 4, 1, 9, 2).flatMap((b) => b.sentences.map((x) => b.b + ":" + x.i));
+  assert.deepEqual(seen, want);
 });
 
 test("planStudyBatches: nothing in, nothing out", () => {
