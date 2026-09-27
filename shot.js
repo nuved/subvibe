@@ -471,6 +471,10 @@
     const showPos = blocksV2.some((b) => (b.sentences || []).some((snt) => (snt.tokens || []).some((t) => t.p)));
     const lhTok = lhS + (showPos ? posH : 0);
     const fLegend = "600 " + px(11) + "px ui-monospace, Menlo, Consolas, monospace";
+    // Labels, legend and forms are set in monospace — which letter-spaces
+    // Persian into broken-looking pieces. A run in Arabic script gets the
+    // Vazirmatn stack one px up (it reads smaller) and its own direction.
+    const faceOf = (text, font) => BI_RTL.test(text) ? { font: font.replace(/(\d+(?:\.\d+)?)px .*$/, (m, n) => (+n + px(1)) + "px " + fontStack(true)), dir: "rtl" } : { font, dir: "ltr" };
     const INK = "#1f1c18", INK2 = "#3d362f", MUTED = "#8a7d6f", TEAL = "#2c6a64", CORAL = "#C93F2B", LINE = "#ebe4d9";
     const fArrow = "400 " + px(12) + "px " + UI_FONT;
     // A run = one whole string measured in the face that paints it; placeRuns
@@ -495,8 +499,9 @@
     if (pos.adv) legend.push({ dot: POSC.adv, text: L.padv });
     if (marks.notes) legend.push({ sup: "1", text: L.note });
     if (legend.length) {
-      let x = 0; mc.font = fLegend;
+      let x = 0;
       for (const it of legend) {
+        Object.assign(it, faceOf(it.text, fLegend)); mc.font = it.font; // measured in the face that paints it
         const w = mc.measureText(it.text).width + px(14) + px(16);
         if (x + w > innerW) { x = 0; y += px(18); }
         ops.push({ legend: it, x, y, h: px(18) }); x += w;
@@ -511,7 +516,8 @@
         mc.font = fM; const rtlSc = BI_RTL.test(blk.scene); const lines = wrapText(mc, blk.scene, innerW - px(26));
         const h = px(8) + px(14) + lines.length * lhM + px(8);
         ops.push({ softbox: true, y, h, bar: CORAL, fill: "#FBF1EE", rtl: rtlSc });
-        ops.push({ text: String(Ls.scene || L.scene || "What's happening").toUpperCase(), font: fLbl, color: MUTED, x: rtlSc ? innerW - px(12) : px(12), y: y + px(8), align: rtlSc ? "right" : "left", dir: "ltr", h: px(14) });
+        const lblSc = String(Ls.scene || L.scene || "What's happening").toUpperCase();
+        ops.push({ text: lblSc, ...faceOf(lblSc, fLbl), color: MUTED, x: rtlSc ? innerW - px(12) : px(12), y: y + px(8), align: rtlSc ? "right" : "left", h: px(14) });
         let yy = y + px(8) + px(14);
         for (const ln of lines) { ops.push({ text: ln, font: fM, color: INK, x: rtlSc ? innerW - px(12) : px(12), y: yy, align: rtlSc ? "right" : "left", dir: rtlSc ? "rtl" : "ltr", h: lhM }); box(px(12), yy, innerW - px(24), lhM); yy += lhM; }
         y += h + px(8); brk();
@@ -550,7 +556,7 @@
           const nLines = paras.reduce((a, l) => a + l.length, 0);
           const h = px(8) + px(14) + nLines * lhM + (bullet ? (paras.length - 1) * px(3) : 0) + px(8);
           ops.push({ softbox: true, y, h, bar: "#E7B27C", fill: "#FBF7F0", rtl: rtlG });
-          ops.push({ text: L.grammar.toUpperCase(), font: fLbl, color: MUTED, x: rtlG ? innerW - px(12) : px(12), y: y + px(8), align: rtlG ? "right" : "left", dir: "ltr", h: px(14) });
+          ops.push({ text: L.grammar.toUpperCase(), ...faceOf(L.grammar, fLbl), color: MUTED, x: rtlG ? innerW - px(12) : px(12), y: y + px(8), align: rtlG ? "right" : "left", h: px(14) });
           let yy = y + px(8) + px(14);
           paras.forEach((lines) => {
             lines.forEach((ln, k) => {
@@ -567,7 +573,7 @@
           mc.font = fSimple; const lines = wrapText(mc, snt.simple, innerW - px(26));
           const h = px(8) + px(14) + lines.length * lhSimple + px(8);
           ops.push({ softbox: true, y, h, bar: "#E7B27C", fill: "#FBF7F0", rtl: rtlS });
-          ops.push({ text: Ls.simple.toUpperCase(), font: fLbl, color: MUTED, x: rtlS ? innerW - px(12) : px(12), y: y + px(8), align: rtlS ? "right" : "left", dir: "ltr", h: px(14) });
+          ops.push({ text: Ls.simple.toUpperCase(), ...faceOf(Ls.simple, fLbl), color: MUTED, x: rtlS ? innerW - px(12) : px(12), y: y + px(8), align: rtlS ? "right" : "left", h: px(14) });
           let yy = y + px(8) + px(14);
           for (const ln of lines) { ops.push({ text: ln, font: fSimple, color: INK, x: rtlS ? innerW - px(12) : px(12), y: yy, align: rtlS ? "right" : "left", dir: rtlS ? "rtl" : "ltr", h: lhSimple }); box(px(12), yy, innerW - px(24), lhSimple); yy += lhSimple; }
           y += h + px(8); brk();
@@ -575,7 +581,7 @@
         // 4) notes: number, bold term, explanation
         if (snt.notes.length) {
           const showO = blk.sentences.some((x) => S.studyMeaning(rec, d, x)); // the original's words only where its line shows
-          ops.push({ text: L.notes.toUpperCase(), font: fLbl, color: MUTED, x: rtlE ? innerW : 0, y, align: rtlE ? "right" : "left", dir: "ltr", h: px(14) }); y += px(14);
+          ops.push({ text: L.notes.toUpperCase(), ...faceOf(L.notes, fLbl), color: MUTED, x: rtlE ? innerW : 0, y, align: rtlE ? "right" : "left", h: px(14) }); y += px(14);
           const numW = px(16);
           for (const nt of snt.notes) {
             brk();
@@ -601,7 +607,7 @@
               box(numW, y, innerW - numW, lhNote); y += lhNote;
             });
             if (nt.forms) { // a verb's forms, a noun's plural — one quiet line under the note
-              ops.push({ text: nt.forms, font: fLbl, color: MUTED, x: rtlE ? x0 : x0, y: y + px(1), align: rtlE ? "right" : "left", dir: "ltr", h: px(14) });
+              ops.push({ text: nt.forms, ...faceOf(nt.forms, fLbl), color: MUTED, x: x0, y: y + px(1), align: rtlE ? "right" : "left", h: px(14) });
               y += px(14);
             }
             y += px(2);
@@ -631,7 +637,7 @@
         if (op.legend.dot) { g.fillStyle = op.legend.dot; g.beginPath(); g.arc(x + px(4.5), yy, px(4.5), 0, Math.PI * 2); g.fill(); x += px(14); }
         else if (op.legend.bar) { g.fillStyle = op.legend.bar; g.fillRect(x, yy - px(1.5), px(12), px(3)); x += px(16); }
         else if (op.legend.sup) { g.font = fSup; g.fillStyle = CORAL; g.textBaseline = "middle"; g.textAlign = "left"; g.direction = "ltr"; g.fillText(op.legend.sup, x, yy); x += px(10); }
-        g.font = fLegend; g.fillStyle = MUTED; g.textBaseline = "middle"; g.textAlign = "left"; g.direction = "ltr"; g.fillText(op.legend.text, x, yy);
+        g.font = op.legend.font || fLegend; g.fillStyle = MUTED; g.textBaseline = "middle"; g.textAlign = "left"; g.direction = op.legend.dir || "ltr"; g.fillText(op.legend.text, x, yy);
         continue;
       }
       if (op.tokens) {
@@ -647,7 +653,7 @@
           const wordX = op.rtl ? tx + t.sw : tx; // in RTL the superscript sits to the LEFT of the word
           const gm = L.gendered && t.g && GENDER[t.g] ? t.g : "";
           if (gm) { g.fillStyle = GENDER[gm][1]; roundRect(g, ox + wordX - px(3), oy + ty + px(2), t.tw + px(6), lhS - px(6), px(4)); g.fill(); }
-          g.font = fS; g.fillStyle = gm ? GENDER[gm][0] : t.v ? POSC.v : (POSC[t.p] || INK); g.textBaseline = "top"; g.textAlign = "left"; g.direction = "ltr";
+          g.font = fS; g.fillStyle = gm ? GENDER[gm][0] : t.v ? POSC.v : (POSC[t.p] || INK); g.textBaseline = "top"; g.textAlign = "left"; g.direction = op.rtl ? "rtl" : "ltr"; // a Persian word's full stop sits after it, on its left
           g.fillText(t.w, ox + wordX, oy + ty + px(4));
           if (t.v) dashUnder(wordX, ty + lhS - px(8), t.tw);
           if (t.sup) { g.font = fSup; g.fillStyle = CORAL; g.fillText(t.sup, ox + (op.rtl ? tx : tx + t.tw + px(2)), oy + ty + px(1)); }
