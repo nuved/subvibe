@@ -305,24 +305,28 @@
   // ── study card ────────────────────────────────────────────────────────────
   const studyLangOf = (side) => (side === "source" ? (rec.source && rec.source !== "xx" ? rec.source : "") : rec.target) || "";
   // Default side: the language you're learning if it is one of the two, else
-  // the translation. Default explanation: your language when studying the
-  // translation, the same language (immersion) when studying the original.
+  // the original when the translation is in your own language, else the
+  // translation (S.defaultStudySide). Default explanation: your language when
+  // studying the translation, or an original you opened on because the
+  // translation was yours; the same language (immersion) when studying the
+  // language you're learning.
   const fixedSide = () => isTips() || (rec && rec.mode === "snap"); // a snap / sheet studies its lines' own language
   function effStudySide() {
     if (fixedSide()) return "source";
     if (studySide) return studySide;
-    if (learnLang && studyLangOf("source") === learnLang) return "source";
-    return "target";
+    return S.defaultStudySide({ source: rec.source, target: rec.target, learnLang, nativeLang });
   }
+  // The original was picked for you because the translation is your own language — explain it in yours.
+  const sourceForNative = () => !studySide && !fixedSide() && effStudySide() === "source" && (studyLangOf("source") || "").split("-")[0] !== learnLang;
   // Default explanation language: the same language when the shot's target IS
   // the studied language (the user picked "English" for an English video =
-  // immersion), else your language when studying the translation, the same
-  // language when studying the original.
+  // immersion), else your language when studying the translation or an
+  // original opened for you, the same language when studying an original you chose.
   function effStudyExpl() {
     if (studyExpl && !fixedSide()) return studyExpl;
     const side = effStudySide(), lang = (studyLangOf(side) || "").split("-")[0];
     if (fixedSide()) { if (lang && (rec.target || "").split("-")[0] === lang) return studyExpl === "other" ? "other" : "same"; return studyExpl || "other"; }
-    return side === "source" ? "same" : "other";
+    return side === "source" && !sourceForNative() ? "same" : "other";
   }
   function studyExplainLang() {
     const side = effStudySide(), lang = studyLangOf(side);

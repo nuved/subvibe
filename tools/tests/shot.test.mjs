@@ -534,3 +534,22 @@ test("isSrOnly: real text on the page stays", () => {
 test("isSrOnly: no style, no opinion", () => {
   assert.equal(S.isSrOnly(null, { width: 10, height: 10 }), false);
 });
+
+// ── defaultStudySide ─────────────────────────────────────────────────────────
+// A reader translating INTO their own language was handed a grammar lesson on
+// their mother tongue (2026-09-27): with no choice stored, the side to study
+// is the language being learned, else the original when the translation is
+// the reader's own language.
+test("defaultStudySide: the learned language wins, then never the reader's own language", () => {
+  const d = S.defaultStudySide;
+  assert.equal(d({ source: "en", target: "fa", learnLang: "en", nativeLang: "fa" }), "source", "learning the original's language");
+  assert.equal(d({ source: "en-US", target: "de", learnLang: "de", nativeLang: "fa" }), "target", "learning the translation's language");
+  assert.equal(d({ source: "en", target: "fa", learnLang: "", nativeLang: "fa" }), "source", "translated into their own language: study the original");
+  assert.equal(d({ source: "en", target: "fa-IR", learnLang: "de", nativeLang: "fa" }), "source", "base codes compared");
+  assert.equal(d({ source: "xx", target: "fa", learnLang: "", nativeLang: "fa" }), "target", "unknown original: nothing else to study");
+  assert.equal(d({ source: "", target: "fa", learnLang: "", nativeLang: "fa" }), "target");
+  assert.equal(d({ source: "fa", target: "fa", learnLang: "", nativeLang: "fa" }), "target", "same language both sides");
+  assert.equal(d({ source: "en", target: "de", learnLang: "", nativeLang: "fa" }), "target", "translated into another language: study the translation");
+  assert.equal(d({ source: "en", target: "fa", learnLang: "", nativeLang: "" }), "target", "reader's language unknown: as before");
+  assert.equal(d({ source: "xx", target: "de", learnLang: "xx", nativeLang: "" }), "target", "an unknown learned language matches nothing");
+});

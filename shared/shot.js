@@ -407,6 +407,18 @@
     if (other && other !== "xx" && other === baseLang(d && d.lang)) return "";
     return meaning;
   }
+  // The side a Study card opens on when the reader stored no choice: the
+  // language they're learning if it is one of the two; else the original when
+  // the translation is in their own language (nobody needs a grammar lesson on
+  // their mother tongue); else the translation. "" and "xx" = unknown.
+  function defaultStudySide(o) {
+    const known = (l) => (l && l !== "xx" ? l : "");
+    const src = known(baseLang(o && o.source)), tgt = known(baseLang(o && o.target)), learn = known(baseLang(o && o.learnLang)), own = known(baseLang(o && o.nativeLang));
+    if (learn && learn === src) return "source";
+    if (learn && learn === tgt) return "target";
+    if (own && tgt === own && src && src !== tgt) return "source";
+    return "target";
+  }
   // Model output → per-block card data, defensively. Tokens must be strings;
   // gender ∈ m/f/n; note numbers are kept only when the note exists; a
   // sentence the model skipped falls back to plain tokens (no marks).
@@ -547,6 +559,6 @@
     frameLayout, filename, exportScale, validateRecord, newId,
     normCrop, isFullCrop, cropSrc, cropToView, viewToCrop,
     sideBySide, layoutNotes, annBounds, hitAnnot, moveAnnot, renumber, distributeTranslation,
-    STUDY_MAX_SENTENCES, STUDY_BATCH_SENTENCES, planStudyBatches, isSrOnly, studyKey, studySentences, studyMeaning, buildStudy, normalizeStudy, studyMarks, tipsSheet, isGendered, articleFor, TOKPOS,
+    STUDY_MAX_SENTENCES, STUDY_BATCH_SENTENCES, planStudyBatches, isSrOnly, studyKey, studySentences, studyMeaning, defaultStudySide, buildStudy, normalizeStudy, studyMarks, tipsSheet, isGendered, articleFor, TOKPOS,
   };
 })(globalThis);
