@@ -10,7 +10,7 @@ Three files, all runnable from `file://` in any Chromium browser:
 
 IndexedDB is shared across `file://` pages in Chrome, so the seeder and the editor see the same `copilot-subs` database.
 
-## What `harness.html` pins (21 checks)
+## What `harness.html` pins (25 checks)
 
 1. **Toolbar reachability** (the ed4e237 regression): `.stage` became `flex-direction: column` but kept `justify-content: center`; vertically-centred overflow in an `overflow: auto` box is unreachable above the scrollport. Visible at `scrollTop 0`, sticky after scrolling 2000 px. With the old CSS the bar measures at −2575 px.
 2. **Crop**: drag → `rec.crop` in full-image fractions, canvas resized, Uncrop revealed, tool reset; a rect drawn on the cropped view stores full-image coords; Uncrop restores size and clears the record.
@@ -20,6 +20,7 @@ IndexedDB is shared across `file://` pages in Chrome, so the seeder and the edit
 6. **Window frame** adds the 36 px title bar; **Export footer** is visible without scrolling the panel.
 7. **Bilingual on the page**: Notes = page + 220 px margin column (crop stays available); Side by side = two pages + 28 px gap + caption row, the translation-line control hidden — with NO translated raster in the seed, so the right page is the **painted** one (translation drawn onto the screenshot) and the note says so.
 9. **Study card**: a seeded analysis (Persian side explained in English — the right-to-left token path) renders with the legend and the text-highlight tool; switching to an un-analysed side asks background, the stub refuses, a warning shows and the pairs card stays usable.
+10. **Study card, the other side and the original's words** (2026-09-27): Slides for Instagram cut the card into 1080×1350 pages; an analysis stored before notes named the original's words (no `v`) shows "Analyse again" and never re-runs by itself; a seeded `target:fa|fa` analysis (Persian studied AND explained in Persian) still lays out the English original under every sentence; its note's head carries the original's words ("Hello") as one teal left-to-right run after the right-to-left term, and a `v: 3` analysis hides "Analyse again". `window.__svShotDebug.studyOps()` returns the layout ops of the Study card now showing, `studyKey()` its key.
 8. **Painted Translated view**: with the tab gone and no raster, Translated renders the painted page at full opacity, toolbar and Download enabled, and the block area carries painted text pixels.
 
 ## When to run
