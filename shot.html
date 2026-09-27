@@ -34,7 +34,8 @@
       </div>
     </div>
     <span class="meta" id="metaLine"></span>
-    <div class="recent" id="recent" title="Your earlier shots — every site, newest first. This strip is history, not part of the current capture."><span class="overline">History</span></div>
+    <!-- "All shots" sits before the thumbnails shot.js appends: the strip doesn't wrap, so on a narrow window its end runs off screen. -->
+    <div class="recent" id="recent" title="Your earlier shots — every site, newest first. This strip is history, not part of the current capture."><span class="overline">History</span><a class="btn-quiet" href="shots.html" title="Every shot you've taken, to open again or delete" style="text-decoration:none;white-space:nowrap">All shots</a></div>
   </header>
   <div class="notebar" id="noteBar" hidden></div>
 

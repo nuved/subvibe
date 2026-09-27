@@ -710,5 +710,6 @@ function setView(v) {
 }
 el("tabVideos").addEventListener("click", () => setView("videos"));
 el("tabActivity").addEventListener("click", () => setView("activity"));
+if (location.hash === "#activity") setView("activity"); // the Shots page's sidebar links here
 
 refresh();

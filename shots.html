@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SubVibe Shots</title>
+  <link rel="stylesheet" href="styles/tokens.css" />
+  <link rel="stylesheet" href="styles/components.css" />
+  <link rel="stylesheet" href="styles/shots.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <img class="brand__logo" src="icons/icon-48.png" alt="" />
+        <div>
+          <div class="brand__name">SubVibe</div>
+          <div class="brand__sub">Shots</div>
+        </div>
+      </div>
+
+      <!-- Same three places as the Library's sidebar; here they are links between pages. -->
+      <nav class="nav" aria-label="SubVibe pages">
+        <a class="navlink" href="library.html">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+          Library
+        </a>
+        <a class="navlink" href="library.html#activity">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+          Activity
+        </a>
+        <a class="navlink on" href="shots.html" aria-current="page">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8V6a2 2 0 0 1 2-2h2"/><path d="M16 4h2a2 2 0 0 1 2 2v2"/><path d="M20 16v2a2 2 0 0 1-2 2h-2"/><path d="M8 20H6a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="3"/></svg>
+          Shots
+        </a>
+      </nav>
+
+      <div class="side-controls">
+        <div class="side-block">
+          <label class="search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+            <input type="search" id="search" placeholder="Title, site or language…" autocomplete="off" spellcheck="false" aria-label="Search your shots" />
+          </label>
+        </div>
+        <div class="side-block" id="sitesBlock" hidden>
+          <div class="side-label" id="sitesLabel">Sites</div>
+          <div class="sites" id="sites" role="group" aria-labelledby="sitesLabel"></div>
+        </div>
+      </div>
+    </aside>
+
+    <main class="canvas">
+      <div class="view-head">
+        <h1>Shots</h1>
+        <span class="sub" id="count">Loading…</span>
+      </div>
+      <p class="status" id="status" role="status"></p>
+      <div class="state" id="state" hidden></div>
+      <!-- Skeleton cards until the store has been read, so the page never opens blank. -->
+      <div class="grid" id="grid" aria-busy="true">
+        <div class="shot skel" aria-hidden="true"><div class="shot__pic skeleton"></div><div class="shot__body"><div class="skeleton sk-title"></div><div class="skeleton sk-meta"></div></div></div>
+        <div class="shot skel" aria-hidden="true"><div class="shot__pic skeleton"></div><div class="shot__body"><div class="skeleton sk-title"></div><div class="skeleton sk-meta"></div></div></div>
+        <div class="shot skel" aria-hidden="true"><div class="shot__pic skeleton"></div><div class="shot__body"><div class="skeleton sk-title"></div><div class="skeleton sk-meta"></div></div></div>
+        <div class="shot skel" aria-hidden="true"><div class="shot__pic skeleton"></div><div class="shot__body"><div class="skeleton sk-title"></div><div class="skeleton sk-meta"></div></div></div>
+        <div class="shot skel" aria-hidden="true"><div class="shot__pic skeleton"></div><div class="shot__body"><div class="skeleton sk-title"></div><div class="skeleton sk-meta"></div></div></div>
+        <div class="shot skel" aria-hidden="true"><div class="shot__pic skeleton"></div><div class="shot__body"><div class="skeleton sk-title"></div><div class="skeleton sk-meta"></div></div></div>
+        <div class="shot skel" aria-hidden="true"><div class="shot__pic skeleton"></div><div class="shot__body"><div class="skeleton sk-title"></div><div class="skeleton sk-meta"></div></div></div>
+        <div class="shot skel" aria-hidden="true"><div class="shot__pic skeleton"></div><div class="shot__body"><div class="skeleton sk-title"></div><div class="skeleton sk-meta"></div></div></div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Delete asks first and names the shot: several shots of one page share a title, so the site and time say which. -->
+  <dialog class="confirm" id="delDialog" aria-labelledby="delHead">
+    <form method="dialog">
+      <h2 id="delHead">Delete this shot?</h2>
+      <p class="confirm__name" id="delName" dir="auto"></p>
+      <p class="confirm__meta" id="delMeta"></p>
+      <p class="confirm__note">It is removed from this browser and can't be brought back.</p>
+      <div class="confirm__acts">
+        <button class="btn-secondary" value="cancel" autofocus>Keep it</button>
+        <button class="btn-danger" value="delete" id="delGo">Delete shot</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Icons shots.js clones into cards and states (no markup strings in the script). -->
+  <template id="icoTrash"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg></template>
+  <template id="icoShot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8V6a2 2 0 0 1 2-2h2"/><path d="M16 4h2a2 2 0 0 1 2 2v2"/><path d="M20 16v2a2 2 0 0 1-2 2h-2"/><path d="M8 20H6a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="3"/></svg></template>
+
+  <script src="shared/theme.js"></script>
+  <script src="shared/langs.js"></script>
+  <script src="shared/shots-list.js"></script>
+  <script src="shots.js"></script>
+</body>
+</html>

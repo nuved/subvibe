@@ -470,6 +470,10 @@
     .shotrow__ttl { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px; }
     .shotrow__ttl svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; color: var(--coral-600); }
     .shotrow__key { margin-left: auto; font: 600 10px/1 var(--mono); color: var(--faint); letter-spacing: .04em; }
+    /* the saved shots, one click away — quiet, so the capture buttons stay the point of the row */
+    .shotrow__mine { flex: none; min-height: 24px; padding: 3px 8px; margin: -3px -4px -3px 0; border: 0; border-radius: 999px;
+      background: transparent; color: var(--coral-600); font: 600 11.5px/1.2 var(--ui); cursor: pointer; }
+    .shotrow__mine:hover { background: var(--coral-100); }
     .shotrow__delay { display: flex; align-items: center; gap: 5px; margin-top: 7px; font-size: 11px; color: var(--muted); }
     .shotrow__delaylbl { font-weight: 600; color: var(--ink-2); }
     .shotdelay { border: 1px solid var(--border); background: var(--surface); color: var(--ink-2); font: 600 11px/1.2 inherit; padding: 3px 8px; border-radius: 999px; cursor: pointer; }
@@ -921,6 +925,7 @@
       <svg viewBox="0 0 24 24"><path d="M4 8V6a2 2 0 0 1 2-2h2"/><path d="M16 4h2a2 2 0 0 1 2 2v2"/><path d="M20 16v2a2 2 0 0 1-2 2h-2"/><path d="M8 20H6a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="3"/></svg>
       Screenshot this page, then translate
       <span class="shotrow__key" title="Keyboard shortcut for Select area (change it in chrome://extensions/shortcuts)">⌥⇧S = AREA</span>
+      <button type="button" class="shotrow__mine" id="openShots" title="Every shot you've taken, to open again or delete">My shots</button>
     </div>
     <div class="shotrow__chips">
       <button class="shotbtn" id="shotVisible" title="Capture what's on screen right now"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/></svg>Visible</button>

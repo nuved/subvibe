@@ -1027,6 +1027,7 @@ el("syncReset").addEventListener("click", () => setSyncFromShown(0));
 function flashStatus(t) { el("status").textContent = t; setTimeout(() => { if (el("status").textContent === t) el("status").textContent = ""; }, 2500); }
 function openLibrary() { chrome.tabs.create({ url: chrome.runtime.getURL("library.html") }); }
 el("openLibrary").addEventListener("click", openLibrary);
+el("openShots").addEventListener("click", () => chrome.tabs.create({ url: chrome.runtime.getURL("shots.html") }));
 
 // The countdown before a shot (0 · 3 · 5 · 10 s), remembered.
 const shotDelayBtns = () => [...document.querySelectorAll("#shotDelayRow .shotdelay")];
