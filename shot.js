@@ -73,7 +73,7 @@
   let resumeView = null;  // view to return to after a re-shoot that only served as an ingredient (side by side)
   // Study card: grammar of one side (target = the translation, source = the
   // original), explained in "other" (your language) or "same" (immersion).
-  let studySide = "", studyExpl = "";     // "" = derive the default per shot
+  let studySide = "", studyExplBy = {};     // "" = derive the default per shot
   let nativeLang = "";                   // the popup's primary language (targets[0])
   let learnLang = "";                    // the popup's "I'm learning" language
   const BI_DESC = {
@@ -334,10 +334,16 @@
   // the studied language (the user picked "English" for an English video =
   // immersion), else your language when studying the translation or an
   // original opened for you, the same language when studying an original you chose.
+  // The reader's choice is kept per studied language: "Persian explained in
+  // Persian" once must not turn into "English explained in English" when the
+  // card switches to the English original (2026-09-27). Without a choice, a
+  // language that isn't yours is explained in yours.
   function effStudyExpl() {
-    if (studyExpl && !fixedSide()) return studyExpl;
     const side = effStudySide(), lang = (studyLangOf(side) || "").split("-")[0];
-    if (fixedSide()) { if (lang && (rec.target || "").split("-")[0] === lang) return studyExpl === "other" ? "other" : "same"; return studyExpl || "other"; }
+    const chosen = studyExplBy[lang];
+    if (chosen === "same" || chosen === "other") return chosen;
+    if (fixedSide()) { if (lang && (rec.target || "").split("-")[0] === lang) return "same"; return "other"; }
+    if (nativeLang && lang) return lang === nativeLang ? "same" : "other";
     return side === "source" && !sourceForNative() ? "same" : "other";
   }
   function studyExplainLang() {
@@ -358,11 +364,11 @@
     const side = effStudySide(), lang = studyLangOf(side);
     const vn = $("viewNote");
     if (!lang) { vn.className = "note warn"; vn.textContent = "The original's language isn't known — translate first, or study the translation."; await ensureBiFont(); const lay = drawPairsCard($("stage"), 1); finishBilingual(lay); return; }
-    studying = true; syncStudyRow();
+    studying = true; $("biPick").hidden = false; syncBiRows(); syncStudyRow(); // the reader sees (greyed) what is being analysed
     // A study run is several model calls. Saying which one it is on, and how
     // long it has been going, is the difference between "working" and "stuck":
     // the same spinner sat there for three and a half minutes before it failed.
-    const head = "Analysing " + langName(lang) + " grammar" + (studyExplainLang() === lang ? " in " + langName(lang) : "");
+    const head = "Analysing " + langName(lang) + " grammar, explained in " + langName(studyExplainLang());
     const t0 = Date.now();
     let prog = { done: 0, total: 0 };
     const label = () => {
@@ -1641,9 +1647,9 @@
   }
   async function load() {
     const id = new URLSearchParams(location.search).get("id") || "";
-    const prefs = await chrome.storage.local.get(["shotFrame", "shotExport", "shotBilingual", "shotBiStyle", "shotStudySide", "shotStudyExplain", "targets", "learnLang"]);
+    const prefs = await chrome.storage.local.get(["shotFrame", "shotExport", "shotBilingual", "shotBiStyle", "shotStudySide", "shotStudyExplainBy", "targets", "learnLang"]);
     if (["target", "source"].includes(prefs.shotStudySide)) studySide = prefs.shotStudySide;
-    if (["other", "same"].includes(prefs.shotStudyExplain)) studyExpl = prefs.shotStudyExplain;
+    if (prefs.shotStudyExplainBy && typeof prefs.shotStudyExplainBy === "object") for (const [k, v] of Object.entries(prefs.shotStudyExplainBy)) if (["other", "same"].includes(v)) studyExplBy[k] = v;
     nativeLang = Array.isArray(prefs.targets) && prefs.targets.length ? String(prefs.targets[0]).split("-")[0] : "";
     learnLang = typeof prefs.learnLang === "string" ? prefs.learnLang.split("-")[0] : "";
     if (prefs.shotFrame && typeof prefs.shotFrame === "object") {
@@ -1724,7 +1730,8 @@
   $("studyExplSel").addEventListener("change", () => {
     const v = $("studyExplSel").value;
     if (!rec || reshooting || studying || !["other", "same"].includes(v) || v === effStudyExpl()) { syncStudyRow(); return; }
-    studyExpl = v; try { chrome.storage.local.set({ shotStudyExplain: studyExpl }); } catch (er) {}
+    const l = (studyLangOf(effStudySide()) || "").split("-")[0]; if (!l) return;
+    studyExplBy[l] = v; try { chrome.storage.local.set({ shotStudyExplainBy: studyExplBy }); } catch (er) {}
     if (view === "bilingual") renderBilingual();
   });
   function buildSwatches() {
