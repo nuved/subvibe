@@ -531,13 +531,14 @@
         if (si) brk();
         // 1) the marked sentence — wrap by tokens (a token = word + its superscript); numbered inside a chunk
         mc.font = fS;
-        const toks = snt.tokens.map((t) => { mc.font = fS; const tw = mc.measureText(t.w).width; mc.font = fSup; const sup = t.n && t.n.length ? t.n.join(",") : ""; const sw = sup ? mc.measureText(sup).width + px(2) : 0; return { w: t.w, g: t.g, v: t.v, p: t.p || "", tw, sup, sw }; });
+        const toks = snt.tokens.map((t) => { mc.font = fS; const tw = mc.measureText(t.w).width; mc.font = fSup; const sup = t.n && t.n.length ? t.n.join(",") : ""; const sw = sup ? mc.measureText(sup).width + px(2) : 0; const pw = showPos && t.p ? (mc.font = fPos, mc.measureText(POSLBL[t.p] || t.p).width) : 0; return { w: t.w, g: t.g, v: t.v, p: t.p || "", tw, sup, sw, pw }; });
         mc.font = fS; const sp = mc.measureText(" ").width;
         const numW = many ? px(22) : 0;
         let x = numW; let line = [];
-        const flush = () => { if (!line.length) return; ops.push({ tokens: line, y, rtl: rtlS, h: lhTok, num: many && line[0].x === numW && line === firstLine ? si + 1 : 0 }); box(0, y, innerW, lhTok); y += lhTok; line = []; x = numW; };
+        const flush = () => { if (!line.length) return; ops.push({ tokens: line, y, rtl: rtlS, h: lhTok, num: many && line === firstLine ? si + 1 : 0 }); box(0, y, innerW, lhTok); y += lhTok; line = []; x = numW; };
         let firstLine = null;
-        for (const t of toks) { const need = t.tw + t.sw; if (x + need > innerW && line.length) flush(); if (!line.length && !firstLine) firstLine = line; line.push({ ...t, x }); x += need + sp; }
+        // A short word's slot is as wide as its character label ("prep" under "را"), the word centred in it — labels never run into each other.
+        for (const t of toks) { const need = Math.max(t.tw + t.sw, t.pw); if (x + need > innerW && line.length) flush(); if (!line.length && !firstLine) firstLine = line; line.push({ ...t, x: x + (need - t.tw - t.sw) / 2 }); x += need + sp; }
         flush(); y += px(4);
         // 2) meaning (the other side of the pair), teal — whatever language explains the card
         const meaning = S.studyMeaning(rec, d, snt);
