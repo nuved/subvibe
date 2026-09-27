@@ -92,8 +92,35 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 var(-
 .stage .empty-state { margin: auto; font-size: 15px; }
 
 /* A tips sheet is its Study card: the page views and page layouts don't apply. */
-body.tips #viewSeg, body.tips #biPageBar, body.tips #biStyleRow, body.tips #reshootBtn, body.tips #reshootNote { display: none !important; }
-body.tips .bi-row:has(> #biPageBar), body.tips .group:has(> #fontSeg), body.tips .group:has(> #viewSeg) > h3 { display: none !important; }
+body.tips #viewSeg, body.tips #bothRow, body.tips #biStyleRow, body.tips #fontRow, body.tips #reshootBtn, body.tips #reshootNote { display: none !important; }
+body.tips .group:has(> #viewSeg) > h3 { display: none !important; }
+
+/* Pickers that read as words: "Learning English explained in Persian ⇄ swap". */
+.sel { font: 13px var(--ui); color: var(--ink); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 7px 8px; width: 100%; }
+.study-line { font-size: 14px; line-height: 2; color: var(--ink-2); display: flex; flex-wrap: wrap; align-items: center; column-gap: 6px; }
+.study-line > span { display: inline-flex; align-items: center; gap: 6px; }
+.pill { font: 600 13px var(--ui); color: var(--ink); background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px; cursor: pointer; }
+.pill:disabled { opacity: .6; cursor: default; }
+.swap { border: 0; background: none; color: var(--coral-600); font: 600 13px var(--ui); cursor: pointer; padding: 4px 2px; }
+.swap:disabled { color: var(--faint); cursor: default; }
+.sel:focus-visible, .pill:focus-visible, .swap:focus-visible, .fold > summary:focus-visible { outline: 2px solid var(--coral-600); outline-offset: 2px; }
+#studyDeeper { justify-self: start; }
+
+/* Folding groups: the summary keeps saying what's inside when closed. */
+details.group { display: block; padding: 0; }
+.fold > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 14px 16px; }
+.fold > summary::-webkit-details-marker { display: none; }
+.fold > summary h3 { margin: 0; }
+.fold__sum { margin-left: auto; font-size: 12px; color: var(--muted); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.fold__chev { color: var(--muted); transition: transform var(--t-panel, 180ms ease-out); }
+.fold[open] .fold__chev { transform: rotate(90deg); }
+.fold__body { display: grid; gap: 12px; padding: 0 16px 14px; }
+@media (prefers-reduced-motion: reduce) { .fold__chev { transition: none; } }
+
+/* Download + ▾ (size and format) as one split button. */
+.dl-split { display: flex; }
+.dl-split #dlBtn { flex: 1; border-radius: var(--r-sm) 0 0 var(--r-sm); }
+.dl-split .dl-more { width: 40px; padding: 0; justify-content: center; border-radius: 0 var(--r-sm) var(--r-sm) 0; border-left: 1px solid rgba(255, 255, 255, .35); }
 .panel { border-left: 1px solid var(--border); background: var(--surface); display: flex; flex-direction: column; min-height: 0; }
 .panel__scroll { flex: 1; min-height: 0; overflow: auto; }
 /* Export never leaves the screen: the footer is pinned under the scrolling groups. */
@@ -126,9 +153,8 @@ body.tips .bi-row:has(> #biPageBar), body.tips .group:has(> #fontSeg), body.tips
 .opts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .opts label { display: grid; gap: 4px; font: 600 10px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 .opts select { font: 13px var(--ui); color: var(--ink); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
-.exports { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.exports .btn-primary { grid-column: 1 / -1; }
-.exports .slides { grid-column: 1 / -1; }
+.exports { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 8px; }
+.exports > [hidden] { display: none; }
 .opts { grid-template-columns: 1fr 1fr; }
 .ico { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 

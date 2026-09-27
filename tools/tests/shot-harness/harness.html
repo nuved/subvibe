@@ -66,43 +66,103 @@
     <aside class="panel">
       <div class="panel__scroll">
         <div class="group">
-          <div class="seg" id="viewSeg"><button data-view="translated">Translated</button><button data-view="bilingual">Bilingual</button><button data-view="original">Original</button></div>
+          <h3 class="overline">Show</h3>
+          <div class="seg" id="viewSeg" role="group" aria-label="What the picture shows">
+            <button data-view="translated" title="The page in your language">Translated</button>
+            <button data-view="original" title="The page as you captured it">Original</button>
+            <button data-view="bilingual" data-show="both" title="Original and translation together">Both</button>
+            <button data-view="bilingual" data-show="study" title="A grammar card: marked words, numbered notes, a simpler version">Study</button>
+          </div>
           <div class="note" id="viewNote"></div>
           <div class="bi-pick" id="biPick" hidden>
-            <div class="bi-row"><span class="bi-pick__lbl">Reading card</span><div class="seg seg-sm" id="biBar"><button data-bi="A">Blocks</button><button data-bi="B">Pairs</button><button data-bi="C">Columns</button><button data-bi="G">Study</button></div></div>
-            <div class="bi-row" id="studyRow" hidden><div class="seg seg-sm" id="studySideBar"><button data-side="target">Translation</button><button data-side="source">Original</button></div><div class="seg seg-sm" id="studyExplBar"><button data-expl="other">Your language</button><button data-expl="same">Same language</button></div><button class="btn-secondary" id="studyDeeper" hidden title="Run the full grammar analysis: gender colours, numbered notes that say why, a simpler version">Analyse grammar in depth</button></div>
-            <div class="bi-row"><span class="bi-pick__lbl">On the page</span><div class="seg seg-sm" id="biPageBar"><button data-bi="N">Notes</button><button data-bi="S">Side by side</button></div></div>
-            <div class="bi-row" id="biStyleRow"><span class="bi-pick__lbl">Translation line</span><div class="seg seg-sm" id="biStyleBar"><button data-bistyle="quiet">Quiet</button><button data-bistyle="balanced">Balanced</button><button data-bistyle="equal">Equal</button></div></div>
-            <div class="note" id="biHint"></div>
+            <div class="bi-row" id="bothRow">
+              <label class="bi-pick__lbl" for="biSel">Layout</label>
+              <select class="sel" id="biSel">
+                <option value="B">Each sentence, then its translation</option>
+                <option value="A">Whole original, then the translation</option>
+                <option value="C">Two columns</option>
+                <option value="N">The page with numbered notes</option>
+                <option value="S">The two pages side by side</option>
+              </select>
+            </div>
+            <div class="bi-row" id="biStyleRow">
+              <span class="bi-pick__lbl">Translation line</span>
+              <div class="seg seg-sm" id="biStyleBar" role="group" aria-label="Translation line style">
+                <button data-bistyle="quiet" title="Smaller and lighter than the original">Quiet</button>
+                <button data-bistyle="balanced" title="A touch smaller than the original">Balanced</button>
+                <button data-bistyle="equal" title="Same size as the original">Equal</button>
+              </div>
+            </div>
+            <div class="bi-row" id="studyRow" hidden>
+              <div class="study-line">
+                <span id="studySideWrap">Learning <select class="pill" id="studySideSel" aria-label="Language you study"><option value="source">Original</option><option value="target">Translation</option></select></span>
+                <span>explained in <select class="pill" id="studyExplSel" aria-label="Language the notes are written in"><option value="other">Your language</option><option value="same">Same language</option></select></span>
+                <button class="swap" id="studySwap" type="button" title="Study the other language instead">⇄ swap</button>
+              </div>
+              <button class="btn-secondary" id="studyDeeper" hidden title="Run the full grammar analysis: gender colours, numbered notes that say why, a simpler version">Analyse grammar in depth</button>
+            </div>
           </div>
         </div>
-        <div class="group">
-          <div class="seg" id="frameSeg"><button data-frame="plain">Plain</button><button data-frame="card" class="on">Card</button><button data-frame="window">Window</button></div>
-          <div class="bi-row" id="bgRow"><span class="bi-pick__lbl">Background</span><div class="bgs" id="bgSwatches"></div></div>
-          <div class="row"><label class="switch"><input type="checkbox" id="badgeSw" checked /><span class="slider"></span></label></div>
-        </div>
-        <div class="group">
-          <div class="seg" id="fontSeg"><button data-font="" class="on">Site font</button><button data-font="vazirmatn">Vazirmatn</button></div>
-        </div>
-        <div class="group">
-          <h3 class="overline">Text <span class="n" id="blockCount"></span></h3>
-          <div class="blocks" id="blocks"></div>
-          <button class="btn-primary" id="reshootBtn" disabled>Apply text changes</button>
-          <div class="note" id="reshootNote"></div>
-        </div>
+
+        <details class="group fold" id="lookFold" open>
+          <summary><h3 class="overline">Look</h3><span class="fold__sum" id="lookSum"></span><span class="fold__chev" aria-hidden="true">›</span></summary>
+          <div class="fold__body">
+            <div class="bi-row">
+              <span class="bi-pick__lbl">Frame</span>
+              <div class="seg seg-sm" id="frameSeg" role="group" aria-label="Frame">
+                <button data-frame="plain">Plain</button>
+                <button data-frame="card" class="on">Card</button>
+                <button data-frame="window">Window</button>
+              </div>
+            </div>
+            <div class="bi-row" id="bgRow">
+              <span class="bi-pick__lbl">Background colour</span>
+              <div class="bgs" id="bgSwatches" role="group" aria-label="Frame background"></div>
+            </div>
+            <div class="bi-row" id="fontRow">
+              <span class="bi-pick__lbl">Font of the translation</span>
+              <div class="seg seg-sm" id="fontSeg" role="group" aria-label="Font">
+                <button data-font="" class="on" title="The font the page itself uses">Site font</button>
+                <button data-font="vazirmatn" title="Vazirmatn: a clean free Persian/Latin font">Vazirmatn</button>
+              </div>
+            </div>
+            <div class="row">
+              <label class="switch"><input type="checkbox" id="badgeSw" checked /><span class="slider"></span></label>
+              <label for="badgeSw">SubVibe badge on the frame</label>
+            </div>
+          </div>
+        </details>
+
+        <details class="group fold" id="textFold">
+          <summary><h3 class="overline">Fix the translation</h3><span class="fold__sum" id="blockCount"></span><span class="fold__chev" aria-hidden="true">›</span></summary>
+          <div class="fold__body">
+            <div class="blocks" id="blocks"></div>
+            <button class="btn-primary" id="reshootBtn" disabled>
+              <svg class="ico" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>Apply text changes
+            </button>
+            <div class="note" id="reshootNote">Edit any translation above, then apply to re-render it.</div>
+          </div>
+        </details>
       </div>
+      <!-- Export stays in reach: a footer pinned under the scrolling groups. -->
       <div class="panel__foot">
-        <div class="opts">
+        <div class="dl-split">
+          <button class="btn-primary" id="dlBtn"><svg class="ico" viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 21h16"/></svg><span id="dlLabel">Download PNG</span></button>
+          <button class="btn-primary dl-more" id="dlMore" aria-expanded="false" aria-controls="expOpts" title="Size and format">▾</button>
+        </div>
+        <div class="opts" id="expOpts" hidden>
           <label>Size <select id="sizeSel"><option value="native">Native</option><option value="2x">2×</option><option value="1x">1×</option><option value="half">½</option></select></label>
-          <label>Format <select id="fmtSel"><option value="png">PNG</option><option value="jpeg">JPEG</option></select></label>
+          <label>Format <select id="fmtSel"><option value="png">PNG</option><option value="jpeg">JPEG 90%</option></select></label>
         </div>
         <div class="exports">
-          <button class="btn-primary" id="dlBtn">Download</button>
-          <button class="btn-secondary" id="copyBtn">Copy</button>
-          <button class="btn-secondary" id="shareBtn" hidden>Share</button>
-          <button class="btn-secondary slides" id="slidesBtn" hidden>Slides for Instagram</button>
+          <button class="btn-secondary" id="copyBtn"><svg class="ico" viewBox="0 0 24 24"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>Copy</button>
+          <button class="btn-secondary" id="shareBtn" hidden><svg class="ico" viewBox="0 0 24 24"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="m16 6-4-4-4 4"/><path d="M12 2v14"/></svg>Share</button>
+          <button class="btn-secondary slides" id="slidesBtn" hidden title="The Study card cut into 1080×1350 slides for Instagram — the frame first, then the sentences and notes — one PNG per slide"><svg class="ico" viewBox="0 0 24 24"><rect x="3" y="4" width="12" height="16" rx="2"/><path d="M19 8v10a2 2 0 0 1-2 2"/></svg>Slides</button>
         </div>
-        <div class="foot__meta"><span class="note" id="fileNote"></span><button class="btn-quiet danger" id="delBtn">Delete shot</button></div>
+        <div class="foot__meta">
+          <span class="note" id="fileNote"></span>
+          <button class="btn-quiet danger" id="delBtn" title="Delete this shot from your history">Delete</button>
+        </div>
       </div>
     </aside>
   </main>
@@ -127,6 +187,7 @@
   <script>
     const $ = (id) => document.getElementById(id);
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    function pick(id, v) { const el = document.getElementById(id); el.value = v; el.dispatchEvent(new Event("change", { bubbles: true })); }
     async function until(fn, ms) {
       const end = Date.now() + (ms || 5000);
       while (Date.now() < end) { if (fn()) return true; await sleep(50); }
@@ -284,13 +345,13 @@
       // 12) Bilingual Notes: page + margin column, numbered blocks.
       document.querySelector('#viewSeg [data-view="bilingual"]').click();
       await until(() => !$("biPick").hidden, 2000);
-      document.querySelector('#biPick [data-bi="N"]').click();
+      pick("biSel", "N");
       await until(() => stage.width === 400 + 220 + 96, 2000);
       check("Notes layout = page + 220px margin column", stage.width === 400 + 220 + 96 && stage.height >= h0 && !$("annCrop").hidden,
         stage.width + "x" + stage.height + " crop=" + !$("annCrop").hidden);
 
       // 13) Side by side: both pages in one picture (400 + 28 gap + 400) with a caption line.
-      document.querySelector('#biPick [data-bi="S"]').click();
+      pick("biSel", "S");
       await until(() => stage.width === 400 + 28 + 400 + 96, 2000);
       check("Side by side without a translated raster = two pages (painted) + gap, note says so", stage.width === 924 && stage.height === 6000 + 18 + 96 && $("biStyleRow").hidden && /drawn onto the screenshot/.test($("viewNote").textContent),
         stage.width + "x" + stage.height + " note=" + $("viewNote").textContent.slice(0, 60));
@@ -310,20 +371,20 @@
       // 15) Study card from seeded data (target side, explained in English): renders, legend shows only used marks, textmark tool available.
       document.querySelector('#viewSeg [data-view="bilingual"]').click();
       await until(() => !$("biPick").hidden, 2000);
-      document.querySelector('#biPick [data-bi="G"]').click();
-      await until(() => document.querySelector('#biPick [data-bi="G"].on') && stage.width > 500 && stage.width !== 924 && !$("stageBusy").classList.contains("on"), 4000);
+      document.querySelector('#viewSeg [data-show="study"]').click();
+      await until(() => document.querySelector('#viewSeg [data-show="study"].on') && stage.width > 500 && stage.width !== 924 && !$("stageBusy").classList.contains("on"), 4000);
       await sleep(200);
-      check("Study card renders from the cached analysis", document.querySelector('#biPick [data-bi="G"].on') && !$("studyRow").hidden && stage.height > 400 && !$("annTextmark").hidden && !/analys/i.test($("viewNote").textContent),
+      check("Study card renders from the cached analysis", document.querySelector('#viewSeg [data-show="study"].on') && !$("studyRow").hidden && stage.height > 400 && !$("annTextmark").hidden && !/analys/i.test($("viewNote").textContent),
         stage.width + "x" + stage.height + " note=" + $("viewNote").textContent.slice(0, 60) + " studyRow=" + !$("studyRow").hidden);
       // 16) Switching to the unanalysed side asks background; the stub refuses → warn note, pairs card stays usable.
-      document.querySelector('#studySideBar [data-side="source"]').click();
+      pick("studySideSel", "source");
       await until(() => /couldn|try again|key|analys/i.test($("viewNote").textContent) && !$("stageBusy").classList.contains("on"), 5000);
       check("Unanalysed side: refused analysis leaves a warning and a usable card", $("viewNote").className.includes("warn") && stage.width > 0 && !$("dlBtn").disabled,
         "note=" + $("viewNote").textContent.slice(0, 80) + " class=" + $("viewNote").className);
 
       // 17) Instagram slides: the seeded study card paginates into 1080×1350 pages.
-      document.querySelector('#studySideBar [data-side="target"]').click();
-      await until(() => document.querySelector('#biPick [data-bi="G"].on') && !$("stageBusy").classList.contains("on") && !$("slidesBtn").hidden, 4000);
+      pick("studySideSel", "target");
+      await until(() => document.querySelector('#viewSeg [data-show="study"].on') && !$("stageBusy").classList.contains("on") && !$("slidesBtn").hidden, 4000);
       const pages = await window.__svShotDebug.buildSlides();
       check("Study card slices into 1080×1350 slides, button shown", pages.length >= 1 && pages.every((c) => c.width === 1080 && c.height === 1350) && !$("slidesBtn").hidden,
         "pages=" + pages.length + " size=" + (pages[0] && pages[0].width + "x" + pages[0].height) + " btnHidden=" + $("slidesBtn").hidden);
@@ -334,7 +395,7 @@
         "hidden=" + $("studyDeeper").hidden + " label=" + $("studyDeeper").textContent + " title=" + $("studyDeeper").title);
 
       // 19) Explained in the studied language (target:fa|fa): the original still sits under every sentence.
-      document.querySelector('#studyExplBar [data-expl="same"]').click();
+      pick("studyExplSel", "same");
       await until(() => window.__svShotDebug.studyKey() === "target:fa|fa" && !$("stageBusy").classList.contains("on"), 4000);
       await sleep(200);
       const opsFa = window.__svShotDebug.studyOps() || [];

@@ -67,6 +67,7 @@
   let lastRenderedView = null; // the view whose pixels are actually on the canvas
   let tabAlive = true; // re-set on load via SHOT_TAB_ALIVE
   let pendingFont = null; // set by the Font control to re-render with a new font
+  let bothLayout = "B";   // the last Both layout, so Study → Both comes back to it
   let biLayout = "B";     // bilingual: A blocks · B pairs · C columns (reading card) · N margin notes · S pages side by side
   let biStyle = "balanced"; // the translation line on the card / notes: quiet · balanced · equal
   let resumeView = null;  // view to return to after a re-shoot that only served as an ingredient (side by side)
@@ -109,7 +110,18 @@
   // while the next one renders, so there's no blank flash.
   function showBusy(text) { const b = $("stageBusy"); if (b) { $("stageBusyLabel").textContent = text || "Rendering…"; b.classList.add("on"); } }
   function hideBusy() { const b = $("stageBusy"); if (b) b.classList.remove("on"); }
-  const markViewButton = (v) => { for (const b of $("viewSeg").querySelectorAll("button")) b.classList.toggle("on", b.dataset.view === v); };
+  // "Both" and "Study" are the same view (the generated bilingual card); the
+  // reading layout tells them apart.
+  const markViewButton = (v) => {
+    for (const b of $("viewSeg").querySelectorAll("button")) b.classList.toggle("on", b.dataset.view === v && (!b.dataset.show || (b.dataset.show === "study") === (biLayout === "G")));
+  };
+  // The Both row (layout + translation line) and the Study row show only on their own card.
+  function syncBiRows() {
+    const sel = $("biSel"); if (sel && biLayout !== "G") sel.value = biLayout;
+    $("bothRow").hidden = biLayout === "G";
+    for (const b of $("biStyleBar").querySelectorAll("button")) b.classList.toggle("on", b.dataset.bistyle === biStyle);
+    $("biStyleRow").hidden = biLayout === "S" || biLayout === "G";
+  }
 
   // ── drawing ───────────────────────────────────────────────────────────────
   function roundRect(ctx, x, y, w, h, r) {
@@ -392,8 +404,7 @@
     canvas.style.width = Math.round(lay.width / (rec.dpr || 1)) + "px"; canvas.style.opacity = "1";
     lastRenderedView = "bilingual"; $("stageSkel").hidden = true; $("canvasWrap").hidden = false;
     setupAnnot(); $("annotBar").hidden = false; selected = -1; syncAnnot(); markViewButton("bilingual");
-    for (const b of $("biPick").querySelectorAll("[data-bi]")) b.classList.toggle("on", b.dataset.bi === biLayout);
-    syncStudyRow(); $("biPick").hidden = false; updateReshoot();
+    syncBiRows(); syncStudyRow(); $("biPick").hidden = false; updateReshoot();
     for (const id of ["dlBtn", "copyBtn", "shareBtn"]) { const el = $(id); if (el) el.disabled = false; }
   }
   function syncStudyRow() {
@@ -402,7 +413,7 @@
     if (row.hidden || !rec) return;
     const side = effStudySide(), lang = studyLangOf(side);
     // A snap / sheet has one language to study: hide that choice, keep "Explain in".
-    const sideBar = $("studySideBar"); sideBar.hidden = fixedSide(); if (sideBar.previousElementSibling) sideBar.previousElementSibling.hidden = fixedSide();
+    $("studySideWrap").hidden = fixedSide(); $("studySwap").hidden = fixedSide();
     // The same button re-runs an analysis from before notes named the original's
     // words (v < 3) — never silently: the reader chooses to spend the call.
     const d = studyData(); const deeper = $("studyDeeper");
@@ -412,18 +423,21 @@
       deeper.hidden = !(tips || old); deeper.disabled = studying;
       deeper.textContent = old ? "Analyse again" : deeper.dataset.label; deeper.title = old ? "Adds the original's words to every note" : deeper.dataset.title;
     }
-    for (const b of $("studySideBar").querySelectorAll("button")) {
-      const l = studyLangOf(b.dataset.side);
-      b.textContent = l ? langName(l) : (b.dataset.side === "source" ? "Original" : "Translation");
-      b.classList.toggle("on", b.dataset.side === side);
-      b.disabled = !l || studying;
+    const sideSel = $("studySideSel");
+    for (const o of sideSel.options) {
+      const l = studyLangOf(o.value);
+      o.textContent = l ? langName(l) : (o.value === "source" ? "the original" : "the translation");
+      o.disabled = !l;
     }
+    sideSel.value = side; sideSel.disabled = studying;
+    $("studySwap").disabled = studying || !studyLangOf(side === "source" ? "target" : "source");
     const other = (() => { const o = side === "source" ? rec.target : (rec.source && rec.source !== "xx" ? rec.source : ""); return nativeLang && nativeLang !== lang.split("-")[0] ? nativeLang : (o && o !== lang ? o : ""); })();
-    for (const b of $("studyExplBar").querySelectorAll("button")) {
-      b.textContent = b.dataset.expl === "same" ? (lang ? langName(lang) : "Same language") : (other ? langName(other) : "Your language");
-      b.classList.toggle("on", b.dataset.expl === effStudyExpl());
-      b.disabled = studying || (b.dataset.expl === "other" && !other);
+    const explSel = $("studyExplSel");
+    for (const o of explSel.options) {
+      o.textContent = o.value === "same" ? (lang ? langName(lang) : "the same language") : (other ? langName(other) : "your language");
+      o.disabled = o.value === "other" && !other;
     }
+    explSel.value = effStudyExpl(); explSel.disabled = studying;
   }
   $("studyDeeper") && $("studyDeeper").addEventListener("click", () => { if (rec && !studying && view === "bilingual") fetchStudy(); });
   const POSC = { v: "#C93F2B", n: "#1F5FBF", adj: "#2E7D32", adv: "#7B4DBF" }; // word-class colours on the Study card
@@ -1058,10 +1072,7 @@
     $("annCrop").hidden = !onPage; $("annUncrop").hidden = !onPage || !curCrop(); if (!onPage && annTool === "crop") setTool("");
     selected = -1; syncAnnot();
     markViewButton("bilingual");
-    for (const b of $("biPick").querySelectorAll("[data-bi]")) b.classList.toggle("on", b.dataset.bi === biLayout);
-    for (const b of $("biStyleBar").querySelectorAll("button")) b.classList.toggle("on", b.dataset.bistyle === biStyle);
-    $("biStyleRow").hidden = biLayout === "S" || biLayout === "G";
-    syncStudyRow(); syncSlidesBtn();
+    syncBiRows(); syncStudyRow(); syncSlidesBtn();
     $("biPick").hidden = false;
     updateReshoot();
     for (const id of ["dlBtn", "copyBtn", "shareBtn"]) { const el = $(id); if (el) el.disabled = false; }
@@ -1640,6 +1651,7 @@
       frame = { frame: ["plain", "card", "window"].includes(f.frame) ? f.frame : "card", badge: f.badge !== false, bg: FRAME_BGS[f.bg] ? f.bg : "sunset" };
     }
     if (["A", "B", "C", "N", "S", "G"].includes(prefs.shotBilingual)) biLayout = prefs.shotBilingual;
+    if (["A", "B", "C", "N", "S"].includes(biLayout)) bothLayout = biLayout;
     if (["quiet", "balanced", "equal"].includes(prefs.shotBiStyle)) biStyle = prefs.shotBiStyle;
     buildSwatches();
     if (prefs.shotExport && typeof prefs.shotExport === "object") exp = { size: ["native", "2x", "1x", "half"].includes(prefs.shotExport.size) ? prefs.shotExport.size : "native", format: prefs.shotExport.format === "jpeg" ? "jpeg" : "png" };
@@ -1669,6 +1681,7 @@
     document.body.classList.toggle("tips", isTips());
     if (view === "bilingual") ensureBiFont();
     for (const bn of $("fontSeg").querySelectorAll("button")) bn.classList.toggle("on", (bn.dataset.font || "") === (rec.font || ""));
+    syncLookSum(); syncExportUI();
     document.title = "SubVibe Shot · " + (rec.title || rec.host);
     renderHeader(); renderBlocks();
     await render();
@@ -1677,6 +1690,11 @@
 
   $("viewSeg").addEventListener("click", (e) => {
     const b = e.target.closest("button"); if (!b || !rec || reshooting || isTips()) return;
+    if (b.dataset.show) { // Both / Study: pick the card, then the bilingual view
+      const want = b.dataset.show === "study" ? "G" : bothLayout;
+      if (want !== biLayout) { biLayout = want; try { chrome.storage.local.set({ shotBilingual: want }); } catch (er) {} }
+      if (view === "bilingual") { markViewButton("bilingual"); if (hasPairs()) renderBilingual(); return; }
+    }
     // ensureView translates on demand (if the shot has no translation yet) and
     // renders once on the page, then it's cached and every later switch is instant.
     ensureView(b.dataset.view);
@@ -1684,23 +1702,29 @@
   // Bilingual pairing layout — switching just redraws the card (instant) and
   // saves the choice as the default for future shots.
   $("biPick").addEventListener("click", (e) => {
-    const b = e.target.closest("[data-bi], [data-bistyle], [data-side], [data-expl]"); if (!b || !rec || reshooting) return;
-    if (b.dataset.bi) {
-      const v = b.dataset.bi; if (!BI_DESC[v] || v === biLayout) return;
-      biLayout = v;
-      try { chrome.storage.local.set({ shotBilingual: v }); } catch (er) {}
-      const hint = $("biHint"); if (hint) hint.textContent = BI_DESC[v] + " Saved as your default.";
-    } else if (b.dataset.side) {
-      if (b.dataset.side === effStudySide()) return;
-      studySide = b.dataset.side; try { chrome.storage.local.set({ shotStudySide: studySide }); } catch (er) {}
-    } else if (b.dataset.expl) {
-      if (b.dataset.expl === effStudyExpl()) return;
-      studyExpl = b.dataset.expl; try { chrome.storage.local.set({ shotStudyExplain: studyExpl }); } catch (er) {}
-    } else {
-      const st = b.dataset.bistyle; if (!["quiet", "balanced", "equal"].includes(st) || st === biStyle) return;
-      biStyle = st;
-      try { chrome.storage.local.set({ shotBiStyle: st }); } catch (er) {}
-    }
+    const b = e.target.closest("[data-bistyle]"); if (!b || !rec || reshooting) return;
+    const st = b.dataset.bistyle; if (!["quiet", "balanced", "equal"].includes(st) || st === biStyle) return;
+    biStyle = st;
+    try { chrome.storage.local.set({ shotBiStyle: st }); } catch (er) {}
+    if (view === "bilingual") renderBilingual();
+  });
+  $("biSel").addEventListener("change", () => {
+    const v = $("biSel").value; if (!rec || reshooting || !BI_DESC[v] || v === "G" || v === biLayout) return;
+    biLayout = bothLayout = v;
+    try { chrome.storage.local.set({ shotBilingual: v }); } catch (er) {}
+    if (view === "bilingual") renderBilingual();
+  });
+  function setStudySide(sd) {
+    if (!rec || reshooting || studying || sd === effStudySide() || !studyLangOf(sd)) { syncStudyRow(); return; }
+    studySide = sd; try { chrome.storage.local.set({ shotStudySide: studySide }); } catch (er) {}
+    if (view === "bilingual") renderBilingual();
+  }
+  $("studySideSel").addEventListener("change", () => setStudySide($("studySideSel").value));
+  $("studySwap").addEventListener("click", () => setStudySide(effStudySide() === "source" ? "target" : "source"));
+  $("studyExplSel").addEventListener("change", () => {
+    const v = $("studyExplSel").value;
+    if (!rec || reshooting || studying || !["other", "same"].includes(v) || v === effStudyExpl()) { syncStudyRow(); return; }
+    studyExpl = v; try { chrome.storage.local.set({ shotStudyExplain: studyExpl }); } catch (er) {}
     if (view === "bilingual") renderBilingual();
   });
   function buildSwatches() {
@@ -1714,7 +1738,7 @@
         if (!rec || reshooting || frame.bg === key) return;
         frame.bg = key;
         for (const x of wrap.querySelectorAll(".bgswatch")) x.classList.toggle("on", x.dataset.bg === key);
-        chrome.storage.local.set({ shotFrame: frame }); render();
+        syncLookSum(); chrome.storage.local.set({ shotFrame: frame }); render();
       });
       wrap.appendChild(s);
     }
@@ -1723,7 +1747,20 @@
   function syncFrameUI() {
     for (const b of $("frameSeg").querySelectorAll("button")) b.classList.toggle("on", b.dataset.frame === frame.frame);
     const row = $("bgRow"); if (row) row.hidden = frame.frame === "plain";
+    syncLookSum();
   }
+  // The folded Look group still says what's set: "Window · Sky · Vazirmatn".
+  function syncLookSum() {
+    const el = $("lookSum"); if (!el) return;
+    const parts = [frame.frame[0].toUpperCase() + frame.frame.slice(1)];
+    if (frame.frame !== "plain" && FRAME_BG_NAMES[frame.bg]) parts.push(FRAME_BG_NAMES[frame.bg]);
+    parts.push(rec && rec.font === "vazirmatn" ? "Vazirmatn" : "Site font");
+    el.textContent = parts.join(" · ");
+  }
+  function syncExportUI() { $("dlLabel").textContent = "Download " + (exp.format === "jpeg" ? "JPEG" : "PNG"); }
+  $("dlMore").addEventListener("click", () => {
+    const o = $("expOpts"); o.hidden = !o.hidden; $("dlMore").setAttribute("aria-expanded", String(!o.hidden));
+  });
   $("frameSeg").addEventListener("click", (e) => {
     const b = e.target.closest("button"); if (!b || !rec || reshooting) return;
     frame.frame = ["plain", "card", "window"].includes(b.dataset.frame) ? b.dataset.frame : "card";
@@ -1732,14 +1769,14 @@
   });
   $("badgeSw").addEventListener("change", () => { if (reshooting) return; frame.badge = $("badgeSw").checked; chrome.storage.local.set({ shotFrame: frame }); render(); });
   $("sizeSel").addEventListener("change", () => { if (reshooting) return; exp.size = $("sizeSel").value; chrome.storage.local.set({ shotExport: exp }); render(); });
-  $("fmtSel").addEventListener("change", () => { if (reshooting) return; exp.format = $("fmtSel").value; chrome.storage.local.set({ shotExport: exp }); render(); });
+  $("fmtSel").addEventListener("change", () => { if (reshooting) return; exp.format = $("fmtSel").value; syncExportUI(); chrome.storage.local.set({ shotExport: exp }); render(); });
   $("fontSeg").addEventListener("click", async (e) => {
     const bn = e.target.closest("button"); if (!bn || !rec) return;
     const f = bn.dataset.font || "";
     if (f === (rec.font || "")) return;
     for (const x of $("fontSeg").querySelectorAll("button")) x.classList.toggle("on", x === bn);
     try { chrome.storage.local.set({ shotFont: f }); } catch (er) {} // remember for next shots
-    rec.font = f; try { await putShot(rec); } catch (er) {} // persist so the next render (here or on first translate) uses it
+    rec.font = f; syncLookSum(); try { await putShot(rec); } catch (er) {} // persist so the next render (here or on first translate) uses it
     if (view === "bilingual") { await ensureBiFont(); renderBilingual(); return; } // the card redraws instantly
     if (!isTranslated()) { setNote("The font applies to translated text \u2014 pick Translated or Bilingual first.", ""); return; }
     if (!tabAlive) { setNote("Open the original tab to change the font.", "warn"); return; }
