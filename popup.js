@@ -2068,6 +2068,15 @@ async function load() {
   el("hideNative").checked = state.hideNative;
   el("karaokeHl").checked = state.karaokeHl !== false;
   el("storyBoard").checked = state.storyBoard !== false;
+  // "Claude Code on this Mac" is for the developer's own build: hidden from store installs unless it is already in use.
+  try {
+    chrome.management.getSelf((me) => {
+      const dev = me && me.installType === "development", inUse = state.cliBridgeOk || state.translationProvider === "claude-cli";
+      if (dev || inUse) return;
+      const opt = document.querySelector('#translationProvider option[value="claude-cli"]'); if (opt) opt.remove();
+      const sec = el("cliBridgeSection"); if (sec) sec.hidden = true;
+    });
+  } catch (e) {}
   el("tipsAhead").value = ["off", "3", "all"].includes(state.tipsAhead) ? state.tipsAhead : "off";
   showShotDelay(state.shotDelay);
   el("position").value = state.position || "bottom";

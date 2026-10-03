@@ -883,8 +883,10 @@
         <div id="anthropicKeyStatus">Stored only on this device. Applies to newly translated lines — cached lines keep their existing translation.</div>
       </div>
       <!-- Claude Code on this Mac: no key — the local CLI on the user's own
-           subscription, reached through the native-messaging bridge (bridge/). -->
-      <div class="keysection">
+           subscription, reached through the native-messaging bridge (bridge/). Shown only
+           in an unpacked (developer) install or where it is already set up: Anthropic's terms
+           (2026-02-20) don't allow offering Free/Pro/Max credentials inside another product. -->
+      <div class="keysection" id="cliBridgeSection">
         <div class="keyhead"><span class="keyname"><span id="cliBridgeDot" class="keydot"></span>Claude Code on this Mac</span> <a id="cliBridgeHelp" href="https://github.com/nuved/subvibe/tree/main/bridge#readme" target="_blank" rel="noopener">How it works →</a></div>
         <div class="keyused">used for: translation · Shots · word cards — on your Claude subscription, no key</div>
         <div class="keyrow">
