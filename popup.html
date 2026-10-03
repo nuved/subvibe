@@ -575,6 +575,18 @@
           <select id="liveDevice" style="flex:1;" title="Pick your loopback device (e.g. BlackHole) to hear the tab's audio — shared with the audio-transcription fallback"></select>
           <span class="info" title="Experimental — hears the audio and speaks the translation a moment behind. Free on Gemini's live tier and works with any site's sound.">i</span>
         </div>
+        <div class="row liverow">
+          <label class="rowlbl" for="liveSync">Line up the original</label>
+          <select id="liveSync" style="flex:1;" title="The translated voice runs a few seconds behind. The original sound you hear under it waits the same time, so the two match.">
+            <option value="auto">Auto: wait for the voice</option>
+            <option value="off">Off: original on time</option>
+            <option value="1">1 s</option>
+            <option value="2">2 s</option>
+            <option value="3">3 s</option>
+            <option value="4">4 s</option>
+            <option value="5">5 s</option>
+          </select>
+        </div>
         <div id="liveStatus" class="hint" style="min-height:13px;"></div>
       </details>
     </div>

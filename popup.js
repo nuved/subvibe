@@ -12,7 +12,7 @@ const LIVE_ALIAS = window.SV_LIVE_ALIAS || {};
 // Coerce a code to one Gemini's live model accepts, or null if it can't voice it.
 const normLiveCode = (code) => (LIVE_CODES.has(code) ? code : (LIVE_CODES.has(LIVE_ALIAS[code]) ? LIVE_ALIAS[code] : null));
 
-const DEFAULTS = { enabled: true, translateOn: true, targets: ["en"], showOriginal: true, hideNative: true, karaokeHl: true, karaokeStyle: "classic", storyBoard: true, tipsAhead: "off", learnLang: "", apiKey: "", translationProvider: "openai", claudeModel: "claude-sonnet-5", anthropicKey: "", cliBridgeOk: false, cliBridgeInfo: "", keepNames: true, keepTerms: "", position: "bottom", size: "md", stylePreset: "classic", styleCustom: {}, syncOffset: 0, dubEnabled: false, ttsProvider: "openai", geminiKey: "", tmdbKey: "", shotDelay: 0, dubVoice: "marin", dubGeminiVoice: "Kore", dubMultiVoice: false, dubDuckLevel: 0.12, dubPace: 1, liveModel: "gemini-3.5-live-translate-preview", audioDeviceId: "", liveTarget: "", debugHud: false, uiTheme: "light" };
+const DEFAULTS = { enabled: true, translateOn: true, targets: ["en"], showOriginal: true, hideNative: true, karaokeHl: true, karaokeStyle: "classic", storyBoard: true, tipsAhead: "off", learnLang: "", apiKey: "", translationProvider: "openai", claudeModel: "claude-sonnet-5", anthropicKey: "", cliBridgeOk: false, cliBridgeInfo: "", keepNames: true, keepTerms: "", position: "bottom", size: "md", stylePreset: "classic", styleCustom: {}, syncOffset: 0, dubEnabled: false, ttsProvider: "openai", geminiKey: "", tmdbKey: "", shotDelay: 0, dubVoice: "marin", dubGeminiVoice: "Kore", dubMultiVoice: false, dubDuckLevel: 0.12, dubPace: 1, liveModel: "gemini-3.5-live-translate-preview", liveSync: "auto", audioDeviceId: "", liveTarget: "", debugHud: false, uiTheme: "light" };
 const el = (id) => document.getElementById(id);
 // Promise wrapper for chrome.runtime.sendMessage — same shape as learn.js's
 // helper, used by the word-game wiring below (async/await reads cleaner than
@@ -493,6 +493,8 @@ el("showOriginal").addEventListener("change", () => saveSetting({ showOriginal: 
 el("hideNative").addEventListener("change", () => persist({ hideNative: el("hideNative").checked }));
 el("karaokeHl").addEventListener("change", () => persist({ karaokeHl: el("karaokeHl").checked }));
 el("storyBoard").addEventListener("change", () => persist({ storyBoard: el("storyBoard").checked }));
+// Sync applies to a running session at once: the capture page hears LIVE_SYNC directly.
+el("liveSync").addEventListener("change", () => { const sync = el("liveSync").value; state.liveSync = sync; persist({ liveSync: sync }); chrome.runtime.sendMessage({ type: "LIVE_SYNC", sync }).catch(() => {}); });
 el("tipsAhead").addEventListener("change", () => persist({ tipsAhead: el("tipsAhead").value }));
 el("position").addEventListener("change", () => saveSetting({ position: el("position").value }));
 el("keepNames").addEventListener("change", () => persist({ keepNames: el("keepNames").checked }));
@@ -980,7 +982,7 @@ el("liveBtn").addEventListener("click", async () => {
       return;
     }
   }
-  chrome.runtime.sendMessage({ type: "LIVE_BEGIN", tabId, wantTab: !state.audioDeviceId, deviceId: state.audioDeviceId || "", origVol: typeof state.dubDuckLevel === "number" ? state.dubDuckLevel : 0.12, target, targetCode: liveTargetCode(), model: state.liveModel || "gemini-3.5-live-translate-preview" });
+  chrome.runtime.sendMessage({ type: "LIVE_BEGIN", tabId, wantTab: !state.audioDeviceId, deviceId: state.audioDeviceId || "", origVol: typeof state.dubDuckLevel === "number" ? state.dubDuckLevel : 0.12, target, targetCode: liveTargetCode(), model: state.liveModel || "gemini-3.5-live-translate-preview", sync: state.liveSync || "auto" });
   // Total-silence watchdog: if NOTHING reports back within 10s, every layer's
   // own error path failed too — say so instead of sitting on "Connecting…".
   const sentAt = Date.now();
@@ -998,7 +1000,9 @@ chrome.runtime.onMessage.addListener((msg) => {
     if (msg.error) text = msg.error;
     else if (!msg.running) text = "Stopped.";
     else if (msg.stats) text = `Live ${Math.floor(msg.stats.secs / 60)}:${String(msg.stats.secs % 60).padStart(2, "0")} · sent ${msg.stats.upSecs}s audio · heard ${msg.stats.heard} · spoke ${msg.stats.spoke} (${msg.stats.voiceSecs}s voice)`
-      + (msg.stats.chunks != null ? ` · out ${msg.stats.chunks}ch/${msg.stats.ints}int/${msg.stats.ctx} → ${msg.stats.tgt}` : "");
+      + (msg.stats.chunks != null ? ` · out ${msg.stats.chunks}ch/${msg.stats.ints}int/${msg.stats.ctx} → ${msg.stats.tgt}` : "")
+      + (msg.stats.lagMs ? ` · voice ${(msg.stats.lagMs / 1000).toFixed(1)} s behind` : "")
+      + (msg.stats.syncMs != null ? (msg.stats.syncMs ? ` · original waits ${(msg.stats.syncMs / 1000).toFixed(1)} s` : " · original on time") : "");
     else if (msg.stage) text = msg.stage; // pre-session progress — a stall names its stage
     else text = "Live — connected, waiting for audio…";
     liveUI(msg.running, text, !!msg.error);
@@ -2068,6 +2072,7 @@ async function load() {
   el("hideNative").checked = state.hideNative;
   el("karaokeHl").checked = state.karaokeHl !== false;
   el("storyBoard").checked = state.storyBoard !== false;
+  el("liveSync").value = ["auto", "off", "1", "2", "3", "4", "5"].includes(String(state.liveSync)) ? String(state.liveSync) : "auto";
   // "Claude Code on this Mac" is for the developer's own build: hidden from store installs unless it is already in use.
   try {
     chrome.management.getSelf((me) => {

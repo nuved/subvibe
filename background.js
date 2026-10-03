@@ -2866,7 +2866,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             // Hand the key over instead of letting the capture page read
             // storage itself — one less await over there that could stall.
             const { geminiKey } = await chrome.storage.local.get("geminiKey");
-            chrome.runtime.sendMessage({ type: "LIVE_START", key: geminiKey || "", streamId, origVol: msg.origVol, deviceId: msg.deviceId, target: msg.target, targetCode: msg.targetCode, model: msg.model }).catch(() => {});
+            chrome.runtime.sendMessage({ type: "LIVE_START", key: geminiKey || "", streamId, origVol: msg.origVol, deviceId: msg.deviceId, target: msg.target, targetCode: msg.targetCode, model: msg.model, sync: msg.sync }).catch(() => {});
           } catch (e) {
             liveActive = false;
             chrome.runtime.sendMessage({ type: "LIVE_STATE", running: false, error: "capture page: " + (e.message || e) }).catch(() => {});
@@ -3223,6 +3223,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           }
           break;
         }
+        case "LIVE_SYNC": sendResponse({ ok: true }); break; // popup → the capture page hears it directly; nothing to do here
         case "TIPS_ESTIMATE": {
           // What one tip call costs on the provider in use, from its last 20 tip calls (null before the first).
           // Logged rows carry providerOf()'s name, so the setting is normalised the same way.

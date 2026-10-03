@@ -25,15 +25,23 @@ let lvChunksN = 0, lvIntsN = 0;   // audio chunks scheduled / server "interrupte
 let lvIsTranslate = false;        // translate models have their own setup contract (translationConfig, no text)
 let lvRenewT = 0, lvRenewing = false; // GoAway-scheduled session renewal — close cleanly BEFORE Google's cutoff, reconnect silently
 let lvCfg = null; // {deviceId, target, model, key, sysAsContent}
+// Sync (store review 2026-10-01: the voice lags the video and there was no way to line it up). The translate
+// model runs ~3 s behind by design, so the ORIGINAL we play under the voice is delayed to match it.
+// lvSync: "auto" (the measured lag), "off", or seconds. Lag = speech onset in the tab → first voiced output heard.
+let lvSync = "auto", lvDelay = null, lvLagMs = 0;
+const lvLag = { quietSince: 0, onsetAt: 0, samples: [] };
+const lvSyncSecs = () => (lvSync === "off" ? 0 : lvSync === "auto" ? lvLagMs / 1000 : Math.max(0, Math.min(5, +lvSync || 0)));
+function applyLiveSync() { if (lvDelay && lvCtxPass) lvDelay.delayTime.setTargetAtTime(lvSyncSecs(), lvCtxPass.currentTime, 0.4); }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg) return;
   if (msg.type === "LIVE_PING") { sendResponse({ pong: true }); return; } // readiness handshake — see background LIVE_START
   if (msg.type === "LIVE_START") liveStart(msg);
+  else if (msg.type === "LIVE_SYNC") { lvSync = String(msg.sync || "auto"); applyLiveSync(); }
   else if (msg.type === "LIVE_STOP") liveStop("stopped");
 });
 
-const lvState = (running, error, stage) => chrome.runtime.sendMessage({ type: "LIVE_STATE", running, error: error || null, stage: stage || null, stats: lvStats && running ? { secs: Math.round((Date.now() - lvStats.t0) / 1000), upSecs: Math.round(lvStats.upSamples / 16000), heard: lvStats.textIn, spoke: lvStats.textOut, voiceSecs: Math.round(lvStats.voiceMs / 1000), chunks: lvChunksN, ints: lvIntsN, ctx: lvCtxOut ? lvCtxOut.state : "—", tgt: lvCfg ? lvCfg.targetCode : "?", idleSecs: lvLastActivityAt ? Math.round((Date.now() - lvLastActivityAt) / 1000) : 0 } : null });
+const lvState = (running, error, stage) => chrome.runtime.sendMessage({ type: "LIVE_STATE", running, error: error || null, stage: stage || null, stats: lvStats && running ? { secs: Math.round((Date.now() - lvStats.t0) / 1000), upSecs: Math.round(lvStats.upSamples / 16000), heard: lvStats.textIn, spoke: lvStats.textOut, voiceSecs: Math.round(lvStats.voiceMs / 1000), chunks: lvChunksN, ints: lvIntsN, ctx: lvCtxOut ? lvCtxOut.state : "—", tgt: lvCfg ? lvCfg.targetCode : "?", idleSecs: lvLastActivityAt ? Math.round((Date.now() - lvLastActivityAt) / 1000) : 0, lagMs: lvLagMs, syncMs: lvDelay ? Math.round(lvSyncSecs() * 1000) : null } : null });
 
 // 2s heartbeat: report flow counters to the popup AND self-terminate after
 // LV_IDLE_MS with no heard/spoken audio. Runs entirely in the offscreen page
@@ -65,6 +73,7 @@ async function liveStart(msg) {
     // Passthrough only applies to tab capture (Chrome mutes a captured tab
     // until someone routes it back out); a mic passthrough would just echo.
     passVol: msg.streamId && typeof msg.origVol === "number" ? msg.origVol : 0 };
+  lvSync = String(msg.sync || "auto"); lvLagMs = 0; lvLag.samples = []; lvLag.onsetAt = 0; lvLag.quietSince = 0;
 
   // The finest-grain breadcrumb: if the popup freezes on THIS line, the raced
   // getUserMedia below is the stall — and its 8s timeout names it.
@@ -287,7 +296,10 @@ function startLivePipe() {
     const pSrc = lvCtxPass.createMediaStreamSource(lvStream);
     const pGain = lvCtxPass.createGain();
     pGain.gain.value = lvCfg.passVol;
-    pSrc.connect(pGain);
+    lvDelay = lvCtxPass.createDelay(6); // the original waits for the voice (Sync)
+    lvDelay.delayTime.value = lvSyncSecs();
+    pSrc.connect(lvDelay);
+    lvDelay.connect(pGain);
     pGain.connect(lvCtxPass.destination);
   }
   lvCtxIn = new AudioContext({ sampleRate: 16000 });
@@ -303,6 +315,11 @@ function startLivePipe() {
       i16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
     }
     if (lvStats) lvStats.upSamples += i16.length;
+    // Speech onset after ≥0.7 s of quiet starts one lag measurement (see scheduleLiveAudio).
+    let e = 0; for (let i = 0; i < f32.length; i += 4) e += f32[i] * f32[i];
+    const loud = Math.sqrt(e / Math.max(1, f32.length / 4)) > 0.02, now = performance.now();
+    if (!loud) { if (!lvLag.quietSince) lvLag.quietSince = now; }
+    else { if (lvLag.quietSince && now - lvLag.quietSince > 700 && !lvLag.onsetAt) lvLag.onsetAt = now; lvLag.quietSince = 0; }
     lvWs.send(JSON.stringify({ realtimeInput: { audio: { mimeType: "audio/pcm;rate=16000", data: pcmToBase64(i16) } } }));
   };
   const wire = (node) => { lvProc = node; lvSrc.connect(lvProc); lvProc.connect(mute); mute.connect(lvCtxIn.destination); };
@@ -349,6 +366,19 @@ function scheduleLiveAudio(b64, mime) {
   src.connect(lvCtxOut.destination);
   const at = Math.max(lvCtxOut.currentTime, lvCursor);
   src.start(at);
+  // The first VOICED chunk after a speech onset closes the measurement: onset → when it is heard.
+  if (lvLag.onsetAt) {
+    let e = 0; for (let i = 0; i < f.length; i += 8) e += f[i] * f[i];
+    if (Math.sqrt(e / Math.max(1, f.length / 8)) > 0.02) {
+      const ms = performance.now() - lvLag.onsetAt + (at - lvCtxOut.currentTime) * 1000;
+      lvLag.onsetAt = 0;
+      if (ms > 300 && ms < 8000) {
+        lvLag.samples.push(ms); if (lvLag.samples.length > 15) lvLag.samples.shift();
+        const sorted = lvLag.samples.slice().sort((a, b) => a - b); lvLagMs = Math.round(sorted[sorted.length >> 1]);
+        if (lvSync === "auto") applyLiveSync();
+      }
+    }
+  }
   lvCursor = at + buf.duration;
   lvChunksN++;
   if (lvStats) lvStats.voiceMs += buf.duration * 1000;
@@ -428,7 +458,7 @@ function liveStop(reason) {
   try { lvCtxOut && lvCtxOut.close(); } catch {}
   try { lvCtxPass && lvCtxPass.close(); } catch {}
   try { lvWs && lvWs.close(); } catch {}
-  lvCtxIn = lvSrc = lvProc = lvCtxOut = lvCtxPass = lvWs = null;
+  lvCtxIn = lvSrc = lvProc = lvCtxOut = lvCtxPass = lvWs = lvDelay = null;
   if (lvStream) { lvStream.getTracks().forEach((t) => t.stop()); lvStream = null; }
   if (wasRunning || reason === "stopped") lvState(false, reason === "idle" ? "Auto-stopped — 5 min with no audio to translate. Press Start to resume." : null);
 }

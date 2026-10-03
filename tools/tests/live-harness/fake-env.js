@@ -7,6 +7,7 @@
   window.chrome = {
     runtime: {
       id: "harness",
+      getURL: (p) => new URL("../../../" + p, location.href).href, // the PCM worklet (offscreen-live-worklet.js)
       onMessage: { addListener: (fn) => listeners.push(fn) },
       sendMessage: (m) => { sent.push(m); },
     },

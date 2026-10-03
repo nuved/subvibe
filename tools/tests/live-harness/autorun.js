@@ -37,6 +37,19 @@ window.__run = async function () {
   check("stop announces running:false", F.sent.some((m) => m.type === "LIVE_STATE" && m.running === false));
   check("no reconnect after clean stop", F.wsCount() === 1, { sockets: F.wsCount() });
 
+  // Sync (store review 2026-10-01): a TAB capture plays the original under the voice through a delay.
+  // Fixed 2 s → the delay is 2 s; LIVE_SYNC "off" → it glides to 0; the popup's stats carry syncMs.
+  F.dispatch({ type: "LIVE_START", streamId: "tab-1", origVol: 0.5, sync: "2", deviceId: "", target: "Persian", targetCode: "fa", model: "gemini-3.5-live-translate-preview" });
+  await sleep(2600); // setup + passthrough + one 2 s heartbeat
+  check("tab capture: the original passes through a delay set to the chosen 2 s", typeof lvDelay !== "undefined" && lvDelay && Math.abs(lvDelay.delayTime.value - 2) < 0.05, lvDelay && lvDelay.delayTime.value);
+  const st2 = F.sent.filter((m) => m.type === "LIVE_STATE" && m.stats).pop();
+  check("stats tell the popup how long the original waits", st2 && st2.stats.syncMs === 2000, st2 && st2.stats);
+  F.dispatch({ type: "LIVE_SYNC", sync: "off" });
+  await sleep(1800);
+  check("Sync off: the original goes back on time", lvDelay && lvDelay.delayTime.value < 0.05, lvDelay && lvDelay.delayTime.value);
+  F.dispatch({ type: "LIVE_STOP" });
+  await sleep(100);
+
   const fails = out.filter((r) => !r.ok);
   document.title = fails.length ? `FAIL ${fails.length}/${out.length}` : `PASS ${out.length}/${out.length}`;
   document.getElementById("out").textContent = out.map((r) => `${r.ok ? "PASS" : "FAIL"}  ${r.name}${r.detail !== undefined ? "  " + JSON.stringify(r.detail) : ""}`).join("\n");
