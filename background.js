@@ -1856,8 +1856,11 @@ const TTS_MODEL = "gpt-4o-mini-tts";
 // "Interactions API" the docs now recommend is SDK-oriented and not needed
 // here, since this worker always talks raw REST, same as the OpenAI/Claude
 // paths above).
-const GEMINI_TTS_MODEL = "gemini-2.5-flash-preview-tts";
-const GEMINI_GENERATE = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_TTS_MODEL}:generateContent`;
+// 2026-10-03: gemini-3.8-flash-tts (GA 2026-09-22, cheaper and newer); the 2.5 preview stays as the fallback
+// for a key or region where the new id is refused (404/400 "not found / not supported"), remembered per worker.
+const GEMINI_TTS_MODELS = ["gemini-3.8-flash-tts", "gemini-2.5-flash-preview-tts"];
+let geminiTtsModelIx = 0;
+const geminiGenerateUrl = () => `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_TTS_MODELS[geminiTtsModelIx]}:generateContent`;
 const GEMINI_MODELS = "https://generativelanguage.googleapis.com/v1beta/models";
 // Gemini TTS returns RAW PCM (no container): 16-bit signed little-endian,
 // 24000 Hz, mono — verified in the same docs (the curl example pipes the
@@ -1951,7 +1954,7 @@ async function ttsChunkGemini(text, voice, instructions, apiKey) {
   let lastStatus = 0, lastBody = "";
   for (let attempt = 0; attempt < 3; attempt++) {
     if (attempt) await new Promise((r) => setTimeout(r, 700 * attempt));
-    const res = await fetch(GEMINI_GENERATE, {
+    const res = await fetch(geminiGenerateUrl(), {
       method: "POST",
       headers: { "x-goog-api-key": apiKey, "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -1961,12 +1964,19 @@ async function ttsChunkGemini(text, voice, instructions, apiKey) {
       if (!txt) throw new Error("Gemini returned an empty response");
       let data;
       try { data = JSON.parse(txt); } catch { throw new Error("Gemini returned a non-JSON response"); }
-      const b64Pcm = data?.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+      const inl = data?.candidates?.[0]?.content?.parts?.[0]?.inlineData;
+      const b64Pcm = inl && inl.data;
       if (!b64Pcm) throw new Error("Gemini response had no audio data");
-      const pcmBuf = bufFromB64(b64Pcm); // raw s16le mono 24kHz — see GEMINI_PCM_RATE
-      return b64FromBuf(wavFromPcm16(pcmBuf, GEMINI_PCM_RATE));
+      const mime = String((inl && inl.mimeType) || "");
+      if (/wav/i.test(mime)) return b64Pcm; // already a WAV container — decodeAudioData takes it as is
+      const pcmBuf = bufFromB64(b64Pcm); // raw s16le mono (24 kHz unless the mime says otherwise)
+      return b64FromBuf(wavFromPcm16(pcmBuf, +((/rate=(\d+)/.exec(mime) || [])[1] || GEMINI_PCM_RATE)));
     }
     lastStatus = res.status; lastBody = txt;
+    // The newer model refused for this key/region: fall back once, for the rest of this worker's life.
+    if ((res.status === 404 || (res.status === 400 && /not (found|supported)|unsupported|invalid model/i.test(txt))) && geminiTtsModelIx < GEMINI_TTS_MODELS.length - 1) {
+      geminiTtsModelIx++; attempt--; continue;
+    }
     if (res.status === 429) {
       // An RPM window will not clear in this loop's 0.7–1.4 s backoff — stop
       // burning requests and surface how long Google asked us to wait.

@@ -89,7 +89,9 @@
   // the OpenAI estimate above — both land at $0.015/min by coincidence of
   // current pricing, not by construction.
   const GEMINI_TTS_AUDIO_TOK_PER_SEC = 25;
-  const GEMINI_TTS_PRICE_PER_1M_OUTPUT = 10.00;
+  // 2026-10-03: the dub speaks with gemini-3.8-flash-tts (GA 2026-09-22): $9.00 / 1M audio tokens through
+  // 2026-12-31, $18.00 from 2027-01-01 (ai.google.dev/gemini-api/docs/pricing) → $0.0135 per spoken minute.
+  const GEMINI_TTS_PRICE_PER_1M_OUTPUT = 9.00;
   function dubEstimateUSDGemini(totalSpeechMs) {
     const minutes = totalSpeechMs / 60000;
     const tokens = minutes * 60 * GEMINI_TTS_AUDIO_TOK_PER_SEC;

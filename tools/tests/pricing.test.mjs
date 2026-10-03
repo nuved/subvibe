@@ -31,3 +31,7 @@ test("avgCost: mean of the last N matching calls, null when there are none", () 
   assert.equal(P.avgCost(log, "Explain:", 1), 0.60);
   assert.equal(P.avgCost([], "Explain:", 20), null);
 });
+
+test("Gemini TTS rows are priced at gemini-3.8-flash-tts's $0.0135 per spoken minute", () => {
+  assert.ok(Math.abs(P.estCost({ kind: "tts", provider: "gemini", durMs: 60000 }) - 0.0135) < 1e-12);
+});

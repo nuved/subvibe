@@ -685,6 +685,60 @@
     <div id="clipStats" class="hint" style="margin-top:6px; min-height:13px;"></div>
     <div class="row" id="clipExports" style="flex-wrap:wrap; gap:6px;" hidden></div>
   </section>
+  <!-- Film mode (2026-10-03, the store review's "cue-based mode for films"): a voice speaks each subtitle at
+         its own moment, so there is no lag. Nothing is spent until the on-player "▶ Start dub (~$…)" button is
+         pressed, and that button shows the price first (content/dub.js paintTransport). -->
+    <div id="filmModeBox">
+    <section>
+      <details class="customize" id="dubFold">
+        <summary>Film mode <span class="hint">a voice reads each subtitle on time · about $0.80 for a 2-hour film</span></summary>
+      <div class="row" style="margin-top:9px;">
+        <label class="switch"><input type="checkbox" id="dubEnabled" /><span class="slider"></span></label>
+        <label for="dubEnabled">Speak the subtitles on time</label>
+        <span class="info" title="For films and shows with subtitles: each translated line is spoken at its own moment, so the voice never lags. The original stays quiet underneath. The voice reads the subtitle text, so it sounds less like the actor than Live Translate. Press ▶ Start dub on the player; it shows the price before anything is spent.">i</span>
+      </div>
+      <div id="dubConfig" class="off" inert>
+      <details class="customize" id="voiceFold">
+        <summary>Voice <span class="hint" id="voiceVal"></span></summary>
+        <div class="row" style="margin-top:7px;">
+          <span class="rowlbl">TTS provider</span>
+          <select id="ttsProvider" style="flex:1;">
+            <option value="openai">OpenAI gpt-4o-mini-tts</option>
+            <option value="gemini">Gemini 3.8 Flash TTS (native Persian voices)</option>
+          </select>
+        </div>
+        <div id="ttsProviderWarn" class="selwarn" hidden></div>
+        <div class="row">
+          <span class="rowlbl">Voice</span>
+          <select id="dubVoice" style="flex:1;"></select>
+          <select id="dubGeminiVoice" style="flex:1;" hidden></select>
+        </div>
+        <div class="row" id="dubMultiVoiceRow">
+          <label class="switch"><input type="checkbox" id="dubMultiVoice" /><span class="slider"></span></label>
+          <label for="dubMultiVoice">Multi-voice</label>
+          <span class="info" title="Beta — a different voice per speaker (OpenAI voices only)">i</span>
+        </div>
+        <div class="row">
+          <span class="rowlbl">Original volume</span>
+          <input type="range" id="dubDuck" min="0" max="60" step="5" style="flex:1;" title="How loud the original soundtrack stays under the dub" />
+          <span class="sizeval" id="dubDuckVal"></span>
+        </div>
+        <div class="row">
+          <span class="rowlbl">Pace</span>
+          <input type="range" id="dubPace" min="90" max="130" step="5" style="flex:1;" title="Speech pace of the dub voice" />
+          <span class="sizeval" id="dubPaceVal"></span>
+        </div>
+      </details>
+      <button class="btn ghost" id="dubGenAll" style="width:100%; margin-top:9px;" hidden>Generate full dub</button>
+      </div>
+      <div id="dubStatus" class="hint" style="margin-top:6px; min-height:13px;"></div>
+      <div id="dubProg" style="height:4px; border-radius:2px; background:var(--panel2); margin-top:6px; overflow:hidden;" hidden>
+        <div id="dubProgFill" style="height:100%; width:0%; background:var(--accent); transition:width .4s;"></div>
+      </div>
+      <div id="dubNow" class="hint" style="margin-top:5px; min-height:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></div>
+      </details>
+    </section>
+    </div>
   </div>
 
   <div class="pane" data-pane="style" hidden>
@@ -987,61 +1041,7 @@
     <span class="saved" id="saved">Saved ✓</span>
   </footer>
 
-  <!-- Expensive per-line TTS dub — kept in the DOM for its logic, but HIDDEN so it
-       can't be triggered by accident (it burns tokens on every line). Moved out of
-       the old Dub pane (removed in the Daylight restructure); the ids stay in the
-       DOM for popup.js, wrapped in a hidden div rather than a pane. -->
-  <div hidden>
-  <section>
-    <details class="customize" id="dubFold">
-      <summary>Dub subtitles aloud <span class="hint">spoken TTS · extra cost · lower quality than Live</span></summary>
-    <div class="row" style="margin-top:9px;">
-      <label class="switch"><input type="checkbox" id="dubEnabled" /><span class="slider"></span></label>
-      <label for="dubEnabled">Dub subtitles aloud</label>
-      <span class="info" title="Speaks the translation aloud — the original soundtrack stays quiet underneath">i</span>
-    </div>
-    <div id="dubConfig" class="off" inert>
-    <details class="customize" id="voiceFold">
-      <summary>Voice <span class="hint" id="voiceVal"></span></summary>
-      <div class="row" style="margin-top:7px;">
-        <span class="rowlbl">TTS provider</span>
-        <select id="ttsProvider" style="flex:1;">
-          <option value="openai">OpenAI gpt-4o-mini-tts</option>
-          <option value="gemini">Gemini 2.5 Flash TTS (native Persian voices)</option>
-        </select>
-      </div>
-      <div id="ttsProviderWarn" class="selwarn" hidden></div>
-      <div class="row">
-        <span class="rowlbl">Voice</span>
-        <select id="dubVoice" style="flex:1;"></select>
-        <select id="dubGeminiVoice" style="flex:1;" hidden></select>
-      </div>
-      <div class="row" id="dubMultiVoiceRow">
-        <label class="switch"><input type="checkbox" id="dubMultiVoice" /><span class="slider"></span></label>
-        <label for="dubMultiVoice">Multi-voice</label>
-        <span class="info" title="Beta — a different voice per speaker (OpenAI voices only)">i</span>
-      </div>
-      <div class="row">
-        <span class="rowlbl">Original volume</span>
-        <input type="range" id="dubDuck" min="0" max="60" step="5" style="flex:1;" title="How loud the original soundtrack stays under the dub" />
-        <span class="sizeval" id="dubDuckVal"></span>
-      </div>
-      <div class="row">
-        <span class="rowlbl">Pace</span>
-        <input type="range" id="dubPace" min="90" max="130" step="5" style="flex:1;" title="Speech pace of the dub voice" />
-        <span class="sizeval" id="dubPaceVal"></span>
-      </div>
-    </details>
-    <button class="btn ghost" id="dubGenAll" style="width:100%; margin-top:9px;" hidden>Generate full dub</button>
-    </div>
-    <div id="dubStatus" class="hint" style="margin-top:6px; min-height:13px;"></div>
-    <div id="dubProg" style="height:4px; border-radius:2px; background:var(--panel2); margin-top:6px; overflow:hidden;" hidden>
-      <div id="dubProgFill" style="height:100%; width:0%; background:var(--accent); transition:width .4s;"></div>
-    </div>
-    <div id="dubNow" class="hint" style="margin-top:5px; min-height:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></div>
-    </details>
-  </section>
-  </div>
+
 
   <!-- Hidden tribute — revealed by tapping the logo three times. -->
   <div id="memoryCard" class="memcard" hidden>

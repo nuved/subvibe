@@ -48,6 +48,6 @@ test("Gemini voice list is populated with a valid default", () => {
   assert.ok(V.GEMINI_VOICE_LABELS.some(([id]) => id === V.GEMINI_DEFAULT_VOICE));
 });
 
-test("Gemini estimate: 20 minutes of speech ≈ $0.30 (25 tok/s * $10/1M output)", () => {
-  assert.ok(Math.abs(V.dubEstimateUSDGemini(20 * 60000) - 0.30) < 1e-9);
+test("Gemini estimate: 20 minutes of speech ≈ $0.27 (25 tok/s * $9/1M output)", () => {
+  assert.ok(Math.abs(V.dubEstimateUSDGemini(20 * 60000) - 0.27) < 1e-9); // gemini-3.8-flash-tts: $9 / 1M audio tokens, 25 tokens/s
 });

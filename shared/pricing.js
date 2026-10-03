@@ -15,7 +15,8 @@
   // (25*60/1e6)*10.00 = $0.015/min, same shape as SV_VOICES.dubEstimateUSDGemini
   // in shared/voices.js (kept in sync there; duplicated here since library.js
   // doesn't load shared/voices.js).
-  const GEMINI_TTS_USD_PER_MIN = 0.015;
+  // 2026-10-03: gemini-3.8-flash-tts, $9.00 / 1M audio tokens × 25 tokens/s → $0.0135/min (doubles 2027-01-01).
+  const GEMINI_TTS_USD_PER_MIN = 0.0135;
   const estCost = (c) => {
     if (c && c.kind === "tts") {
       const perMin = c.provider === "gemini" ? GEMINI_TTS_USD_PER_MIN : 0.015; // gpt-4o-mini-tts ≈ $0.015/min too
