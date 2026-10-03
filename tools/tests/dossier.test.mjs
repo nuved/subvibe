@@ -119,3 +119,32 @@ test("dominantSpeaker: the name behind most sentences; 'A / B' counts for both; 
   assert.equal(D.dominantSpeaker(["", "Ivar (the Boneless)"]), "Ivar");
   assert.equal(D.dominantSpeaker(null), ""); assert.equal(D.dominantSpeaker(["", ""]), "");
 });
+
+test("tipKey: speaker marks, case, spacing and end punctuation don't make a new chunk", () => {
+  const k = D.tipKey;
+  assert.equal(k(">> I'm lost without you."), k("I'm lost without you"));
+  assert.equal(k("- I'm   lost\nwithout you!"), k("i'm lost without you"));
+  assert.equal(k("[Music] I'm lost without you…"), k("I'm lost without you"));
+  assert.notEqual(k("I'm lost without you tonight."), k("I'm lost without you."));
+  assert.equal(k(""), "");
+  assert.equal(k("Ça va? — Oui."), k("ça va? — oui"));
+  // ch.text is the chunk's sentences joined by " " (content/common.js:2055), so a mark can sit mid-chunk
+  assert.equal(k(">> Stay with me. >> I'm lost without you."), k("Stay with me. I'm lost without you"));
+  assert.equal(k("&gt;&gt; Stay with me."), k("Stay with me"));
+});
+
+test("isMusic: songs and DJ sets, not films about music", () => {
+  assert.equal(D.isMusic({ kind: "Music mix (deep house DJ set with vocal tracks)" }), true);
+  assert.equal(D.isMusic({ kind: "music video" }), true);
+  assert.equal(D.isMusic({ kind: "song lyrics video" }), true);
+  assert.equal(D.isMusic({ kind: "crime drama series", about: "a band on tour" }), false);
+  assert.equal(D.isMusic({ kind: "documentary about a music festival" }), false);
+  assert.equal(D.isMusic(null), false);
+});
+
+test("knownWords: every word already explained on this video, once, newest kept", () => {
+  const ex = [{ words: [{ w: "drift away" }, { w: "City lights" }] }, { words: [{ w: "fade away" }, { w: "city lights" }] }, {}];
+  assert.deepEqual(D.knownWords(ex, 10), ["drift away", "fade away", "city lights"]);
+  assert.deepEqual(D.knownWords(ex, 2), ["fade away", "city lights"]);
+  assert.deepEqual(D.knownWords([], 5), []);
+});

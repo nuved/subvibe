@@ -88,5 +88,27 @@
     if (!w.length) return "?";
     return (w.length > 1 ? w[0][0] + w[w.length - 1][0] : w[0][0]).toUpperCase();
   }
-  g.SV_DOSSIER = { block, identityLine, sampleLines, whoFaces, aheadWindow, initials, sameName, speaks, nowFaces, dominantSpeaker };
+  // The cache key of a chunk's tips: the same words with a ">>" speaker mark (anywhere — a chunk is its
+  // sentences joined by " "), a leading dash, [Music]-style tags, other spacing, case or end punctuation
+  // are the same chunk — a chorus is explained (and paid for) once.
+  function tipKey(text) {
+    return String(text || "")
+      .replace(/\[[^\]]{1,30}\]|\([A-Z ]{2,30}\)/g, " ")
+      .replace(/(^|\s)(>>|&gt;&gt;|»)+\s*/g, " ")
+      .replace(/(^|\n)\s*[-–—]\s+/g, "$1")
+      .replace(/\s+/g, " ")
+      .trim()
+      .replace(/[\s.!…,;:]+$/u, "")
+      .toLocaleLowerCase();
+  }
+  // A song or a mix: nothing "happens" from chunk to chunk, so no scene line is asked for.
+  function isMusic(d) { return !!(d && /^\s*(music|song|lyric|dj|mix|playlist|album|track|karaoke|concert)\b/i.test(String(d.kind || ""))); }
+  // The words this video's tips have already taught, so the next call can skip them.
+  function knownWords(exs, max) {
+    const seen = new Map();
+    for (const e of exs || []) for (const x of (e && e.words) || []) { const w = String((x && x.w) || "").trim().toLowerCase(); if (!w) continue; seen.delete(w); seen.set(w, 1); }
+    const all = [...seen.keys()];
+    return all.slice(Math.max(0, all.length - max));
+  }
+  g.SV_DOSSIER = { block, identityLine, sampleLines, whoFaces, aheadWindow, initials, sameName, speaks, nowFaces, dominantSpeaker, tipKey, isMusic, knownWords };
 })(typeof globalThis !== "undefined" ? globalThis : this);

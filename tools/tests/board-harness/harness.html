@@ -1,0 +1,33 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Board harness — tips once per chorus, scene once, Explain all price, × turns the board off</title>
+<!--
+  Runs the REAL content/common.js against a chrome stub (vocab-harness pattern) with a 6-line song whose chorus
+  comes back with and without ">>". driver.js presses Explain all and judges what reached the model and the board.
+  Verdict in document.title ("PASS …" / "FAIL …"), details in window.__result.
+-->
+<link rel="stylesheet" href="../../../styles/overlay.css">
+<style>
+  body { background: #111; color: #ddd; font: 13px system-ui; margin: 0; display: flex; gap: 16px; padding: 16px; }
+  #player { position: relative; width: 800px; height: 450px; background: #000; flex: none; }
+  #vid { width: 100%; height: 100%; background: #222; }
+  ytd-watch-flexy { display: block; width: 420px; }
+</style>
+</head>
+<body>
+<div id="player"><video id="vid"></video></div>
+<ytd-watch-flexy><div id="secondary"><div id="secondary-inner"></div></div></ytd-watch-flexy>
+<script src="fake-env.js"></script>
+<script src="../../../shared/title.js"></script>
+<script src="../../../shared/presets.js"></script>
+<script src="../../../shared/voices.js"></script>
+<script src="../../../shared/textslice.js"></script>
+<script src="../../../shared/quotes.js"></script>
+<script src="../../../shared/cues.js"></script>
+<script src="../../../shared/dossier.js"></script>
+<script src="../../../content/common.js"></script>
+<script src="driver.js"></script>
+</body>
+</html>

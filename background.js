@@ -1150,17 +1150,19 @@ const dossierFacts = (d) => !!(d && (d.show || d.title || d.kind || (d.sample ||
 function explainPrompt(source, target, dossier) {
   const fa = (target || "").split("-")[0] === "fa";
   const same = source && source !== "auto" && (source || "").split("-")[0] === (target || "").split("-")[0];
-  return `You explain ONE ${langName(source)} passage (one or a few sentences that belong together) to a learner${same ? " — in " + langName(source) + " itself, with simple words (A2), so the learner stays inside the language" : ""}. The user message carries {"s":"<the passage>","before":[…earlier lines…],"after":[…later lines…]}; "before" and "after" are ONLY context — never explain or translate them.\n` +
+  return `You explain ONE ${langName(source)} passage (one or a few sentences that belong together) to a learner${same ? " — in " + langName(source) + " itself, with simple words (A2), so the learner stays inside the language" : ""}. The user message carries {"s":"<the passage>","before":[…earlier lines…],"after":[…later lines…],"prevScene":"…","prevWho":[…],"known":[…]}; "before", "after", "prevScene" (the scene line of the passage before), "prevWho" (who was there) and "known" (words already taught on this video) are ONLY context — never explain or translate them.\n` +
     (dossierFacts(dossier) ? SV_DOSSIER.block(dossier) + "Read the passage in that light (a joke, a chant, a command in a game, an idiom of that world). Names in the dossier are the people's real names — use the CHARACTER names for who.\n" : "") +
     `Return STRICT JSON {"tr":"…","simple":"…","g":"…","scene":"…","who":["…"],"spk":["…"],"words":[{"w":"…","m":"…","pos":"…","level":"…","forms":"…","parts":["…"],"register":"…","tone":"…","care":"…"}]}:\n` +
-    `- scene: what happens and what is said in THIS passage, in ${fa ? "Persian" : langName(target)}: one plain sentence of at most 25 words — who speaks to whom, about what, and the mood (joking, serious, angry, selling, teaching…). Say the point of what they say, not just the mood.\n` +
-    `- who: the characters or speakers present or speaking in THIS passage (0–4), by the dossier's character names when they fit, else a short role ("the doorman", "the host"); [] when unclear. Names stay in the VIDEO'S OWN spelling and script (Jason, Lucia, Aunt Tee) — never translated or transliterated into the tips language.\n` +
+    (SV_DOSSIER.isMusic(dossier)
+      ? `- scene: always "" (this is music; the lines are lyrics).\n`
+      : `- scene: what happens and what is said in THIS passage, in ${fa ? "Persian" : langName(target)}: one plain sentence of at most 25 words — who speaks to whom, about what, and the mood (joking, serious, angry, selling, teaching…). Say the point of what they say, not just the mood. If "prevScene" already says it (same people, same situation, same mood), return "".\n`) +
+    `- who: the characters or speakers present or speaking in THIS passage (0–4), by the dossier's character names when they fit, else a short role ("the doorman", "the host"); [] when unclear. Names stay in the VIDEO'S OWN spelling and script (Jason, Lucia, Aunt Tee) — never translated or transliterated into the tips language. When "prevWho" names the same person, reuse that exact name.\n` +
     `- spk: who says each sentence — the user message lists the passage's sentences in "lines", in order; give exactly one entry per line, the same names as in who (or a short role), "" when you cannot tell.\n` +
     (same ? `- tr: the whole passage said more simply in ${langName(source)}: A2 vocabulary, short clauses, same meaning.\n`
           : `- tr: a natural ${langName(target)} translation of the whole passage.\n`) +
     `- simple: RETELL the passage in ${langName(source)} for an A2 learner — what is being said, in 1–3 short plain sentences, only very common words, no idioms, no fillers ("like", "you know", "whatever"), no speaker marks; the idea, not the wording; clearly shorter and easier than the original. Never copy sentences from the passage.\n` +
     `- g: a plain-${langName(target)} grammar note as 2–4 short points separated by " • ". EVERY point opens with the passage's own words in «guillemets» («Protect him» — …), then a dash, then the point: (1) how the sentence is built — tense/mood, clauses, word order, any separable or phrasal verb; (2) WHY it takes that form, naming the rule with the everyday word next to it; (3) a watch-out for learners (a false friend, an ending, a word that moves) or the everyday way to say it. Concrete, about THIS passage's words; no bare jargon.\n` +
-    `- words: the 3–8 most useful/learnable words or phrases in this passage, each {w: the ${langName(source)} word or phrase as it appears (the FULL reunited separable verb if one applies, e.g. "anschauen"), m: ${same ? "a short " + langName(source) + " definition or everyday synonym" : "its concise " + langName(target) + " meaning"}, pos: one of noun|verb|phrasal verb|adjective|adverb|idiom|expression|preposition|conjunction|pronoun|other, level: CEFR A1–C2 for a learner, forms: for a verb its base · past · participle plus "regular"/"irregular" (e.g. "say · said · said · irregular"), for a noun its plural (and article, where the language has one), for an adjective its comparative if irregular, else "", parts: the exact surface words of this term as they appear in the passage, in order — for a separable or phrasal verb BOTH parts even when apart (["gibt","auf"], ["hat","gebrochen"], ["pick","up"]), one element for a single word, register: formal | neutral | informal | slang | vulgar (how it sounds), tone: positive | neutral | negative (what it implies about the thing or person), care: "" unless the learner should be careful — then one short ${fa ? "Persian" : langName(target)} warning (rude, sarcastic, only among friends, dated, regional, a false friend…)}. Skip trivial function words.` +
+    `- words: the 3–8 most useful/learnable words or phrases in this passage, each {w: the ${langName(source)} word or phrase as it appears (the FULL reunited separable verb if one applies, e.g. "anschauen"), m: ${same ? "a short " + langName(source) + " definition or everyday synonym" : "its concise " + langName(target) + " meaning"}, pos: one of noun|verb|phrasal verb|adjective|adverb|idiom|expression|preposition|conjunction|pronoun|other, level: CEFR A1–C2 for a learner, forms: for a verb its base · past · participle plus "regular"/"irregular" (e.g. "say · said · said · irregular"), for a noun its plural (and article, where the language has one), for an adjective its comparative if irregular, else "", parts: the exact surface words of this term as they appear in the passage, in order — for a separable or phrasal verb BOTH parts even when apart (["gibt","auf"], ["hat","gebrochen"], ["pick","up"]), one element for a single word, register: formal | neutral | informal | slang | vulgar (how it sounds), tone: positive | neutral | negative (what it implies about the thing or person), care: "" unless the learner should be careful — then one short ${fa ? "Persian" : langName(target)} warning (rude, sarcastic, only among friends, dated, regional, a false friend…)}. Skip trivial function words. Skip any word or phrase listed in "known" (already taught on this video); if that leaves fewer than 3, return fewer.` +
     (fa ? `\nفارسیِ سادهٔ روزمره؛ هرگز واژه‌های دستوریِ سنگین. STANDARD IRANIAN FARSI — no Urdu letters/words.` : "");
 }
 
@@ -1287,12 +1289,15 @@ async function shotStudy(msg) {
 // "Tips for this clip".
 async function explainLine(base, sent, langHint, opts) {
   const o = opts || {};
-  let h = 5381;
-  for (let i = 0; i < sent.length; i++) h = ((h << 5) + h + sent.charCodeAt(i)) | 0;
+  // Keyed by the chunk's words, not its spelling (SV_DOSSIER.tipKey): a chorus with or without ">>" or a full
+  // stop is one explanation. hRaw is the old raw-text key, read below so tips bought before stay served.
+  const hashOf = (t) => { let x = 5381; for (let i = 0; i < t.length; i++) x = ((x << 5) + x + t.charCodeAt(i)) | 0; return (x >>> 0).toString(36); };
+  const h = hashOf(SV_DOSSIER.tipKey(sent)), hRaw = hashOf(sent);
   // Which language the tips are in: the popup's target by default, "same" = the
   // video's own language (immersion), or a language code. Part of the cache key.
   const explainPref = String(o.explain || "").trim();
-  const skey = "e4" + (h >>> 0).toString(36) + (explainPref ? "|" + explainPref : ""); // e4: with who, on the dossier prefix
+  const suf = explainPref ? "|" + explainPref : "";
+  const skey = "e4" + h + suf; // e4: with who, on the dossier prefix
   const cx = (await idbVocabGet("clipexplain:" + base)) || { base, at: Date.now(), e: {} };
   const { targets: cfgX } = await chrome.storage.local.get(["targets"]);
   const defTarget = (Array.isArray(cfgX) && cfgX[0]) || "en";
@@ -1300,7 +1305,7 @@ async function explainLine(base, sent, langHint, opts) {
   let fa = (target || "").split("-")[0] === "fa";
   const faS = (s) => (fa ? SV_VOCAB.normalizeFa(String(s || "")) : String(s || ""));
   // An explanation bought under a previous shape (e3…, e2…) is still an explanation: serve it rather than paying again (it only lacks who / Put simply).
-  for (const old of ["e3", "e2"]) { const k = old + (h >>> 0).toString(36) + (explainPref ? "|" + explainPref : ""); if (!(cx.e[skey] && cx.e[skey].tr) && cx.e[k] && cx.e[k].tr && !o.fresh) cx.e[skey] = Object.assign({}, cx.e[k], { explain: explainPref, who: cx.e[k].who || [] }); }
+  for (const k of ["e4" + hRaw + suf, "e3" + hRaw + suf, "e2" + hRaw + suf]) { if (k !== skey && !(cx.e[skey] && cx.e[skey].tr) && cx.e[k] && cx.e[k].tr && !o.fresh) cx.e[skey] = Object.assign({}, cx.e[k], { explain: explainPref, who: cx.e[k].who || [] }); }
   if (!o.fresh && cx.e[skey] && cx.e[skey].tr) {
     const c = cx.e[skey];
     fa = ((c.explain && c.explain !== "same" ? c.explain : c.explain === "same" ? c.lang : target) || "").split("-")[0] === "fa";
@@ -1319,6 +1324,9 @@ async function explainLine(base, sent, langHint, opts) {
   const lines = Array.isArray(o.sentences) ? o.sentences.map((x) => String(x).slice(0, 300)).filter(Boolean).slice(0, 8) : [];
   if (lines.length) payload.lines = lines;
   if (o.k != null && o.n) { payload.k = o.k + 1; payload.n = o.n; }
+  if (o.prevScene) payload.prevScene = String(o.prevScene).slice(0, 240);
+  if (Array.isArray(o.prevWho) && o.prevWho.length) payload.prevWho = o.prevWho.slice(0, 4).map((x) => String(x).slice(0, 60));
+  if (Array.isArray(o.known) && o.known.length) payload.known = o.known.slice(-60).map((x) => String(x).slice(0, 40));
   const r = await llmJSON(explainPrompt(lang || "auto", target, dossier), payload, EXPLAIN_SCHEMA);
   const p = (r && r.parsed) || {};
   const REG = new Set(["formal", "neutral", "informal", "slang", "vulgar"]), TONE = new Set(["positive", "neutral", "negative"]);
@@ -1477,9 +1485,9 @@ async function shareTips(msg) {
   const cx = await idbVocabGet("clipexplain:" + base);
   const byText = new Map();
   const bestRank = new Map();
-  for (const [k, e] of Object.entries((cx && cx.e) || {})) if (/^e[234]/.test(k) && e && e.s && e.tr && String(e.explain || "") === pref) { const r = eRank(k); if (r > (bestRank.get(e.s) || 0)) { bestRank.set(e.s, r); byText.set(e.s, e); } }
+  for (const [k, e] of Object.entries((cx && cx.e) || {})) if (/^e[234]/.test(k) && e && e.s && e.tr && String(e.explain || "") === pref) { const tk = SV_DOSSIER.tipKey(e.s), r = eRank(k); if (r > (bestRank.get(tk) || 0)) { bestRank.set(tk, r); byText.set(tk, e); } }
   const chunks = (Array.isArray(msg.chunks) ? msg.chunks : []).slice(0, 600).map((c) => {
-    const text = String(c.text || "").replace(/\s+/g, " ").trim(); const e = byText.get(text);
+    const text = String(c.text || "").replace(/\s+/g, " ").trim(); const e = byText.get(SV_DOSSIER.tipKey(text));
     return { k: c.k, startMs: +c.startMs || 0, sentences: (c.sentences || []).map((x) => ({ s: String(x.s || ""), tr: String(x.tr || "") })).filter((x) => x.s),
       tips: e ? { tr: e.tr || "", simple: e.simple || "", g: e.g || "", scene: e.scene || "", who: e.who || [], words: (e.words || []).map((x) => ({ w: x.w, m: x.m, pos: x.pos || "", level: x.level || "", forms: cleanForms(x.forms), register: x.register || "", tone: x.tone || "", care: x.care || "" })) } : null };
   });
@@ -1500,7 +1508,7 @@ async function tipsCached(msg) {
   // One entry per passage, in the shape it was last bought in: e4, else e3, else e2.
   const all = cx && cx.e ? Object.entries(cx.e).filter(([k, e]) => /^e[234]/.test(k) && e && e.s && e.tr && String(e.explain || "") === pref) : [];
   const best = new Map();
-  for (const [k, e] of all) { const r = eRank(k); if (r > (best.has(e.s) ? best.get(e.s).r : 0)) best.set(e.s, { r, e }); }
+  for (const [k, e] of all) { const tk = SV_DOSSIER.tipKey(e.s), r = eRank(k); if (r > (best.has(tk) ? best.get(tk).r : 0)) best.set(tk, { r, e }); }
   const entries = [...best.values()].map((v) => v.e);
   return { ok: true, entries: entries.map((e) => ({ s: e.s, tr: e.tr, simple: e.simple || "", g: e.g || "", scene: e.scene || "", who: e.who || [], spk: e.spk || [], lang: e.lang || "", at: e.at || 0, words: (e.words || []).map((x) => ({ w: x.w, m: x.m, pos: x.pos || "", level: x.level || "", forms: cleanForms(x.forms), parts: x.parts || [], register: x.register || "", tone: x.tone || "", care: x.care || "" })) })), ctx: cx && cx.ctx ? cx.ctx : null, dossier: cx && cx.dossier ? cx.dossier : null };
 }
@@ -1513,7 +1521,10 @@ async function tipsCached(msg) {
 async function tipsSheet(msg) {
   const base = String(msg.base || "");
   const cx = base ? await idbVocabGet("clipexplain:" + base) : null;
-  const entries = cx && cx.e ? Object.values(cx.e).filter((e) => e && e.s && e.tr).sort((a, b) => (a.at || 0) - (b.at || 0)) : [];
+  // One entry per passage (SV_DOSSIER.tipKey): an explanation carried over from its old raw-text key is not a second line.
+  const byKey = new Map();
+  for (const [k, e] of Object.entries((cx && cx.e) || {})) { if (!(e && e.s && e.tr)) continue; const tk = SV_DOSSIER.tipKey(e.s), r = eRank(k), cur = byKey.get(tk); if (!cur || r > cur.r || (r === cur.r && (e.at || 0) > (cur.e.at || 0))) byKey.set(tk, { r, e }); }
+  const entries = [...byKey.values()].map((v) => v.e).sort((a, b) => (a.at || 0) - (b.at || 0));
   if (!entries.length) return { ok: false, error: "empty" };
   let tab = null; try { tab = await activeTabHere(); } catch { tab = null; }
   const title = String(msg.title || (tab && tab.title) || "Tips");
@@ -3212,12 +3223,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           }
           break;
         }
+        case "TIPS_ESTIMATE": {
+          // What one tip call costs on the provider in use, from its last 20 tip calls (null before the first).
+          // Logged rows carry providerOf()'s name, so the setting is normalised the same way.
+          const cur = await chrome.storage.local.get([CALL_LOG_KEY, "translationProvider"]);
+          const want = providerOf(cur.translationProvider || "openai");
+          const log = (cur[CALL_LOG_KEY] || []).filter((r) => providerOf(r.provider) === want);
+          sendResponse({ ok: true, each: SV_PRICING.avgCost(log, "Explain:", 20), provider: want });
+          break;
+        }
         case "VOCAB_EXPLAIN": {
           // The whole line in labeled sections (translation + structure + key
           // words) for the on-video ﹖ button. Cached per sentence forever.
           const base = String(msg.base || ""), sent = String(msg.s || "").slice(0, 700);
           if (!sent) { sendResponse({ error: "missing sentence" }); break; }
-          try { sendResponse(await explainLine(base, sent, msg.lang, { before: msg.before, after: msg.after, title: msg.title, sample: msg.sample, explain: msg.explain, fresh: !!msg.fresh, k: msg.k, n: msg.n, sentences: msg.sentences })); }
+          try { sendResponse(await explainLine(base, sent, msg.lang, { before: msg.before, after: msg.after, title: msg.title, sample: msg.sample, explain: msg.explain, fresh: !!msg.fresh, k: msg.k, n: msg.n, sentences: msg.sentences, prevScene: msg.prevScene, prevWho: msg.prevWho, known: msg.known })); }
           catch (e2) { sendResponse({ error: String((e2 && e2.message) || e2) }); }
           break;
         }

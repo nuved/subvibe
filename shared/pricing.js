@@ -38,7 +38,13 @@
     return usd;
   };
 
+  // Mean estimated cost of the last `last` successful calls whose Activity title starts with `prefix`; null when none.
+  const avgCost = (recs, prefix, last) => {
+    const hits = (recs || []).filter((r) => r && String(r.title || "").startsWith(prefix) && r.ok !== false).slice(-last);
+    return hits.length ? hits.reduce((sum, r) => sum + estCost(r), 0) / hits.length : null;
+  };
+
   g.SV_PRICING = {
-    PRICE_IN, PRICE_OUT, CLAUDE_PRICE_IN, CLAUDE_PRICE_OUT, HAIKU_PRICE_IN, HAIKU_PRICE_OUT, GEMINI_TTS_USD_PER_MIN, estCost,
+    PRICE_IN, PRICE_OUT, CLAUDE_PRICE_IN, CLAUDE_PRICE_OUT, HAIKU_PRICE_IN, HAIKU_PRICE_OUT, GEMINI_TTS_USD_PER_MIN, estCost, avgCost,
   };
 })(globalThis);
