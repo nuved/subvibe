@@ -34,7 +34,7 @@
         else if (msg && msg.type === "TRANSLATE") r = { lines: (msg.cues || []).map((s) => "EN·" + s) };
         else if (msg && msg.type === "VOCAB_ADD") { window.__vocabMsgs.push(msg); r = { ok: true, key: "de:x", card: {} }; }
         else if (msg && msg.type === "VOCAB_WORD_ENRICH") { window.__enrichS = msg.s; r = { ok: true, e: { meaning: "خیابان", cefr: "A1", pos: "noun" }, g: "زمان حال ساده" }; }
-        else if (msg && msg.type === "VOCAB_EXPLAIN") { window.__explainMsgs.push(msg); const w = String(msg.s).match(/[A-Za-z']{4,}/g) || []; r = { ok: true, tr: "TR·" + msg.s, g: "«" + msg.s + "» — a note", scene: "The singer tells the beloved they are lost without them.", who: ["the singer"], words: w.slice(0, 4).map((x) => ({ w: x.toLowerCase(), m: "what “" + x.toLowerCase() + "” means here", pos: "verb" })) }; }
+        else if (msg && msg.type === "VOCAB_EXPLAIN") { window.__explainMsgs.push(msg); const w = String(msg.s).match(/[A-Za-z']{4,}/g) || []; r = { ok: true, tr: "TR·" + msg.s, g: "«" + msg.s + "» — a note", scene: msg.prevScene ? "" : "The singer tells the beloved they are lost without them.", who: ["the singer"], /* obeys the prompt: an unchanged scene comes back empty */ words: w.slice(0, 4).map((x) => ({ w: x.toLowerCase(), m: "what “" + x.toLowerCase() + "” means here", pos: "verb" })) }; }
         else if (msg && msg.type === "TIPS_ESTIMATE") r = { ok: true, each: 0.021, provider: "openai" };
         else if (msg && msg.type === "VOCAB_CLIP_WORDS") r = (NOPOOL || SPLIT || RUNAWAY) ? { words: [], reason: "other-lang", lang: "de" } : { enriched: true, lang: "de", title: "t", dim: ["die"], words: [
           { w: "Hund", n: 1, sentence: "", st: "", meaning: "سگ" },              // enriched → tooltip shows the meaning

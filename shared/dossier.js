@@ -92,7 +92,8 @@
   // sentences joined by " "), a leading dash, [Music]-style tags, other spacing, case or end punctuation
   // are the same chunk — a chorus is explained (and paid for) once.
   function tipKey(text) {
-    return String(text || "")
+    const raw = String(text || "");
+    const k = raw
       .replace(/\[[^\]]{1,30}\]|\([A-Z ]{2,30}\)/g, " ")
       .replace(/(^|\s)(>>|&gt;&gt;|»)+\s*/g, " ")
       .replace(/(^|\n)\s*[-–—]\s+/g, "$1")
@@ -100,6 +101,7 @@
       .trim()
       .replace(/[\s.!…,;:]+$/u, "")
       .toLocaleLowerCase();
+    return k || raw.replace(/\s+/g, " ").trim().toLocaleLowerCase(); // "[Music]" or "(LAUGHS)" alone keeps its own key
   }
   // A song or a mix: nothing "happens" from chunk to chunk, so no scene line is asked for.
   function isMusic(d) { return !!(d && /^\s*(music|song|lyric|dj|mix|playlist|album|track|karaoke|concert)\b/i.test(String(d.kind || ""))); }

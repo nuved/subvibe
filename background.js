@@ -1336,6 +1336,8 @@ async function explainLine(base, sent, langHint, opts) {
   if (out.tr) { out.s = sent; out.at = started; out.explain = explainPref; cx.e[skey] = out; if (!explainPref) cx.target = target; cx.lang = lang || String(cx.lang || ""); cx.at = Date.now();
     // The call took seconds; merge what landed meanwhile (other explanations, faces, recaps, the dossier) instead of writing over it.
     const fresh = await idbVocabGet("clipexplain:" + base); if (fresh) { cx.e = Object.assign({}, fresh.e || {}, cx.e); if (fresh.dossier) cx.dossier = fresh.dossier; if (fresh.faces3) cx.faces3 = fresh.faces3; if (fresh.recaps) cx.recaps = fresh.recaps; }
+    // The passage now lives under its words' key; drop copies under the old raw-text keys so a re-explain isn't shadowed by them.
+    for (const k of ["e4" + hRaw + suf, "e3" + hRaw + suf, "e2" + hRaw + suf]) if (k !== skey) delete cx.e[k];
     await idbVocabPut("clipexplain:" + base, cx); }
   await logCall({ ts: started, site: "learn", title: "Explain: " + sent.slice(0, 40), kind: "enrich", lines: 1, ms: Date.now() - started,
     inTok: (r.usage && r.usage.prompt_tokens) || 0, outTok: (r.usage && r.usage.completion_tokens) || 0,
@@ -1485,7 +1487,7 @@ async function shareTips(msg) {
   const cx = await idbVocabGet("clipexplain:" + base);
   const byText = new Map();
   const bestRank = new Map();
-  for (const [k, e] of Object.entries((cx && cx.e) || {})) if (/^e[234]/.test(k) && e && e.s && e.tr && String(e.explain || "") === pref) { const tk = SV_DOSSIER.tipKey(e.s), r = eRank(k); if (r > (bestRank.get(tk) || 0)) { bestRank.set(tk, r); byText.set(tk, e); } }
+  for (const [k, e] of Object.entries((cx && cx.e) || {})) if (/^e[234]/.test(k) && e && e.s && e.tr && String(e.explain || "") === pref) { const tk = SV_DOSSIER.tipKey(e.s), r = eRank(k), cur = byText.get(tk); if (r > (bestRank.get(tk) || 0) || (r === bestRank.get(tk) && (e.at || 0) > ((cur && cur.at) || 0))) { bestRank.set(tk, r); byText.set(tk, e); } }
   const chunks = (Array.isArray(msg.chunks) ? msg.chunks : []).slice(0, 600).map((c) => {
     const text = String(c.text || "").replace(/\s+/g, " ").trim(); const e = byText.get(SV_DOSSIER.tipKey(text));
     return { k: c.k, startMs: +c.startMs || 0, sentences: (c.sentences || []).map((x) => ({ s: String(x.s || ""), tr: String(x.tr || "") })).filter((x) => x.s),
@@ -1508,7 +1510,7 @@ async function tipsCached(msg) {
   // One entry per passage, in the shape it was last bought in: e4, else e3, else e2.
   const all = cx && cx.e ? Object.entries(cx.e).filter(([k, e]) => /^e[234]/.test(k) && e && e.s && e.tr && String(e.explain || "") === pref) : [];
   const best = new Map();
-  for (const [k, e] of all) { const tk = SV_DOSSIER.tipKey(e.s), r = eRank(k); if (r > (best.has(tk) ? best.get(tk).r : 0)) best.set(tk, { r, e }); }
+  for (const [k, e] of all) { const tk = SV_DOSSIER.tipKey(e.s), r = eRank(k), cur = best.get(tk); if (!cur || r > cur.r || (r === cur.r && (e.at || 0) > (cur.e.at || 0))) best.set(tk, { r, e }); }
   const entries = [...best.values()].map((v) => v.e);
   return { ok: true, entries: entries.map((e) => ({ s: e.s, tr: e.tr, simple: e.simple || "", g: e.g || "", scene: e.scene || "", who: e.who || [], spk: e.spk || [], lang: e.lang || "", at: e.at || 0, words: (e.words || []).map((x) => ({ w: x.w, m: x.m, pos: x.pos || "", level: x.level || "", forms: cleanForms(x.forms), parts: x.parts || [], register: x.register || "", tone: x.tone || "", care: x.care || "" })) })), ctx: cx && cx.ctx ? cx.ctx : null, dossier: cx && cx.dossier ? cx.dossier : null };
 }
@@ -1523,7 +1525,7 @@ async function tipsSheet(msg) {
   const cx = base ? await idbVocabGet("clipexplain:" + base) : null;
   // One entry per passage (SV_DOSSIER.tipKey): an explanation carried over from its old raw-text key is not a second line.
   const byKey = new Map();
-  for (const [k, e] of Object.entries((cx && cx.e) || {})) { if (!(e && e.s && e.tr)) continue; const tk = SV_DOSSIER.tipKey(e.s), r = eRank(k), cur = byKey.get(tk); if (!cur || r > cur.r || (r === cur.r && (e.at || 0) > (cur.e.at || 0))) byKey.set(tk, { r, e }); }
+  for (const [k, e] of Object.entries((cx && cx.e) || {})) { if (!(e && e.s && e.tr)) continue; const tk = SV_DOSSIER.tipKey(e.s) + "|" + String(e.explain || ""), r = eRank(k), cur = byKey.get(tk); if (!cur || r > cur.r || (r === cur.r && (e.at || 0) > (cur.e.at || 0))) byKey.set(tk, { r, e }); }
   const entries = [...byKey.values()].map((v) => v.e).sort((a, b) => (a.at || 0) - (b.at || 0));
   if (!entries.length) return { ok: false, error: "empty" };
   let tab = null; try { tab = await activeTabHere(); } catch { tab = null; }

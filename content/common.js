@@ -2092,7 +2092,8 @@
       before: list[ch.k - 1] ? [list[ch.k - 1].text] : [], after: list[ch.k + 1] ? [list[ch.k + 1].text] : [],
       // What the board already knows, so the model says only what's new:
       // the nearest earlier scene and speakers, and the words already taught.
-      ...(() => { for (let j = ch.k - 1; j >= 0 && j >= ch.k - 6; j--) { const e = list[j] && lineExplainCache.get(list[j].text); if (e && !e.error) return { prevScene: e.scene || "", prevWho: e.who || [] }; } return { prevScene: "", prevWho: [] }; })(),
+      // An explained chunk with an empty scene said "unchanged", so look past it to the last one that named the scene.
+      ...(() => { let prevScene = "", prevWho = []; for (let j = ch.k - 1; j >= 0 && j >= ch.k - 30 && !(prevScene && prevWho.length); j--) { const e = list[j] && lineExplainCache.get(list[j].text); if (!e || e.error) continue; if (!prevScene && e.scene) prevScene = e.scene; if (!prevWho.length && (e.who || []).length) prevWho = e.who; } return { prevScene, prevWho }; })(),
       known: SV_DOSSIER.knownWords(list.slice(0, ch.k).map((c) => lineExplainCache.get(c.text)).filter(Boolean), 60),
       // The background only needs the lines while the dossier is unknown or thin —
       // sending 300 of them with every explanation was ~48 KB a call for nothing.
@@ -2689,12 +2690,13 @@
     const playFrom = (ms, stopMs) => { board.stopAt = stopMs != null ? stopMs : null; if (stopMs != null) board.loop = -1; seekTo(ms); if (board.rate && board.rate !== 1) setRate(board.rate); playNow(); };
     // The scene line and the speaker chips show once, in the row, and only when they change:
     // a chunk that says what the explained chunk above it already said stays quiet.
-    const prevExOf = (k) => { const list = board.list || []; for (let j = k - 1; j >= 0 && j >= k - 6; j--) { const e = list[j] && lineExplainCache.get(list[j].text); if (e && !e.error) return e; } return null; };
+    // The last scene / speakers named above chunk k (an empty scene from the model means "unchanged", so it is skipped).
+    const prevNamed = (k) => { const list = board.list || []; let scene = "", who = ""; for (let j = k - 1; j >= 0 && j >= k - 30 && !(scene && who); j--) { const e = list[j] && lineExplainCache.get(list[j].text); if (!e || e.error) continue; if (!scene && e.scene) scene = e.scene; if (!who && (e.who || []).length) who = e.who.join("|"); } return { scene, who }; };
     const sceneOf = (ex, k) => {
       if (!ex || ex.error) return { scene: "", who: [] };
-      const p = prevExOf(k), same = (a, b) => SV_DOSSIER.tipKey(a) === SV_DOSSIER.tipKey(b);
-      const scene = ex.scene && !(p && p.scene && same(p.scene, ex.scene)) ? ex.scene : "";
-      const who = (ex.who || []).length && !(p && same((p.who || []).join("|"), (ex.who || []).join("|"))) ? ex.who : [];
+      const p = prevNamed(k), same = (a, b) => SV_DOSSIER.tipKey(a) === SV_DOSSIER.tipKey(b);
+      const scene = ex.scene && !(p.scene && same(p.scene, ex.scene)) ? ex.scene : "";
+      const who = (ex.who || []).length && !(p.who && same(p.who, ex.who.join("|"))) ? ex.who : [];
       return { scene, who };
     };
     const rowSig = (ch, k) => [ch.text, ch.sentences.map((x) => x.tr).join("\u0002"), lineExplainCache.has(ch.text) ? 1 : 0, k === board.open ? 1 : 0, k === board.ki ? 1 : 0, k === board.open ? snapChunks : 0, board.loop === k ? 1 : 0, (lineExplainCache.get(ch.text) || {}).scene || "", ((lineExplainCache.get(ch.text) || {}).who || []).join("|"), busyHere(ch) ? 1 : 0, board.facesV, (() => { const v = sceneOf(lineExplainCache.get(ch.text), k); return v.scene + "\u0003" + v.who.join("|"); })()].join("\u0001");

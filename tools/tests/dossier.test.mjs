@@ -148,3 +148,8 @@ test("knownWords: every word already explained on this video, once, newest kept"
   assert.deepEqual(D.knownWords(ex, 2), ["fade away", "city lights"]);
   assert.deepEqual(D.knownWords([], 5), []);
 });
+
+test("tipKey: a chunk that is only a tag keeps its own key", () => {
+  assert.equal(D.tipKey("[Music]"), "[music]");
+  assert.notEqual(D.tipKey("(LAUGHS)"), D.tipKey("[Applause]"));
+});
