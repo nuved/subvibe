@@ -2074,10 +2074,10 @@
     try { chrome.storage.local.get("tipsExplain", (r) => { tipsExplain = String((r && r.tipsExplain) || ""); if (board.el) { const sel = board.el.querySelector(".svb-lang"); if (sel) sel.value = tipsExplain; seedExplained(); board.sig = ""; } }); } catch (e) {}
     // How far ahead the pump explains: "off" · "3" · "all" (the popup's "Tips ahead").
     // Read live — a change must not restart the engine, only wake the pump.
-    let tipsAhead = "3";
-    try { chrome.storage.local.get("tipsAhead", (r) => { tipsAhead = String((r && r.tipsAhead) || "3"); }); } catch (e) {}
+    let tipsAhead = "off"; // off by default: tips cost a model call per chunk, so they run only when asked
+    try { chrome.storage.local.get("tipsAhead", (r) => { tipsAhead = String((r && r.tipsAhead) || "off"); }); } catch (e) {}
     // One listener per page: a restarted engine drops the old one first, or every restart leaves a dead closure listening.
-    const onTipsAhead = (ch, area) => { if (area === "local" && ch.tipsAhead) { tipsAhead = String(ch.tipsAhead.newValue || "3"); tips.stopped = false; tips.errors = 0; tips.pausedUntil = 0; board.sig = ""; } };
+    const onTipsAhead = (ch, area) => { if (area === "local" && ch.tipsAhead) { tipsAhead = String(ch.tipsAhead.newValue || "off"); tips.stopped = false; tips.errors = 0; tips.pausedUntil = 0; board.sig = ""; } };
     try { if (window.__svTipsAheadListener) chrome.storage.onChanged.removeListener(window.__svTipsAheadListener); } catch (e) {}
     window.__svTipsAheadListener = onTipsAhead;
     try { chrome.storage.onChanged.addListener(onTipsAhead); } catch (e) {}
@@ -2619,7 +2619,7 @@
     // Subtitles on the picture: off = read them on the board (karaoke follows there).
     const applyLinesOff = () => { overlay.classList.toggle("sv-lines-off", board.linesOff && boardVisible()); const t = board.el && board.el.querySelector(".svb-lines"); if (t) { t.textContent = board.linesOff ? "Subtitles: board only" : "Subtitles: on video"; t.title = board.linesOff ? "The subtitles are hidden on the picture — read them here. Click to show them on the video again." : "The subtitles are shown on the picture. Click to hide them there and read them here only (the spoken words light up on the board)."; t.classList.toggle("off", board.linesOff); } };
     const ensureBoard = () => {
-      if (settings.storyBoard === false) { if (board.el) { try { board.el.remove(); } catch (e) {} board.el = null; } return null; } // switched off in the popup
+      if (settings.storyBoard === false) { if (board.el) { fitPlayer(false); try { board.el.remove(); } catch (e) {} board.el = null; } return null; } // switched off (popup, or × on the board)
       if (board.el && board.el.isConnected) return board.el;
       if (!adapter) return null;
       // YouTube has a side column to dock into; other players fill the window,
@@ -2634,7 +2634,10 @@
       const toggle = mk("button", "svb-toggle", board.collapsed ? "Show" : "Hide"); toggle.type = "button";
       toggle.addEventListener("click", () => { setBoardCollapsed(!board.collapsed); applyLinesOff(); if (b.classList.contains("drawer")) fitPlayer(!board.collapsed && !document.fullscreenElement); });
       const title = mk("span", "svb-title"); title.appendChild(mk("b", null, "Story board")); title.appendChild(mk("i", "svb-ctx", board.ctx ? ctxLine(board.ctx) : ""));
-      head.append(mk("span", "svb-logo", "S"), title, mk("span", "svb-count", ""), toggle);
+      // × turns the board off everywhere (the same switch as the popup's "Story board beside the video").
+      const close = mk("button", "svb-close", "×"); close.type = "button"; close.title = "Turn the story board off on every video. Turn it back on in the SubVibe popup: Story board beside the video";
+      close.addEventListener("click", (ev) => { ev.stopPropagation(); settings.storyBoard = false; ensureBoard(); try { chrome.storage.local.set({ storyBoard: false }); } catch (e) {} });
+      head.append(mk("span", "svb-logo", "S"), title, mk("span", "svb-count", ""), toggle, close);
       const tools = mk("div", "svb-tools");
       const lines = mk("button", "svb-lines", ""); lines.type = "button";
       lines.addEventListener("click", () => { board.linesOff = !board.linesOff; try { localStorage.setItem("sv-lines-off", board.linesOff ? "1" : ""); } catch (e) {} applyLinesOff(); });
