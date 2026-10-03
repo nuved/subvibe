@@ -1,0 +1,40 @@
+{
+  "order": [
+    "board-close",
+    "tips-cost",
+    "scene-twice",
+    "scene-every-chunk",
+    "chorus",
+    "words-again",
+    "speaker-flip",
+    "tips-first",
+    "board-feel",
+    "onvideo-colours",
+    "live-lag",
+    "film-mode",
+    "wizard-key",
+    "bridge-store",
+    "release"
+  ],
+  "prio": {
+    "board-close": "now",
+    "tips-cost": "now",
+    "scene-twice": "now",
+    "scene-every-chunk": "now",
+    "chorus": "now",
+    "words-again": "now",
+    "speaker-flip": "now",
+    "tips-first": "next",
+    "board-feel": "next",
+    "onvideo-colours": "next",
+    "live-lag": "next",
+    "film-mode": "later",
+    "wizard-key": "later",
+    "bridge-store": "now",
+    "release": "next"
+  },
+  "notes": {
+    "board-close": "not only youtube but also even udemy or other paltforms"
+  },
+  "updatedAt": "2026-10-03T12:50:21.561Z"
+}

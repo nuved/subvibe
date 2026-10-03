@@ -1,0 +1,40 @@
+# Publishes the fix-list server on this Mac (192.168.127.1:4317, tools/fixlist/serve.mjs with HOST=192.168.127.1)
+# at https://novid-subvibefixes.fromnovid.com through the home cluster's tunnel agent. Login is the tunnel's
+# default `access` mode (Cloudflare Access), see mansoor-tunnel deploy/k8s/README.md. Apply:
+#   KUBECONFIG=~/.kube/mansoor-proxy kubectl apply -f tools/fixlist/tunnel.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: subvibefixes
+  namespace: nuvedlocal-default
+  labels:
+    app.kubernetes.io/name: subvibefixes
+  annotations:
+    tunnel.nuved.io/expose: subvibefixes
+    tunnel.nuved.io/hostname: novid-subvibefixes
+    tunnel.nuved.io/port: "4317"
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 4317
+    protocol: TCP
+    targetPort: 4317
+---
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: subvibefixes-mac
+  namespace: nuvedlocal-default
+  labels:
+    kubernetes.io/service-name: subvibefixes
+addressType: IPv4
+endpoints:
+- addresses:
+  - 192.168.127.1
+  conditions:
+    ready: true
+ports:
+- name: http
+  port: 4317
+  protocol: TCP
