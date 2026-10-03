@@ -34,6 +34,7 @@
       R.scenes = [...board.querySelectorAll(".svb-scene-txt")].map((e) => e.textContent);
       R.checks.sceneOnce = R.scenes.length === 1;
       R.checks.paneNoScene = ![...board.querySelectorAll(".svb-pane .wt-lbl")].some((e) => /What's happening/.test(e.textContent));
+      if (new URLSearchParams(location.search).get("keep")) { const bad = Object.entries(R.checks).filter(([, v]) => !v).map(([k]) => k); return done(!bad.length, "kept " + (bad.join(",") || "ok")); } // screenshot mode: leave the board open
       const close = board.querySelector(".svb-close");
       R.checks.closeThere = !!close;
       close.click();

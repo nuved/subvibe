@@ -2629,7 +2629,7 @@
       board.sig = "";
     };
     // Subtitles on the picture: off = read them on the board (karaoke follows there).
-    const applyLinesOff = () => { overlay.classList.toggle("sv-lines-off", board.linesOff && boardVisible()); const t = board.el && board.el.querySelector(".svb-lines"); if (t) { t.textContent = board.linesOff ? "Subtitles: board only" : "Subtitles: on video"; t.title = board.linesOff ? "The subtitles are hidden on the picture — read them here. Click to show them on the video again." : "The subtitles are shown on the picture. Click to hide them there and read them here only (the spoken words light up on the board)."; t.classList.toggle("off", board.linesOff); } };
+    const applyLinesOff = () => { overlay.classList.toggle("sv-lines-off", board.linesOff && boardVisible()); if (board.el) board.el.classList.toggle("lines-off", !!board.linesOff); /* the board repeats the translation only when the video doesn't show it */ const t = board.el && board.el.querySelector(".svb-lines"); if (t) { t.textContent = board.linesOff ? "Subtitles: board only" : "Subtitles: on video"; t.title = board.linesOff ? "The subtitles are hidden on the picture — read them here. Click to show them on the video again." : "The subtitles are shown on the picture. Click to hide them there and read them here only (the spoken words light up on the board)."; t.classList.toggle("off", board.linesOff); } };
     const ensureBoard = () => {
       if (settings.storyBoard === false) { if (board.el) { fitPlayer(false); try { board.el.remove(); } catch (e) {} board.el = null; } return null; } // switched off (popup, or × on the board)
       if (board.el && board.el.isConnected) return board.el;
@@ -2705,16 +2705,24 @@
       time.addEventListener("click", (ev) => { ev.stopPropagation(); playFrom(ch.startMs); });
       const main = mk("div", "svb-main");
       const ex = lineExplainCache.get(ch.text);
+      const exTop = ex && !ex.error ? Object.assign({}, ex, { words: (ex.words || []).filter((w) => w && w.w).slice(0, 3) }) : ex; // the board teaches 3 words a chunk
       ch.sentences.forEach((x, i) => {
         const r = mk("div", "svb-sent");
         const num = mk("button", "svb-sn", String(i + 1)); num.type = "button"; num.title = "Hear this sentence (stops at its end)"; num.addEventListener("click", (ev) => { ev.stopPropagation(); playFrom(x.startMs != null ? x.startMs : ch.startMs, x.endMs); });
         r.appendChild(num);
         // The playing chunk reads like the subtitle: its words light up as they are spoken.
         const units = on && settings.karaokeHl !== false && x.cue ? lineUnits(x.cue, null, x.s) : null;
-        r.appendChild(renderSentence(x, ex, units)); main.appendChild(r);
+        r.appendChild(renderSentence(x, exTop, units)); main.appendChild(r);
         if (x.tr) { const tr = mk("div", "svb-tr", x.tr); tr.dir = dirOf(tgCode()); main.appendChild(tr); }
       });
       const aside = mk("div", "svb-aside"); // the third column: ✓ tips or Explain — never over the text
+      // Tips first: the chunk's most learnable words sit right under it, each with its note — the
+      // translation is already on the video. Only these words are marked in the line (one accent, no numbers).
+      if (exTop && !exTop.error && exTop.words.length) {
+        const notes = mk("div", "svb-notes");
+        for (const w of exTop.words) { const n = mk("div", "svb-note"); n.appendChild(mk("b", null, w.w)); if (w.m) { const m = mk("span", null, w.m); m.dir = explainDir(ex); n.appendChild(m); } notes.appendChild(n); }
+        main.appendChild(notes);
+      }
       const shown = sceneOf(ex, k);
       if (shown.scene || shown.who.length) { // one line about the scene, and who is in it — only when it changed
         const sc = mk("div", "svb-scene");

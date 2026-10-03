@@ -722,3 +722,17 @@
 #sv-strip[data-open="now"] .svs-qt { font-size: 16.5px; }
 #sv-strip[data-open="now"] .svs-q.next .svs-qt { font-size: 14px; }
 #sv-strip[data-open="now"] .svs-q.now .svs-qa { width: 40px; height: 40px; line-height: 40px; }
+
+/* ── Tips first (2026-10-03): the board teaches, the video translates ─────────────────────────────
+   The translation under each line shows only when the subtitles are off the picture ("board only").
+   Tipped words get one accent underline (no word-class colours, no footnote numbers) and their notes
+   sit right under the chunk. Timestamps and line numbers step back. */
+#sv-board:not(.lines-off) .svb-chunk .svb-tr { display: none; }
+#sv-board .svb-chunk .svb-main .svb-w[class*="pos-"] { color: inherit; text-decoration: underline solid #C93F2B; text-decoration-thickness: 2px; text-underline-offset: 4px; }
+#sv-board .svb-chunk .svb-main .svb-n { display: none; }
+#sv-board .svb-notes { display: grid; gap: 3px; margin: 6px 0 2px 22px; } /* under the text, past the 16px number + 6px gap */
+#sv-board .svb-note { font: 13px/1.4 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: #5B5348; }
+#sv-board .svb-note b { color: #C93F2B; font-weight: 700; margin-inline-end: 6px; }
+#sv-board .svb-time { font-weight: 500; color: #A39684; }
+#sv-board .svb-sn { opacity: .55; }
+
