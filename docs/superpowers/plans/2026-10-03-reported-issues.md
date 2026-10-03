@@ -17,6 +17,7 @@
 - Lab browser: playwright's Chrome for Testing with `--load-extension`, never the operator's installed Brave/Chrome, never their tabs on 9222.
 - UI copy follows the writing voice in ~/.claude/CLAUDE.md; teach words through the original's own words, no translation glosses on the board.
 - Test command: `node --test tools/tests/*.test.mjs` (276 passing at 0d58bba).
+- Agent-readiness review 2026-10-03 (separate reader agent): Tasks 0 and 2 ready as written; Tasks 1, 3, 4, 5 corrected in place from its findings.
 
 ## Reported issues → where each is handled
 
@@ -82,6 +83,9 @@ test("tipKey: speaker marks, case, spacing and end punctuation don't make a new 
   assert.notEqual(k("I'm lost without you tonight."), k("I'm lost without you."));
   assert.equal(k(""), "");
   assert.equal(k("Ça va? — Oui."), k("ça va? — oui"));
+  // ch.text is the chunk's sentences joined by " " (content/common.js:2055), so a mark can sit mid-chunk
+  assert.equal(k(">> Stay with me. >> I'm lost without you."), k("Stay with me. I'm lost without you"));
+  assert.equal(k("&gt;&gt; Stay with me."), k("Stay with me"));
 });
 ```
 
@@ -95,7 +99,8 @@ test("tipKey: speaker marks, case, spacing and end punctuation don't make a new 
   // are the same chunk — a chorus is explained (and paid for) once.
   const tipKey = (text) => String(text || "")
     .replace(/\[[^\]]{1,30}\]|\([A-Z ]{2,30}\)/g, " ")
-    .replace(/(^|\n)\s*(>>|[-–—])\s*/g, "$1")
+    .replace(/(^|\s)(>>|&gt;&gt;|»)+\s*/g, " ")   // speaker marks anywhere (the board shows ">>" mid-chunk on the 2026-10-03 mix)
+    .replace(/(^|\n)\s*[-–—]\s+/g, "$1")          // a leading dialogue dash
     .replace(/\s+/g, " ")
     .trim()
     .replace(/[\s.!…,;:]+$/u, "")
@@ -125,7 +130,7 @@ with
     })();
 ```
 
-In `explainChunk` (common.js ~2117) key `chunkFetching` the same way so two near-identical chunks in flight share one request: replace every `chunkFetching.has(ch.text)`, `.set(ch.text`, `.get(ch.text)`, `.delete(ch.text)` inside `explainChunk` with `tk` where `const tk = SV_DOSSIER.tipKey(ch.text);` is declared at its top.
+Only inside `explainChunk` (common.js ~2117; other `chunkFetching` uses at 2105 `.clear()` stay as they are) key `chunkFetching` the same way so two near-identical chunks in flight share one request: replace every `chunkFetching.has(ch.text)`, `.set(ch.text`, `.get(ch.text)`, `.delete(ch.text)` inside `explainChunk` with `tk` where `const tk = SV_DOSSIER.tipKey(ch.text);` is declared at its top.
 
 - [ ] **Step 6: Background side.** In `explainLine` (background.js ~1288) hash `SV_DOSSIER.tipKey(sent)` instead of `sent`, and add the raw-text hash to the fallback loop so tips bought before this change are still served:
 
@@ -136,10 +141,12 @@ In `explainChunk` (common.js ~2117) key `chunkFetching` the same way so two near
   const suf = explainPref ? "|" + explainPref : "";
   const skey = "e4" + h + suf;
   // ...
-  for (const k of ["e4" + hRaw + suf, "e3" + hRaw + suf, "e2" + hRaw + suf]) { if (!(cx.e[skey] && cx.e[skey].tr) && cx.e[k] && cx.e[k].tr && !o.fresh) cx.e[skey] = Object.assign({}, cx.e[k], /* keep the existing who/explain defaults from the old loop */); }
+  for (const k of ["e4" + hRaw + suf, "e3" + hRaw + suf, "e2" + hRaw + suf]) { if (!(cx.e[skey] && cx.e[skey].tr) && cx.e[k] && cx.e[k].tr && !o.fresh) cx.e[skey] = Object.assign({}, cx.e[k], { explain: explainPref, who: cx.e[k].who || [] }); }
 ```
 
-Keep the body of the existing e3/e2 loop's `Object.assign` defaults exactly as they are; only the list of keys changes. Remove the old `let h` loop it replaces.
+This replaces the old `let h` hash loop and the `for (const old of ["e3", "e2"])` loop at background.js:1303.
+
+- [ ] **Step 6b: Readers of the stored record.** The share page and Study look explanations up by text (background.js ~1480 `byText` and ~1503 `best`). Key both maps by `SV_DOSSIER.tipKey(e.s)` and look up with `SV_DOSSIER.tipKey(text)`, so a repeated chorus chunk finds the tips bought under its first spelling. The `/^e[234]/` filters stay as they are (the prefix is still `e4`).
 
 - [ ] **Step 7: Run all tests** — `node --test tools/tests/*.test.mjs` → all pass; `node --check content/common.js background.js`.
 
@@ -259,7 +266,9 @@ test("knownWords: every word already explained on this video, once, newest kept"
 
 These go in the user message only; the system prompt (dossier prefix) stays byte-stable so prompt caching keeps working.
 
-- [ ] **Step 7: Prompt.** In `explainPrompt`, append to the `who` line: ` When "prevWho" names the same person, reuse that exact name.` Append to the `words` line: ` Skip any word or phrase listed in "known" (already taught on this video); if that leaves fewer than 3, return fewer.` Update the user-message description at the top of the prompt to list the new optional keys: `{"s":…,"before":[…],"after":[…],"prevScene":"…","prevWho":[…],"known":[…]}` — "context only, never explain them".
+- [ ] **Step 6b: Pass the fields through.** The `VOCAB_EXPLAIN` handler (background.js ~3220) builds `explainLine`'s options field by field; add `prevScene: msg.prevScene, prevWho: msg.prevWho, known: msg.known` to that object, or the new fields never reach the prompt.
+
+- [ ] **Step 7: Prompt.** In `explainPrompt`, append to the end of the template line that starts with `` `- who: `` (search for it; don't trust line numbers): ` When "prevWho" names the same person, reuse that exact name.` Append to the end of the line that starts with `` `- words: ``: ` Skip any word or phrase listed in "known" (already taught on this video); if that leaves fewer than 3, return fewer.` Update the user-message description at the top of the prompt to list the new optional keys: `{"s":…,"before":[…],"after":[…],"prevScene":"…","prevWho":[…],"known":[…]}` — "context only, never explain them".
 
 - [ ] **Step 8: Check the saving is real.** In the lab, explain the same 10 chunks of a song twice: once on main before this task (Activity log: note `outTok` per `Explain:` row), once after. Record both medians in the commit message. Expected: output tokens fall; if they don't, say so in the commit and keep the change only if the tips still read well.
 
@@ -284,7 +293,7 @@ git commit -m "Each tip call carries the previous scene, the speaker names and t
       const sceneNew = ex && ex.scene && !(prevEx && SV_DOSSIER.tipKey(prevEx.scene) === SV_DOSSIER.tipKey(ex.scene));
 ```
 
-and use `sceneNew` instead of `ex.scene` in the condition and the text node. The `who` chips follow the same rule: hidden when `prevEx.who` lists the same names. Add `sceneNew ? 1 : 0` to `rowSig` so the row re-renders when its neighbour's tips arrive.
+and use `sceneNew` instead of `ex.scene` in the condition and the text node. The `who` chips follow the same rule: hidden when `prevEx.who` lists the same names. `rowSig` (content/common.js:2678, one long line) already lists the row's own scene and who; add `sceneNew` as one more array element, computed with the same `prevEx` lookup inside `rowSig`, so the row re-renders when its neighbour's tips arrive.
 - [ ] **Step 4: Lab check** on a song and on a Netflix episode: no chunk shows the same scene line as the one above it; the pane has no "What's happening"; the ﹖ card on the video still does. Screenshot both into the commit's PR notes.
 - [ ] **Step 5: Run all tests, commit**
 
@@ -333,7 +342,9 @@ test("avgCost: mean of the last N matching calls, null when there are none", () 
 ```js
         case "TIPS_ESTIMATE": {
           const cur = await chrome.storage.local.get([CALL_LOG_KEY, "translationProvider"]);
-          const log = (cur[CALL_LOG_KEY] || []).filter((r) => r.provider === (cur.translationProvider || "openai"));
+          // Logged rows carry providerOf()'s name (background.js:861), which can differ from the popup's setting — normalise both the same way.
+          const want = providerOf(cur.translationProvider || "openai");
+          const log = (cur[CALL_LOG_KEY] || []).filter((r) => providerOf(r.provider) === want);
           const each = SV_PRICING.avgCost(log, "Explain:", 20);
           sendResponse({ ok: true, usd: each == null ? null : each * Math.max(0, msg.n | 0), provider: cur.translationProvider || "openai" });
           break;
@@ -374,7 +385,7 @@ Acceptance: screenshot loop on YouTube (song + talk) and Netflix; critique score
 ## Phase 3 — Live Translate sync (own plan: `2026-10-xx-live-sync.md`)
 
 Answers the store review (2026-10-01). Gemini 3.5 Live Translate runs ~2.9 s behind by design (no newer translate model as of the 2026-09-22 changelog), so the fix is ours:
-- A "Sync" control in the Live panel: delays the original tab audio we play under the translation (`offscreen-live.js:282`, a `DelayNode` in the passthrough) by 0–5 s, default "auto" = the measured lag (time from a speech chunk sent to its first translated audio, median of the session).
+- A "Sync" control in the Live panel: delays the original tab audio we play under the translation (add a `DelayNode` between `pSrc` and `pGain` in the passthrough built at `offscreen-live.js` ~282; there is none yet) by 0–5 s, default "auto" = the measured lag (time from a speech chunk sent to its first translated audio, median of the session).
 - Optional "hold the picture": when the translated queue runs more than N s behind, pause the video for the difference at the next sentence gap; off by default.
 - Acceptance: on a talk with clear sentences, the measured lag shows in the panel and the translated voice lines up with the original audio within ±300 ms after 30 s.
 - Then reply to the review from the store dashboard (operator's account): what changed, which version.
