@@ -2708,7 +2708,55 @@
       const who = (ex.who || []).length && !(p.who && same(p.who, ex.who.join("|"))) ? ex.who : [];
       return { scene, who };
     };
-    const rowSig = (ch, k) => [ch.text, ch.sentences.map((x) => x.tr).join("\u0002"), lineExplainCache.has(ch.text) ? 1 : 0, k === board.open ? 1 : 0, k === board.ki ? 1 : 0, k === board.open ? snapChunks : 0, board.loop === k ? 1 : 0, (lineExplainCache.get(ch.text) || {}).scene || "", ((lineExplainCache.get(ch.text) || {}).who || []).join("|"), busyHere(ch) ? 1 : 0, board.facesV, (() => { const v = sceneOf(lineExplainCache.get(ch.text), k); return v.scene + "\u0003" + v.who.join("|"); })()].join("\u0001");
+    const rowSig = (ch, k) => [ch.text, ch.sentences.map((x) => x.tr).join("\u0002"), lineExplainCache.has(ch.text) ? 1 : 0, k === board.open ? 1 : 0, k === board.ki ? 1 : 0, k === board.open ? snapChunks : 0, board.loop === k ? 1 : 0, (lineExplainCache.get(ch.text) || {}).scene || "", ((lineExplainCache.get(ch.text) || {}).who || []).join("|"), busyHere(ch) ? 1 : 0, board.facesV, board.linesOff ? 1 : 0, vocabPool ? vocabPool.size : 0, (() => { const v = sceneOf(lineExplainCache.get(ch.text), k); return v.scene + "\u0003" + v.who.join("|"); })()].join("\u0001");
+    // While the video shows the subtitles, a row does not repeat them. It shows the chunk's
+    // words worth learning, each inside a few words of its own sentence: the tips' three once
+    // explained, else the clip's ranked words (the vocab pool, free). A click plays that sentence.
+    let poolRank = null, poolRankOf = null;
+    const rankOf = (lw) => { if (poolRankOf !== vocabPool) { poolRankOf = vocabPool; poolRank = new Map([...(vocabPool || new Map()).keys()].map((w, i) => [w, i])); } return poolRank.get(lw); };
+    const chunkWords = (ch, ex) => {
+      if (ex && !ex.error && ex.words.length) return ex.words.map((w) => ({ w: w.w, parts: w.parts, pos: w.pos, level: w.level || "", m: w.m || "" }));
+      if (!vocabPool) return [];
+      const seen = new Set(), out = [];
+      for (const x of ch.sentences) for (const tok of String(x.s || "").split(/\s+/)) {
+        const lw = normTok(tok); if (!lw || seen.has(lw) || (dimSet && dimSet.has(lw)) || !vocabPool.has(lw)) continue;
+        seen.add(lw); const e = vocabPool.get(lw);
+        out.push({ w: tok.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ""), level: e.cefr && e.cefr !== "?" ? e.cefr : "", rank: rankOf(lw) });
+      }
+      return out.sort((a, b) => a.rank - b.rank).slice(0, 3);
+    };
+    // The sentence holding a word, and the word with up to 4 neighbours on each side.
+    const wordInContext = (ch, w) => {
+      const parts = (Array.isArray(w.parts) && w.parts.length ? w.parts : String(w.w || "").split(" ")).map(normTok).filter(Boolean);
+      for (const x of ch.sentences) {
+        const toks = String(x.s || "").split(/\s+/).filter(Boolean), norm = toks.map(normTok);
+        const i = norm.indexOf(parts[0]); if (i < 0) continue;
+        let j = i; for (const p of parts.slice(1)) { const n = norm.indexOf(p, j + 1); if (n > j && n - j <= 4) j = n; }
+        return { x, before: toks.slice(Math.max(0, i - 4), i), hit: toks.slice(i, j + 1), after: toks.slice(j + 1, j + 5), cutL: i > 4, cutR: j + 5 < toks.length };
+      }
+      return null;
+    };
+    const wordLines = (ch, ex) => {
+      const box = mk("div", "svb-words"), words = chunkWords(ch, ex);
+      for (const w of words) {
+        const c = wordInContext(ch, w);
+        const line = mk("button", "svb-word"); line.type = "button"; line.title = "Hear it in its sentence";
+        const head = mk("span", "svb-wh"); head.appendChild(mk("b", "pos-" + (POS_CLASS[String(w.pos || "").toLowerCase()] || "o"), w.w));
+        if (w.level) head.appendChild(mk("i", "svb-lvl", w.level));
+        line.appendChild(head);
+        if (c) {
+          const ctx = mk("span", "svb-ctx"); ctx.dir = "auto";
+          ctx.append((c.cutL ? "…" : "") + c.before.join(" ") + (c.before.length ? " " : ""), mk("mark", null, c.hit.join(" ")), (c.after.length ? " " : "") + c.after.join(" ") + (c.cutR ? "…" : ""));
+          line.appendChild(ctx);
+          line.addEventListener("click", (ev) => { ev.stopPropagation(); playFrom(c.x.startMs != null ? c.x.startMs : ch.startMs, c.x.endMs); });
+        }
+        if (w.m) { const m = mk("span", "svb-wm", w.m); m.dir = fitDir(w.m, explainDir(ex)); line.appendChild(m); }
+        box.appendChild(line);
+      }
+      // Nothing to learn picked yet: one quiet line, so the row still says where it is.
+      if (!words.length) { const g = mk("div", "svb-gist", (ch.sentences[0] && ch.sentences[0].s) || ch.text); g.dir = "auto"; box.appendChild(g); }
+      return box;
+    };
     const boardRow = (ch, k) => {
       const on = k === board.ki;
       const row = mk("div", "svb-chunk" + (on ? " on" : "") + (k === board.open ? " open" : "")); row.dataset.k = String(k); row.dataset.sig = rowSig(ch, k);
@@ -2717,7 +2765,8 @@
       const main = mk("div", "svb-main");
       const ex = lineExplainCache.get(ch.text);
       const exTop = ex && !ex.error ? Object.assign({}, ex, { words: (ex.words || []).filter((w) => w && w.w).slice(0, 3) }) : ex; // the board teaches 3 words a chunk
-      ch.sentences.forEach((x, i) => {
+      if (!board.linesOff) main.appendChild(wordLines(ch, exTop));
+      else ch.sentences.forEach((x, i) => {
         const r = mk("div", "svb-sent");
         const num = mk("button", "svb-sn", String(i + 1)); num.type = "button"; num.title = "Hear this sentence (stops at its end)"; num.addEventListener("click", (ev) => { ev.stopPropagation(); playFrom(x.startMs != null ? x.startMs : ch.startMs, x.endMs); });
         r.appendChild(num);
@@ -2729,7 +2778,7 @@
       const aside = mk("div", "svb-aside"); // the third column: ✓ tips or Explain — never over the text
       // Tips first: the chunk's most learnable words sit right under it, each with its note — the
       // translation is already on the video. Only these words are marked in the line (one accent, no numbers).
-      if (exTop && !exTop.error && exTop.words.length) {
+      if (board.linesOff && exTop && !exTop.error && exTop.words.length) {
         const notes = mk("div", "svb-notes");
         for (const w of exTop.words) { const n = mk("div", "svb-note"); n.appendChild(mk("b", null, w.w)); if (w.m) { const m = mk("span", null, w.m); m.dir = fitDir(w.m, explainDir(ex)); n.appendChild(m); } notes.appendChild(n); }
         main.appendChild(notes);
@@ -3079,7 +3128,7 @@
       if (ki >= 0 && ki !== board.ki && (!board.pinnedAt || now - board.pinnedAt > 20000)) { board.open = ki; board.pinnedAt = 0; }
       const trN = list.reduce((n, ch) => n + ch.sentences.filter((x) => x.tr).length, 0);
       const exN = list.filter((ch) => lineExplainCache.has(ch.text)).length;
-      const sig = [list.length, trN, ki, exN, board.open, snapChunks, tipsExplain, tips.inflight.size, tips.stopped ? 1 : 0, tips.all ? 1 : 0].join(":");
+      const sig = [list.length, trN, ki, exN, board.open, snapChunks, tipsExplain, tips.inflight.size, tips.stopped ? 1 : 0, tips.all ? 1 : 0, board.linesOff ? 1 : 0, vocabPool ? vocabPool.size : 0].join(":");
       if (sig === board.sig) { renderPane(); renderStrip(); renderPump(); return; }
       const follow = ki !== board.ki;
       if (follow && ki >= 0) { clearTimeout(cam.timer); const dur = list[ki] ? list[ki].endMs - list[ki].startMs : 0; cam.timer = setTimeout(() => { if (board.ki === ki) snapChunkFrame(ki); }, Math.min(1200, Math.max(250, dur / 2))); } // a second in, or halfway through a short chunk
