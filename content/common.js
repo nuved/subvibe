@@ -2729,20 +2729,21 @@
       }
       return null;
     };
-    const wordLines = (ch, ex) => {
+    const wordLines = (ch, ex, on) => {
       const box = mk("div", "svb-words"), words = chunkWords(ch, ex);
       // One block per sentence that holds a word: the sentence once, its words marked in it, their notes under it.
       const groups = new Map();
       for (const w of words) { const c = wordInContext(ch, w); const key = c ? c.x : null; if (!groups.has(key)) groups.set(key, { c, ws: [] }); groups.get(key).ws.push({ w, c }); }
       let order = [...groups.values()].sort((a, b) => (a.c ? ch.sentences.indexOf(a.c.x) : 99) - (b.c ? ch.sentences.indexOf(b.c.x) : 99));
       const explained = !!(ex && !ex.error && ex.words.length);
-      if (!explained) order = order.filter((g) => g === groups.values().next().value); // free words: only the best word's sentence, so the row stays short
+      if (on) order = ch.sentences.map((x) => groups.get(x) || { c: { x, before: [], hit: [], after: [] }, ws: [] }).concat(groups.has(null) ? [groups.get(null)] : []); // the playing chunk keeps pace with the video: every sentence, the spoken one lit
+      else if (!explained) order = order.filter((g) => g === groups.values().next().value); // free words: only the best word's sentence, so the row stays short
       for (const g of order) {
         const blk = mk("div", "svb-wblock");
         if (g.c) {
           const x = g.c.x, toks = String(x.s || "").split(/\s+/).filter(Boolean), hit = new Set();
           for (const { c } of g.ws) if (c) for (let n = c.before.length; n < c.before.length + c.hit.length; n++) hit.add(n);
-          const sent = mk("button", "svb-wsent"); sent.type = "button"; sent.title = "Hear this sentence"; sent.dir = "auto";
+          const sent = mk("button", "svb-wsent"); sent.type = "button"; sent.title = "Hear this sentence"; sent.dir = "auto"; sent.dataset.s = String(x.startMs != null ? x.startMs : ch.startMs);
           toks.forEach((t, n) => { if (n) sent.appendChild(document.createTextNode(" ")); sent.appendChild(hit.has(n) ? mk("mark", null, t) : document.createTextNode(t)); });
           sent.addEventListener("click", (ev) => { ev.stopPropagation(); playFrom(x.startMs != null ? x.startMs : ch.startMs, x.endMs); });
           blk.appendChild(sent);
@@ -2768,7 +2769,7 @@
       const main = mk("div", "svb-main");
       const ex = lineExplainCache.get(ch.text);
       const exTop = ex && !ex.error ? Object.assign({}, ex, { words: (ex.words || []).filter((w) => w && w.w).slice(0, 3) }) : ex; // the board teaches 3 words a chunk
-      if (!board.linesOff) main.appendChild(wordLines(ch, exTop));
+      if (!board.linesOff) main.appendChild(wordLines(ch, exTop, on));
       else ch.sentences.forEach((x, i) => {
         const r = mk("div", "svb-sent");
         const num = mk("button", "svb-sn", String(i + 1)); num.type = "button"; num.title = "Hear this sentence (stops at its end)"; num.addEventListener("click", (ev) => { ev.stopPropagation(); playFrom(x.startMs != null ? x.startMs : ch.startMs, x.endMs); });
@@ -2849,6 +2850,9 @@
       // One pill only: the word being spoken in the live sentence. Finished sentences keep their colour, not the pill.
       for (const el of txts) { const W = el.__svW; if (!W) continue; for (let j = 0; j < W.spans.length; j++) W.spans[j].classList.toggle("now", el === live && j === W.k - 1); }
       for (const s of row.querySelectorAll(".svb-sent")) s.classList.toggle("live", !!live && s.contains(live));
+      // Words mode: the sentence under the playhead is the lit one (the last that has started).
+      const ws = row.querySelectorAll(".svb-wsent"); let lit = null; for (const s of ws) if (+s.dataset.s <= t) lit = s;
+      for (const s of ws) s.classList.toggle("live", s === lit);
     };
     const boardScrollTo = (k, smooth) => {
       const listEl = board.el && board.el.querySelector(".svb-list"); const row = listEl && listEl.querySelector('.svb-chunk[data-k="' + k + '"]');

@@ -795,3 +795,6 @@
 #sv-strip .svs-people.words > .svs-lbl { flex-basis: 100%; }
 #sv-strip .svs-now > .svs-faces.solo { display: none; }
 #sv-strip .svs-now:has(> .svs-faces.solo) { grid-template-columns: minmax(0,1fr) 0 0; column-gap: 0; }
+/* The playing chunk in words mode: every sentence, the one being spoken lit, the others quiet. */
+#sv-board .svb-chunk.on .svb-wsent { color: var(--sv-faint); }
+#sv-board .svb-chunk.on .svb-wsent.live { color: var(--sv-ink); font-size: 14.5px; }
