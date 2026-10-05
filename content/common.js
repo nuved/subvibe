@@ -59,6 +59,15 @@
   // still flow RTL. CSS `unicode-bidi: isolate` then renders the Latin run correctly.
   const RTL_LANGS = new Set(["fa", "ar", "he", "ur", "ps", "ug", "sd", "yi", "dv"]);
   const isRTLLang = (c) => RTL_LANGS.has((c || "").split("-")[0]);
+  // A paragraph's direction from its words, so "Doug به Dom می‌گوید…" reads right to left even when
+  // the language code is missing ("auto" would follow the first letter, the Latin name). RTL wins when
+  // its words are at least as many as the Latin ones, or when the language says RTL and any RTL word is there.
+  const fitDir = (s, d) => {
+    const rtl = (String(s || "").match(/[֐-ࣿיִ-﷿ﹰ-ﻼ]+/g) || []).length;
+    const ltr = (String(s || "").match(/[A-Za-zÀ-ɏͰ-ӿ]+/g) || []).length;
+    if (!rtl) return ltr && d === "rtl" ? "ltr" : d || "auto";
+    return d === "rtl" || rtl >= ltr ? "rtl" : "ltr";
+  };
   let lastCacheBase = null; // cache key prefix of the clip now playing (for "clear this video")
 
   // When the extension is reloaded/updated, content scripts already running in
@@ -1893,7 +1902,7 @@
       }
       const mean = document.createElement("div");
       mean.className = "wt-mean";
-      mean.dir = "auto";
+      mean.dir = fitDir(content.meaning, "auto");
       mean.textContent = content.meaning || "…";
       wtip.appendChild(mean);
       if (content.phrase) {
@@ -1905,7 +1914,7 @@
       if (content.gram) { // the sentence's grammar note, from the same call
         const g = document.createElement("div");
         g.className = "wt-gram";
-        g.dir = "auto";
+        g.dir = fitDir(content.gram, "auto");
         g.textContent = content.gram;
         wtip.appendChild(g);
       }
@@ -2268,9 +2277,9 @@
       const cls = POS_CLASS[String(w.pos || "").toLowerCase()] || "o";
       const head = mk("div", "svb-wtip-h"); head.appendChild(mk("i", "wt-n", String(k))); const term = mk("b", "pos-" + cls, w.w); term.dir = "auto"; head.appendChild(term);
       const kind = kindOf(w); if (kind) head.appendChild(mk("span", "svb-wtip-kind" + (/slang|vulgar/.test(kind) ? " hot" : ""), kind)); wtipEl.appendChild(head);
-      if (w.m) { const m = mk("div", "svb-wtip-m", w.m); m.dir = "auto"; wtipEl.appendChild(m); }
+      if (w.m) { const m = mk("div", "svb-wtip-m", w.m); m.dir = fitDir(w.m, "auto"); wtipEl.appendChild(m); }
       const forms = String(w.forms || "").trim(); if (forms && !/^[\s\-–—·.,_/]*$/.test(forms)) { const f = mk("div", "svb-wtip-f", forms); f.dir = "ltr"; wtipEl.appendChild(f); }
-      if (w.care) { const c = mk("div", "svb-wtip-c", "⚠ " + w.care); c.dir = "auto"; wtipEl.appendChild(c); }
+      if (w.care) { const c = mk("div", "svb-wtip-c", "⚠ " + w.care); c.dir = fitDir(w.care, "auto"); wtipEl.appendChild(c); }
       if (wtipEl.parentElement !== row) row.appendChild(wtipEl);
       const rr = row.getBoundingClientRect(), ar = anchor.getBoundingClientRect();
       wtipEl.style.top = Math.round(ar.bottom - rr.top + 4) + "px";
@@ -2310,7 +2319,7 @@
       ch.sentences.forEach((x, i) => {
         const r = mk("div", "wt-sent"); const num = mk("button", "wt-sn", String(startNo + i)); num.type = "button"; num.title = "Hear this sentence"; num.addEventListener("click", (ev) => { ev.stopPropagation(); playFrom(x.startMs != null ? x.startMs : ch.startMs, x.endMs); });
         r.appendChild(num); r.appendChild(renderSentence(x, ex, null)); box.appendChild(r);
-        if (x.tr) { const tr = mk("div", "wt-tr", x.tr); tr.dir = dirOf(tgCode()); box.appendChild(tr); }
+        if (x.tr) { const tr = mk("div", "wt-tr", x.tr); tr.dir = fitDir(x.tr, dirOf(tgCode())); box.appendChild(tr); }
       });
       return box;
     };
@@ -2326,19 +2335,19 @@
       const body = mk("div", "wt-body");
       const addSect = (label, node) => { const sc = mk("div", "wt-sect"); sc.appendChild(mk("div", "wt-lbl", label)); sc.appendChild(node); body.appendChild(sc); };
       const tDir = ex && !ex.error ? explainDir(ex) : "auto"; // the tips' language (target, or the video's)
-      const line = (text, d) => { const v = mk("div", "wt-val", text); v.dir = d || "auto"; return v; };
+      const line = (text, d) => { const v = mk("div", "wt-val", text); v.dir = fitDir(text, d || "auto"); return v; };
       if (!ex) { body.appendChild(line("…")); return body; }
       if (ex.error) { body.appendChild(line(ex.error)); return body; }
       // The passage said more simply, in its own language — the translation
       // already sits under each sentence, so no second translation here.
       // The scene as the model read it — who speaks, the mood — then the retelling.
-      if (ex.scene && !(opts && opts.noScene)) { const sc = mk("div", "wt-val wt-scene", ex.scene); sc.dir = tDir; addSect("What's happening", sc); } // the board shows it in the row already
+      if (ex.scene && !(opts && opts.noScene)) { const sc = mk("div", "wt-val wt-scene", ex.scene); sc.dir = fitDir(ex.scene, tDir); addSect("What's happening", sc); } // the board shows it in the row already
       const simple = ex.simple || (tipsExplain === "same" ? ex.tr : "");
       const srcName = langLabel(ex.lang || vocabPoolLang || "");
       if (simple) { const v = line(simple, dirOf(ex.lang || vocabPoolLang)); v.title = "The same passage retold with easier " + srcName + " words — the meaning does not change"; addSect("Simpler words, same meaning" + (srcName && srcName !== (ex.lang || "") ? " · " + srcName : ""), v); }
       if (ex.g) {
         const parts = String(ex.g).split(/\s*•\s*/).map((x) => x.trim()).filter(Boolean);
-        const gbox = mk("div", "wt-val wt-grambox"); gbox.dir = tDir;
+        const gbox = mk("div", "wt-val wt-grambox"); gbox.dir = fitDir(ex.g, tDir);
         // «quoted» bits are the passage's own words — set them apart from the explanation.
         const gpt = (text) => { const d = mk("div", "wt-gpt"); const re = /«([^»]+)»|“([^”]+)”|"([^"]{2,60})"/g; let last = 0, m; while ((m = re.exec(text))) { if (m.index > last) d.appendChild(document.createTextNode(text.slice(last, m.index))); const q = mk("b", "wt-q", m[1] || m[2] || m[3]); q.dir = "auto"; d.appendChild(q); last = m.index + m[0].length; } if (last < text.length) d.appendChild(document.createTextNode(text.slice(last))); return d; };
         for (const pt of parts.length ? parts : [String(ex.g)]) gbox.appendChild(gpt(pt));
@@ -2353,8 +2362,8 @@
           if (x.tone === "positive" || x.tone === "negative") b.appendChild(mk("i", "wt-tone " + x.tone, x.tone === "positive" ? "+" : "−"));
           const tag = [x.pos, x.level, x.register && x.register !== "neutral" ? x.register : ""].filter(Boolean).join(" · ");
           if (tag) b.appendChild(mk("i", "wt-tag" + (x.register === "slang" || x.register === "vulgar" ? " hot" : ""), tag));
-          const m = mk("span", null, x.m); m.dir = tDir;
-          if (x.care) { const c = mk("i", "wt-care", "⚠ " + x.care); c.dir = tDir; m.appendChild(c); }
+          const m = mk("span", null, x.m); m.dir = fitDir(x.m, tDir);
+          if (x.care) { const c = mk("i", "wt-care", "⚠ " + x.care); c.dir = fitDir(x.care, tDir); m.appendChild(c); }
           // Into the Leitner boxes, with the sentence it appeared in.
           const add = mk("button", "wt-add", "＋"); add.type = "button"; add.title = "Save to Leitner";
           add.addEventListener("click", (ev) => {
@@ -2715,20 +2724,20 @@
         // The playing chunk reads like the subtitle: its words light up as they are spoken.
         const units = on && settings.karaokeHl !== false && x.cue ? lineUnits(x.cue, null, x.s) : null;
         r.appendChild(renderSentence(x, exTop, units)); main.appendChild(r);
-        if (x.tr) { const tr = mk("div", "svb-tr", x.tr); tr.dir = dirOf(tgCode()); main.appendChild(tr); }
+        if (x.tr) { const tr = mk("div", "svb-tr", x.tr); tr.dir = fitDir(x.tr, dirOf(tgCode())); main.appendChild(tr); }
       });
       const aside = mk("div", "svb-aside"); // the third column: ✓ tips or Explain — never over the text
       // Tips first: the chunk's most learnable words sit right under it, each with its note — the
       // translation is already on the video. Only these words are marked in the line (one accent, no numbers).
       if (exTop && !exTop.error && exTop.words.length) {
         const notes = mk("div", "svb-notes");
-        for (const w of exTop.words) { const n = mk("div", "svb-note"); n.appendChild(mk("b", null, w.w)); if (w.m) { const m = mk("span", null, w.m); m.dir = explainDir(ex); n.appendChild(m); } notes.appendChild(n); }
+        for (const w of exTop.words) { const n = mk("div", "svb-note"); n.appendChild(mk("b", null, w.w)); if (w.m) { const m = mk("span", null, w.m); m.dir = fitDir(w.m, explainDir(ex)); n.appendChild(m); } notes.appendChild(n); }
         main.appendChild(notes);
       }
       const shown = sceneOf(ex, k);
       if (shown.scene || shown.who.length) { // one line about the scene, and who is in it — only when it changed
         const sc = mk("div", "svb-scene");
-        if (shown.scene) { const t = mk("span", "svb-scene-txt", shown.scene); t.dir = explainDir(ex); sc.appendChild(t); }
+        if (shown.scene) { const t = mk("span", "svb-scene-txt", shown.scene); t.dir = fitDir(shown.scene, explainDir(ex)); sc.appendChild(t); }
         for (const f of SV_DOSSIER.whoFaces(shown.who, board.dossier && board.dossier.people)) { const chip = mk("span", "svb-who"); const nm0 = (f.person && f.person.character) || f.label, url0 = (f.person && f.person.photo) || board.faces.get(cleanName(nm0)) || ""; const av = mk("i", null, url0 ? "" : SV_DOSSIER.initials(nm0)); if (url0) av.style.backgroundImage = "url(" + url0 + ")"; else av.style.background = "hsl(" + nameHue(nm0) + " 38% 50%)"; chip.append(av, document.createTextNode((f.person && f.person.character) || f.label)); chip.dataset.name = cleanName((f.person && f.person.character) || f.label); sc.appendChild(chip); }
         main.appendChild(sc);
       }
@@ -2921,7 +2930,7 @@
         // a quote row: the speaker's face and name over the line — or the line alone (the story so far, a wait)
         const fillQ = (row, q) => {
           if (!q) { if (!row.hidden) row.hidden = true; return; } if (row.hidden) row.hidden = false;
-          const cls = "svs-q " + q.cls; if (row.className !== cls) row.className = cls; setDir(row, q.dir);
+          const cls = "svs-q " + q.cls; if (row.className !== cls) row.className = cls; setDir(row, q.dir && fitDir(q.text, q.dir));
           const av = row.firstChild, hd = row.lastChild.firstChild, tx = row.lastChild.lastChild;
           if (q.name) { if (av.hidden) av.hidden = false; setAv(av, q.url, q.name); av.classList.toggle("talk", !!q.talk); } else if (!av.hidden) av.hidden = true;
           if (q.name || q.tag) { if (hd.hidden) hd.hidden = false; setTxt(hd.firstChild, q.name || ""); setTxt(hd.lastChild, q.tag || ""); } else if (!hd.hidden) hd.hidden = true;
@@ -2979,7 +2988,7 @@
           card.appendChild(face(x.p, x.label, "md", false)); const tx = mk("div", "svs-card-tx"); const h = mk("b", null, nm); tx.appendChild(h);
           const chips = mk("div", "svs-chips"); if (c) { if (ROLE_WORD[c.role]) chips.appendChild(mk("span", "svs-chip " + c.role, ROLE_WORD[c.role])); chips.appendChild(mk("span", "svs-chip " + c.weight, c.weight === "major" ? "drives the story" : "passes through")); }
           if (x.p && x.p.character && x.p.name) chips.appendChild(mk("span", "svs-chip", x.p.name)); if (chips.childElementCount) tx.appendChild(chips);
-          const note = c && c.note ? c.note : x.p && x.p.role ? x.p.role : ""; if (note) { const nt = mk("div", "svs-card-note", note); nt.dir = dirOf(recapLang()); tx.appendChild(nt); }
+          const note = c && c.note ? c.note : x.p && x.p.role ? x.p.role : ""; if (note) { const nt = mk("div", "svs-card-note", note); nt.dir = fitDir(note, dirOf(recapLang())); tx.appendChild(nt); }
           tx.appendChild(mk("div", "svs-card-meta", [x.n ? x.n + (x.n === 1 ? " scene" : " scenes") : "", since >= 0 ? "since " + fmtT(since) : ""].filter(Boolean).join(" · ")));
           // the album: this person's chunks that have a frame, newest first; a thumb plays from there
           const ks = []; for (let j = list.length - 1; j >= 0 && ks.length < 6; j--) { const e = lineExplainCache.get(list[j].text); if (e && (e.who || []).some((w) => sameName(w, nm)) && cam.frames.has(j)) ks.push(j); }
