@@ -99,6 +99,9 @@ files in this repo are exactly what ships and runs.**
 ## License
 MIT — see [LICENSE](LICENSE).
 
+The word-frequency lists in `data/freq/` (used to rank words worth learning and estimate their level) come from
+[wordfreq](https://github.com/rspeer/wordfreq) by Robyn Speer and are CC BY-SA 4.0 — see `data/freq/LICENSE.txt`.
+
 —
 
 Made by [Nimanou](https://nimanou.com).

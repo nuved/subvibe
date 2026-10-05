@@ -82,9 +82,33 @@
   // mildly helped by repetition. Length carries DOUBLE weight so a short
   // frequent word can never outrank a long rare one ("bit" ×40 = 11,
   // "fallible" ×1 = 17). Transparent and local. Returns a NEW sorted array.
-  function rankLearnable(entries) {
-    const score = (e) => 2 * Math.min(String(e.w).length, 12) + Math.min(e.n || 1, 5);
-    return (entries || []).slice().sort((a, b) => score(b) - score(a) || b.n - a.n || String(a.w).localeCompare(String(b.w)));
+  //
+  // With a frequency list for the clip's language (data/freq/<lang>.txt: word → rank, 1 = most common)
+  // the ranking is by how common the word is in the language instead: the B1–C1 band (common enough to
+  // be useful, rare enough not to be known yet) first, then repetition in the clip, then length. Each
+  // entry gets `lvl`, a level ESTIMATED from the rank (the model's `cefr` stays the real one). A
+  // capitalised word that does not open its sentence is taken for a name and goes last (not in German,
+  // whose nouns are capitalised).
+  const FREQ_BANDS = [[400, "A1"], [1000, "A2"], [2500, "B1"], [6000, "B2"], [12000, "C1"]];
+  function levelFromRank(r) {
+    if (!(r > 0)) return "";
+    for (const [max, lvl] of FREQ_BANDS) if (r <= max) return lvl;
+    return "C2";
+  }
+  const BAND_WEIGHT = { A1: 0, A2: 1, B1: 4, B2: 6, C1: 6, C2: 4 };
+  function rankLearnable(entries, freq, lang) {
+    if (!freq || !freq.size) {
+      const score = (e) => 2 * Math.min(String(e.w).length, 12) + Math.min(e.n || 1, 5);
+      return (entries || []).slice().sort((a, b) => score(b) - score(a) || b.n - a.n || String(a.w).localeCompare(String(b.w)));
+    }
+    const isName = (e) => lang !== "de" && /^\p{Lu}/u.test(String(e.w)) && tokenize(e.sentence)[0] !== e.w;
+    const scored = (entries || []).map((e) => {
+      const name = isName(e), lvl = name ? "" : levelFromRank(freq.get(String(e.w).toLowerCase()));
+      const base = name ? -1 : lvl ? BAND_WEIGHT[lvl] : 3; // not in the list: a rare word or a compound
+      return { e: lvl ? Object.assign({}, e, { lvl }) : Object.assign({}, e), s: base + 0.5 * Math.min(e.n || 1, 5) };
+    });
+    scored.sort((a, b) => b.s - a.s || String(b.e.w).length - String(a.e.w).length || String(a.e.w).localeCompare(String(b.e.w)));
+    return scored.map((x) => x.e);
   }
 
   // Enrichment merge: response entries (aligned to the request order) onto the
@@ -190,5 +214,5 @@
     return top.language.split("-")[0].toLowerCase();
   }
 
-  g.SV_VOCAB = { tokenize, mergeCueSentences, parseLooseJSON, normalizeFa, extractInboxWords, rankLearnable, mergeEnrichment, pickClipTrack, appendContext, crossVideoSightings, pickI18nLang };
+  g.SV_VOCAB = { tokenize, mergeCueSentences, parseLooseJSON, normalizeFa, extractInboxWords, rankLearnable, levelFromRank, mergeEnrichment, pickClipTrack, appendContext, crossVideoSightings, pickI18nLang };
 })(globalThis);

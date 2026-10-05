@@ -798,3 +798,4 @@
 /* The playing chunk in words mode: every sentence, the one being spoken lit, the others quiet. */
 #sv-board .svb-chunk.on .svb-wsent { color: var(--sv-faint); }
 #sv-board .svb-chunk.on .svb-wsent.live { color: var(--sv-ink); font-size: 14.5px; }
+#sv-board .svb-lvl.in { margin-inline-start: 4px; vertical-align: 1px; }

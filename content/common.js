@@ -1780,7 +1780,7 @@
         const lw = sp.textContent.toLowerCase().replace(/^[^\p{L}]+|[^\p{L}]+$/gu, "");
         if (vocabPool && vocabPool.has(lw)) {
           sp.classList.add("lw");
-          const cefr = (vocabPool.get(lw) || {}).cefr;
+          const pe = vocabPool.get(lw) || {}, cefr = pe.cefr && pe.cefr !== "?" ? pe.cefr : pe.lvl; // the model's level, else the frequency estimate
           if (cefr && cefr !== "?") sp.dataset.cefr = cefr; else delete sp.dataset.cefr;
         }
         if (dimSet && dimSet.has(lw)) sp.classList.add("known");
@@ -2707,14 +2707,22 @@
     // explained, else the clip's ranked words (the vocab pool, free). A click plays that sentence.
     let poolRank = null, poolRankOf = null;
     const rankOf = (lw) => { if (poolRankOf !== vocabPool) { poolRankOf = vocabPool; poolRank = new Map([...(vocabPool || new Map()).keys()].map((w, i) => [w, i])); } return poolRank.get(lw); };
+    // Where each pool word first appears: a free word is taught once, there — the lesson's topic word would win every row.
+    let firstAt = null, firstFor = "";
+    const firstChunkOf = (lw) => {
+      const list = board.list || [], sig = list.length + ":" + (vocabPool ? vocabPool.size : 0);
+      if (firstFor !== sig) { firstFor = sig; firstAt = new Map(); list.forEach((c, k) => { for (const x of c.sentences) for (const t of String(x.s || "").split(/\s+/)) { const n = normTok(t); if (n && !firstAt.has(n)) firstAt.set(n, k); } }); }
+      return firstAt.get(lw);
+    };
     const chunkWords = (ch, ex) => {
       if (ex && !ex.error && ex.words.length) return ex.words.map((w) => ({ w: w.w, parts: w.parts, pos: w.pos, level: w.level || "", m: w.m || "" }));
       if (!vocabPool) return [];
-      const seen = new Set(), out = [];
+      const seen = new Set(), out = [], k = (board.list || []).indexOf(ch);
       for (const x of ch.sentences) for (const tok of String(x.s || "").split(/\s+/)) {
         const lw = normTok(tok); if (!lw || seen.has(lw) || (dimSet && dimSet.has(lw)) || !vocabPool.has(lw)) continue;
+        if (k > 0 && firstChunkOf(lw) < k) continue; // already taught in an earlier chunk
         seen.add(lw); const e = vocabPool.get(lw);
-        out.push({ w: tok.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ""), level: e.cefr && e.cefr !== "?" ? e.cefr : "", rank: rankOf(lw) });
+        out.push({ w: tok.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ""), level: e.cefr && e.cefr !== "?" ? e.cefr : e.lvl ? "~" + e.lvl : "", rank: rankOf(lw) }); // ~ = estimated from how common the word is
       }
       return out.sort((a, b) => a.rank - b.rank).slice(0, 3);
     };
@@ -2741,15 +2749,15 @@
       for (const g of order) {
         const blk = mk("div", "svb-wblock");
         if (g.c) {
-          const x = g.c.x, toks = String(x.s || "").split(/\s+/).filter(Boolean), hit = new Set();
-          for (const { c } of g.ws) if (c) for (let n = c.before.length; n < c.before.length + c.hit.length; n++) hit.add(n);
+          const x = g.c.x, toks = String(x.s || "").split(/\s+/).filter(Boolean), hit = new Set(), tagAt = new Map();
+          for (const { w, c } of g.ws) if (c) { for (let n = c.before.length; n < c.before.length + c.hit.length; n++) hit.add(n); if (!w.m && w.level) tagAt.set(c.before.length + c.hit.length - 1, w.level); } // a free word's level rides right after it
           const sent = mk("button", "svb-wsent"); sent.type = "button"; sent.title = "Hear this sentence"; sent.dir = "auto"; sent.dataset.s = String(x.startMs != null ? x.startMs : ch.startMs);
-          toks.forEach((t, n) => { if (n) sent.appendChild(document.createTextNode(" ")); sent.appendChild(hit.has(n) ? mk("mark", null, t) : document.createTextNode(t)); });
+          toks.forEach((t, n) => { if (n) sent.appendChild(document.createTextNode(" ")); sent.appendChild(hit.has(n) ? mk("mark", null, t) : document.createTextNode(t)); if (tagAt.has(n)) sent.appendChild(mk("i", "svb-lvl in", tagAt.get(n))); });
           sent.addEventListener("click", (ev) => { ev.stopPropagation(); playFrom(x.startMs != null ? x.startMs : ch.startMs, x.endMs); });
           blk.appendChild(sent);
         }
         for (const { w } of g.ws) {
-          if (!w.m && !w.level) continue; // nothing to add: the gold mark in the sentence says it
+          if (!w.m) continue; // no note: the gold mark (and its level tag) in the sentence says it all
           const n = mk("div", "svb-wnote");
           n.appendChild(mk("b", null, w.w)); if (w.level) n.appendChild(mk("i", "svb-lvl", w.level));
           if (w.m) { const m = mk("span", "svb-wm", w.m); m.dir = fitDir(w.m, explainDir(ex)); n.appendChild(m); }

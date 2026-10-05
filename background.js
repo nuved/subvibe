@@ -330,6 +330,19 @@ async function detectClipLang(sentences) {
 // ONE clip's learnable words from the cache — the popup Learn tab and the
 // per-clip enrichment both feed from this. Same scoping as the inbox build:
 // a track in a configured target language, original not in one, zero network.
+// Word-frequency ranks per language (data/freq/<lang>.txt, built by tools/wordfreq/build.py): word → rank,
+// 1 = most common. Loaded once per language; null when the language has no list (the length ranking stays).
+const freqLists = new Map();
+async function freqList(lang) {
+  if (freqLists.has(lang)) return freqLists.get(lang);
+  let m = null;
+  if (/^[a-z]{2}$/.test(lang || "")) {
+    try { const r = await fetch(chrome.runtime.getURL("data/freq/" + lang + ".txt")); if (r.ok) { m = new Map(); (await r.text()).split("\n").forEach((w, i) => { if (w && !m.has(w)) m.set(w, i + 1); }); } } catch (e) { m = null; }
+  }
+  freqLists.set(lang, m);
+  return m;
+}
+
 async function clipWordData(base, limit, orig, anyLang) {
   if (!base) return { words: [] };
   const d = await db();
@@ -376,7 +389,7 @@ async function clipWordData(base, limit, orig, anyLang) {
   // already in the Leitner box, so already-known words stay in the pool here
   // (only dismissed/tombstoned words are still excluded).
   const all = SV_VOCAB.extractInboxWords(sentences, lang, dismissed, null, 3);
-  const words = SV_VOCAB.rankLearnable(all).slice(0, limit || 150);
+  const words = SV_VOCAB.rankLearnable(all, await freqList(lang), lang).slice(0, limit || 150);
   for (const w of words) {
     const c = knownCards.get(w.w.toLowerCase());
     if (c) { w.box = c.box; w.lastGradedAt = c.lastGradedAt || 0; }

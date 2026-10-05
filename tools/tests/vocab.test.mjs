@@ -237,3 +237,28 @@ test("pickI18nLang: reliable top language → base code; unreliable/und/low-conf
   assert.equal(V.pickI18nLang(null), null);
   assert.equal(V.pickI18nLang({ isReliable: true, languages: [] }), null);
 });
+
+test("levelFromRank: frequency bands, nothing for an unknown word", () => {
+  assert.deepEqual([1, 400, 401, 1000, 2500, 6000, 12000, 12001, 0, undefined].map(V.levelFromRank), ["A1", "A1", "A2", "A2", "B1", "B2", "C1", "C2", "", ""]);
+});
+
+test("rankLearnable with a frequency list: the B1–C1 band first, names last, estimated levels attached", () => {
+  // ranks from data/freq/en.txt (wordfreq 3.1.1)
+  const freq = new Map([["development", 479], ["opportunities", 2441], ["coaching", 4335], ["grief", 6221], ["mentoring", 18748], ["paul", 974]]);
+  const ranked = V.rankLearnable([
+    { w: "development", n: 3, sentence: "Career development matters." },        // A2: 1 + 1.5
+    { w: "grief", n: 1, sentence: "I know grief." },                              // C1: 6 + 0.5
+    { w: "Paul", n: 4, sentence: "Ask Paul about it." },                          // a name: last
+    { w: "coaching", n: 1, sentence: "Coaching is a skill." },                    // B2: 6 + 0.5 (opens the sentence, not a name)
+    { w: "opportunities", n: 1, sentence: "Look for opportunities." },            // B1: 4 + 0.5
+    { w: "mentoring", n: 1, sentence: "Mentoring helps." },                       // C2: 4 + 0.5
+    { w: "zzyzzx", n: 1, sentence: "A zzyzzx." },                                 // not in the list: 3 + 0.5
+  ], freq, "en");
+  assert.deepEqual(ranked.map((e) => e.w), ["coaching", "grief", "opportunities", "mentoring", "zzyzzx", "development", "Paul"]);
+  assert.deepEqual(ranked.map((e) => e.lvl || ""), ["B2", "C1", "B1", "C2", "", "A2", ""]);
+});
+
+test("rankLearnable with a frequency list: German nouns are capitalised, not names", () => {
+  const ranked = V.rankLearnable([{ w: "Haus", n: 1, sentence: "Das Haus ist alt." }, { w: "alt", n: 1, sentence: "Das Haus ist alt." }], new Map([["haus", 3000], ["alt", 300]]), "de");
+  assert.deepEqual(ranked.map((e) => e.w), ["Haus", "alt"]);
+});
