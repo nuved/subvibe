@@ -19,6 +19,7 @@ const SITES = {
   dw: { label: "DW · Deutsche Welle", color: "#00a5ff" },
   udemy: { label: "Udemy", color: "#a435f0" },
   x: { label: "X", color: "#1d9bf0" },
+  linkedin: { label: "LinkedIn Learning", color: "#0a66c2" },
 };
 const OTHER = { label: "Other", color: "#5b6678" };
 const siteMeta = (s) => SITES[s] || OTHER;
@@ -332,7 +333,7 @@ function section(headEl, items) {
 function badgeFor(site) {
   const m = siteMeta(site);
   const txt = site === "youtube" ? "YT" : site === "netflix" ? "N" : site === "prime" ? "PV"
-    : site === "zdf" ? "ZDF" : site === "dw" ? "DW" : site === "udemy" ? "U" : site === "x" ? "X" : "•";
+    : site === "zdf" ? "ZDF" : site === "dw" ? "DW" : site === "udemy" ? "U" : site === "x" ? "X" : site === "linkedin" ? "in" : "•";
   return { txt, color: m.color, label: m.label };
 }
 

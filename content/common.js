@@ -3947,6 +3947,7 @@
     }
   });
 
+  window.__copilotParseSubs = parseSubtitleFile; // for adapters whose fetchCues downloads a plain VTT/TTML file (LinkedIn)
   for (const a of window.__copilotAdapters || []) a.onNavigate && a.onNavigate(schedule);
   // React the instant a different clip starts playing (capture phase: the media
   // 'play' event doesn't bubble) — far snappier than waiting for the poll, so we
