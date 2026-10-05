@@ -2153,7 +2153,8 @@
     // stays warm and the tips are there when a chunk starts. "Explain all" runs to the end.
     const tips = { inflight: new Map(), errors: 0, pausedUntil: 0, all: false, stopped: false, lastError: "" }; // inflight: chunk text → started at
     const PUMP_SLOW_MS = 30000;
-    const busyHere = (ch) => !!(ch && tips.inflight.has(ch.text));
+    // Busy = the pump has it, or a reader's Explain click is waiting on it (the bridge can take half a minute).
+    const busyHere = (ch) => !!(ch && (tips.inflight.has(ch.text) || chunkFetching.has(SV_DOSSIER.tipKey(ch.text))));
     const tipsPump = (list, ki) => {
       const now = performance.now();
       if (!globalThis.SV_DOSSIER || tips.stopped || now < tips.pausedUntil || !list.length) return;
@@ -2725,33 +2726,40 @@
       }
       return out.sort((a, b) => a.rank - b.rank).slice(0, 3);
     };
-    // The sentence holding a word, and the word with up to 4 neighbours on each side.
+    // The sentence holding a word, split around the word.
     const wordInContext = (ch, w) => {
       const parts = (Array.isArray(w.parts) && w.parts.length ? w.parts : String(w.w || "").split(" ")).map(normTok).filter(Boolean);
       for (const x of ch.sentences) {
         const toks = String(x.s || "").split(/\s+/).filter(Boolean), norm = toks.map(normTok);
         const i = norm.indexOf(parts[0]); if (i < 0) continue;
         let j = i; for (const p of parts.slice(1)) { const n = norm.indexOf(p, j + 1); if (n > j && n - j <= 4) j = n; }
-        return { x, before: toks.slice(Math.max(0, i - 4), i), hit: toks.slice(i, j + 1), after: toks.slice(j + 1, j + 5), cutL: i > 4, cutR: j + 5 < toks.length };
+        return { x, before: toks.slice(0, i), hit: toks.slice(i, j + 1), after: toks.slice(j + 1), cutL: false, cutR: false }; // the whole sentence: a cut one reads as broken
       }
       return null;
     };
     const wordLines = (ch, ex) => {
       const box = mk("div", "svb-words"), words = chunkWords(ch, ex);
-      for (const w of words) {
-        const c = wordInContext(ch, w);
-        const line = mk("button", "svb-word"); line.type = "button"; line.title = "Hear it in its sentence";
-        const head = mk("span", "svb-wh"); head.appendChild(mk("b", "pos-" + (POS_CLASS[String(w.pos || "").toLowerCase()] || "o"), w.w));
-        if (w.level) head.appendChild(mk("i", "svb-lvl", w.level));
-        line.appendChild(head);
-        if (c) {
-          const ctx = mk("span", "svb-ctx"); ctx.dir = "auto";
-          ctx.append((c.cutL ? "…" : "") + c.before.join(" ") + (c.before.length ? " " : ""), mk("mark", null, c.hit.join(" ")), (c.after.length ? " " : "") + c.after.join(" ") + (c.cutR ? "…" : ""));
-          line.appendChild(ctx);
-          line.addEventListener("click", (ev) => { ev.stopPropagation(); playFrom(c.x.startMs != null ? c.x.startMs : ch.startMs, c.x.endMs); });
+      // One block per sentence that holds a word: the sentence once, its words marked in it, their notes under it.
+      const groups = new Map();
+      for (const w of words) { const c = wordInContext(ch, w); const key = c ? c.x : null; if (!groups.has(key)) groups.set(key, { c, ws: [] }); groups.get(key).ws.push({ w, c }); }
+      const order = [...groups.values()].sort((a, b) => (a.c ? ch.sentences.indexOf(a.c.x) : 99) - (b.c ? ch.sentences.indexOf(b.c.x) : 99));
+      for (const g of order) {
+        const blk = mk("div", "svb-wblock");
+        if (g.c) {
+          const x = g.c.x, toks = String(x.s || "").split(/\s+/).filter(Boolean), hit = new Set();
+          for (const { c } of g.ws) if (c) for (let n = c.before.length; n < c.before.length + c.hit.length; n++) hit.add(n);
+          const sent = mk("button", "svb-wsent"); sent.type = "button"; sent.title = "Hear this sentence"; sent.dir = "auto";
+          toks.forEach((t, n) => { if (n) sent.appendChild(document.createTextNode(" ")); sent.appendChild(hit.has(n) ? mk("mark", null, t) : document.createTextNode(t)); });
+          sent.addEventListener("click", (ev) => { ev.stopPropagation(); playFrom(x.startMs != null ? x.startMs : ch.startMs, x.endMs); });
+          blk.appendChild(sent);
         }
-        if (w.m) { const m = mk("span", "svb-wm", w.m); m.dir = fitDir(w.m, explainDir(ex)); line.appendChild(m); }
-        box.appendChild(line);
+        for (const { w } of g.ws) {
+          const n = mk("div", "svb-wnote");
+          n.appendChild(mk("b", null, w.w)); if (w.level) n.appendChild(mk("i", "svb-lvl", w.level));
+          if (w.m) { const m = mk("span", "svb-wm", w.m); m.dir = fitDir(w.m, explainDir(ex)); n.appendChild(m); }
+          blk.appendChild(n);
+        }
+        box.appendChild(blk);
       }
       // Nothing to learn picked yet: one quiet line, so the row still says where it is.
       if (!words.length) { const g = mk("div", "svb-gist", (ch.sentences[0] && ch.sentences[0].s) || ch.text); g.dir = "auto"; box.appendChild(g); }
@@ -2959,20 +2967,37 @@
       if (showK >= 0) wantFrames([showK]);
       const frameNow = showK >= 0 ? cam.frames.get(showK) : "";
       const nmOf = (f) => (f.person && (f.person.character || f.person.name)) || f.label;
+      // Words to learn from the video itself (free, from the tips or the clip's ranked words): the next one
+      // fills the Now line when no scene is written, and the ones met so far take the slot of a missing picture.
+      const kNow = board.ki >= 0 ? board.ki : board.nowK != null ? board.nowK : -1;
+      const exTopOf = (c) => { const e = lineExplainCache.get(c.text); return e && !e.error ? Object.assign({}, e, { words: (e.words || []).filter((w) => w && w.w).slice(0, 3) }) : null; };
+      let nextW = null;
+      for (let j = Math.max(0, kNow); kNow >= 0 && j < list.length && j <= kNow + 3 && !nextW; j++) {
+        const w = chunkWords(list[j], exTopOf(list[j]))[0]; if (!w) continue;
+        const c = wordInContext(list[j], w);
+        nextW = { w, ch: list[j], j, ctx: c ? (c.cutL ? "…" : "") + c.before.concat(c.hit, c.after).join(" ") + (c.cutR ? "…" : "") : list[j].text };
+      }
+      const metSig = [kNow, lineExplainCache.size, vocabPool ? vocabPool.size : 0, (board.savedW || new Set()).size].join(":");
+      if (board.metSig !== metSig) {
+        board.metSig = metSig; const seen = new Set(), met = [];
+        for (let j = kNow; j >= 0 && met.length < 6; j--) for (const w of chunkWords(list[j], exTopOf(list[j]))) { const key = w.w.toLowerCase(); if (seen.has(key) || met.length >= 6) continue; seen.add(key); met.push({ w, ch: list[j] }); }
+        board.met = met;
+      }
       // ── the Now box: who says the line, the line, who says the next. Stable nodes updated in place — the pump,
       // the camera, a found picture or a change of speaker touch only the words that changed, so nothing flashes;
       // only a new line (a new chunk) fades in, and only that line. ──
       const now = s.querySelector(".svs-now");
-      if (now && now.dataset.v !== "3") {
-        now.textContent = ""; now.dataset.v = "3";
+      if (now && now.dataset.v !== "4") {
+        now.textContent = ""; now.dataset.v = "4";
         const lbl = mk("div", "svs-lbl"); lbl.append(mk("span", "svs-lbl-l"), mk("span", "svs-lbl-r")); now.appendChild(lbl);
         for (const cls of ["now", "next"]) { const q = mk("div", "svs-q " + cls); const body = mk("div", "svs-qb"); const hd = mk("div", "svs-qh"); hd.append(mk("b"), mk("span", "svs-qs")); body.append(hd, mk("p", "svs-qt")); q.append(mk("i", "svs-qa"), body); now.appendChild(q); }
         const img = mk("img", "svs-frame"); img.alt = ""; img.title = "This moment — click to open it as a Shot"; img.addEventListener("click", () => { const k = +now.dataset.showK; if (k >= 0) snapChunksNow(board.list, k, 1, els.__orig, () => {}); }); now.appendChild(img);
         const ph = mk("div", "svs-frame ph"); ph.title = "The browser lets an extension take pictures of a tab only after its icon was clicked there once. That stays through refreshes; a new tab, an extension update or a browser restart asks again. Pictures already taken show without it."; now.appendChild(ph);
         now.appendChild(mk("div", "svs-faces"));
+        now.appendChild(mk("div", "svs-words"));
       }
       if (now) {
-        const [lbl, qNow, qNext, img, ph, facesEl] = now.children;
+        const [lbl, qNow, qNext, img, ph, facesEl, wordsEl] = now.children;
         const setTxt = (el, t) => { t = t == null ? "" : String(t); if (el.textContent !== t) el.textContent = t; };
         const setDir = (el, dir) => { dir = dir || ""; if ((el.getAttribute("dir") || "") !== dir) { if (dir) el.setAttribute("dir", dir); else el.removeAttribute("dir"); } };
         const setAv = (av, url, name) => { if (url) { const v = "url(" + url + ")"; if (av.style.backgroundImage !== v) av.style.backgroundImage = v; if (av.style.backgroundColor) av.style.backgroundColor = ""; setTxt(av, ""); } else { if (av.style.backgroundImage) av.style.backgroundImage = ""; const c = "hsl(" + nameHue(name) + " 38% 50%)"; if (av.style.backgroundColor !== c) av.style.backgroundColor = c; setTxt(av, SV_DOSSIER.initials(name.replace(/^(the|a|an)\s+/i, ""))); } };
@@ -2981,7 +3006,7 @@
           if (!q) { if (!row.hidden) row.hidden = true; return; } if (row.hidden) row.hidden = false;
           const cls = "svs-q " + q.cls; if (row.className !== cls) row.className = cls; setDir(row, q.dir && fitDir(q.text, q.dir));
           const av = row.firstChild, hd = row.lastChild.firstChild, tx = row.lastChild.lastChild;
-          if (q.name) { if (av.hidden) av.hidden = false; setAv(av, q.url, q.name); av.classList.toggle("talk", !!q.talk); } else if (!av.hidden) av.hidden = true;
+          if (q.name && !q.word) { if (av.hidden) av.hidden = false; setAv(av, q.url, q.name); av.classList.toggle("talk", !!q.talk); } else if (!av.hidden) av.hidden = true;
           if (q.name || q.tag) { if (hd.hidden) hd.hidden = false; setTxt(hd.firstChild, q.name || ""); setTxt(hd.lastChild, q.tag || ""); } else if (!hd.hidden) hd.hidden = true;
           setTxt(tx, q.text);
         };
@@ -2991,6 +3016,7 @@
         if (exN && exN.scene) { const name = live || cleanName(SV_DOSSIER.dominantSpeaker(exN.spk)); left = "Now · " + fmtT(chN.startMs); right = waiting; qn = { cls: "now", dir: explainDir(exN), text: exN.scene, name, url: name ? faceOf(name) : "", tag: live ? "speaking" : "", talk: !!live }; facesList = who; }
         else if (useRecap) { left = "Story so far · to " + fmtT(list[recap.k] ? list[recap.k].startMs : 0); right = busyHere(ch) ? "explaining this chunk…" : ""; qn = { cls: "now recap", dir: dirOf(recapLang()), text: recap.text }; facesList = SV_DOSSIER.whoFaces(recap.who, d && d.people); }
         else if (last) { const name = cleanName(SV_DOSSIER.dominantSpeaker(last.ex && last.ex.spk)); left = "Earlier"; right = waiting; qn = { cls: "now faded", dir: explainDir(last.ex), text: last.scene, name, url: name ? faceOf(name) : "" }; facesList = SV_DOSSIER.whoFaces(last.who, d && d.people); }
+        else if (nextW && !busyHere(chN || ch)) { left = nextW.j === board.ki ? "In this line" : "Coming up · " + fmtT(nextW.ch.startMs); qn = { cls: "now word", dir: "", text: nextW.ctx, name: nextW.w.w, tag: nextW.w.level, word: true }; }
         else { left = "Now"; qn = waiting ? { cls: "now muted", dir: "", text: waiting[0].toUpperCase() + waiting.slice(1) } : null; }
         setTxt(lbl.firstChild, left); setTxt(lbl.lastChild, right);
         fillQ(qNow, qn);
@@ -3000,6 +3026,25 @@
         // the picture: the same <img> keeps its bytes until the chunk (or a sharper shot of it) changes
         now.dataset.showK = showK;
         if (frameNow) { const fk = showK + ":" + frameNow.length; if (img.hidden) img.hidden = false; if (!ph.hidden) ph.hidden = true; if (img.dataset.k !== fk) { img.dataset.k = fk; img.src = frameNow; } }
+        const met = frameNow ? [] : board.met || [];
+        if (wordsEl.dataset.sig !== metSig + "|" + met.length) {
+          wordsEl.dataset.sig = metSig + "|" + met.length; wordsEl.textContent = "";
+          if (met.length) wordsEl.appendChild(mk("div", "svs-wlbl", "Words so far · click to save"));
+          for (const { w, ch: wc } of met) {
+            const key = w.w.toLowerCase(), done = board.savedW && board.savedW.has(key);
+            const chip = mk("button", "svs-wchip" + (done ? " saved" : "")); chip.type = "button"; chip.title = done ? "Saved to your words" : "Save to your words";
+            chip.appendChild(mk("b", null, w.w)); if (w.level) chip.appendChild(mk("i", null, w.level)); chip.appendChild(mk("span", "svs-wplus", done ? "✓" : "+"));
+            chip.addEventListener("click", (ev) => {
+              ev.stopPropagation(); if (chip.disabled || chip.classList.contains("saved")) return; chip.disabled = true;
+              const c = wordInContext(wc, w), x = c ? c.x : wc.sentences[0] || { s: wc.text };
+              send({ type: "VOCAB_ADD", word: w.w, sentence: x.s || wc.text, translation: x.tr || "", lang: vocabPoolLang !== "xx" ? vocabPoolLang : null, videoTitle: pageTitle, base, ms: x.startMs != null ? x.startMs : wc.startMs, channel: adapter?.getChannel?.() || "" })
+                .then((r) => { chip.disabled = false; if (r && r.error) { chip.title = "Couldn't save — click to retry"; return; } (board.savedW = board.savedW || new Set()).add(key); chip.classList.add("saved"); chip.lastChild.textContent = "✓"; chip.title = "Saved to your words"; });
+            });
+            wordsEl.appendChild(chip);
+          }
+        }
+        wordsEl.hidden = !met.length;
+        if (frameNow) {} else if (met.length) { if (!img.hidden) img.hidden = true; if (!ph.hidden) ph.hidden = true; }
         else { if (!img.hidden) img.hidden = true; if (ph.hidden) ph.hidden = false; ph.classList.toggle("note", !!cam.needGrant); setTxt(ph, cam.needGrant ? "New scene pictures: click the SubVibe icon once on this tab" : ""); }
         // the scene's people: rebuilt only when the set or a picture changes; the ring moves in place
         const nf = SV_DOSSIER.nowFaces(facesList, live, d && d.people, 4);
@@ -3128,7 +3173,7 @@
       if (ki >= 0 && ki !== board.ki && (!board.pinnedAt || now - board.pinnedAt > 20000)) { board.open = ki; board.pinnedAt = 0; }
       const trN = list.reduce((n, ch) => n + ch.sentences.filter((x) => x.tr).length, 0);
       const exN = list.filter((ch) => lineExplainCache.has(ch.text)).length;
-      const sig = [list.length, trN, ki, exN, board.open, snapChunks, tipsExplain, tips.inflight.size, tips.stopped ? 1 : 0, tips.all ? 1 : 0, board.linesOff ? 1 : 0, vocabPool ? vocabPool.size : 0].join(":");
+      const sig = [list.length, trN, ki, exN, board.open, snapChunks, tipsExplain, tips.inflight.size, chunkFetching.size, tips.stopped ? 1 : 0, tips.all ? 1 : 0, board.linesOff ? 1 : 0, vocabPool ? vocabPool.size : 0].join(":");
       if (sig === board.sig) { renderPane(); renderStrip(); renderPump(); return; }
       const follow = ki !== board.ki;
       if (follow && ki >= 0) { clearTimeout(cam.timer); const dur = list[ki] ? list[ki].endMs - list[ki].startMs : 0; cam.timer = setTimeout(() => { if (board.ki === ki) snapChunkFrame(ki); }, Math.min(1200, Math.max(250, dur / 2))); } // a second in, or halfway through a short chunk
