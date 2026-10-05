@@ -1786,7 +1786,7 @@
         if (dimSet && dimSet.has(lw)) sp.classList.add("known");
       }
     };
-    send({ type: "VOCAB_CLIP_WORDS", base, limit: 150 }).then((r) => {
+    const applyPool = (r) => {
       // A valid pool (even a small one) arms the hover for EVERY original-line
       // word: underlines are the ranked recommendations, not a permission.
       if (r && Array.isArray(r.words) && !r.reason) {
@@ -1798,7 +1798,16 @@
         const orig = els.__orig;
         if (orig && orig.__svW) markLearnWords(orig);
       }
-    }).catch(() => {});
+    };
+    send({ type: "VOCAB_CLIP_WORDS", base, limit: 150 }).then(applyPool).catch(() => {});
+    // Nothing to rank from (Translate off, or the video is not in the deck's "Learning" language): ask once
+    // more with the original lines the board holds — the board teaches the video it sits beside.
+    let poolFromLines = false;
+    const askPoolFromLines = (list) => {
+      if (vocabPool || poolFromLines || list.length < 3) return; poolFromLines = true;
+      const orig = []; for (const ch of list) for (const x of ch.sentences) orig.push({ o: x.s, ms: x.startMs != null ? x.startMs : ch.startMs });
+      send({ type: "VOCAB_CLIP_WORDS", base, limit: 150, orig, anyLang: true }).then(applyPool).catch(() => {});
+    };
     // One-time build marker — open the video tab's DevTools console: if you see
     // this line, the smart-lightener code is the one actually running (not a
     // stale store install). Remove before any store build.
@@ -2215,27 +2224,10 @@
     // Scene camera: one small frame of the video a second into each chunk, through the same screen
     // route as Frame-from-screen (protected video works). The subtitle overlay hides for the
     // capture's few frames so the picture is clean. Only while the strip is shown and the tab is visible.
-    const cam = { frames: new Map(), asked: new Set(), inflight: false, timer: 0, needGrant: false, grantAt: 0 };
+    const cam = { frames: new Map(), asked: new Set() }; // pictures already taken (Shots, older versions) — the strip no longer takes any
     const frameRect = () => { const v = liveVideoEl(video) || video; const r = v && v.getBoundingClientRect(); if (!r || r.width < 120 || r.height < 60) return null;
       // the box the picture really occupies (letterboxed inside the element): assume 16:9 inside the element's rect
       const ar = 16 / 9; let w = r.width, h = r.height; if (w / h > ar) { w = h * ar; } else { h = w / ar; } return { x: r.left + (r.width - w) / 2, y: r.top + (r.height - h) / 2, w, h }; };
-    // A soft first frame (a cut, a fade, motion blur under the chunk's first second) is shot again
-    // 1.6 s later, twice at most, while the chunk still plays; the background keeps the sharper one.
-    const SHARP_MIN = 250;
-    const snapChunkFrame = (k, retry) => {
-      if (cam.inflight || (!retry && cam.asked.has(k)) || document.visibilityState !== "visible" || !stripOn()) return;
-      if (cam.needGrant && performance.now() - cam.grantAt < 20000) return;
-      const ch = board.list[k]; if (!ch) return;
-      const r = frameRect(); if (!r) return;
-      cam.asked.add(k); cam.inflight = true; overlay.classList.add("sv-snap-hide");
-      setTimeout(() => send({ type: "SCENE_FRAME", base, k, ms: ch.startMs, dpr: devicePixelRatio, rect: r, retry: retry || 0 })
-        .then((res) => { if (res && res.ok && res.frame) { cam.frames.set(k, res.frame); if (cam.needGrant) { cam.needGrant = false; board.stripSig = ""; } board.stripSig = "";
-            if (!res.cached && typeof res.sharp === "number" && res.sharp < SHARP_MIN && (retry || 0) < 2) setTimeout(() => { if (board.ki === k) snapChunkFrame(k, (retry || 0) + 1); }, 1600); }
-          else if (res && (res.error === "not-visible" || res.error === "capture")) { cam.asked.delete(k); if ((retry || 0) < 2) setTimeout(() => { if (board.ki === k && !cam.asked.has(k)) snapChunkFrame(k, (retry || 0) + 1); }, 2500); } // another tab was in front, or the shot failed — once more while the chunk plays
-          else if (res && res.error === "grant") { cam.asked.delete(k); if (!cam.needGrant) { cam.needGrant = true; board.stripSig = ""; } cam.grantAt = performance.now(); } })
-        .catch(() => {}).finally(() => { overlay.classList.remove("sv-snap-hide"); cam.inflight = false; }), 70);
-    };
-    // Frames already taken on an earlier watch, for the chunks the strip is about to show.
     const wantFrames = (ks) => { const need = ks.filter((k) => !cam.frames.has(k) && !cam.asked.has("get:" + k)); if (!need.length) return; need.forEach((k) => cam.asked.add("get:" + k));
       send({ type: "SCENE_FRAMES", base, ks: need }).then((r) => { if (!r || !r.ok) return; let got = 0; for (const [k, d] of Object.entries(r.frames || {})) { cam.frames.set(+k, d); got++; } if (got) board.stripSig = ""; }).catch(() => {}); };
     // Story so far: a catch-up up to the playhead only, refreshed every 8 chunks, in the video's language.
@@ -2742,7 +2734,9 @@
       // One block per sentence that holds a word: the sentence once, its words marked in it, their notes under it.
       const groups = new Map();
       for (const w of words) { const c = wordInContext(ch, w); const key = c ? c.x : null; if (!groups.has(key)) groups.set(key, { c, ws: [] }); groups.get(key).ws.push({ w, c }); }
-      const order = [...groups.values()].sort((a, b) => (a.c ? ch.sentences.indexOf(a.c.x) : 99) - (b.c ? ch.sentences.indexOf(b.c.x) : 99));
+      let order = [...groups.values()].sort((a, b) => (a.c ? ch.sentences.indexOf(a.c.x) : 99) - (b.c ? ch.sentences.indexOf(b.c.x) : 99));
+      const explained = !!(ex && !ex.error && ex.words.length);
+      if (!explained) order = order.filter((g) => g === groups.values().next().value); // free words: only the best word's sentence, so the row stays short
       for (const g of order) {
         const blk = mk("div", "svb-wblock");
         if (g.c) {
@@ -2754,6 +2748,7 @@
           blk.appendChild(sent);
         }
         for (const { w } of g.ws) {
+          if (!w.m && !w.level) continue; // nothing to add: the gold mark in the sentence says it
           const n = mk("div", "svb-wnote");
           n.appendChild(mk("b", null, w.w)); if (w.level) n.appendChild(mk("i", "svb-lvl", w.level));
           if (w.m) { const m = mk("span", "svb-wm", w.m); m.dir = fitDir(w.m, explainDir(ex)); n.appendChild(m); }
@@ -2964,8 +2959,8 @@
       const nextScene = exN && exN.scene && exNext && exNext.scene ? exNext.scene : "";
       // the picture of the chunk shown — the last one's while between chunks, so the slot is not empty in a pause of the dialogue
       const showK = board.nowK >= 0 ? board.nowK : last && last.k >= 0 ? last.k : -1;
-      if (showK >= 0) wantFrames([showK]);
-      const frameNow = showK >= 0 ? cam.frames.get(showK) : "";
+      // No scene pictures: the strip shows the video's words instead, so it never needs the tab-capture grant.
+      const frameNow = "";
       const nmOf = (f) => (f.person && (f.person.character || f.person.name)) || f.label;
       // Words to learn from the video itself (free, from the tips or the clip's ranked words): the next one
       // fills the Now line when no scene is written, and the ones met so far take the slot of a missing picture.
@@ -3026,12 +3021,22 @@
         // the picture: the same <img> keeps its bytes until the chunk (or a sharper shot of it) changes
         now.dataset.showK = showK;
         if (frameNow) { const fk = showK + ":" + frameNow.length; if (img.hidden) img.hidden = false; if (!ph.hidden) ph.hidden = true; if (img.dataset.k !== fk) { img.dataset.k = fk; img.src = frameNow; } }
-        const met = frameNow ? [] : board.met || [];
-        if (wordsEl.dataset.sig !== metSig + "|" + met.length) {
-          wordsEl.dataset.sig = metSig + "|" + met.length; wordsEl.textContent = "";
-          if (met.length) wordsEl.appendChild(mk("div", "svs-wlbl", "Words so far · click to save"));
-          for (const { w, ch: wc } of met) {
-            const key = w.w.toLowerCase(), done = board.savedW && board.savedW.has(key);
+        wordsEl.hidden = true; // the words live in their own section (where People would be)
+        if (!img.hidden) img.hidden = true; if (!ph.hidden) ph.hidden = true;
+        // the scene's people: rebuilt only when the set or a picture changes; the ring moves in place
+        const nf = SV_DOSSIER.nowFaces(facesList, live, d && d.people, 4);
+        const fsig = nf.shown.map((f) => nmOf(f) + "=" + photoOf(f.person, nmOf(f))).join("|") + "|+" + nf.more;
+        if (facesEl.dataset.sig !== fsig) { facesEl.dataset.sig = fsig; facesEl.textContent = ""; nf.shown.forEach((f) => facesEl.appendChild(face(f.person, f.label, "md", false))); if (nf.more) { const more = mk("span", "svs-face md plus"); more.appendChild(mk("i", null, "+" + nf.more)); more.appendChild(mk("b", null, "more")); facesEl.appendChild(more); } }
+        facesEl.classList.toggle("faded", !(exN && exN.scene));
+        facesEl.classList.toggle("solo", nf.shown.length <= 1 && !nf.more); // the quote row already wears that face
+        for (const el of facesEl.querySelectorAll(".svs-face")) { const f = nf.shown.find((x) => cleanName(nmOf(x)) === el.dataset.name); el.classList.toggle("talk", !!(f && f.talk)); }
+        if (now.dataset.k !== String(board.nowK)) { now.dataset.k = board.nowK; qNow.classList.remove("svs-in"); void qNow.offsetWidth; qNow.classList.add("svs-in"); } // a new line fades in; nothing else moves
+      }
+      // The words met so far as chips; a click saves one to the deck.
+      const fillWordChips = (el, met) => {
+        el.appendChild(mk("div", "svs-lbl", "Words so far · click to save"));
+        for (const { w, ch: wc } of met) {
+            const key = w.w.toLowerCase(), inDeck = vocabPool && vocabPool.get(key), done = (board.savedW && board.savedW.has(key)) || !!(inDeck && inDeck.box); // a word already in the deck shows ✓ after a reload too
             const chip = mk("button", "svs-wchip" + (done ? " saved" : "")); chip.type = "button"; chip.title = done ? "Saved to your words" : "Save to your words";
             chip.appendChild(mk("b", null, w.w)); if (w.level) chip.appendChild(mk("i", null, w.level)); chip.appendChild(mk("span", "svs-wplus", done ? "✓" : "+"));
             chip.addEventListener("click", (ev) => {
@@ -3040,20 +3045,10 @@
               send({ type: "VOCAB_ADD", word: w.w, sentence: x.s || wc.text, translation: x.tr || "", lang: vocabPoolLang !== "xx" ? vocabPoolLang : null, videoTitle: pageTitle, base, ms: x.startMs != null ? x.startMs : wc.startMs, channel: adapter?.getChannel?.() || "" })
                 .then((r) => { chip.disabled = false; if (r && r.error) { chip.title = "Couldn't save — click to retry"; return; } (board.savedW = board.savedW || new Set()).add(key); chip.classList.add("saved"); chip.lastChild.textContent = "✓"; chip.title = "Saved to your words"; });
             });
-            wordsEl.appendChild(chip);
-          }
+            el.appendChild(chip);
         }
-        wordsEl.hidden = !met.length;
-        if (frameNow) {} else if (met.length) { if (!img.hidden) img.hidden = true; if (!ph.hidden) ph.hidden = true; }
-        else { if (!img.hidden) img.hidden = true; if (ph.hidden) ph.hidden = false; ph.classList.toggle("note", !!cam.needGrant); setTxt(ph, cam.needGrant ? "New scene pictures: click the SubVibe icon once on this tab" : ""); }
-        // the scene's people: rebuilt only when the set or a picture changes; the ring moves in place
-        const nf = SV_DOSSIER.nowFaces(facesList, live, d && d.people, 4);
-        const fsig = nf.shown.map((f) => nmOf(f) + "=" + photoOf(f.person, nmOf(f))).join("|") + "|+" + nf.more;
-        if (facesEl.dataset.sig !== fsig) { facesEl.dataset.sig = fsig; facesEl.textContent = ""; nf.shown.forEach((f) => facesEl.appendChild(face(f.person, f.label, "md", false))); if (nf.more) { const more = mk("span", "svs-face md plus"); more.appendChild(mk("i", null, "+" + nf.more)); more.appendChild(mk("b", null, "more")); facesEl.appendChild(more); } }
-        facesEl.classList.toggle("faded", !(exN && exN.scene));
-        for (const el of facesEl.querySelectorAll(".svs-face")) { const f = nf.shown.find((x) => cleanName(nmOf(x)) === el.dataset.name); el.classList.toggle("talk", !!(f && f.talk)); }
-        if (now.dataset.k !== String(board.nowK)) { now.dataset.k = board.nowK; qNow.classList.remove("svs-in"); void qNow.offsetWidth; qNow.classList.add("svs-in"); } // a new line fades in; nothing else moves
-      }
+        if (!met.length) el.appendChild(mk("div", "svs-scene muted", "Words to learn appear here as the video plays"));
+      };
       // ── people: in this scene first, then most seen — tiny at rest, named when the section is open ──
       const dp = (d && d.people) || [];
       if (!board.peopleSeen || board.peopleSeen.n !== st.doneN || board.peopleSeen.at !== (d ? d.at : 0)) {
@@ -3070,7 +3065,10 @@
       const ordered = people.slice().sort((a, b) => (inScene.has(keyOf(b)) ? 1 : 0) - (inScene.has(keyOf(a)) ? 1 : 0));
       const castOf = (x) => recap.cast.get(cleanName(x.p ? x.p.character || x.p.name : x.label)) || null;
       const firstSeen = (nm) => { const n = cleanName(nm); for (let j = 0; j < list.length; j++) { const e = lineExplainCache.get(list[j].text); if (e && (e.who || []).some((w) => cleanName(w) === n)) return list[j].startMs; } return -1; };
-      part("svs-people", [d ? d.at : 0, ordered.map((x) => (x.p ? x.p.name : x.label) + x.n + (inScene.has(keyOf(x)) ? "*" : "")).join("|"), board.facesV, recap.k].join("|"), (pe) => {
+      const wordsHere = people.length < 2; // a talk or a lesson: one voice, so the section teaches its words instead
+      s.querySelector(".svs-people").classList.toggle("words", wordsHere);
+      if (wordsHere) part("svs-people", ["w", metSig, (board.met || []).map((m) => m.w.w).join("|")].join("|"), (pe) => fillWordChips(pe, board.met || []));
+      else part("svs-people", [d ? d.at : 0, ordered.map((x) => (x.p ? x.p.name : x.label) + x.n + (inScene.has(keyOf(x)) ? "*" : "")).join("|"), board.facesV, recap.k].join("|"), (pe) => {
         const tmdb = people.some((x) => x.p && x.p.src === "tmdb");
         const head = mk("div", "svs-lbl"); head.append(mk("span", null, "People · " + people.length), mk("span", "svs-attr", tmdb ? "TMDB" : "")); pe.appendChild(head);
         if (!people.length) { pe.appendChild(mk("div", "svs-scene muted", "People appear here as the chunks meet them")); return; }
@@ -3176,7 +3174,7 @@
       const sig = [list.length, trN, ki, exN, board.open, snapChunks, tipsExplain, tips.inflight.size, chunkFetching.size, tips.stopped ? 1 : 0, tips.all ? 1 : 0, board.linesOff ? 1 : 0, vocabPool ? vocabPool.size : 0].join(":");
       if (sig === board.sig) { renderPane(); renderStrip(); renderPump(); return; }
       const follow = ki !== board.ki;
-      if (follow && ki >= 0) { clearTimeout(cam.timer); const dur = list[ki] ? list[ki].endMs - list[ki].startMs : 0; cam.timer = setTimeout(() => { if (board.ki === ki) snapChunkFrame(ki); }, Math.min(1200, Math.max(250, dur / 2))); } // a second in, or halfway through a short chunk
+      askPoolFromLines(list);
       if (follow) spkLast = ""; // a new chunk: the speaker is read afresh, so the ring lands on the new box's faces
       board.sig = sig; board.list = list; board.ki = ki;
       // A small state stamp for diagnosis from the page (the script's variables are not reachable there).

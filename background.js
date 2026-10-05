@@ -330,7 +330,7 @@ async function detectClipLang(sentences) {
 // ONE clip's learnable words from the cache — the popup Learn tab and the
 // per-clip enrichment both feed from this. Same scoping as the inbox build:
 // a track in a configured target language, original not in one, zero network.
-async function clipWordData(base, limit) {
+async function clipWordData(base, limit, orig, anyLang) {
   if (!base) return { words: [] };
   const d = await db();
   const trRows = await new Promise((resolve) => {
@@ -350,16 +350,21 @@ async function clipWordData(base, limit) {
   });
   const { targets: cfg, learnLang } = await chrome.storage.local.get(["targets", "learnLang"]);
   const targets = Array.isArray(cfg) && cfg.length ? cfg : [];
-  const pick = SV_VOCAB.pickClipTrack(trRows, targets);
-  if (!pick || !pick.o) return { words: [], reason: !trRows.length ? "not-cached" : !pick ? "no-target" : "no-originals" };
-  const sentences = SV_VOCAB.mergeCueSentences(pick.row.cues
-    .map((c) => ({ o: c.o || c.original || "", t: pick.row.tg ? (c.text || "") : ((c.t && c.t[pick.tg]) || ""), ms: c.startMs || 0 }))
-    .filter((s) => s.o));
+  let pick = SV_VOCAB.pickClipTrack(trRows, targets);
+  // No translated track cached (Translate off): the page's own original lines rank the words just as well.
+  const fromPage = (!pick || !pick.o) && Array.isArray(orig) && orig.length;
+  if (!fromPage && (!pick || !pick.o)) return { words: [], reason: !trRows.length ? "not-cached" : !pick ? "no-target" : "no-originals" };
+  if (fromPage) pick = { row: { title: base, cues: [] }, tg: null };
+  const sentences = fromPage
+    ? SV_VOCAB.mergeCueSentences(orig.slice(0, 4000).map((c) => ({ o: String((c && c.o) || "").slice(0, 500), t: "", ms: (c && c.ms) | 0 })).filter((s) => s.o))
+    : SV_VOCAB.mergeCueSentences(pick.row.cues
+      .map((c) => ({ o: c.o || c.original || "", t: pick.row.tg ? (c.text || "") : ((c.t && c.t[pick.tg]) || ""), ms: c.startMs || 0 }))
+      .filter((s) => s.o));
   const lang = await detectClipLang(sentences);
   if (targets.includes(lang)) return { words: [], reason: "native" };
   // "Learning: German" set → ONLY German-original clips count; a video in any
   // other (or undetectable) language has no material for this learner.
-  if (learnLang && lang !== learnLang) return { words: [], reason: "other-lang", lang };
+  if (learnLang && lang !== learnLang && !anyLang) return { words: [], reason: "other-lang", lang }; // the board teaches the video it sits beside, whatever the deck's language
   const knownRows = await idbVocabList(lang + ":");
   const knownCards = new Map(knownRows.map((r) => [r.key.slice(lang.length + 1), r.value]));
   const dismissed = new Set((((await idbVocabGet("dismissed:" + lang)) || {}).words) || []);
@@ -3138,7 +3143,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           // extracted on demand from the cache — same scoping rules as the
           // inbox build, zero network. A cached clip enrichment (see
           // VOCAB_CLIP_ENRICH) rides along: meaning/level/article per word.
-          const data = await clipWordData(String(msg.base || ""), (msg.limit | 0) > 0 ? (msg.limit | 0) : 150);
+          const data = await clipWordData(String(msg.base || ""), (msg.limit | 0) > 0 ? (msg.limit | 0) : 150, msg.orig, !!msg.anyLang);
           if (data.words.length) {
             const ce = await idbVocabGet("clipenrich:" + msg.base);
             if (ce && ce.e) {
