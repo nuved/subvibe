@@ -212,6 +212,7 @@ func cors(w http.ResponseWriter) {
 	h.Set("Access-Control-Allow-Headers", "content-type")
 	h.Set("Access-Control-Max-Age", "86400")
 	h.Set("X-Robots-Tag", "noindex, nofollow, noarchive")
+	h.Set("Cache-Control", "no-store") // nothing here is for an edge cache: robots.txt and health must be current
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
