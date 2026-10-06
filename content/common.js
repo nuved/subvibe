@@ -2897,11 +2897,12 @@
       const sig = [k, ch ? ch.text : "", ex ? 1 : 0, ex && ex.error ? ex.error : "", snapChunks, tipsExplain, board.loop, board.pinnedAt ? 1 : 0, busyHere(ch) ? 1 : 0, board.list.length].join("\u0001");
       if (sig === board.paneSig) return; board.paneSig = sig;
       head.textContent = ""; body.textContent = "";
+      pane.classList.toggle("thin", !ex || !ch); // nothing to teach yet: one line, and the chunk list keeps the height
       if (!ch) { head.appendChild(mk("b", null, "Tips")); body.appendChild(mk("div", "wt-val svb-empty", "The tips of the playing chunk appear here.")); return; }
       head.appendChild(mk("b", null, "Tips · " + fmtT(ch.startMs) + " · chunk " + (k + 1) + " / " + board.list.length));
       const fol = mk("button", "svb-follow" + (board.pinnedAt ? "" : " on"), board.pinnedAt ? "follow ▸" : "following ▸"); fol.type = "button"; fol.title = board.pinnedAt ? "Back to the playing chunk" : "The pane follows the video";
       fol.addEventListener("click", (ev) => { ev.stopPropagation(); board.pinnedAt = 0; board.open = board.ki; board.sig = ""; boardTick(true); }); head.appendChild(fol);
-      if (!ex) { body.appendChild(mk("div", "wt-val svb-empty", busyHere(ch) ? "Explaining…" : "Not explained yet.")); if (!busyHere(ch)) { const b2 = mk("button", "svb-explain", "Explain"); b2.type = "button"; b2.addEventListener("click", () => boardFocus(k, false)); body.appendChild(b2); } return; }
+      if (!ex) { const line = mk("div", "svb-emptyrow"); line.appendChild(mk("div", "wt-val svb-empty", busyHere(ch) ? "Explaining…" : "Not explained yet.")); if (!busyHere(ch)) { const b2 = mk("button", "svb-explain", "Explain"); b2.type = "button"; b2.addEventListener("click", () => boardFocus(k, false)); line.appendChild(b2); } body.appendChild(line); return; }
       body.appendChild(buildTips(ex, ch, { noScene: true }));
       body.appendChild(buildActions({ list: board.list, k0: k, n: snapChunks, setN: (m) => { snapChunks = m; board.sig = ""; boardTick(true); }, anchor: () => els.__orig }));
     };

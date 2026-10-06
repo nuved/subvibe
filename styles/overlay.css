@@ -492,6 +492,9 @@
 #sv-board .svb-pane { display: flex; flex-direction: column; min-height: 0; border-top: 2px solid var(--sv-coral, #C93F2B); background: var(--sv-card, #fff); }
 #sv-board.drawer .svb-pane { flex: 46 1 0; min-height: 0; }
 #sv-board:not(.drawer) .svb-pane { max-height: min(40vh, 420px); }
+#sv-board.drawer .svb-pane.thin { flex: 0 0 auto; } /* no tips yet: the pane is one line, the chunks get the room */
+#sv-board .svb-emptyrow { display: flex; align-items: center; gap: 10px; padding-inline-end: 12px; }
+#sv-board .svb-emptyrow .svb-empty { flex: 1; }
 #sv-board:not(.drawer) .svb-list { max-height: min(44vh, 460px); }
 #sv-board.collapsed .svb-pane { display: none; }
 #sv-board .svb-ph { display: flex; align-items: center; gap: 8px; padding: 7px 12px; border-bottom: 1px solid var(--sv-line, #EDE5DA); font: 700 10.5px/1.3 ui-monospace, Menlo, Consolas, monospace; letter-spacing: .06em; text-transform: uppercase; color: var(--sv-coral, #C93F2B); }
