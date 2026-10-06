@@ -20,8 +20,9 @@ sentence lines out of what is stored and served.
 DNS and the origin certificate: `~/infra/nimanou` (Terraform, own state; `terraform apply` there).
 Secrets: `/opt/subvibe-tips/.env` on the box only (TOKEN_KEY, SALT, TURNSTILE_SECRET).
 
-Deploy: `rsync -a --exclude tips.db server deploy/compose.yml deploy@46.224.192.77:/opt/subvibe-tips/`
-(compose.yml → compose.yaml), then `docker compose up -d --build` there. nginx file: copy
+Deploy: `rsync -a --exclude tips.db server deploy/compose.yml nuved-box:/opt/subvibe-tips/`
+(nuved-box: the Mac's ~/.ssh/config Host for 46.224.192.77, deploy@ on port 22022; compose.yml →
+compose.yaml), then `docker compose up -d --build` there. nginx file: copy
 `deploy/nginx-tips.conf`, `docker exec sprachbrucke-nginx nginx -t && … nginx -s reload`.
 Check locally: `go build` in server/, run with `TURNSTILE_SECRET=1x0000000000000000000000000000000AA
 SHARE_TRANSLATIONS=on ADDR=:8798`, then `node test.mjs http://localhost:8798`.
