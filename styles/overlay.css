@@ -805,3 +805,17 @@
 #sv-board .svb-chunk.on .svb-wsent { color: var(--sv-faint); }
 #sv-board .svb-chunk.on .svb-wsent.live { color: var(--sv-ink); font-size: 14.5px; }
 #sv-board .svb-lvl.in { margin-inline-start: 4px; vertical-align: 1px; }
+
+/* ── Words in the tips (2026-10-06): one card per word ─────────────────────────────────────────────
+   The term, its kind (verb · B2 · formal) and Save share one line; the meaning, the forms and a
+   care note sit under it in the tips' own direction. No colour key, no tone glyph next to Save. */
+#sv-board .wt-words, #copilot-subs .copilot-subs__wtip .wt-words { display: grid; gap: 6px; font-size: 13px; }
+#sv-board .wt-word, #copilot-subs .copilot-subs__wtip .wt-word { padding: 8px 10px; border-radius: 8px; background: var(--sv-sunk, rgba(0,0,0,.04)); display: grid; gap: 3px; }
+#sv-board .wt-wh, #copilot-subs .copilot-subs__wtip .wt-wh { display: flex; align-items: baseline; flex-wrap: wrap; column-gap: 8px; row-gap: 2px; direction: ltr; }
+#sv-board .wt-wh > b, #copilot-subs .copilot-subs__wtip .wt-wh > b { margin: 0; font-size: 14px; color: var(--sv-ink, #241F1A); }
+#sv-board .wt-words .wt-tag, #copilot-subs .copilot-subs__wtip .wt-words .wt-tag { display: inline; font: 600 11px/1.3 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; letter-spacing: 0; font-style: normal; }
+#sv-board .wt-words .wt-tag.hot, #copilot-subs .copilot-subs__wtip .wt-words .wt-tag.hot { color: var(--sv-amber, #B8860B); }
+#sv-board .wt-words .wt-add, #copilot-subs .copilot-subs__wtip .wt-words .wt-add { margin-inline-start: auto; align-self: center; width: auto; height: 24px; padding: 0 10px; border-radius: 999px; font: 600 11.5px/22px -apple-system, "Segoe UI", Roboto, Arial, sans-serif; }
+#sv-board .wt-wm, #copilot-subs .copilot-subs__wtip .wt-wm { color: var(--sv-text2, #5B5348); font-size: 13.5px; line-height: 1.45; }
+#sv-board .wt-words .wt-forms, #copilot-subs .copilot-subs__wtip .wt-words .wt-forms { margin: 0; font: 500 11px/1.35 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: var(--sv-muted, #8A7F72); }
+#sv-board .wt-words .wt-care, #copilot-subs .copilot-subs__wtip .wt-words .wt-care { margin-top: 2px; }

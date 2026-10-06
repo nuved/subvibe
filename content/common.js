@@ -2254,7 +2254,6 @@
     // Word classes: verbs (both parts of a separated verb in the same colour),
     // nouns, adjectives, adverbs, phrases — from the explanation's word list.
     const POS_CLASS = { noun: "n", verb: "v", "phrasal verb": "v", "modal verb": "v", "auxiliary verb": "v", modal: "v", adjective: "adj", adverb: "adv", idiom: "x", expression: "x", phrase: "x", collocation: "x", saying: "x", proverb: "x", slang: "x", interjection: "x", preposition: "prep", conjunction: "conj", pronoun: "pron", determiner: "o", article: "o", contraction: "o", number: "o" };
-    const POS_LABEL = { v: "verb", n: "noun", adj: "adjective", adv: "adverb", x: "phrase", prep: "preposition" };
     const normTok = (w) => String(w || "").toLowerCase().replace(/[\u2018\u2019\u02BC`\u00B4]/g, "'").replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ""); // the row's WOULD’VE and the term's would've are one token
     // Colour the term's words inside one sentence: each part is matched in
     // order (a separated verb's prefix comes later in the sentence).
@@ -2318,14 +2317,6 @@
       });
       return box;
     };
-    const buildLegend = (ex) => {
-      const seen = new Set(); for (const w of (ex && ex.words) || []) { const c = POS_CLASS[String(w.pos || "").toLowerCase()]; if (c && POS_LABEL[c]) seen.add(c); }
-      if (!seen.size) return null;
-      const lg = mk("div", "wt-legend");
-      for (const c of ["v", "n", "adj", "adv", "x", "prep"]) if (seen.has(c)) { const it = mk("span", "wt-lg pos-" + c, POS_LABEL[c]); lg.appendChild(it); }
-      if ((ex.words || []).some((w) => /phrasal/.test(String(w.pos || "")) || ((w.parts || []).length > 1 && /verb/.test(String(w.pos || ""))))) lg.appendChild(mk("span", "wt-lg pos-v sep", "two-part verb"));
-      return lg;
-    };
     const buildTips = (ex, ch, opts) => {
       const body = mk("div", "wt-body");
       const addSect = (label, node) => { const sc = mk("div", "wt-sect"); sc.appendChild(mk("div", "wt-lbl", label)); sc.appendChild(node); body.appendChild(sc); };
@@ -2349,39 +2340,43 @@
         addSect("Grammar", gbox);
       }
       if (ex.words && ex.words.length) {
+        // One card per word: the term, its kind (verb · B2 · formal) and Save on one line;
+        // the meaning, the forms and a care note under it, in the tips' own direction.
         const list = mk("div", "wt-words");
         for (const x of ex.words) {
-          const b = mk("b", "pos-" + (POS_CLASS[String(x.pos || "").toLowerCase()] || "o"), x.w); b.dir = "auto";
+          const cls = POS_CLASS[String(x.pos || "").toLowerCase()] || "o";
+          const card = mk("div", "wt-word");
+          const head = mk("div", "wt-wh");
+          const b = mk("b", null, x.w); b.dir = "auto";
           b.prepend(mk("i", "wt-n", String(ex.words.indexOf(x) + 1))); // the number the sentence carries on this term
-          // ± for the word's tone; register (formal · informal · slang) in the tag line; ⚠ when care is needed.
-          if (x.tone === "positive" || x.tone === "negative") b.appendChild(mk("i", "wt-tone " + x.tone, x.tone === "positive" ? "+" : "−"));
+          head.appendChild(b);
           const tag = [x.pos, x.level, x.register && x.register !== "neutral" ? x.register : ""].filter(Boolean).join(" · ");
-          if (tag) b.appendChild(mk("i", "wt-tag" + (x.register === "slang" || x.register === "vulgar" ? " hot" : ""), tag));
-          const m = mk("span", null, x.m); m.dir = fitDir(x.m, tDir);
-          if (x.care) { const c = mk("i", "wt-care", "⚠ " + x.care); c.dir = fitDir(x.care, tDir); m.appendChild(c); }
+          if (tag) head.appendChild(mk("i", "wt-tag pos-" + cls + (x.register === "slang" || x.register === "vulgar" ? " hot" : ""), tag));
           // Into the Leitner boxes, with the sentence it appeared in.
-          const add = mk("button", "wt-add", "＋"); add.type = "button"; add.title = "Save to Leitner";
+          const add = mk("button", "wt-add", "Save"); add.type = "button"; add.title = "Save to Leitner";
           add.addEventListener("click", (ev) => {
-            ev.stopPropagation(); if (add.disabled) return; add.disabled = true; add.textContent = "…";
+            ev.stopPropagation(); if (add.disabled) return; add.disabled = true; add.textContent = "Saving…";
             const snt = (ch && ch.sentences.find((q) => q.s.toLowerCase().includes(String(x.w).toLowerCase()))) || (ch && ch.sentences[0]) || null;
             const langHint = /[?&]lang=([a-z-]+)/i.exec(interceptedUrl || "");
             send({ type: "VOCAB_ADD", word: x.w, sentence: snt ? snt.s : (ch ? ch.text : ""), translation: snt ? snt.tr : "", lang: (ex.lang || (langHint ? langHint[1].toLowerCase() : null)) || null,
               videoTitle: pageTitle, base, ms: snt ? snt.startMs : (ch ? ch.startMs : 0), channel: adapter?.getChannel?.() || "" })
-              .then((r) => { if (r && r.error) { add.disabled = false; add.textContent = "＋"; add.title = "Save failed — retry"; return; } add.textContent = "✓"; add.title = "Saved to Leitner"; });
+              .then((r) => { if (r && r.error) { add.disabled = false; add.textContent = "Retry"; add.title = "Save failed — retry"; return; } add.textContent = "Saved ✓"; add.title = "Saved to Leitner"; });
           });
-          m.appendChild(add);
-          // A verb's forms / a noun's plural — left-to-right on its own line, after the ＋ (a bare dash is no form).
+          head.appendChild(add);
+          card.appendChild(head);
+          if (x.m) { const m = mk("div", "wt-wm", x.m); m.dir = fitDir(x.m, tDir); card.appendChild(m); }
+          // A verb's forms / a noun's plural — left-to-right (a bare dash is no form).
           const forms = String(x.forms || "").trim();
-          if (forms && !/^[\s\-–—·.,_/]*$/.test(forms)) { const f = mk("i", "wt-forms", forms); f.dir = "ltr"; m.appendChild(f); }
-          list.appendChild(b); list.appendChild(m);
+          if (forms && !/^[\s\-–—·.,_/]*$/.test(forms)) { const f = mk("div", "wt-forms", forms); f.dir = "ltr"; card.appendChild(f); }
+          if (x.care) { const c = mk("div", "wt-care", "⚠ " + x.care); c.dir = fitDir(x.care, tDir); card.appendChild(c); }
+          list.appendChild(card);
         }
         addSect("Words", list);
       }
-      const lg = buildLegend(ex); if (lg) body.appendChild(lg);
       if (ch) { // one more call, on purpose: a fresh explanation for this chunk
         const again = mk("button", "wt-again", "Explain again ↻"); again.type = "button"; again.title = "Ask once more for this chunk (one call) — e.g. after the tips language or the explanation shape changed";
         again.addEventListener("click", (ev) => { ev.stopPropagation(); again.disabled = true; again.textContent = "Explaining…"; explainChunk(ch, board.list.length ? board.list : card.list, true).then(() => { board.sig = ""; boardTick(true); if (wtip._pinned && card.list.length) renderChunkCard(els.__orig); }); });
-        (lg || body).appendChild(again);
+        body.appendChild(again);
       }
       return body;
     };
