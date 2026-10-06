@@ -12,7 +12,7 @@ const LIVE_ALIAS = window.SV_LIVE_ALIAS || {};
 // Coerce a code to one Gemini's live model accepts, or null if it can't voice it.
 const normLiveCode = (code) => (LIVE_CODES.has(code) ? code : (LIVE_CODES.has(LIVE_ALIAS[code]) ? LIVE_ALIAS[code] : null));
 
-const DEFAULTS = { enabled: true, translateOn: true, targets: ["en"], showOriginal: true, hideNative: true, karaokeHl: true, karaokeStyle: "classic", storyBoard: true, tipsAhead: "off", learnLang: "", apiKey: "", translationProvider: "openai", claudeModel: "claude-sonnet-5", anthropicKey: "", cliBridgeOk: false, cliBridgeInfo: "", keepNames: true, keepTerms: "", position: "bottom", size: "md", stylePreset: "classic", styleCustom: {}, syncOffset: 0, dubEnabled: false, ttsProvider: "openai", geminiKey: "", tmdbKey: "", shotDelay: 0, dubVoice: "marin", dubGeminiVoice: "Kore", dubMultiVoice: false, dubDuckLevel: 0.12, dubPace: 1, liveModel: "gemini-3.5-live-translate-preview", liveSync: "auto", audioDeviceId: "", liveTarget: "", debugHud: false, uiTheme: "light" };
+const DEFAULTS = { enabled: true, translateOn: true, targets: ["en"], showOriginal: true, hideNative: true, karaokeHl: true, karaokeStyle: "classic", storyBoard: true, tipsAhead: "1", learnLang: "", apiKey: "", translationProvider: "openai", claudeModel: "claude-sonnet-5", anthropicKey: "", cliBridgeOk: false, cliBridgeInfo: "", keepNames: true, keepTerms: "", position: "bottom", size: "md", stylePreset: "classic", styleCustom: {}, syncOffset: 0, dubEnabled: false, ttsProvider: "openai", geminiKey: "", tmdbKey: "", shotDelay: 0, dubVoice: "marin", dubGeminiVoice: "Kore", dubMultiVoice: false, dubDuckLevel: 0.12, dubPace: 1, liveModel: "gemini-3.5-live-translate-preview", liveSync: "auto", audioDeviceId: "", liveTarget: "", debugHud: false, uiTheme: "light" };
 const el = (id) => document.getElementById(id);
 // Promise wrapper for chrome.runtime.sendMessage — same shape as learn.js's
 // helper, used by the word-game wiring below (async/await reads cleaner than
@@ -2083,7 +2083,7 @@ async function load() {
       const sec = el("cliBridgeSection"); if (sec) sec.hidden = true;
     });
   } catch (e) {}
-  el("tipsAhead").value = ["off", "3", "all"].includes(state.tipsAhead) ? state.tipsAhead : "off";
+  el("tipsAhead").value = ["off", "1", "3", "all"].includes(state.tipsAhead) ? state.tipsAhead : "1";
   showShotDelay(state.shotDelay);
   el("position").value = state.position || "bottom";
   el("syncInput").value = (-(state.syncOffset || 0)).toFixed(2);
