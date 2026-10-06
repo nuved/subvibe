@@ -69,10 +69,16 @@ it on, before asking your AI provider to explain a chunk of a video, SubVibe ask
 explains a chunk, the tips are shared back so the next learner gets them for free.
 
 - **What is sent:** a fingerprint (SHA-256) of the video's ID, the chunk's words and the tips
-  language, plus, when sharing, the tips themselves (translation, simpler retelling, grammar
-  notes, the scene, speaker names as the tips name them, and the words with their meanings).
-  Never the video's ID or name in readable form, never the subtitle text, never an account,
-  a key, your settings or your history.
+  language, a second fingerprint of the video's ID (so tips are released at playback pace),
+  and, when sharing, the learning part of the tips: the words with their meanings, levels and
+  forms, grammar notes (quotes cut to six words), the one-line scene and speaker names as the
+  tips name them. **Translations are never sent**: the translation of a passage, its simpler
+  retelling and the sentence translations stay in your browser. Never the video's ID or name in
+  readable form, never the subtitle text, never an account, a key, your settings or your history.
+- **A one-time human check:** turning Community tips on opens a Cloudflare Turnstile check on
+  `tips.nimanou.com`. Passing it gives this browser a random token for 30 days, which every
+  request carries; it identifies no person. Tips for a video are then released no faster than
+  the video plays, which keeps automated scraping out.
 - **What the service stores:** the fingerprint, the tips language, the video's language and the
   tips. It stores no IP address; for rate limits and to count one report per person it uses a
   salted hash of the address that changes every day.
@@ -81,8 +87,8 @@ explains a chunk, the tips are shared back so the next learner gets them for fre
   list or search of stored tips. Shared tips are not sold, not used for advertising or training,
   and not used for any purpose other than showing them to learners.
 - **Reports:** tips marked *Report* by two different people are hidden for everyone.
-- Turn the switch off at any time; nothing is sent while it is off. The service runs on
-  Cloudflare (Workers and D1, EU location).
+- Turn the switch off at any time; nothing is sent while it is off. The service runs on the
+  developer's own server in Germany (Hetzner), behind Cloudflare's proxy.
 
 ## What is NOT collected
 - No personal identifiers, browsing history, account information, or telemetry.
