@@ -2911,7 +2911,9 @@
       // An accordion, not a pop-up: the section under the pointer (or with keyboard focus) widens in
       // place and the others make room; a short hover intent keeps a crossing mouse from flapping.
       let openT = 0; const setOpen = (v) => { clearTimeout(openT); openT = setTimeout(() => { if (v) s.dataset.open = v; else delete s.dataset.open; }, v ? 220 : 380); };
-      for (const el of s.children) { const key = el.className.replace("svs-", ""); el.tabIndex = 0; el.addEventListener("mouseenter", () => setOpen(key)); el.addEventListener("focusin", () => setOpen(key)); }
+      // The words section never widens: its chips would re-wrap under the pointer and the aimed-at word would move away.
+      const openKey = (el) => (el.classList.contains("words") ? "" : el.className.replace("svs-", "").split(" ")[0]);
+      for (const el of s.children) { el.tabIndex = 0; el.addEventListener("mouseenter", () => setOpen(openKey(el))); el.addEventListener("focusin", () => setOpen(openKey(el))); }
       s.addEventListener("mouseleave", () => setOpen("")); s.addEventListener("focusout", (e) => { if (!s.contains(e.relatedTarget)) setOpen(""); });
       document.body.appendChild(s);
       return s;
@@ -3043,8 +3045,34 @@
         for (const el of facesEl.querySelectorAll(".svs-face")) { const f = nf.shown.find((x) => cleanName(nmOf(x)) === el.dataset.name); el.classList.toggle("talk", !!(f && f.talk)); }
         if (now.dataset.k !== String(board.nowK)) { now.dataset.k = board.nowK; qNow.classList.remove("svs-in"); void qNow.offsetWidth; qNow.classList.add("svs-in"); } // a new line fades in; nothing else moves
       }
+      // The card a word becomes in the Leitner box: the word, the sentence it came from (word marked) with its
+      // translation, and the meaning — shown over a chip while it is pointed at, so a save is never blind.
+      const showLeitnerCard = (chip, w, wc) => {
+        const strip = document.getElementById("sv-strip"); if (!strip) return;
+        if (!board.lcard) { board.lcard = mk("div", "svs-lcard"); board.lcard.setAttribute("role", "tooltip"); } // one card for the page — this render runs on every strip update
+        const lcard = board.lcard; if (lcard.parentElement !== strip) strip.appendChild(lcard); // inside the strip: its dark palette, gone with it
+        lcard.textContent = "";
+        const c = wordInContext(wc, w), x = c ? c.x : wc.sentences[0] || { s: wc.text, tr: "" };
+        const pe = (vocabPool && vocabPool.get(w.w.toLowerCase())) || {};
+        const meaning = w.m || pe.meaning || "";
+        lcard.appendChild(mk("div", "svs-lc-lbl", "Your Leitner card"));
+        const head = mk("div", "svs-lc-h"); const hw = mk("b", null, w.w); hw.dir = "auto"; head.appendChild(hw); if (w.level) head.appendChild(mk("i", null, w.level)); lcard.appendChild(head);
+        const sent = mk("div", "svs-lc-s"); sent.dir = "auto";
+        if (c) { sent.append(document.createTextNode(c.before.join(" ") + (c.before.length ? " " : ""))); sent.appendChild(mk("mark", null, c.hit.join(" "))); sent.append(document.createTextNode((c.after.length ? " " : "") + c.after.join(" "))); } else sent.textContent = x.s || "";
+        lcard.appendChild(sent);
+        if (x.tr) { const tr = mk("div", "svs-lc-tr", x.tr); tr.dir = fitDir(x.tr, dirOf(tgCode())); lcard.appendChild(tr); }
+        const m = mk("div", "svs-lc-m", meaning || "The meaning is added when you review it"); m.dir = meaning ? fitDir(meaning, "auto") : "ltr"; if (!meaning) m.classList.add("muted"); lcard.appendChild(m);
+        lcard.appendChild(mk("div", "svs-lc-foot", chip.classList.contains("saved") ? "In your Leitner box ✓" : "Click the word to save this card"));
+        const r = chip.getBoundingClientRect();
+        lcard.classList.add("on");
+        const wpx = lcard.offsetWidth, hpx = lcard.offsetHeight;
+        lcard.style.left = Math.round(Math.max(8, Math.min(innerWidth - wpx - 8, r.left + r.width / 2 - wpx / 2))) + "px";
+        lcard.style.top = Math.round(Math.max(8, r.top - hpx - 8)) + "px";
+      };
+      const hideLeitnerCard = () => { if (board.lcard) board.lcard.classList.remove("on"); };
       // The words met so far as chips; a click saves one to the deck.
       const fillWordChips = (el, met) => {
+        hideLeitnerCard(); // the chip under it is being replaced — no mouseleave will come
         el.appendChild(mk("div", "svs-lbl", "Words so far · click to save"));
         for (const { w, ch: wc } of met) {
             const key = w.w.toLowerCase(), inDeck = vocabPool && vocabPool.get(key), done = (board.savedW && board.savedW.has(key)) || !!(inDeck && inDeck.box); // a word already in the deck shows ✓ after a reload too
@@ -3054,8 +3082,10 @@
               ev.stopPropagation(); if (chip.disabled || chip.classList.contains("saved")) return; chip.disabled = true;
               const c = wordInContext(wc, w), x = c ? c.x : wc.sentences[0] || { s: wc.text };
               send({ type: "VOCAB_ADD", word: w.w, sentence: x.s || wc.text, translation: x.tr || "", lang: vocabPoolLang !== "xx" ? vocabPoolLang : null, videoTitle: pageTitle, base, ms: x.startMs != null ? x.startMs : wc.startMs, channel: adapter?.getChannel?.() || "" })
-                .then((r) => { chip.disabled = false; if (r && r.error) { chip.title = "Couldn't save — click to retry"; return; } (board.savedW = board.savedW || new Set()).add(key); chip.classList.add("saved"); chip.lastChild.textContent = "✓"; chip.title = "Saved to your words"; });
+                .then((r) => { chip.disabled = false; if (r && r.error) { chip.title = "Couldn't save — click to retry"; return; } (board.savedW = board.savedW || new Set()).add(key); chip.classList.add("saved"); chip.lastChild.textContent = "✓"; chip.title = "Saved to your words"; if (board.lcard && board.lcard.classList.contains("on")) showLeitnerCard(chip, w, wc); });
             });
+            chip.addEventListener("mouseenter", () => showLeitnerCard(chip, w, wc)); chip.addEventListener("focus", () => showLeitnerCard(chip, w, wc));
+            chip.addEventListener("mouseleave", hideLeitnerCard); chip.addEventListener("blur", hideLeitnerCard);
             el.appendChild(chip);
         }
         if (!met.length) el.appendChild(mk("div", "svs-scene muted", "Words to learn appear here as the video plays"));
