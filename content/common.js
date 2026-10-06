@@ -2101,7 +2101,7 @@
     try { chrome.storage.local.get("tipsExplain", (r) => { tipsExplain = String((r && r.tipsExplain) || ""); if (board.el) { const sel = board.el.querySelector(".svb-lang"); if (sel) sel.value = tipsExplain; seedExplained(); board.sig = ""; } }); } catch (e) {}
     // How far ahead the pump explains: "off" · "1" (the playing chunk) · "3" · "all" (the popup's "Tips ahead").
     // Read live — a change must not restart the engine, only wake the pump.
-    let tipsAhead = "1"; // default: the playing chunk only — one call per chunk watched, so the pane never sits empty
+    let tipsAhead = "1"; // default: the playing chunk and the next — a call outlasts a chunk, so the next one must start early
     try { chrome.storage.local.get("tipsAhead", (r) => { tipsAhead = String((r && r.tipsAhead) || "1"); }); } catch (e) {}
     // One listener per page: a restarted engine drops the old one first, or every restart leaves a dead closure listening.
     const onTipsAhead = (ch, area) => { if (area === "local" && ch.tipsAhead) { tipsAhead = String(ch.tipsAhead.newValue || "1"); tips.stopped = false; tips.errors = 0; tips.pausedUntil = 0; board.sig = ""; } };
@@ -2179,7 +2179,7 @@
       const slow = [...tips.inflight.values()].some((t0) => now - t0 > PUMP_SLOW_MS);
       const limit = (behind || mode === "all" ? 2 : 1) + (slow ? 1 : 0);
       if (tips.inflight.size >= limit) return;
-      const k = SV_DOSSIER.aheadWindow(ki, list.length, mode === "all" ? Infinity : mode === "1" ? 1 : 3, (j) => !list[j].text || lineExplainCache.has(list[j].text) || tips.inflight.has(list[j].text));
+      const k = SV_DOSSIER.aheadWindow(ki, list.length, mode === "all" ? Infinity : mode === "1" ? 2 : 3, (j) => !list[j].text || lineExplainCache.has(list[j].text) || tips.inflight.has(list[j].text));
       if (k < 0) { if (tips.all && !tips.inflight.size) tips.all = false; return; }
       const text = list[k].text; tips.inflight.set(text, now); board.sig = "";
       const failed = (why) => { tips.errors++; tips.lastError = why; tips.pausedUntil = performance.now() + 30000;
