@@ -1,0 +1,20 @@
+# /opt/subvibe-tips on the Hetzner box: the community tips service, reached by nginx over edge-shared.
+# Secrets live in .env on the box only (TOKEN_KEY, SALT, TURNSTILE_SECRET); SHARE_TRANSLATIONS stays off
+# until the operator decides (on = the passage and sentence translations are shared too).
+services:
+  subvibe-tips:
+    build: ./server
+    image: subvibe/tips:latest
+    container_name: subvibe-tips
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      SHARE_TRANSLATIONS: "off"
+    volumes:
+      - ./data:/data
+    networks: [edge-shared]
+    mem_limit: 256m
+    read_only: true
+networks:
+  edge-shared:
+    external: true
