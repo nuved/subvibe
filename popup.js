@@ -494,7 +494,7 @@ el("showOriginal").addEventListener("change", () => saveSetting({ showOriginal: 
 el("hideNative").addEventListener("change", () => persist({ hideNative: el("hideNative").checked }));
 el("karaokeHl").addEventListener("change", () => persist({ karaokeHl: el("karaokeHl").checked }));
 el("storyBoard").addEventListener("change", () => persist({ storyBoard: el("storyBoard").checked }));
-el("communityTips").addEventListener("change", () => persist({ communityTips: el("communityTips").checked }));
+el("communityTips").addEventListener("change", () => { const on = el("communityTips").checked; persist({ communityTips: on }); if (on) chrome.storage.local.get("communityToken").then((r) => { if (!r.communityToken) send({ type: "COMMUNITY_CHECK" }); }); }); // yes → the one-time human check, unless already passed
 // Sync applies to a running session at once: the capture page hears LIVE_SYNC directly.
 el("liveSync").addEventListener("change", () => { const sync = el("liveSync").value; state.liveSync = sync; persist({ liveSync: sync }); chrome.runtime.sendMessage({ type: "LIVE_SYNC", sync }).catch(() => {}); });
 el("tipsAhead").addEventListener("change", () => persist({ tipsAhead: el("tipsAhead").value }));

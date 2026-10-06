@@ -85,7 +85,7 @@ func cleanTips(raw any, withTr bool) (*Tips, bool) {
 	}
 	var t Tips
 	var ok [9]bool
-	t.Tr, ok[0] = str(p["tr"], 2000, true)
+	t.Tr, ok[0] = str(p["tr"], 2000, withTr) // without translation sharing an upload carries none
 	t.Simple, ok[1] = str(p["simple"], 2000, false)
 	t.G, ok[2] = str(p["g"], 3000, false)
 	t.Scene, ok[3] = str(p["scene"], 240, false)
@@ -132,6 +132,11 @@ func cleanTips(raw any, withTr bool) (*Tips, bool) {
 	}
 	if !withTr {
 		t.stripTranslations()
+	} else if t.Tr == "" {
+		return nil, false
+	}
+	if len(t.Words) == 0 && t.G == "" { // nothing to learn from
+		return nil, false
 	}
 	return &t, true
 }

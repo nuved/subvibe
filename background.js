@@ -1334,18 +1334,35 @@ async function shotStudy(msg) {
 // id, the chunk's words and the tips language) and the tips themselves leave the browser — never the
 // video id, the subtitle text, an account or a history. Off until the person says yes (communityTips).
 const COMMUNITY_URL = "https://tips.nimanou.com";
-const communityOn = async () => (await chrome.storage.local.get("communityTips")).communityTips === true;
-async function communityKey(base, sent, tl) {
-  const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("v1|" + base + "|" + SV_DOSSIER.tipKey(sent) + "|" + tl));
-  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
+// On = the learner said yes AND passed the one-time human check (its token, 30 days).
+const communityToken = async () => { const r = await chrome.storage.local.get(["communityTips", "communityToken"]); return r.communityTips === true && typeof r.communityToken === "string" ? r.communityToken : ""; };
+const sha256hex = async (s) => [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)))].map((b) => b.toString(16).padStart(2, "0")).join("");
+const communityKey = (base, sent, tl) => sha256hex("v1|" + base + "|" + SV_DOSSIER.tipKey(sent) + "|" + tl);
+const communityVideo = (base) => sha256hex("v1|video|" + base); // the session the service paces — never the id itself
 async function communityPost(path, body) {
   const r = await fetch(COMMUNITY_URL + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(5000) });
+  if (r.status === 401) { await chrome.storage.local.remove("communityToken"); throw new Error("community tips: the check expired"); } // the pane asks for a new check
   if (!r.ok) throw new Error("community tips answered " + r.status);
   return r.json();
 }
-const communityShape = (e) => ({ tr: e.tr, simple: e.simple || "", g: e.g || "", scene: e.scene || "", who: e.who || [], spk: e.spk || [], lang: e.lang || "",
+// What is shared: the learning layer only — words, meanings, grammar notes, the scene line and speakers.
+// The passage translation, the retelling and the sentence translations stay in this browser, and a long
+// quote in a grammar note is cut to six words.
+const cutQuotes = (g) => String(g || "").replace(/(«|“|")([^»”"]+)(»|”|")/g, (m, a, q, b) => { const w = q.trim().split(/\s+/); return w.length > 6 ? a + w.slice(0, 6).join(" ") + "…" + b : m; });
+const communityShape = (e) => ({ tr: "", simple: "", lines: [], g: cutQuotes(e.g), scene: e.scene || "", who: e.who || [], spk: e.spk || [], lang: e.lang || "",
   words: (e.words || []).map((x) => ({ w: x.w, m: x.m, pos: x.pos || "", level: x.level || "", forms: x.forms || "", parts: x.parts || [], register: x.register || "", tone: x.tone || "", care: x.care || "" })) });
+// The human check: Turnstile on tips.nimanou.com, in a small window; the page hands the token back
+// through externally_connectable (onMessageExternal below), never shown on screen.
+async function openCommunityCheck() {
+  await chrome.windows.create({ url: COMMUNITY_URL + "/v1/human?ext=" + chrome.runtime.id, type: "popup", width: 440, height: 560 });
+}
+chrome.runtime.onMessageExternal.addListener((msg, sender, reply) => {
+  if (!sender || !String(sender.url || "").startsWith(COMMUNITY_URL + "/") || !msg || msg.type !== "SV_COMMUNITY_TOKEN") return;
+  const t = String(msg.token || "");
+  if (!/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(t) || t.length > 400) { reply({ ok: false }); return; }
+  chrome.storage.local.set({ communityToken: t, communityTips: true }).then(() => reply({ ok: true }));
+  return true;
+});
 
 async function explainLine(base, sent, langHint, opts) {
   const o = opts || {};
@@ -1376,14 +1393,22 @@ async function explainLine(base, sent, langHint, opts) {
   try { const det = await detectClipLang([{ o: sent }]); if (det && det !== "xx") lang = det; } catch {}
   if (explainPref === "same" && lang) { target = lang; fa = (target || "").split("-")[0] === "fa"; }
   // Someone may have explained this chunk already: ask before paying. "Explain again" (fresh) always asks the model.
-  const share = await communityOn();
+  const tok = await communityToken(), share = !!tok;
   const tlLabel = explainPref === "same" ? "same" : String(target || "").toLowerCase();
   const ck = share ? await communityKey(base, sent, tlLabel) : "";
-  if (share && !o.fresh) {
+  // Shared tips carry no translation: the passage reads in the learner's own sentence translations.
+  const trLocal = (Array.isArray(o.trs) ? o.trs : []).map((x) => String(x || "").trim()).filter(Boolean).join(" ");
+  if (share && !o.fresh && trLocal) {
     let hit = null;
-    try { hit = ((await communityPost("/v1/lookup", { keys: [ck] })).hits || {})[ck] || null; } catch (e) { hit = null; } // unreachable: the model answers as before
-    if (hit && hit.tr) {
-      const got = Object.assign(communityShape(hit), { s: sent, at: started, explain: explainPref, src: "community", ck });
+    try {
+      const body = { t: tok, v: await communityVideo(base), keys: [ck] };
+      let r = await communityPost("/v1/lookup", body);
+      // Paced: not released yet — wait for the next release once (at most 15 s), then the model answers.
+      if ((r.later || []).includes(ck) && r.nextInMs > 0 && r.nextInMs <= 15000) { await new Promise((z) => setTimeout(z, r.nextInMs + 250)); r = await communityPost("/v1/lookup", body); }
+      hit = (r.hits || {})[ck] || null;
+    } catch (e) { hit = null; } // unreachable or expired: the model answers as before
+    if (hit && ((hit.words || []).length || hit.g)) {
+      const got = Object.assign(communityShape(hit), { tr: trLocal, s: sent, at: started, explain: explainPref, src: "community", ck });
       const fresh0 = await idbVocabGet("clipexplain:" + base); if (fresh0) { cx.e = Object.assign({}, fresh0.e || {}, cx.e); if (fresh0.dossier) cx.dossier = fresh0.dossier; }
       cx.e[skey] = got; if (!explainPref) cx.target = target; cx.lang = got.lang || lang || String(cx.lang || ""); cx.at = Date.now();
       await idbVocabPut("clipexplain:" + base, cx);
@@ -1416,7 +1441,7 @@ async function explainLine(base, sent, langHint, opts) {
     // The passage now lives under its words' key; drop copies under the old raw-text keys so a re-explain isn't shadowed by them.
     for (const k of ["e4" + hRaw + suf, "e3" + hRaw + suf, "e2" + hRaw + suf]) if (k !== skey) delete cx.e[k];
     await idbVocabPut("clipexplain:" + base, cx);
-    if (share) communityPost("/v1/tips", { k: ck, tl: tlLabel, tips: communityShape(out) }).catch(() => {}); } // shared back; the first valid one for a chunk is kept
+    if (share) communityPost("/v1/tips", { t: tok, k: ck, tl: tlLabel, tips: communityShape(out) }).catch(() => {}); } // shared back; the first valid one for a chunk is kept
   await logCall({ ts: started, site: "learn", title: "Explain: " + sent.slice(0, 40), kind: "enrich", lines: 1, ms: Date.now() - started,
     inTok: (r.usage && r.usage.prompt_tokens) || 0, outTok: (r.usage && r.usage.completion_tokens) || 0,
     cacheR: (r.usage && r.usage.cache_r) || 0, cacheW: (r.usage && r.usage.cache_w) || 0, ok: true, provider: r.provider, model: r.model });
@@ -3329,7 +3354,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           // words) for the on-video ﹖ button. Cached per sentence forever.
           const base = String(msg.base || ""), sent = String(msg.s || "").slice(0, 700);
           if (!sent) { sendResponse({ error: "missing sentence" }); break; }
-          try { sendResponse(await explainLine(base, sent, msg.lang, { before: msg.before, after: msg.after, title: msg.title, sample: msg.sample, explain: msg.explain, fresh: !!msg.fresh, k: msg.k, n: msg.n, sentences: msg.sentences, prevScene: msg.prevScene, prevWho: msg.prevWho, known: msg.known })); }
+          try { sendResponse(await explainLine(base, sent, msg.lang, { before: msg.before, after: msg.after, title: msg.title, sample: msg.sample, explain: msg.explain, fresh: !!msg.fresh, k: msg.k, n: msg.n, sentences: msg.sentences, prevScene: msg.prevScene, prevWho: msg.prevWho, known: msg.known, trs: msg.trs })); }
           catch (e2) { sendResponse({ error: String((e2 && e2.message) || e2) }); }
           break;
         }
@@ -3500,9 +3525,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         case "TIPS_SNAP": sendResponse(await tipsSnap(msg, sender)); break;
         case "CLIP_TIPS": sendResponse(await clipTips(msg)); break;
         case "TIPS_CACHED": sendResponse(await tipsCached(msg)); break;
+        case "COMMUNITY_CHECK": await openCommunityCheck(); sendResponse({ ok: true }); break; // the pane's "yes" and the popup switch
         case "COMMUNITY_REPORT": { // a learner flags shared tips as wrong: tell the service, drop the local copy so Explain again asks the model
           const base = String(msg.base || ""), ck = String(msg.ck || "");
-          try { if (/^[0-9a-f]{64}$/.test(ck)) await communityPost("/v1/report", { k: ck }); } catch (e2) {}
+          try { const tok = await communityToken(); if (tok && /^[0-9a-f]{64}$/.test(ck)) await communityPost("/v1/report", { t: tok, k: ck }); } catch (e2) {}
           const cx = base ? await idbVocabGet("clipexplain:" + base) : null;
           if (cx && cx.e) { for (const [k, e] of Object.entries(cx.e)) if (e && e.ck === ck) delete cx.e[k]; await idbVocabPut("clipexplain:" + base, cx); }
           sendResponse({ ok: true });

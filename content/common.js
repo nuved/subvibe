@@ -2102,9 +2102,9 @@
     // How far ahead the pump explains: "off" · "1" (the playing chunk) · "3" · "all" (the popup's "Tips ahead").
     // Read live — a change must not restart the engine, only wake the pump.
     // Community tips: undefined until the learner answers the pane's one question; true = use and share.
-    let communityTips;
-    try { chrome.storage.local.get("communityTips", (r) => { communityTips = r ? r.communityTips : undefined; board.paneSig = ""; }); } catch (e) {}
-    const onCommunity = (ch, area) => { if (area === "local" && ch.communityTips) { communityTips = ch.communityTips.newValue; board.paneSig = ""; } };
+    let communityTips, communityChecked = false; // checked = the one-time human check gave this install its token
+    try { chrome.storage.local.get(["communityTips", "communityToken"], (r) => { communityTips = r ? r.communityTips : undefined; communityChecked = !!(r && r.communityToken); board.paneSig = ""; }); } catch (e) {}
+    const onCommunity = (ch, area) => { if (area !== "local") return; if (ch.communityTips) communityTips = ch.communityTips.newValue; if (ch.communityToken) communityChecked = !!ch.communityToken.newValue; if (ch.communityTips || ch.communityToken) board.paneSig = ""; };
     try { if (window.__svCommunityListener) chrome.storage.onChanged.removeListener(window.__svCommunityListener); } catch (e) {}
     window.__svCommunityListener = onCommunity;
     try { chrome.storage.onChanged.addListener(onCommunity); } catch (e) {}
@@ -2115,7 +2115,7 @@
     try { if (window.__svTipsAheadListener) chrome.storage.onChanged.removeListener(window.__svTipsAheadListener); } catch (e) {}
     window.__svTipsAheadListener = onTipsAhead;
     try { chrome.storage.onChanged.addListener(onTipsAhead); } catch (e) {}
-    const explainPayload = (ch, list) => ({ type: "VOCAB_EXPLAIN", base, s: ch.text, sentences: ch.sentences.map((x) => x.s), lang: vocabPoolLang, title: document.title, explain: tipsExplain, k: ch.k, n: list.length,
+    const explainPayload = (ch, list) => ({ type: "VOCAB_EXPLAIN", base, s: ch.text, sentences: ch.sentences.map((x) => x.s), trs: ch.sentences.map((x) => x.tr || ""), lang: vocabPoolLang, title: document.title, explain: tipsExplain, k: ch.k, n: list.length,
       before: list[ch.k - 1] ? [list[ch.k - 1].text] : [], after: list[ch.k + 1] ? [list[ch.k + 1].text] : [],
       // What the board already knows, so the model says only what's new:
       // the nearest earlier scene and speakers, and the words already taught.
@@ -2904,10 +2904,10 @@
       const pane = b.querySelector(".svb-pane"), head = pane.querySelector(".svb-ph"), body = pane.querySelector(".svb-pb");
       const k = board.open, ch = board.list[k]; const ex = ch ? lineExplainCache.get(ch.text) : null;
       // board.list.length is in the signature because the head prints "chunk k / n": a growing cue list must redraw the total.
-      const sig = [k, ch ? ch.text : "", ex ? 1 : 0, ex && ex.error ? ex.error : "", snapChunks, tipsExplain, board.loop, board.pinnedAt ? 1 : 0, busyHere(ch) ? 1 : 0, board.list.length, String(communityTips), board.list.slice(k + 1, k + snapChunks).map((c) => (lineExplainCache.has(c.text) ? 1 : 0)).join("")].join("\u0001");
+      const sig = [k, ch ? ch.text : "", ex ? 1 : 0, ex && ex.error ? ex.error : "", snapChunks, tipsExplain, board.loop, board.pinnedAt ? 1 : 0, busyHere(ch) ? 1 : 0, board.list.length, String(communityTips), communityChecked ? 1 : 0, board.list.slice(k + 1, k + snapChunks).map((c) => (lineExplainCache.has(c.text) ? 1 : 0)).join("")].join("\u0001");
       if (sig === board.paneSig) return; board.paneSig = sig;
       head.textContent = ""; body.textContent = "";
-      pane.classList.toggle("thin", (!ex || !ch) && communityTips !== undefined);
+      pane.classList.toggle("thin", (!ex || !ch) && communityTips !== undefined && !(communityTips === true && !communityChecked));
       if (communityTips === undefined && ch) { // asked once; nothing is sent before a yes
         const ask = mk("div", "svb-ask");
         ask.appendChild(mk("b", null, "Share tips with other learners?"));
@@ -2915,9 +2915,15 @@
         const row = mk("div", "svb-ask-row");
         const yes = mk("button", "svb-explain", "Yes, share tips"); yes.type = "button";
         const no = mk("button", "svb-ask-no", "Not now"); no.type = "button";
-        const answer = (v) => { communityTips = v; try { chrome.storage.local.set({ communityTips: v }); } catch (e) {} board.paneSig = ""; renderPane(); };
+        const answer = (v) => { communityTips = v; try { chrome.storage.local.set({ communityTips: v }); } catch (e) {} if (v) send({ type: "COMMUNITY_CHECK" }); board.paneSig = ""; renderPane(); };
         yes.addEventListener("click", (ev) => { ev.stopPropagation(); answer(true); }); no.addEventListener("click", (ev) => { ev.stopPropagation(); answer(false); });
         row.append(yes, no); ask.appendChild(row); body.appendChild(ask);
+      } else if (communityTips === true && !communityChecked && ch) { // said yes, the check is not done (or expired)
+        const ask = mk("div", "svb-ask svb-ask-thin");
+        ask.appendChild(mk("span", null, "Community tips need one quick check that you're a person."));
+        const go = mk("button", "svb-explain", "Open the check"); go.type = "button";
+        go.addEventListener("click", (ev) => { ev.stopPropagation(); send({ type: "COMMUNITY_CHECK" }); });
+        ask.appendChild(go); body.appendChild(ask);
       } // nothing to teach yet: one line, and the chunk list keeps the height
       if (!ch) { head.appendChild(mk("b", null, "Tips")); body.appendChild(mk("div", "wt-val svb-empty", "The tips of the playing chunk appear here.")); return; }
       head.appendChild(mk("b", null, "Tips · " + fmtT(ch.startMs) + " · chunk " + (k + 1) + " / " + board.list.length));

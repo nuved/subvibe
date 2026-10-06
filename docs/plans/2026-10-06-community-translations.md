@@ -15,5 +15,6 @@ change that). Operator accepts the risk; a takedown path and a server kill switc
 
 ## Status
 - 1: moved to Go on the Hetzner box (operator 2026-10-06: "we already pay for Hetzner"). service/community-tips/server (Go, SQLite, pacing + cache in memory), deploy/ (compose, nginx). Running at /opt/subvibe-tips, nginx-tips.conf untracked in /opt/sprachbrucke/nginx/conf.d, self-signed cert until the operator issues a CF origin cert from /tmp/tips.csr and adds the proxied A record tips → 46.224.192.77 (my OAuth token has no DNS or origin-CA rights). Worker deleted; D1 kept until cutover works. SHARE_TRANSLATIONS=off pending the operator.
-- 2 (extension: token, batched paced lookups, lines), 3 (overlay translator), 4 (takedown contact): not started.
+- 2 DONE: human check window → token via externally_connectable; lookups carry token + video fingerprint, wait once for the pace; uploads carry the learning layer only (no tr/simple/lines, quotes cut to 6 words); a hit reads its passage in the user's own sentence translations. Verified live with a made-up video (94 ms hit). Operator settings restored to unanswered.
+- 3 (overlay translator from the community): dropped — translations are not shared (operator 2026-10-06). 4 (takedown contact): open.
 - Separate session tunnel-random-names works on random fromnovid names in mansoor-tunnel (no deploy).

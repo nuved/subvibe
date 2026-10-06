@@ -21,6 +21,7 @@
     "activeTab",
     "nativeMessaging"
   ],
+  "externally_connectable": { "matches": ["https://tips.nimanou.com/*"] },
   "host_permissions": [
     "https://api.openai.com/*",
     "https://api.anthropic.com/*",
