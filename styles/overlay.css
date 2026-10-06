@@ -329,7 +329,7 @@
 #copilot-subs .copilot-subs__wtip .wt-words > b:first-child, #sv-board .wt-words > b:first-child { margin-top: 2px; }
 #copilot-subs .copilot-subs__wtip .wt-words > span, #sv-board .wt-words > span { display: block; margin: 2px 0 0; padding: 0 0 0 10px; border-left: 2px solid var(--sv-line, #EDE5DA); }
 #copilot-subs .copilot-subs__wtip .wt-words > span[dir="rtl"], #sv-board .wt-words > span[dir="rtl"] { padding: 0 10px 0 0; border-left: 0; border-right: 2px solid var(--sv-line, #EDE5DA); }
-#copilot-subs .copilot-subs__wtip .wt-gpt .wt-q, #sv-board .wt-gpt .wt-q { font-weight: 700; color: var(--sv-ink, #241F1A); background: var(--sv-card, #fff); border: 1px solid var(--sv-line, #EDE5DA); border-radius: 4px; padding: 0 4px; margin: 0 2px; white-space: nowrap; }
+#copilot-subs .copilot-subs__wtip .wt-gpt .wt-q, #sv-board .wt-gpt .wt-q { font-weight: 700; color: var(--sv-ink, #241F1A); background: var(--sv-card, #fff); border: 1px solid var(--sv-line, #EDE5DA); border-radius: 4px; padding: 0 4px; margin: 0 2px; white-space: normal; overflow-wrap: anywhere; -webkit-box-decoration-break: clone; box-decoration-break: clone; unicode-bidi: isolate; } /* a long quote wraps (each piece keeps its frame) instead of running off the pane; isolate keeps it left-to-right inside a Persian line */
 #sv-board .svb-tools { flex-wrap: wrap; row-gap: 6px; }
 #sv-board .svb-lang { max-width: 100%; }
 #copilot-subs .copilot-subs__wtip .wt-words b, #sv-board .wt-words b { color: var(--sv-ink, #241F1A); font-weight: 700; }
