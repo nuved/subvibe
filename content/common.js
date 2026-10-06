@@ -3021,16 +3021,17 @@
         const c = wordInContext(list[j], w);
         nextW = { w, ch: list[j], j, ctx: c ? (c.cutL ? "…" : "") + c.before.concat(c.hit, c.after).join(" ") + (c.cutR ? "…" : "") : list[j].text };
       }
-      // The chips follow the tips pane: the words of the chunk(s) it shows (1 · 2 · 3) first, then the
-      // ones met just before, up to six — so turning the pane to two chunks changes the chips too.
+      // The chips follow the tips pane: the three words each chunk it shows (1 · 2 · 3) teaches — the ones
+      // its board row marks in gold — then, while there is room, the chunks just before. The label names them.
       const kPane = board.open >= 0 ? board.open : kNow, nPane = Math.max(1, snapChunks || 1);
       const metSig = [kNow, kPane, nPane, lineExplainCache.size, vocabPool ? vocabPool.size : 0, (board.savedW || new Set()).size].join(":");
       if (board.metSig !== metSig) {
         board.metSig = metSig; const seen = new Set(), met = [];
-        const take = (j, cap) => { const c = list[j]; if (!c) return; const ex = lineExplainCache.get(c.text); const ws = ex && !ex.error && (ex.words || []).length ? ex.words.filter((w) => w && w.w).map((w) => ({ w: w.w, parts: w.parts, pos: w.pos, level: w.level || "", m: w.m || "" })) : chunkWords(c, exTopOf(c)); for (const w of ws) { const key = w.w.toLowerCase(); if (seen.has(key) || met.length >= cap) continue; seen.add(key); met.push({ w, ch: c }); } };
-        for (let j = kPane; kPane >= 0 && j < kPane + nPane; j++) take(j, 9); // every word the pane lists
-        for (let j = kPane - 1; j >= 0 && met.length < 6; j--) take(j, 6);
-        board.met = met;
+        let lo = kPane, hi = Math.min(list.length - 1, kPane + nPane - 1);
+        const take = (j, cap) => { const c = list[j]; if (!c) return; for (const w of chunkWords(c, exTopOf(c))) { const key = w.w.toLowerCase(); if (seen.has(key) || met.length >= cap) continue; seen.add(key); met.push({ w, ch: c }); } };
+        for (let j = kPane; kPane >= 0 && j <= hi; j++) take(j, 9); // three per chunk in the pane
+        for (let j = kPane - 1; j >= 0 && met.length < 6; j--) { lo = j; take(j, 6); }
+        board.met = met; board.metRange = kPane >= 0 ? [lo, hi] : null;
       }
       // ── the Now box: who says the line, the line, who says the next. Stable nodes updated in place — the pump,
       // the camera, a found picture or a change of speaker touch only the words that changed, so nothing flashes;
@@ -3114,7 +3115,8 @@
       // The words met so far as chips; a click saves one to the deck.
       const fillWordChips = (el, met) => {
         hideLeitnerCard(); // the chip under it is being replaced — no mouseleave will come
-        el.appendChild(mk("div", "svs-lbl", "Words so far · click to save"));
+        const rg = board.metRange; // which chunks the chips come from, counted like the pane ("chunk 10 / 17")
+        el.appendChild(mk("div", "svs-lbl", (rg ? (rg[0] === rg[1] ? "Chunk " + (rg[0] + 1) : "Chunks " + (rg[0] + 1) + "–" + (rg[1] + 1)) : "Words") + " · click to save"));
         for (const { w, ch: wc } of met) {
             // ✓ once this video's sentence is on the card; a word saved from ANOTHER video stays clickable —
             // the click adds this sentence to that same card (one card per word, examples from every video).
