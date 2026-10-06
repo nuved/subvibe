@@ -846,3 +846,7 @@
 #sv-board .wt-community, #copilot-subs .copilot-subs__wtip .wt-community { display: flex; align-items: center; gap: 8px; margin: 6px 13px 0; font: 600 11px/1.3 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: var(--sv-teal, #1F7A6D); }
 #sv-board .wt-report, #copilot-subs .copilot-subs__wtip .wt-report { border: 0; background: none; padding: 0; color: var(--sv-muted, #8A7F72); font: inherit; text-decoration: underline; cursor: pointer; }
 #sv-board .wt-report:hover, #copilot-subs .copilot-subs__wtip .wt-report:hover { color: var(--sv-coral, #C93F2B); }
+/* 1 · 2 · 3 reads as a count ("Chunks"), and the following chunks in the pane sit under their own time. */
+#copilot-subs .copilot-subs__wtip .wt-nlbl, #sv-board .wt-nlbl { align-self: center; padding: 0 8px; font: 600 11px/1.3 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; font-style: normal; color: var(--sv-muted, #8A7F72); border-right: 1px solid var(--sv-line, #EDE5DA); }
+#sv-board .svb-more-h { display: block; width: calc(100% - 26px); margin: 14px 13px 4px; padding: 6px 0 0; border: 0; border-top: 2px solid var(--sv-coral-line); background: none; text-align: start; font: 700 11px/1.3 ui-monospace, Menlo, Consolas, monospace; letter-spacing: .06em; text-transform: uppercase; color: var(--sv-coral); cursor: pointer; }
+#sv-board .svb-more-h:hover { color: var(--sv-coral-hi, #FF917F); }

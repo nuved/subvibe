@@ -2450,6 +2450,7 @@
     const buildActions = (ctx) => {
       const act = mk("div", "wt-actions");
       const nsel = mk("span", "wt-nsel"); nsel.title = "How many chunks to show and to put on the frame — this one, then the following ones";
+      nsel.appendChild(mk("i", "wt-nlbl", "Chunks"));
       const btns = [1, 2, 3].map((m) => { const b = mk("button", m === ctx.n ? "on" : "", String(m)); b.type = "button"; b.addEventListener("click", (ev) => { ev.stopPropagation(); ctx.setN(m); }); nsel.appendChild(b); return b; });
       const snap = mk("button", "wt-sheet wt-snap", "Frame + " + (ctx.n === 1 ? "this chunk" : ctx.n + " chunks")); snap.type = "button";
       snap.title = "Capture this video frame as a Shot, with the chunk's sentences, translation, grammar and words under it";
@@ -2903,7 +2904,7 @@
       const pane = b.querySelector(".svb-pane"), head = pane.querySelector(".svb-ph"), body = pane.querySelector(".svb-pb");
       const k = board.open, ch = board.list[k]; const ex = ch ? lineExplainCache.get(ch.text) : null;
       // board.list.length is in the signature because the head prints "chunk k / n": a growing cue list must redraw the total.
-      const sig = [k, ch ? ch.text : "", ex ? 1 : 0, ex && ex.error ? ex.error : "", snapChunks, tipsExplain, board.loop, board.pinnedAt ? 1 : 0, busyHere(ch) ? 1 : 0, board.list.length, String(communityTips)].join("\u0001");
+      const sig = [k, ch ? ch.text : "", ex ? 1 : 0, ex && ex.error ? ex.error : "", snapChunks, tipsExplain, board.loop, board.pinnedAt ? 1 : 0, busyHere(ch) ? 1 : 0, board.list.length, String(communityTips), board.list.slice(k + 1, k + snapChunks).map((c) => (lineExplainCache.has(c.text) ? 1 : 0)).join("")].join("\u0001");
       if (sig === board.paneSig) return; board.paneSig = sig;
       head.textContent = ""; body.textContent = "";
       pane.classList.toggle("thin", (!ex || !ch) && communityTips !== undefined);
@@ -2924,6 +2925,16 @@
       fol.addEventListener("click", (ev) => { ev.stopPropagation(); board.pinnedAt = 0; board.open = board.ki; board.sig = ""; boardTick(true); }); head.appendChild(fol);
       if (!ex) { const line = mk("div", "svb-emptyrow"); line.appendChild(mk("div", "wt-val svb-empty", busyHere(ch) ? "Explaining…" : "Not explained yet.")); if (!busyHere(ch)) { const b2 = mk("button", "svb-explain", "Explain"); b2.type = "button"; b2.addEventListener("click", () => boardFocus(k, false)); line.appendChild(b2); } body.appendChild(line); return; }
       body.appendChild(buildTips(ex, ch, { noScene: true }));
+      // 2 · 3 in the actions row: the pane shows the following chunks' tips too, each under its time
+      // (one not explained yet is asked for — the reader picked it).
+      for (let j = k + 1; j < Math.min(board.list.length, k + snapChunks); j++) {
+        const cj = board.list[j], ej = lineExplainCache.get(cj.text);
+        const hd = mk("button", "svb-more-h", "Then · " + fmtT(cj.startMs) + " · chunk " + (j + 1)); hd.type = "button"; hd.title = "Play from here";
+        hd.addEventListener("click", (ev) => { ev.stopPropagation(); playFrom(cj.startMs); });
+        body.appendChild(hd);
+        if (ej) body.appendChild(buildTips(ej, cj, { noScene: true }));
+        else { body.appendChild(mk("div", "wt-val svb-empty", "Explaining…")); if (!busyHere(cj)) explainChunk(cj, board.list).then(() => { board.sig = ""; board.paneSig = ""; boardTick(true); }); }
+      }
       body.appendChild(buildActions({ list: board.list, k0: k, n: snapChunks, setN: (m) => { snapChunks = m; board.sig = ""; boardTick(true); }, anchor: () => els.__orig }));
     };
     // The scene strip under the picture (drawer players): what is playing, what
