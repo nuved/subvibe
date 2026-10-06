@@ -4,7 +4,7 @@ Go service at `https://tips.nimanou.com` (Hetzner box 46.224.192.77, `/opt/subvi
 `subvibe-tips` on `edge-shared`, nginx vhost `nginx-tips.conf` in `/opt/sprachbrucke/nginx/conf.d`).
 Stores explanations learners chose to share, keyed by a SHA-256 fingerprint the extension makes
 (`communityKey` in background.js), and serves them back to other learners. No video ids, subtitle
-text, accounts or IP addresses are stored. Search engines are kept out (`robots.txt`, `X-Robots-Tag`).
+text, accounts or IP addresses are stored. Search engines are kept out (`X-Robots-Tag: noindex` on every answer; `robots.txt` allows crawling so Google can see it).
 
 - `GET /v1/human?ext=<extension id>` → Cloudflare Turnstile page; a pass hands a token to the extension
 - `POST /v1/token {ts}` → `{token}` (30 days, HMAC-signed)

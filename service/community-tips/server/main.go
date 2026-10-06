@@ -230,7 +230,9 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	case r.Method == http.MethodGet && r.URL.Path == "/robots.txt":
 		w.Header().Set("Content-Type", "text/plain")
-		_, _ = io.WriteString(w, "User-agent: *\nDisallow: /\n")
+		// Allow, not Disallow: Google only honours noindex on what it may fetch, and every answer here carries
+		// X-Robots-Tag noindex (developers.google.com/search/docs/crawling-indexing/block-indexing).
+		_, _ = io.WriteString(w, "User-agent: *\nAllow: /\n")
 		return
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/health":
 		var n int
