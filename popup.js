@@ -494,6 +494,7 @@ el("showOriginal").addEventListener("change", () => saveSetting({ showOriginal: 
 el("hideNative").addEventListener("change", () => persist({ hideNative: el("hideNative").checked }));
 el("karaokeHl").addEventListener("change", () => persist({ karaokeHl: el("karaokeHl").checked }));
 el("storyBoard").addEventListener("change", () => persist({ storyBoard: el("storyBoard").checked }));
+el("communityTips").addEventListener("change", () => persist({ communityTips: el("communityTips").checked }));
 // Sync applies to a running session at once: the capture page hears LIVE_SYNC directly.
 el("liveSync").addEventListener("change", () => { const sync = el("liveSync").value; state.liveSync = sync; persist({ liveSync: sync }); chrome.runtime.sendMessage({ type: "LIVE_SYNC", sync }).catch(() => {}); });
 el("tipsAhead").addEventListener("change", () => persist({ tipsAhead: el("tipsAhead").value }));
@@ -2057,7 +2058,7 @@ function startGameWithScope(lang, scope) {
 
 // ── load ─────────────────────────────────────────────────────────────────────
 async function load() {
-  const g = await chrome.storage.local.get([...Object.keys(DEFAULTS), "linePositions", "clipOverrides"]);
+  const g = await chrome.storage.local.get([...Object.keys(DEFAULTS), "linePositions", "clipOverrides", "communityTips"]); // communityTips has no default: unanswered is its own state
   clipOverrides = g.clipOverrides || {};
   clipBase = await resolveClipBase();                       // which video (if any) is open
   const ov = (clipBase && clipOverrides[clipBase]) || {};   // this clip's saved tweaks
@@ -2078,6 +2079,7 @@ async function load() {
   el("hideNative").checked = state.hideNative;
   el("karaokeHl").checked = state.karaokeHl !== false;
   el("storyBoard").checked = state.storyBoard !== false;
+  el("communityTips").checked = state.communityTips === true; // unanswered counts as no
   el("liveSync").value = ["auto", "off", "1", "2", "3", "4", "5"].includes(String(state.liveSync)) ? String(state.liveSync) : "auto";
   // "Claude Code on this Mac" is for the developer's own build: hidden from store installs unless it is already in use.
   try {

@@ -2101,6 +2101,13 @@
     try { chrome.storage.local.get("tipsExplain", (r) => { tipsExplain = String((r && r.tipsExplain) || ""); if (board.el) { const sel = board.el.querySelector(".svb-lang"); if (sel) sel.value = tipsExplain; seedExplained(); board.sig = ""; } }); } catch (e) {}
     // How far ahead the pump explains: "off" · "1" (the playing chunk) · "3" · "all" (the popup's "Tips ahead").
     // Read live — a change must not restart the engine, only wake the pump.
+    // Community tips: undefined until the learner answers the pane's one question; true = use and share.
+    let communityTips;
+    try { chrome.storage.local.get("communityTips", (r) => { communityTips = r ? r.communityTips : undefined; board.paneSig = ""; }); } catch (e) {}
+    const onCommunity = (ch, area) => { if (area === "local" && ch.communityTips) { communityTips = ch.communityTips.newValue; board.paneSig = ""; } };
+    try { if (window.__svCommunityListener) chrome.storage.onChanged.removeListener(window.__svCommunityListener); } catch (e) {}
+    window.__svCommunityListener = onCommunity;
+    try { chrome.storage.onChanged.addListener(onCommunity); } catch (e) {}
     let tipsAhead = "1"; // default: the playing chunk and the next — a call outlasts a chunk, so the next one must start early
     try { chrome.storage.local.get("tipsAhead", (r) => { tipsAhead = String((r && r.tipsAhead) || "1"); }); } catch (e) {}
     // One listener per page: a restarted engine drops the old one first, or every restart leaves a dead closure listening.
@@ -2127,7 +2134,7 @@
         if (!r || !r.ok || seededFor !== tipsExplain) return;
         if (r.ctx) setCtx(r.ctx);
         const known = (r.entries || []).find((e) => e.lang && e.lang !== "xx"); if (known) refreshLangOption(known.lang);
-        for (const e of r.entries || []) if (!lineExplainCache.has(e.s)) lineExplainCache.set(e.s, { tr: e.tr, simple: e.simple || "", g: e.g, scene: e.scene || "", who: e.who || [], spk: e.spk || [], lang: e.lang || "", words: e.words || [] });
+        for (const e of r.entries || []) if (!lineExplainCache.has(e.s)) lineExplainCache.set(e.s, { tr: e.tr, simple: e.simple || "", g: e.g, scene: e.scene || "", who: e.who || [], spk: e.spk || [], lang: e.lang || "", words: e.words || [], community: !!e.community, ck: e.ck || "" });
         // Last: painting the dossier must never cost the seeded tips above.
         if (r.dossier) setDossier(r.dossier);
         board.sig = "";
@@ -2154,7 +2161,7 @@
         chunkFetching.delete(tk);
         if (r && r.ctx) setCtx(r.ctx);
         if (r && r.lang) refreshLangOption(r.lang);
-        if (r && r.tr) { const ex = { tr: r.tr, simple: r.simple || "", g: r.g, scene: r.scene || "", who: r.who || [], spk: r.spk || [], lang: r.lang || "", words: r.words || [] }; lineExplainCache.set(ch.text, ex); return ex; }
+        if (r && r.tr) { const ex = { tr: r.tr, simple: r.simple || "", g: r.g, scene: r.scene || "", who: r.who || [], spk: r.spk || [], lang: r.lang || "", words: r.words || [], community: !!r.community, ck: r.ck || "" }; lineExplainCache.set(ch.text, ex); return ex; }
         return { error: r && r.error ? plainError(r.error) : "no explanation — try again" };
       }));
       return chunkFetching.get(tk);
@@ -2324,6 +2331,13 @@
       const line = (text, d) => { const v = mk("div", "wt-val", text); v.dir = fitDir(text, d || "auto"); return v; };
       if (!ex) { body.appendChild(line("…")); return body; }
       if (ex.error) { body.appendChild(line(ex.error)); return body; }
+      if (ex.community && ch) { // made by another learner: say so, and let a wrong one be reported (the model then explains it afresh)
+        const src = mk("div", "wt-community"); src.appendChild(mk("span", null, "Shared by another learner"));
+        const rep = mk("button", "wt-report", "Report"); rep.type = "button"; rep.title = "These tips are wrong or junk: hide them for everyone after two reports, and explain this chunk again (one call)";
+        rep.addEventListener("click", (ev) => { ev.stopPropagation(); rep.disabled = true; rep.textContent = "Reported";
+          send({ type: "COMMUNITY_REPORT", base, ck: ex.ck }).then(() => { lineExplainCache.delete(ch.text); const lst = board.list.length ? board.list : card.list; board.sig = ""; board.paneSig = ""; boardTick(true); explainChunk(ch, lst, true).then(() => { board.sig = ""; board.paneSig = ""; boardTick(true); }); }); });
+        src.appendChild(rep); body.appendChild(src);
+      }
       // The passage said more simply, in its own language — the translation
       // already sits under each sentence, so no second translation here.
       // The scene as the model read it — who speaks, the mood — then the retelling.
@@ -2889,10 +2903,21 @@
       const pane = b.querySelector(".svb-pane"), head = pane.querySelector(".svb-ph"), body = pane.querySelector(".svb-pb");
       const k = board.open, ch = board.list[k]; const ex = ch ? lineExplainCache.get(ch.text) : null;
       // board.list.length is in the signature because the head prints "chunk k / n": a growing cue list must redraw the total.
-      const sig = [k, ch ? ch.text : "", ex ? 1 : 0, ex && ex.error ? ex.error : "", snapChunks, tipsExplain, board.loop, board.pinnedAt ? 1 : 0, busyHere(ch) ? 1 : 0, board.list.length].join("\u0001");
+      const sig = [k, ch ? ch.text : "", ex ? 1 : 0, ex && ex.error ? ex.error : "", snapChunks, tipsExplain, board.loop, board.pinnedAt ? 1 : 0, busyHere(ch) ? 1 : 0, board.list.length, String(communityTips)].join("\u0001");
       if (sig === board.paneSig) return; board.paneSig = sig;
       head.textContent = ""; body.textContent = "";
-      pane.classList.toggle("thin", !ex || !ch); // nothing to teach yet: one line, and the chunk list keeps the height
+      pane.classList.toggle("thin", (!ex || !ch) && communityTips !== undefined);
+      if (communityTips === undefined && ch) { // asked once; nothing is sent before a yes
+        const ask = mk("div", "svb-ask");
+        ask.appendChild(mk("b", null, "Share tips with other learners?"));
+        ask.appendChild(mk("p", null, "Chunks someone already explained show up at once and cost nothing, and the tips you get are shared back. Only the tips and a fingerprint of the chunk are sent: no account, no video name, no history."));
+        const row = mk("div", "svb-ask-row");
+        const yes = mk("button", "svb-explain", "Yes, share tips"); yes.type = "button";
+        const no = mk("button", "svb-ask-no", "Not now"); no.type = "button";
+        const answer = (v) => { communityTips = v; try { chrome.storage.local.set({ communityTips: v }); } catch (e) {} board.paneSig = ""; renderPane(); };
+        yes.addEventListener("click", (ev) => { ev.stopPropagation(); answer(true); }); no.addEventListener("click", (ev) => { ev.stopPropagation(); answer(false); });
+        row.append(yes, no); ask.appendChild(row); body.appendChild(ask);
+      } // nothing to teach yet: one line, and the chunk list keeps the height
       if (!ch) { head.appendChild(mk("b", null, "Tips")); body.appendChild(mk("div", "wt-val svb-empty", "The tips of the playing chunk appear here.")); return; }
       head.appendChild(mk("b", null, "Tips · " + fmtT(ch.startMs) + " · chunk " + (k + 1) + " / " + board.list.length));
       const fol = mk("button", "svb-follow" + (board.pinnedAt ? "" : " on"), board.pinnedAt ? "follow ▸" : "following ▸"); fol.type = "button"; fol.title = board.pinnedAt ? "Back to the playing chunk" : "The pane follows the video";
@@ -2985,10 +3010,15 @@
         const c = wordInContext(list[j], w);
         nextW = { w, ch: list[j], j, ctx: c ? (c.cutL ? "…" : "") + c.before.concat(c.hit, c.after).join(" ") + (c.cutR ? "…" : "") : list[j].text };
       }
-      const metSig = [kNow, lineExplainCache.size, vocabPool ? vocabPool.size : 0, (board.savedW || new Set()).size].join(":");
+      // The chips follow the tips pane: the words of the chunk(s) it shows (1 · 2 · 3) first, then the
+      // ones met just before, up to six — so turning the pane to two chunks changes the chips too.
+      const kPane = board.open >= 0 ? board.open : kNow, nPane = Math.max(1, snapChunks || 1);
+      const metSig = [kNow, kPane, nPane, lineExplainCache.size, vocabPool ? vocabPool.size : 0, (board.savedW || new Set()).size].join(":");
       if (board.metSig !== metSig) {
         board.metSig = metSig; const seen = new Set(), met = [];
-        for (let j = kNow; j >= 0 && met.length < 6; j--) for (const w of chunkWords(list[j], exTopOf(list[j]))) { const key = w.w.toLowerCase(); if (seen.has(key) || met.length >= 6) continue; seen.add(key); met.push({ w, ch: list[j] }); }
+        const take = (j, cap) => { const c = list[j]; if (!c) return; const ex = lineExplainCache.get(c.text); const ws = ex && !ex.error && (ex.words || []).length ? ex.words.filter((w) => w && w.w).map((w) => ({ w: w.w, parts: w.parts, pos: w.pos, level: w.level || "", m: w.m || "" })) : chunkWords(c, exTopOf(c)); for (const w of ws) { const key = w.w.toLowerCase(); if (seen.has(key) || met.length >= cap) continue; seen.add(key); met.push({ w, ch: c }); } };
+        for (let j = kPane; kPane >= 0 && j < kPane + nPane; j++) take(j, 9); // every word the pane lists
+        for (let j = kPane - 1; j >= 0 && met.length < 6; j--) take(j, 6);
         board.met = met;
       }
       // ── the Now box: who says the line, the line, who says the next. Stable nodes updated in place — the pump,

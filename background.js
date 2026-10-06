@@ -1328,6 +1328,25 @@ async function shotStudy(msg) {
 // a fact about this video (an English line on a German learner's account was
 // being explained as "not a German sentence"). Used by the ? card and by
 // "Tips for this clip".
+// ── Community tips (tips.nimanou.com, service/community-tips) ─────────────────
+// Learners who said yes share their explanations and get each other's: a chunk someone already
+// explained arrives at once and costs nothing. Only a fingerprint of the chunk (SHA-256 of the video
+// id, the chunk's words and the tips language) and the tips themselves leave the browser — never the
+// video id, the subtitle text, an account or a history. Off until the person says yes (communityTips).
+const COMMUNITY_URL = "https://tips.nimanou.com";
+const communityOn = async () => (await chrome.storage.local.get("communityTips")).communityTips === true;
+async function communityKey(base, sent, tl) {
+  const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("v1|" + base + "|" + SV_DOSSIER.tipKey(sent) + "|" + tl));
+  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+async function communityPost(path, body) {
+  const r = await fetch(COMMUNITY_URL + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(5000) });
+  if (!r.ok) throw new Error("community tips answered " + r.status);
+  return r.json();
+}
+const communityShape = (e) => ({ tr: e.tr, simple: e.simple || "", g: e.g || "", scene: e.scene || "", who: e.who || [], spk: e.spk || [], lang: e.lang || "",
+  words: (e.words || []).map((x) => ({ w: x.w, m: x.m, pos: x.pos || "", level: x.level || "", forms: x.forms || "", parts: x.parts || [], register: x.register || "", tone: x.tone || "", care: x.care || "" })) });
+
 async function explainLine(base, sent, langHint, opts) {
   const o = opts || {};
   // Keyed by the chunk's words, not its spelling (SV_DOSSIER.tipKey): a chorus with or without ">>" or a full
@@ -1350,12 +1369,29 @@ async function explainLine(base, sent, langHint, opts) {
   if (!o.fresh && cx.e[skey] && cx.e[skey].tr) {
     const c = cx.e[skey];
     fa = ((c.explain && c.explain !== "same" ? c.explain : c.explain === "same" ? c.lang : target) || "").split("-")[0] === "fa";
-    return { ok: true, tr: faS(c.tr), simple: c.simple || "", g: faS(c.g), scene: faS(c.scene || ""), who: Array.isArray(c.who) ? c.who : [], spk: Array.isArray(c.spk) ? c.spk : [], lang: c.lang || "", explain: c.explain || "", ctx: cx.ctx || null, words: (c.words || []).map((x) => ({ w: x.w, m: faS(x.m), pos: x.pos || "", level: x.level || "", forms: cleanForms(x.forms), parts: x.parts || [], register: x.register || "", tone: x.tone || "", care: faS(x.care || "") })), cached: true };
+    return { ok: true, tr: faS(c.tr), simple: c.simple || "", g: faS(c.g), scene: faS(c.scene || ""), who: Array.isArray(c.who) ? c.who : [], spk: Array.isArray(c.spk) ? c.spk : [], lang: c.lang || "", explain: c.explain || "", ctx: cx.ctx || null, community: c.src === "community", ck: c.ck || "", words: (c.words || []).map((x) => ({ w: x.w, m: faS(x.m), pos: x.pos || "", level: x.level || "", forms: cleanForms(x.forms), parts: x.parts || [], register: x.register || "", tone: x.tone || "", care: faS(x.care || "") })), cached: true };
   }
   const started = Date.now();
   let lang = langHint && langHint !== "xx" ? String(langHint) : "";
   try { const det = await detectClipLang([{ o: sent }]); if (det && det !== "xx") lang = det; } catch {}
   if (explainPref === "same" && lang) { target = lang; fa = (target || "").split("-")[0] === "fa"; }
+  // Someone may have explained this chunk already: ask before paying. "Explain again" (fresh) always asks the model.
+  const share = await communityOn();
+  const tlLabel = explainPref === "same" ? "same" : String(target || "").toLowerCase();
+  const ck = share ? await communityKey(base, sent, tlLabel) : "";
+  if (share && !o.fresh) {
+    let hit = null;
+    try { hit = ((await communityPost("/v1/lookup", { keys: [ck] })).hits || {})[ck] || null; } catch (e) { hit = null; } // unreachable: the model answers as before
+    if (hit && hit.tr) {
+      const got = Object.assign(communityShape(hit), { s: sent, at: started, explain: explainPref, src: "community", ck });
+      const fresh0 = await idbVocabGet("clipexplain:" + base); if (fresh0) { cx.e = Object.assign({}, fresh0.e || {}, cx.e); if (fresh0.dossier) cx.dossier = fresh0.dossier; }
+      cx.e[skey] = got; if (!explainPref) cx.target = target; cx.lang = got.lang || lang || String(cx.lang || ""); cx.at = Date.now();
+      await idbVocabPut("clipexplain:" + base, cx);
+      await logCall({ ts: started, site: "learn", title: "Community tips: " + sent.slice(0, 40), kind: "enrich", lines: 1, ms: Date.now() - started, inTok: 0, outTok: 0, ok: true, provider: "community", model: "shared" });
+      return { ok: true, tr: faS(got.tr), simple: got.simple, g: faS(got.g), scene: faS(got.scene), who: got.who, spk: got.spk, lang: got.lang, explain: explainPref, ctx: cx.ctx || null, community: true, ck,
+        words: got.words.map((x) => ({ w: x.w, m: faS(x.m), pos: x.pos, level: x.level, forms: cleanForms(x.forms), parts: x.parts, register: x.register, tone: x.tone, care: faS(x.care) })) };
+    }
+  }
   // The dossier (identity, cast, kind, a frozen sample) is the cached prefix; the passage and its neighbours are the only per-call bytes.
   const dossier = await ensureDossier(base, { title: o.title }, o.sample, lang || "auto");
   const ctx = dossier && dossier.kind ? { kind: dossier.kind, about: dossier.about, register: dossier.register, speakers: dossier.speakers } : null;
@@ -1379,7 +1415,8 @@ async function explainLine(base, sent, langHint, opts) {
     const fresh = await idbVocabGet("clipexplain:" + base); if (fresh) { cx.e = Object.assign({}, fresh.e || {}, cx.e); if (fresh.dossier) cx.dossier = fresh.dossier; if (fresh.faces3) cx.faces3 = fresh.faces3; if (fresh.recaps) cx.recaps = fresh.recaps; }
     // The passage now lives under its words' key; drop copies under the old raw-text keys so a re-explain isn't shadowed by them.
     for (const k of ["e4" + hRaw + suf, "e3" + hRaw + suf, "e2" + hRaw + suf]) if (k !== skey) delete cx.e[k];
-    await idbVocabPut("clipexplain:" + base, cx); }
+    await idbVocabPut("clipexplain:" + base, cx);
+    if (share) communityPost("/v1/tips", { k: ck, tl: tlLabel, tips: communityShape(out) }).catch(() => {}); } // shared back; the first valid one for a chunk is kept
   await logCall({ ts: started, site: "learn", title: "Explain: " + sent.slice(0, 40), kind: "enrich", lines: 1, ms: Date.now() - started,
     inTok: (r.usage && r.usage.prompt_tokens) || 0, outTok: (r.usage && r.usage.completion_tokens) || 0,
     cacheR: (r.usage && r.usage.cache_r) || 0, cacheW: (r.usage && r.usage.cache_w) || 0, ok: true, provider: r.provider, model: r.model });
@@ -1553,7 +1590,7 @@ async function tipsCached(msg) {
   const best = new Map();
   for (const [k, e] of all) { const tk = SV_DOSSIER.tipKey(e.s), r = eRank(k), cur = best.get(tk); if (!cur || r > cur.r || (r === cur.r && (e.at || 0) > (cur.e.at || 0))) best.set(tk, { r, e }); }
   const entries = [...best.values()].map((v) => v.e);
-  return { ok: true, entries: entries.map((e) => ({ s: e.s, tr: e.tr, simple: e.simple || "", g: e.g || "", scene: e.scene || "", who: e.who || [], spk: e.spk || [], lang: e.lang || "", at: e.at || 0, words: (e.words || []).map((x) => ({ w: x.w, m: x.m, pos: x.pos || "", level: x.level || "", forms: cleanForms(x.forms), parts: x.parts || [], register: x.register || "", tone: x.tone || "", care: x.care || "" })) })), ctx: cx && cx.ctx ? cx.ctx : null, dossier: cx && cx.dossier ? cx.dossier : null };
+  return { ok: true, entries: entries.map((e) => ({ s: e.s, tr: e.tr, simple: e.simple || "", g: e.g || "", scene: e.scene || "", who: e.who || [], spk: e.spk || [], lang: e.lang || "", at: e.at || 0, community: e.src === "community", ck: e.ck || "", words: (e.words || []).map((x) => ({ w: x.w, m: x.m, pos: x.pos || "", level: x.level || "", forms: cleanForms(x.forms), parts: x.parts || [], register: x.register || "", tone: x.tone || "", care: x.care || "" })) })), ctx: cx && cx.ctx ? cx.ctx : null, dossier: cx && cx.dossier ? cx.dossier : null };
 }
 
 // ── Tips sheet: every ﹖-explained line of a video as one Study card ─────────
@@ -3463,6 +3500,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         case "TIPS_SNAP": sendResponse(await tipsSnap(msg, sender)); break;
         case "CLIP_TIPS": sendResponse(await clipTips(msg)); break;
         case "TIPS_CACHED": sendResponse(await tipsCached(msg)); break;
+        case "COMMUNITY_REPORT": { // a learner flags shared tips as wrong: tell the service, drop the local copy so Explain again asks the model
+          const base = String(msg.base || ""), ck = String(msg.ck || "");
+          try { if (/^[0-9a-f]{64}$/.test(ck)) await communityPost("/v1/report", { k: ck }); } catch (e2) {}
+          const cx = base ? await idbVocabGet("clipexplain:" + base) : null;
+          if (cx && cx.e) { for (const [k, e] of Object.entries(cx.e)) if (e && e.ck === ck) delete cx.e[k]; await idbVocabPut("clipexplain:" + base, cx); }
+          sendResponse({ ok: true });
+          break;
+        }
         case "FACES": try { sendResponse(await faces(msg)); } catch (e2) { sendResponse({ ok: false, error: String((e2 && e2.message) || e2) }); } break;
         case "SNAP_VIA_CAPTURE": try { sendResponse(await snapViaCapture(sender && sender.tab)); } catch (e2) { sendResponse({ ok: false, error: String((e2 && e2.message) || e2) }); } break; // the page asks for the screen route (protected video draws black)
         case "SCENE_FRAME": try { sendResponse(await sceneFrame(msg, sender)); } catch (e2) { sendResponse({ ok: false, error: String((e2 && e2.message) || e2) }); } break;

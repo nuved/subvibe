@@ -1,14 +1,16 @@
  # SubVibe — Privacy Policy
 
-_Last updated: 30 July 2026_
+_Last updated: 6 October 2026_
 
 SubVibe is a browser extension that overlays AI‑generated subtitles (translated or
 same‑language) on streaming video, and can optionally speak the translation (Dub Mode).
 This policy explains exactly what data SubVibe handles and where it goes.
 
 ## The short version
-- SubVibe has **no servers of its own.** The developer never receives, sees, or stores any
-  of your data.
+- SubVibe has **one optional service of its own**, *Community tips*, and it is **off until you
+  say yes**. With it off, the developer never receives, sees, or stores any of your data. With
+  it on, only the tips you get from your AI provider and an unreadable fingerprint of the
+  chunk they explain are shared (see *Community tips* below).
 - You bring your **own API key** (BYOK) for the provider you choose — OpenAI or Anthropic
   for translation, optionally Google for dub voices. Keys are stored **locally** on your
   device and used only to call that provider directly from your browser.
@@ -60,9 +62,32 @@ This data is processed under the provider’s own API data‑usage policy:
 [Google](https://ai.google.dev/gemini-api/terms). SubVibe adds no processing of its own and
 routes this data through no other party.
 
+## Community tips (optional, off until you say yes)
+The story board asks once, and the popup has a switch (*Share tips with other learners*). With
+it on, before asking your AI provider to explain a chunk of a video, SubVibe asks
+`tips.nimanou.com` whether another learner already shared tips for it, and after your provider
+explains a chunk, the tips are shared back so the next learner gets them for free.
+
+- **What is sent:** a fingerprint (SHA-256) of the video's ID, the chunk's words and the tips
+  language, plus, when sharing, the tips themselves (translation, simpler retelling, grammar
+  notes, the scene, speaker names as the tips name them, and the words with their meanings).
+  Never the video's ID or name in readable form, never the subtitle text, never an account,
+  a key, your settings or your history.
+- **What the service stores:** the fingerprint, the tips language, the video's language and the
+  tips. It stores no IP address; for rate limits and to count one report per person it uses a
+  salted hash of the address that changes every day.
+- **Who sees it:** learners who use SubVibe with Community tips on, and only for a chunk they
+  are watching (a fingerprint can only be made by someone who has that chunk). There is no
+  list or search of stored tips. Shared tips are not sold, not used for advertising or training,
+  and not used for any purpose other than showing them to learners.
+- **Reports:** tips marked *Report* by two different people are hidden for everyone.
+- Turn the switch off at any time; nothing is sent while it is off. The service runs on
+  Cloudflare (Workers and D1, EU location).
+
 ## What is NOT collected
 - No personal identifiers, browsing history, account information, or telemetry.
-- No advertising, profiling, data sharing, or data selling.
+- No advertising, profiling, or data selling. The only sharing is Community tips, above, and
+  only after you turn it on.
 - SubVibe reads page content only on the streaming sites it supports (YouTube, Netflix, ZDF,
   DW, Amazon Prime Video, Udemy, X, LinkedIn Learning), to locate the caption track and draw the subtitle overlay — and,
   only when you invoke *Simplify* or *Screenshot* on a tab, on that one tab, to read the text you
