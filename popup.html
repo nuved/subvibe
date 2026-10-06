@@ -599,14 +599,14 @@
   </nav>
 
   <div class="pane" data-pane="translate">
-  <!-- One 3-way mode instead of a bare on/off. "Original" styles the video's own
-       captions for free (no translation), so people don't have to clear every
-       language to stop paying. Style/karaoke/timing ride whatever line shows. -->
+  <!-- One 3-way mode instead of a bare on/off. "Original" shows only the spoken line on
+       the video; with the story board on, the lines are still translated and the
+       translation sits under each sentence there (board off: nothing is translated). Style/karaoke/timing ride whatever line shows. -->
   <section>
     <div class="lbl">Subtitles</div>
     <div class="seg2" id="subMode" role="radiogroup" aria-label="Subtitle mode">
       <button type="button" class="segopt" data-mode="off"><b>Off</b><small>no subtitles</small></button>
-      <button type="button" class="segopt" data-mode="original"><b>Original</b><small>styled · free</small></button>
+      <button type="button" class="segopt" data-mode="original"><b>Original</b><small>translation on the board</small></button>
       <button type="button" class="segopt" data-mode="translate"><b>Translate</b><small>uses your key</small></button>
     </div>
     <div class="hint" id="subModeHint" style="margin-top:7px;"></div>

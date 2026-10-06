@@ -138,10 +138,12 @@
     const { clipOverrides, ...flat } = s;
     const ov = (clipOverrides && clipOverrides[clipBaseId()]) || {};
     const merged = { ...DEFAULTS, ...flat, ...ov };
-    // "Original" mode (translateOn === false): drop every target so not a single
-    // line is sent to the translator (zero cost), and force the original line on
-    // so there's still something to style/karaoke/resync. One gate, read by all.
-    if (merged.translateOn === false) { merged.targets = []; merged.showOriginal = true; }
+    // "Original" mode (translateOn === false): the video shows only the spoken line
+    // (forced on, so there's something to style/karaoke/resync). With the story board
+    // on, the lines are still translated and the translation sits under each sentence
+    // there (trOffVideo) — a learner needs the meaning somewhere. Board off: no
+    // target at all, so not a single line is sent to the translator.
+    if (merged.translateOn === false) { merged.showOriginal = true; if (merged.storyBoard === false) merged.targets = []; else merged.trOffVideo = true; }
     return merged;
   }
 
@@ -999,7 +1001,7 @@
     // Overlay rows: optional original line + one per target.
     const defs = [];
     if (settings.showOriginal) defs.push({ key: "__orig", target: null });
-    for (const tg of targets) defs.push({ key: tg, target: tg });
+    if (!settings.trOffVideo) for (const tg of targets) defs.push({ key: tg, target: tg });
     const overlay = ensureOverlay();
     applyAppearance(settings);
     const stack = overlay.querySelector(".copilot-subs__stack");
@@ -1021,7 +1023,7 @@
     // The whole stack follows one cue — the most recent one whose primary
     // target translation is ready — so the original and its translation stay
     // aligned and both get a proper reading-time on screen.
-    const primaryTarget = targets[0] || null;
+    const primaryTarget = settings.trOffVideo ? null : targets[0] || null; // the video shows no translation: never hold the line for one
     cancelAnimationFrame(rafId);
     let badgeAt = 0;
     const tick = () => {
@@ -1735,7 +1737,7 @@
     stack.innerHTML = "";
     const defs = [];
     if (settings.showOriginal) defs.push({ key: "__orig", target: null });
-    for (const tg of settings.targets) defs.push({ key: tg, target: tg });
+    if (!settings.trOffVideo) for (const tg of settings.targets) defs.push({ key: tg, target: tg });
     if (!defs.length) defs.push({ key: "__orig", target: null });
     const els = {};
     for (const d of defs) { const row = document.createElement("div"); row.className = "copilot-subs__line" + (d.target ? "" : " copilot-subs__line--orig"); row.dataset.csKey = d.key; els[d.key] = row; stack.appendChild(row); }
@@ -2755,6 +2757,7 @@
           toks.forEach((t, n) => { if (n) sent.appendChild(document.createTextNode(" ")); sent.appendChild(hit.has(n) ? mk("mark", null, t) : document.createTextNode(t)); if (tagAt.has(n)) sent.appendChild(mk("i", "svb-lvl in", tagAt.get(n))); });
           sent.addEventListener("click", (ev) => { ev.stopPropagation(); playFrom(x.startMs != null ? x.startMs : ch.startMs, x.endMs); });
           blk.appendChild(sent);
+          if (settings.trOffVideo && x.tr) { const tr = mk("div", "svb-tr", x.tr); tr.dir = fitDir(x.tr, dirOf(tgCode())); blk.appendChild(tr); } // Original mode: the video shows no translation, so the board does
         }
         for (const { w } of g.ws) {
           if (!w.m) continue; // no note: the gold mark (and its level tag) in the sentence says it all
@@ -3595,7 +3598,7 @@
     stack.innerHTML = "";
     audioDefs = [];
     if (settings.showOriginal) audioDefs.push({ key: "__orig", target: null });
-    for (const tg of settings.targets) audioDefs.push({ key: tg, target: tg });
+    if (!settings.trOffVideo) for (const tg of settings.targets) audioDefs.push({ key: tg, target: tg });
     if (!audioDefs.length) audioDefs.push({ key: "__orig", target: null });
     audioEls = {};
     for (const d of audioDefs) {
@@ -3604,7 +3607,7 @@
       audioEls[d.key] = row;
       stack.appendChild(row);
     }
-    const primary = settings.targets[0] || null;
+    const primary = settings.trOffVideo ? null : settings.targets[0] || null;
     cancelAnimationFrame(audioRaf);
     const tick = () => {
       const t = mediaClock() + liveOffsetMs;

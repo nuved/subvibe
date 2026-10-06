@@ -762,6 +762,9 @@
 #sv-board .svb-wsent:hover { background: var(--sv-sunk); color: var(--sv-ink); }
 #sv-board .svb-wsent:focus-visible { outline: 2px solid var(--sv-coral); outline-offset: 1px; }
 #sv-board .svb-wsent mark { background: none; color: var(--sv-amber); font-weight: 700; }
+/* Original mode: the video shows only the spoken line, so each sentence's translation sits under it here. */
+#sv-board:not(.lines-off) .svb-wblock .svb-tr { display: block; margin: -2px 0 2px; font-size: 13px; color: var(--sv-text2); }
+#sv-board .svb-chunk.on .svb-wsent.live + .svb-tr { color: var(--sv-ink); }
 #sv-board .svb-wnote { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 7px; padding-inline-start: 10px; border-inline-start: 2px solid var(--sv-gold-bg); }
 #sv-board .svb-wnote b { color: var(--sv-amber); font-size: 13.5px; font-weight: 700; }
 #sv-board .svb-lvl { font: 700 9.5px/1.5 ui-monospace, Menlo, Consolas, monospace; font-style: normal; color: var(--sv-teal); background: var(--sv-teal-bg); border-radius: 4px; padding: 0 5px; }

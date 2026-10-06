@@ -477,10 +477,10 @@ function currentMode() { return !state.enabled ? "off" : (state.translateOn === 
 function renderMode() {
   const mode = currentMode();
   [...el("subMode").children].forEach((b) => b.classList.toggle("on", b.dataset.mode === mode));
-  el("translateOnly").hidden = mode !== "translate";
+  el("translateOnly").hidden = mode === "off"; // Original still translates for the board, so its language stays pickable
   el("subModeHint").textContent =
     mode === "off" ? "SubVibe subtitles are off. Live Translate (Dub tab) still works on its own."
-    : mode === "original" ? "Styling the video's own captions — karaoke and timing work, nothing is sent to a translator. No cost."
+    : mode === "original" ? "The video shows only the spoken line. The story board shows each sentence's translation under it (uses your key; with the board off nothing is translated)."
     : "Translated to the languages below, using your OpenAI/Claude key.";
 }
 function setMode(mode) {
