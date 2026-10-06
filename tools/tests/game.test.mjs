@@ -459,3 +459,12 @@ test("records: streak counts consecutive days; bests only improve; new-record la
   assert.equal(u.records.streakDays, 1, "a skipped day restarts the streak");
   assert.equal(u.records.fastestPerfectSec, 39);
 });
+
+test("deckOf: one deck per source → target pair; a card without a target keeps its source deck", () => {
+  assert.equal(G.deckOf({ lang: "en", tl: "fa" }), "en>fa");
+  assert.equal(G.deckOf({ lang: "en", tl: "de" }), "en>de");
+  assert.equal(G.deckOf({ lang: "en" }), "en");
+  assert.equal(G.deckOf({ key: "frame:x" }), ""); // not a card: no deck
+  assert.deepEqual(G.deckLangs("en>fa"), { src: "en", tl: "fa" });
+  assert.deepEqual(G.deckLangs("de"), { src: "de", tl: "" });
+});

@@ -1630,7 +1630,7 @@ function describeScope(scope) {
 function topChannels(lang, n) {
   const counts = new Map();
   for (const c of gamePool) {
-    if (c.lang !== lang || !c.channel || SV_GAME.status(c) === "mastered") continue;
+    if (SV_GAME.deckOf(c) !== lang || !c.channel || SV_GAME.status(c) === "mastered") continue;
     counts.set(c.channel, (counts.get(c.channel) || 0) + 1);
   }
   return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, n).map(([ch]) => ch);
@@ -1642,9 +1642,11 @@ async function renderDecks() {
   const box = el("deckCards");
   box.innerHTML = "";
   const byLang = new Map();
+  // Smart boxes: one deck per source → target pair, made by the cards themselves.
   for (const c of gamePool) {
-    if (!byLang.has(c.lang)) byLang.set(c.lang, []);
-    byLang.get(c.lang).push(c);
+    const d = SV_GAME.deckOf(c); if (!d) continue;
+    if (!byLang.has(d)) byLang.set(d, []);
+    byLang.get(d).push(c);
   }
   if (!byLang.size) {
     // Cards auto-exist, never created by hand — with nothing collected yet,
@@ -1660,7 +1662,9 @@ async function renderDecks() {
 }
 
 function buildDeckCard(lang, cards) {
-  const [, name, flag] = langMeta(lang);
+  const { src, tl } = SV_GAME.deckLangs(lang); // lang is the deck key: "en>fa"
+  const [, srcName, flag] = langMeta(src);
+  const name = tl ? srcName + " → " + langMeta(tl)[1] : srcName;
   const scope = gameScopeAll[lang] || { source: "", minLevel: "", pos: "" };
   const st = deckStatus(cards);
 
@@ -2018,7 +2022,8 @@ el("lnPlayThese").addEventListener("click", async () => {
       btn.disabled = false;
     }
   }
-  startGameWithScope(lnData.lang, scope);
+  const own = gamePool.find((c) => c.base === clipBase && c.lang === lnData.lang); // the round runs in the deck these cards belong to
+  startGameWithScope(own ? SV_GAME.deckOf(own) : lnData.lang, scope);
 });
 
 // ── Round engine — delegates to the shared runner (shared/gameui.js) ───────

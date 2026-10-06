@@ -428,8 +428,13 @@
     return { records: r, newRecords };
   }
 
+  // A card's deck: its source language and the language it is learned into ("en>fa").
+  // A card saved before the target was recorded falls back to its source alone.
+  const deckOf = (c) => (c && c.lang ? c.lang + (c.tl ? ">" + c.tl : "") : "");
+  const deckLangs = (key) => { const [src, tl] = String(key || "").split(">"); return { src, tl: tl || "" }; };
+
   g.SV_GAME = {
-    status, matchesScope, isEnriched, isSep, buildSession, distractors, shuffle, updateRecords,
+    deckOf, deckLangs, status, matchesScope, isEnriched, isSep, buildSession, distractors, shuffle, updateRecords,
     builderFor, gapFor, findFor, kindsFor, pickKind, builderHint, gapRule, findTeaching,
   };
 })(globalThis);

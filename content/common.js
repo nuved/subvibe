@@ -3062,7 +3062,7 @@
         lcard.appendChild(sent);
         if (x.tr) { const tr = mk("div", "svs-lc-tr", x.tr); tr.dir = fitDir(x.tr, dirOf(tgCode())); lcard.appendChild(tr); }
         const m = mk("div", "svs-lc-m", meaning || "The meaning is added when you review it"); m.dir = meaning ? fitDir(meaning, "auto") : "ltr"; if (!meaning) m.classList.add("muted"); lcard.appendChild(m);
-        lcard.appendChild(mk("div", "svs-lc-foot", chip.classList.contains("saved") ? "In your Leitner box ✓" : "Click the word to save this card"));
+        lcard.appendChild(mk("div", "svs-lc-foot", chip.classList.contains("saved") ? "In your Leitner box ✓ — this sentence is on the card" : chip.classList.contains("other") ? "Already in your Leitner box from another video — click to add this sentence to that card" : "Click the word to save this card"));
         const r = chip.getBoundingClientRect();
         lcard.classList.add("on");
         const wpx = lcard.offsetWidth, hpx = lcard.offsetHeight;
@@ -3075,14 +3075,16 @@
         hideLeitnerCard(); // the chip under it is being replaced — no mouseleave will come
         el.appendChild(mk("div", "svs-lbl", "Words so far · click to save"));
         for (const { w, ch: wc } of met) {
-            const key = w.w.toLowerCase(), inDeck = vocabPool && vocabPool.get(key), done = (board.savedW && board.savedW.has(key)) || !!(inDeck && inDeck.box); // a word already in the deck shows ✓ after a reload too
-            const chip = mk("button", "svs-wchip" + (done ? " saved" : "")); chip.type = "button"; chip.title = done ? "Saved to your words" : "Save to your words";
+            // ✓ once this video's sentence is on the card; a word saved from ANOTHER video stays clickable —
+            // the click adds this sentence to that same card (one card per word, examples from every video).
+            const key = w.w.toLowerCase(), inDeck = vocabPool && vocabPool.get(key), had = !!(inDeck && inDeck.box), done = (board.savedW && board.savedW.has(key)) || (had && !!inDeck.here);
+            const chip = mk("button", "svs-wchip" + (done ? " saved" : had ? " other" : "")); chip.type = "button"; chip.title = done ? "Saved to your words" : had ? "In your Leitner box from another video — click to add this sentence to it" : "Save to your words";
             chip.appendChild(mk("b", null, w.w)); if (w.level) chip.appendChild(mk("i", null, w.level)); chip.appendChild(mk("span", "svs-wplus", done ? "✓" : "+"));
             chip.addEventListener("click", (ev) => {
               ev.stopPropagation(); if (chip.disabled || chip.classList.contains("saved")) return; chip.disabled = true;
               const c = wordInContext(wc, w), x = c ? c.x : wc.sentences[0] || { s: wc.text };
               send({ type: "VOCAB_ADD", word: w.w, sentence: x.s || wc.text, translation: x.tr || "", lang: vocabPoolLang !== "xx" ? vocabPoolLang : null, videoTitle: pageTitle, base, ms: x.startMs != null ? x.startMs : wc.startMs, channel: adapter?.getChannel?.() || "" })
-                .then((r) => { chip.disabled = false; if (r && r.error) { chip.title = "Couldn't save — click to retry"; return; } (board.savedW = board.savedW || new Set()).add(key); chip.classList.add("saved"); chip.lastChild.textContent = "✓"; chip.title = "Saved to your words"; if (board.lcard && board.lcard.classList.contains("on")) showLeitnerCard(chip, w, wc); });
+                .then((r) => { chip.disabled = false; if (r && r.error) { chip.title = "Couldn't save — click to retry"; return; } (board.savedW = board.savedW || new Set()).add(key); chip.classList.remove("other"); chip.classList.add("saved"); chip.lastChild.textContent = "✓"; chip.title = "Saved to your words"; if (board.lcard && board.lcard.classList.contains("on")) showLeitnerCard(chip, w, wc); });
             });
             chip.addEventListener("mouseenter", () => showLeitnerCard(chip, w, wc)); chip.addEventListener("focus", () => showLeitnerCard(chip, w, wc));
             chip.addEventListener("mouseleave", hideLeitnerCard); chip.addEventListener("blur", hideLeitnerCard);

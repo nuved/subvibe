@@ -105,7 +105,7 @@
     const dayKey = todayKey();
     const introEntry = introCache[lang];
     const introducedToday = introEntry && introEntry.day === dayKey ? introEntry.count : 0;
-    const pool = (current.cards || []).filter((c) => c.lang === lang);
+    const pool = (current.cards || []).filter((c) => SV_GAME.deckOf(c) === lang); // lang is the deck: source>target
     const built = SV_GAME.buildSession({ cards: pool, scope, perDay: pace, introducedToday, now: Date.now(), rng: Math.random, size: 10 });
     // Computed once here, not per card: Sentences-only scope but this round's
     // pool has no sentence-capable card (builder/gap/find) at all — pickKind
@@ -676,7 +676,7 @@
     const wasNew = SV_GAME.status(card) === "new";
     const resp = await current.send({ type: "VOCAB_GRADE", key: card.key, ok });
     if (resp && resp.card) Object.assign(card, resp.card);
-    if (wasNew) await bumpIntro(card.lang); // first grade of a "new" card counts as introduced
+    if (wasNew) await bumpIntro(current.lang); // counted per deck, the key start() reads it under // first grade of a "new" card counts as introduced
   }
 
   // Same per-answer streak/correct/speedBonus bookkeeping was duplicated

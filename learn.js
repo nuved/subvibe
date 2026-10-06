@@ -103,7 +103,7 @@ function describeScope(scope) {
 function topChannels(lang, n) {
   const counts = new Map();
   for (const c of cards) {
-    if (c.lang !== lang || !c.channel || SV_GAME.status(c) === "mastered") continue;
+    if (SV_GAME.deckOf(c) !== lang || !c.channel || SV_GAME.status(c) === "mastered") continue;
     counts.set(c.channel, (counts.get(c.channel) || 0) + 1);
   }
   return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, n).map(([ch]) => ch);
@@ -123,9 +123,11 @@ function renderPractice() {
   box.innerHTML = ""; // wipes any open share sheet's DOM too — drop the dangling reference
   openShareSheet = null;
   const byLang = new Map();
+  // Smart boxes: one deck per source → target pair, made by the cards themselves.
   for (const c of cards) {
-    if (!byLang.has(c.lang)) byLang.set(c.lang, []);
-    byLang.get(c.lang).push(c);
+    const d = SV_GAME.deckOf(c); if (!d) continue;
+    if (!byLang.has(d)) byLang.set(d, []);
+    byLang.get(d).push(c);
   }
   if (!byLang.size) {
     const empty = document.createElement("div");
@@ -138,7 +140,9 @@ function renderPractice() {
 }
 
 function buildDeckCard(lang, langCards) {
-  const [, name, flag] = window.svLangMeta(lang);
+  const { src, tl } = SV_GAME.deckLangs(lang); // lang is the deck key: "en>fa"
+  const [, srcName, flag] = window.svLangMeta(src);
+  const name = tl ? srcName + " → " + window.svLangMeta(tl)[1] : srcName;
   const scope = gameScopeAll[lang] || { source: "", minLevel: "", pos: "" };
   const st = deckStatus(langCards);
 
@@ -179,7 +183,7 @@ function buildDeckCard(lang, langCards) {
   // but a disabled button with a calm hint beats ever opening a sheet that
   // can only offer an empty file — no click handler attached at all when
   // disabled, so the sheet can never open from here.
-  const shareable = exportedCardCount(SV_SHARE.exportDeck(langCards, lang, {}) || { text: "{}" }) > 0;
+  const shareable = exportedCardCount(SV_SHARE.exportDeck(langCards, SV_GAME.deckLangs(lang).src, {}) || { text: "{}" }) > 0;
   if (shareable) {
     share.title = "Share this deck";
     share.setAttribute("aria-label", "Share this deck");
@@ -396,7 +400,7 @@ function buildShareSheet(lang, langCards) {
   // exportDeck returns null on bad input (non-array cards, malformed lang) —
   // langCards/lang always come from a real deck card here, but guard anyway
   // rather than let a null.text throw.
-  let exported = SV_SHARE.exportDeck(langCards, lang, { name: shareName });
+  let exported = SV_SHARE.exportDeck(langCards, SV_GAME.deckLangs(lang).src, { name: shareName });
   if (!exported) {
     const err = document.createElement("div");
     err.className = "muted";
@@ -460,7 +464,7 @@ function buildShareSheet(lang, langCards) {
   // for a deck-sized card list); storage is only written on commit
   // (blur/Enter) — same input/change split as the pace slider above.
   nameInput.addEventListener("input", () => {
-    exported = SV_SHARE.exportDeck(langCards, lang, { name: nameInput.value }) || exported;
+    exported = SV_SHARE.exportDeck(langCards, SV_GAME.deckLangs(lang).src, { name: nameInput.value }) || exported;
     msg.value = currentMessage();
     refreshLinks();
   });

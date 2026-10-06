@@ -269,18 +269,25 @@ async function idbVocabList(prefix) {
   });
 }
 
-const isCardKey = (k) => !k.startsWith("inbox:") && !k.startsWith("dismissed:") && !k.startsWith("clipenrich:") && !k.startsWith("clipgram:");
+// Cards are "<lang>:<word>"; every other row in the vocab store has its own prefix (tips, frames, shares…)
+// and must never show up as a deck.
+const isCardKey = (k) => !/^(inbox|dismissed|clipenrich|clipgram|clipexplain|frame|share):/.test(k);
 
 // Upsert one card. Language: explicit > stopword-detected from the sentence >
 // "xx" bucket. A repeat save bumps the seen-count and fills gaps (sentence,
 // translation, title) but never resets the box or the enrichment.
 async function vocabAdd({ word, sentence, translation, lang, videoTitle, base, ms, channel }) {
-  const clean = SV_VOCAB.tokenize(word)[0] || String(word || "").trim();
+  // A phrase stays whole: "keep in mind" is its own card, never folded into "keep".
+  const clean = SV_VOCAB.tokenize(word).join(" ") || String(word || "").trim();
   if (!clean) throw new Error("empty word");
   const l = (lang || "").split("-")[0].toLowerCase() || SV_STOPWORDS.detect(SV_VOCAB.tokenize(sentence)) || "xx";
   const key = `${l}:${clean.toLowerCase()}`;
   const cur = await idbVocabGet(key);
   const now = Date.now();
+  // The language the card is learned INTO (the popup's first target): with the source it names the
+  // card's deck — English → Persian and English → German are separate boxes.
+  const { targets: tgs } = await chrome.storage.local.get(["targets"]);
+  const tl = String((Array.isArray(tgs) && tgs[0]) || "").split("-")[0].toLowerCase();
   // One save-context: the video + sentence this word was just saved from. Kept
   // in a capped `contexts` list so a saved card accumulates real examples across
   // every video it turns up in (the cross-video history).
@@ -289,9 +296,9 @@ async function vocabAdd({ word, sentence, translation, lang, videoTitle, base, m
     ...cur, n: (cur.n || 1) + 1,
     sentence: cur.sentence || sentence || "", sentenceT: cur.sentenceT || translation || "",
     videoTitle: cur.videoTitle || videoTitle || "", base: cur.base || base || "", ms: cur.ms ?? ms ?? 0, channel: cur.channel || channel || "",
-    contexts: SV_VOCAB.appendContext(cur.contexts, ctx),
+    contexts: SV_VOCAB.appendContext(cur.contexts, ctx), tl: cur.tl || tl,
   } : {
-    word: clean, lang: l, box: 1, nextDueAt: now, addedAt: now, lastGradedAt: 0,
+    word: clean, lang: l, tl, box: 1, nextDueAt: now, addedAt: now, lastGradedAt: 0,
     sentence: sentence || "", sentenceT: translation || "", videoTitle: videoTitle || "", base: base || "", ms: ms || 0, channel: channel || "",
     n: 1, lemma: null, pos: null, art: null, plural: null, cefr: null, meaning: null, phrase: null, note: null,
     conj: null, history: [], contexts: SV_VOCAB.appendContext([], ctx),
@@ -305,6 +312,22 @@ async function vocabAdd({ word, sentence, translation, lang, videoTitle, base, m
   }
   await idbVocabPut(key, card);
   return { key, card };
+}
+
+// Cards saved before the target language was recorded get one, once: with several targets in the
+// popup, the one their sentence translation is written in (Chrome's detector); else the first target.
+async function vocabBackfillTl() {
+  const rows = (await idbVocabList("")).filter((r) => isCardKey(r.key) && r.value && r.value.word && r.value.lang && !r.value.tl);
+  if (!rows.length) return;
+  const { targets: tgs } = await chrome.storage.local.get(["targets"]);
+  const mine = (Array.isArray(tgs) ? tgs : []).map((t) => String(t).split("-")[0].toLowerCase()), fallback = mine[0] || "";
+  for (const r of rows) {
+    const c = r.value, text = [c.sentenceT, c.meaning].filter(Boolean).join(" ");
+    let tl = text && mine.length > 1 ? await i18nDetect(text) : null; // only worth asking when there is more than one target to tell apart
+    if (!mine.includes(tl)) tl = fallback; // the detector reads short Persian as Pashto or Urdu — a card is learned into a language you use
+    if (!tl) continue;
+    await idbVocabPut(r.key, { ...c, tl });
+  }
 }
 
 // Broad source-language detection. Stopword sets are fast and certain for the
@@ -392,7 +415,7 @@ async function clipWordData(base, limit, orig, anyLang) {
   const words = SV_VOCAB.rankLearnable(all, await freqList(lang), lang).slice(0, limit || 150);
   for (const w of words) {
     const c = knownCards.get(w.w.toLowerCase());
-    if (c) { w.box = c.box; w.lastGradedAt = c.lastGradedAt || 0; }
+    if (c) { w.box = c.box; w.lastGradedAt = c.lastGradedAt || 0; w.here = c.base === base || (c.contexts || []).some((x) => x.base === base); } // here: this video's sentence is already on the card
   }
   // The "smart lightener" set: words to de-emphasize on the video — cards you've
   // already learned (a high Leitner box, ≥ 4) plus anything you dismissed. The
@@ -2957,6 +2980,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           break;
         }
         case "VOCAB_LIST":
+          await vocabBackfillTl();
           sendResponse({ cards: (await idbVocabList("")).filter((r) => isCardKey(r.key)).map((r) => ({ key: r.key, ...r.value })) });
           break;
         case "VOCAB_INBOX_LIST":
