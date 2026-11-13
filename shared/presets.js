@@ -18,6 +18,11 @@
   const OUTLINE_THIN =
     "-.03em -.03em 0 #000, .03em -.03em 0 #000, -.03em .03em 0 #000, .03em .03em 0 #000";
   const SHADOW_CLASSIC = "0 2px 6px rgba(0, 0, 0, 0.9)";
+  // Cinema: a hairline dark edge under the soft film shadow, like Netflix's. The soft
+  // shadow alone vanished on a white whiteboard (operator screenshot 2026-11-13).
+  const CINEMA_EDGE =
+    "-.035em -.035em 0 rgba(0,0,0,.85), .035em -.035em 0 rgba(0,0,0,.85), -.035em .035em 0 rgba(0,0,0,.85), .035em .035em 0 rgba(0,0,0,.85), " +
+    "0 0 7px rgba(0, 0, 0, 0.95), 0 2px 4px rgba(0, 0, 0, 0.85)";
 
   // Base = classic. Every preset lists only what it changes.
   // pill: true → background hugs each WRAPPED line (inner span + box-decoration-break)
@@ -52,7 +57,7 @@
     },
     cinema: {
       label: "Cinema", pill: false, fonts: [],
-      style: { fontFamily: 'Helvetica, Arial, "Segoe UI", sans-serif', weight: "500", bg: "transparent", pad: "0.12em 0.35em", shadow: "0 0 7px rgba(0, 0, 0, 0.95), 0 2px 4px rgba(0, 0, 0, 0.85)", lh: "1.35", maxWidth: "min(86%, 26em)" },
+      style: { fontFamily: 'Helvetica, Arial, "Segoe UI", sans-serif', weight: "500", bg: "transparent", pad: "0.12em 0.35em", shadow: CINEMA_EDGE, lh: "1.35", maxWidth: "min(86%, 26em)" },
     },
     minimal: {
       label: "Minimal", pill: false, fonts: [],
