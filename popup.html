@@ -411,6 +411,20 @@
       display: flex; align-items: center; justify-content: center; margin-bottom: 8px;
       background: linear-gradient(135deg, #232c3d 0%, #0e1420 55%, #1b2436 100%); }
     .prevtext { font-size: 14px; white-space: nowrap; }
+    /* "fits this video": the preview sits on the real picture's bottom band */
+    .prevwrap.onframe { height: 96px; align-items: flex-end; padding-bottom: 12px;
+      background-size: cover; background-position: center bottom; }
+    .fit { display: flex; align-items: center; gap: 10px; padding: 9px 10px 9px 12px; margin: 0 0 9px;
+      border-radius: var(--radius); background: var(--accent-soft); color: var(--text); font-size: 12px; line-height: 1.4; }
+    .fit .fitwhy { flex: 1; min-width: 0; }
+    .fit .fitwhy small { display: block; color: var(--text2); font-size: 11px; }
+    .fit button { flex: none; border: 0; border-radius: 999px; padding: 6px 12px; font: 600 12px/1 inherit;
+      background: var(--accent); color: #fff; cursor: pointer; }
+    .fit button:disabled { background: transparent; color: var(--accent); cursor: default; }
+    .fit.quiet { background: var(--panel2); color: var(--text2); }
+    .presets button { position: relative; }
+    .presets button.fits::after { content: "fits"; position: absolute; top: -5px; right: -3px; padding: 1px 5px;
+      border-radius: 999px; background: var(--accent); color: #fff; font: 700 9px/1.3 -apple-system, system-ui, sans-serif; }
     .presets { display: flex; gap: 6px; overflow-x: auto; padding: 2px 0 5px; scrollbar-width: thin; }
     .presets button { flex: none; width: 64px; padding: 8px 0 6px; background: var(--panel2);
       border: 1px solid transparent; border-radius: var(--radius); box-shadow: 0 1px 2px rgba(0,0,0,.35);
@@ -620,8 +634,8 @@
     <div class="lbl">Subtitles</div>
     <div class="seg2" id="subMode" role="radiogroup" aria-label="Subtitle mode">
       <button type="button" class="segopt" data-mode="off"><b>Off</b><small>no subtitles</small></button>
-      <button type="button" class="segopt" data-mode="original"><b>Original</b><small>translation on the board</small></button>
-      <button type="button" class="segopt" data-mode="translate"><b>Translate</b><small>uses your key</small></button>
+      <button type="button" class="segopt" data-mode="original"><b>Original only</b><small id="modeOrigSub">no translation on the video</small></button>
+      <button type="button" class="segopt" data-mode="translate"><b>Translate</b><small id="modeTransSub">translation on the video</small></button>
     </div>
     <div class="hint" id="subModeHint" style="margin-top:7px;"></div>
   </section>
@@ -759,7 +773,8 @@
   <section>
     <details class="customize" id="lookFold">
       <summary>Appearance <span class="hint" id="lookVal"></span></summary>
-      <div class="prevwrap"><span class="prevtext" id="stylePrevText">Subtitles look like this</span></div>
+      <div class="prevwrap" id="stylePrev"><span class="prevtext" id="stylePrevText">Subtitles look like this</span></div>
+      <div class="fit" id="styleFit" hidden></div>
       <div class="presets" id="presetRow"></div>
       <div class="row" style="margin-top:10px; margin-bottom:2px;">
         <span style="color:var(--muted);">Highlight</span>
@@ -802,8 +817,8 @@
         <select id="position" style="flex:1;">
           <option value="bottom">Bottom</option>
           <option value="top">Top</option>
-          <option value="auto">Auto (opposite the original)</option>
-          <option value="custom">Custom (dragged)</option>
+          <option value="auto">Auto: move up while the site's captions show</option>
+          <option value="custom">Where I dragged them</option>
         </select>
         <span class="info" title="You can also drag each subtitle line on the video — original and translation can sit apart">i</span>
       </div>
@@ -1076,6 +1091,7 @@
   <script src="shared/title.js"></script>
   <script src="shared/langs.js"></script>
   <script src="shared/presets.js"></script>
+  <script src="shared/stylefit.js"></script>
   <script src="shared/tribute.js"></script>
   <script src="shared/voices.js"></script>
   <script src="shared/pricing.js"></script>

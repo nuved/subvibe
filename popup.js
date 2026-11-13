@@ -94,6 +94,7 @@ function renderChips() {
     x.onclick = () => { state.targets = state.targets.filter((c) => c !== code); saveSetting({ targets: state.targets }); renderChips(); };
     chip.appendChild(x); box.appendChild(chip);
   });
+  if (el("modeTransSub")) renderMode(); // the mode buttons name the primary language
 }
 function filteredLangs(q) {
   q = (q || "").trim().toLowerCase();
@@ -206,6 +207,7 @@ function selectTab(name) {
   for (const b of el("tabBar").children) b.classList.toggle("on", b.dataset.tab === name);
   el("gearBtn").classList.toggle("on", name === "keys");
   for (const p of document.querySelectorAll(".pane")) p.hidden = p.dataset.pane !== name;
+  if (name === "style") fitToVideo();
   // Deck render: on Learn-pane show, refresh from the vocab store — but never
   // while a round is live (arcade is hidden then; a mid-flight VOCAB_LIST
   // refetch would just be wasted work, and tab pills stay usable mid-round).
@@ -432,6 +434,7 @@ function updateProviderAvailability() {
   rebuildEngineSelect(el("ttsProvider"), TTS_OPTIONS, el("ttsProviderWarn"));
 }
 el("translationProvider").addEventListener("change", () => {
+  setTimeout(renderMode, 0); // the mode hint names who pays
   persist({ translationProvider: el("translationProvider").value });
   updateProviderAvailability();
   updateClaudeModelUI();
@@ -481,10 +484,18 @@ function renderMode() {
   const mode = currentMode();
   [...el("subMode").children].forEach((b) => b.classList.toggle("on", b.dataset.mode === mode));
   el("translateOnly").hidden = mode === "off"; // Original still translates for the board, so its language stays pickable
+  // Name the language and who pays, so "Original" can't be mistaken for "translated" (operator 2026-11-13).
+  const lang = (langMeta((state.targets && state.targets[0]) || "en") || [])[1] || "your language";
+  const prov = el("translationProvider").value;
+  const payer = prov === "claude-cli" ? "your Claude subscription (Claude Code on this Mac)" : prov === "claude" ? "your Claude API key" : "your OpenAI key";
+  el("modeTransSub").textContent = lang + " on the video";
+  el("modeOrigSub").textContent = "no " + lang + " on the video";
   el("subModeHint").textContent =
     mode === "off" ? "SubVibe subtitles are off. Live Translate (Dub tab) still works on its own."
-    : mode === "original" ? "The video shows only the spoken line. The story board shows each sentence's translation under it (uses your key; with the board off nothing is translated)."
-    : "Translated to the languages below, using your OpenAI/Claude key.";
+    : mode === "original" ? (state.storyBoard === false
+        ? "The video shows only the spoken line, and nothing is translated. Pick Translate to see " + lang + " on the video."
+        : "The video shows only the spoken line. " + lang + " appears only on the story board beside the video, paid by " + payer + ". Pick Translate to see it on the video.")
+    : "Each line is shown in " + lang + " on the video, paid by " + payer + ".";
 }
 function setMode(mode) {
   state.enabled = mode !== "off";
@@ -496,7 +507,7 @@ function setMode(mode) {
 el("showOriginal").addEventListener("change", () => saveSetting({ showOriginal: el("showOriginal").checked }));
 el("hideNative").addEventListener("change", () => persist({ hideNative: el("hideNative").checked }));
 el("karaokeHl").addEventListener("change", () => persist({ karaokeHl: el("karaokeHl").checked }));
-el("storyBoard").addEventListener("change", () => persist({ storyBoard: el("storyBoard").checked }));
+el("storyBoard").addEventListener("change", () => { state.storyBoard = el("storyBoard").checked; persist({ storyBoard: state.storyBoard }); renderMode(); });
 el("communityTips").addEventListener("change", () => { const on = el("communityTips").checked; persist({ communityTips: on }); if (on) chrome.storage.local.get("communityToken").then((r) => { if (!r.communityToken) send({ type: "COMMUNITY_CHECK" }); }); }); // yes → the one-time human check, unless already passed
 // Sync applies to a running session at once: the capture page hears LIVE_SYNC directly.
 el("liveSync").addEventListener("change", () => { const sync = el("liveSync").value; state.liveSync = sync; persist({ liveSync: sync }); chrome.runtime.sendMessage({ type: "LIVE_SYNC", sync }).catch(() => {}); });
@@ -779,6 +790,72 @@ function updateStyleUI() {
   el("styleBgColor").value = bg ? bg.hex : "#080a0e";
   el("styleBgOpacity").value = Math.round((bg ? bg.a : 0.78) * 100);
   el("styleBgColor").disabled = el("styleBgOpacity").disabled = !bg;
+  renderFit();
+}
+
+// ── Fits this video ───────────────────────────────────────────────────────────
+// Opening the Style tab screenshots the playing video (activeTab, granted by the
+// popup itself), shows the style preview on the picture's own bottom band, and
+// names one preset + highlight that suit it (shared/stylefit.js). Nothing is
+// sent anywhere; the frame lives only in this popup.
+var fit = null, fitTried = false; // var: selectTab() at startup can call fitToVideo before this line runs
+function renderFit() {
+  const box = el("styleFit"); if (!box) return;
+  [...el("presetRow").children].forEach((b) => b.classList.toggle("fits", !!(fit && fit.preset && b.dataset.preset === fit.preset)));
+  if (!fit) { box.hidden = true; return; }
+  box.hidden = false; box.textContent = "";
+  if (fit.protected) {
+    box.className = "fit quiet";
+    box.textContent = "This video's picture is protected (or black right now), so SubVibe can't read it to suggest a style.";
+    return;
+  }
+  box.className = "fit";
+  const inUse = state.stylePreset === fit.preset && (state.karaokeStyle || "classic") === fit.hl && !Object.keys(state.styleCustom || {}).length;
+  const why = document.createElement("div"); why.className = "fitwhy";
+  const head = document.createElement("div"); head.innerHTML = "<b>Fits this video:</b> ";
+  head.append(fit.presetName + " with " + fit.hlName);
+  const sm = document.createElement("small"); sm.textContent = fit.why.charAt(0).toUpperCase() + fit.why.slice(1) + "; " + fit.hlWhy + ".";
+  why.append(head, sm);
+  const btn = document.createElement("button"); btn.type = "button";
+  btn.textContent = inUse ? "✓ In use" : "Use it"; btn.disabled = inUse;
+  btn.addEventListener("click", () => {
+    state.stylePreset = fit.preset; state.styleCustom = {}; state.karaokeStyle = fit.hl;
+    persist({ stylePreset: fit.preset, styleCustom: {}, karaokeStyle: fit.hl });
+    updateStyleUI();
+  });
+  box.append(why, btn);
+}
+async function fitToVideo() {
+  if (fitTried || !window.SV_STYLEFIT) return; fitTried = true;
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab) return;
+    const info = await chrome.tabs.sendMessage(tab.id, { type: "SV_VIDEO_RECT", hide: true }).catch(() => null);
+    if (!info || !info.ok) return; // no SubVibe video on this page: the Style tab stays as it was
+    await new Promise((r) => setTimeout(r, 90)); // let the page paint without our lines
+    const shot = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "jpeg", quality: 82 }).catch(() => null);
+    if (!shot) return;
+    const img = new Image(); img.src = shot; await img.decode();
+    const k = img.naturalWidth / (info.vpw || img.naturalWidth); // CSS px → screenshot px (covers zoom and dpr)
+    let { x, y, w, h } = info.rect;
+    // The picture inside the element (letterbox/pillarbox bars are not the video).
+    if (info.vw && info.vh) {
+      const ar = info.vw / info.vh;
+      if (w / h > ar) { const cw = h * ar; x += (w - cw) / 2; w = cw; } else { const ch = w / ar; y += (h - ch) / 2; h = ch; }
+    }
+    const sx = x * k, sy = y * k, sw = w * k, sh = h * k;
+    const AW = 160, AH = Math.max(8, Math.min(320, Math.round(AW * sh / sw)));
+    const a = document.createElement("canvas"); a.width = AW; a.height = AH;
+    const actx = a.getContext("2d", { willReadFrequently: true }); actx.drawImage(img, sx, sy, sw, sh, 0, 0, AW, AH);
+    fit = SV_STYLEFIT.suggest({ data: actx.getImageData(0, 0, AW, AH).data, w: AW, h: AH });
+    if (!fit.protected) {
+      // The preview strip: the bottom 40% of the picture, where subtitles sit.
+      const bw = 920, bh = Math.round(bw * (sh * 0.4) / sw), b = document.createElement("canvas"); b.width = bw; b.height = bh;
+      b.getContext("2d").drawImage(img, sx, sy + sh * 0.6, sw, sh * 0.4, 0, 0, bw, bh);
+      const pv = el("stylePrev"); pv.style.backgroundImage = "url(" + b.toDataURL("image/jpeg", 0.8) + ")"; pv.classList.add("onframe");
+    }
+    renderFit();
+  } catch (e) { console.warn("[SubVibe] fits this video:", e); }
 }
 let colT;
 el("styleColor").addEventListener("input", () => { clearTimeout(colT); colT = setTimeout(() => setCustom({ color: el("styleColor").value }), 120); });

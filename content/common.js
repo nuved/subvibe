@@ -818,36 +818,42 @@
     if (autoPosEnabled) updateAutoPosition();
   }
 
-  // Known on-screen native-caption containers, for collision avoidance.
+  // Known on-screen native-caption boxes, for collision avoidance. The caption BOX,
+  // never a full-player container (YouTube's .ytp-caption-window-container covers
+  // the whole player, so its centre is always the middle — that made Auto guess).
   const NATIVE_CAPTION_SELECTORS = [
-    ".ytp-caption-window-container", ".caption-window", ".player-timedtext",
+    ".caption-window", ".player-timedtext-text-container",
     ".zdfplayer-captions", ".zdfplayer-subtitle", ".vjs-text-track-display", ".captions",
   ];
   function nativeCaptionRect() {
     for (const s of NATIVE_CAPTION_SELECTORS) {
-      const el = document.querySelector(s);
-      if (el) {
+      for (const el of document.querySelectorAll(s)) {
+        if (el.closest("#copilot-subs")) continue;
+        if (!(el.textContent || "").trim()) continue; // an empty box between lines is not in the way
+        if (el.checkVisibility && !el.checkVisibility({ opacityProperty: true, visibilityProperty: true })) continue;
         const r = el.getBoundingClientRect();
         if (r.width > 0 && r.height > 0) return r;
       }
     }
     return null;
   }
-  // Put our overlay on the opposite half from the site's own caption.
+  // Auto: stay at the bottom, and move up only while the site's own caption is
+  // really showing low on the picture. A side changes only after the same
+  // verdict holds ~2 s (3 ticks of 600 ms), so lines don't hop per caption.
+  let autoSide = "bottom", autoWant = "bottom", autoVotes = 0;
   function updateAutoPosition() {
     const overlay = document.getElementById("copilot-subs");
     if (!overlay || !autoPosEnabled) return;
-    // Native captions sit at the bottom ~always; when we can't measure the
-    // site's caption (e.g. ZDF's native renderer has no DOM element), default
-    // to the TOP so we don't land on top of it.
-    let top = true;
-    const rect = nativeCaptionRect();
+    let want = "bottom";
+    const rect = hideNativeOn ? null : nativeCaptionRect(); // hidden site captions are nothing to dodge
     if (rect) {
       const player = (adapter?.getPlayerContainer?.() || document.body).getBoundingClientRect();
-      top = rect.top + rect.height / 2 > player.top + player.height / 2; // native low → us high
+      if (rect.top + rect.height / 2 > player.top + player.height / 2) want = "top";
     }
-    overlay.classList.toggle("copilot-pos-top", top);
-    overlay.classList.toggle("copilot-pos-bottom", !top);
+    if (want === autoWant) autoVotes++; else { autoWant = want; autoVotes = 1; }
+    if (want !== autoSide && autoVotes >= 3) autoSide = want;
+    overlay.classList.toggle("copilot-pos-top", autoSide === "top");
+    overlay.classList.toggle("copilot-pos-bottom", autoSide !== "top");
   }
 
   // Keep the overlay inside whatever element went fullscreen.
@@ -4035,6 +4041,18 @@
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (!msg) return;
     if (msg.type === "GET_CLIP") { sendResponse({ base: lastCacheBase || clipBaseId(), title: SV_TITLE.clean(document.title) }); return; } // popup → "this video" cache + per-clip settings
+    if (msg.type === "SV_VIDEO_RECT") { // popup → "fits this video": where the picture is, so it can crop a screenshot to it
+      let v = adapter?.getVideoEl?.() || null, best = 0;
+      if (!v) for (const c of document.querySelectorAll("video")) { const r = c.getBoundingClientRect(), a = r.width * r.height; if (a > best) { best = a; v = c; } }
+      if (!v) { sendResponse({ ok: false }); return; }
+      // The screenshot that follows should see the picture, not our own lines on it: hide them for a moment.
+      const ov = document.getElementById("copilot-subs");
+      if (msg.hide && ov) { ov.style.visibility = "hidden"; setTimeout(() => { ov.style.visibility = ""; }, 700); }
+      const r = v.getBoundingClientRect(), W = innerWidth, H = innerHeight;
+      const x = Math.max(0, r.left), y = Math.max(0, r.top), w = Math.min(W, r.right) - x, h = Math.min(H, r.bottom) - y;
+      sendResponse(w > 40 && h > 40 ? { ok: true, rect: { x, y, w, h }, vw: v.videoWidth || 0, vh: v.videoHeight || 0, dpr: devicePixelRatio || 1, vpw: W } : { ok: false });
+      return;
+    }
     if (msg.type === "SV_SEEK") {
       // Learn tab time chip → jump the video to where a word was said (shadowing).
       const v = adapter?.getVideoEl?.() || document.querySelector("video");
