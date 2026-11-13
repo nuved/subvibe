@@ -824,7 +824,7 @@ function paintFitPreview() {
   const at = pos === "top" ? 0.12 : pos === "custom" && ys.length ? ys.reduce((a, b) => a + b, 0) / ys.length : 0.88;
   const { img, sx, sy, sw, sh } = fitShot, band = 0.4;
   const y0 = Math.max(0, Math.min(1 - band, at - band / 2));
-  const bw = 920, bh = Math.round(bw * (sh * band) / sw), c = document.createElement("canvas"); c.width = bw; c.height = bh;
+  const bw = 920, bh = Math.max(8, Math.min(920, Math.round(bw * (sh * band) / sw))), c = document.createElement("canvas"); c.width = bw; c.height = bh;
   c.getContext("2d").drawImage(img, sx, sy + sh * y0, sw, sh * band, 0, 0, bw, bh);
   const pv = el("stylePrev"); pv.style.backgroundImage = "url(" + c.toDataURL("image/jpeg", 0.8) + ")"; pv.classList.add("onframe");
   el("stylePrevText").style.top = (((at - y0) / band) * 100).toFixed(1) + "%";
@@ -878,6 +878,7 @@ async function fitToVideo() {
       if (w / h > ar) { const cw = h * ar; x += (w - cw) / 2; w = cw; } else { const ch = w / ar; y += (h - ch) / 2; h = ch; }
     }
     const sx = x * k, sy = y * k, sw = w * k, sh = h * k;
+    if (sw < 40 || sh < 40) return; // too small (or a page lying about its video's shape) to read
     const AW = 320, AH = Math.max(8, Math.min(640, Math.round(AW * sh / sw))); // 320: letters of a burned-in caption stay sharp enough to see
     const a = document.createElement("canvas"); a.width = AW; a.height = AH;
     const actx = a.getContext("2d", { willReadFrequently: true }); actx.drawImage(img, sx, sy, sw, sh, 0, 0, AW, AH);

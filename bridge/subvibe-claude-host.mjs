@@ -72,7 +72,7 @@ async function chat(msg) {
   const args = ["-p", "--output-format", "json", "--no-session-persistence", "--tools", "",
     "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', "--setting-sources", "project"];
   if (typeof msg.system === "string" && msg.system.trim()) args.push("--system-prompt", msg.system);
-  if (typeof msg.model === "string" && msg.model.trim()) args.push("--model", msg.model.trim());
+  if (typeof msg.model === "string" && /^[a-z0-9][a-z0-9.-]*$/i.test(msg.model.trim())) args.push("--model", msg.model.trim());
   if (msg.schema && typeof msg.schema === "object") args.push("--json-schema", JSON.stringify(msg.schema));
   if (typeof msg.effort === "string" && /^(low|medium|high|max)$/.test(msg.effort)) args.push("--effort", msg.effort);
   const timeoutMs = Math.min(600_000, Math.max(20_000, (+msg.maxSeconds || 0) * 1000 || DEFAULT_TIMEOUT_MS));
