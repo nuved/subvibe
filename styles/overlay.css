@@ -245,11 +245,11 @@
        transparent glyphs and turned sung words into black blobs (operator
        screenshot 2026-11-13). Drop it and trace the gradient glyphs instead. */
     text-shadow: none;
-    /* Four sharp offsets make a real edge (a blur alone read pale on a whiteboard,
-       operator screenshot 2026-11-13); the last one keeps the soft lift. */
+    /* Four sharp offsets and no blur: a blurred drop-shadow made the gradient
+       words look soft and pale beside the crisp white ones on a whiteboard
+       (operator screenshots 2026-11-13). */
     filter: drop-shadow(0.035em 0 0 rgba(0, 0, 0, 0.9)) drop-shadow(-0.035em 0 0 rgba(0, 0, 0, 0.9))
-      drop-shadow(0 0.035em 0 rgba(0, 0, 0, 0.9)) drop-shadow(0 -0.035em 0 rgba(0, 0, 0, 0.9))
-      drop-shadow(0 0.05em 0.12em rgba(0, 0, 0, 0.6));
+      drop-shadow(0 0.035em 0 rgba(0, 0, 0, 0.9)) drop-shadow(0 -0.035em 0 rgba(0, 0, 0, 0.9));
   }
 }
 
