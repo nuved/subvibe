@@ -99,9 +99,20 @@
    lighter than the preset's weight (classic 600 → 500, exactly the old hardcoded
    value), never below regular. Marked by class, not :first-child — with the
    original hidden, the first line is a TRANSLATION and must keep full style. */
-#copilot-subs .copilot-subs__line--orig {
+/* Bigger line (popup, operator 2026-11-13): with both lines on, one is the
+   main line and the other a smaller helper. Default: the spoken line is big
+   (you read along, glance at the translation); .copilot-big-tr swaps it.
+   The translation rows always follow the original in the stack. */
+#copilot-subs .copilot-subs__line--orig ~ .copilot-subs__line,
+#copilot-subs.copilot-big-tr .copilot-subs__line--orig {
+  font-size: calc(var(--cs-font, clamp(16px, 2.4vw, 40px)) * 0.78);
   opacity: 0.9;
   font-weight: max(400, calc(var(--cs-weight, 600) - 100));
+}
+#copilot-subs.copilot-big-tr .copilot-subs__line--orig ~ .copilot-subs__line {
+  font-size: var(--cs-font, clamp(16px, 2.4vw, 40px));
+  opacity: 1;
+  font-weight: var(--cs-weight, 600);
 }
 
 /* Draggable: only the text pills are grab handles (the rest of the overlay stays

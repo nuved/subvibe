@@ -21,6 +21,7 @@
     enabled: true,
     translateOn: true,   // false = "Original" mode: style the native captions, no translation
     targets: ["en"],     // one or more languages to show (multiple subtitles)
+    bigLine: "orig",     // with both lines on, which is the big one: "orig" (spoken) | "tr"
     showOriginal: true,  // also show the original spoken line (dual subtitles) — also
                          // means there's always a line to show even before a key is added
     hideNative: true,    // hide the site's own captions to avoid duplicates by default
@@ -134,7 +135,7 @@
   // layers this clip's own changes on top — so a tweak on one video (or live channel)
   // never bleeds onto another. sync defaults to 0 per clip.
   async function getSettings() {
-    const s = await chrome.storage.local.get(["enabled", "translateOn", "targets", "showOriginal", "hideNative", "position", "linePositions", "size", "stylePreset", "styleCustom", "syncOffset", "karaokeHl", "karaokeStyle", "storyBoard", "tipsAhead", "tmdbKey", "audioFallback", "audioDeviceId", "translationProvider", "debugHud", "clipOverrides"]);
+    const s = await chrome.storage.local.get(["enabled", "translateOn", "targets", "showOriginal", "bigLine", "hideNative", "position", "linePositions", "size", "stylePreset", "styleCustom", "syncOffset", "karaokeHl", "karaokeStyle", "storyBoard", "tipsAhead", "tmdbKey", "audioFallback", "audioDeviceId", "translationProvider", "debugHud", "clipOverrides"]);
     const { clipOverrides, ...flat } = s;
     const ov = (clipOverrides && clipOverrides[clipBaseId()]) || {};
     const merged = { ...DEFAULTS, ...flat, ...ov };
@@ -795,6 +796,7 @@
       // leave the translation parked off-screen after you switch back to Top/Bottom.
       el.querySelectorAll(".copilot-subs__line").forEach((ln) => { ln.style.left = ""; ln.style.top = ""; });
     }
+    el.classList.toggle("copilot-big-tr", settings.bigLine === "tr");
     appearanceSize = settings.size || "md";
     // Legacy named tiers only — a numeric (slider) size has no class; sizing is
     // all --cs-font anyway and an unremovable "copilot-size-0.03" would pile up.
@@ -4012,7 +4014,7 @@
   // Appearance keys (position, drag coords, text size, style preset/tweaks) and
   // the sync nudge apply LIVE — re-style in place, no flicker. Anything else
   // (languages, key, enabled…) restarts the engine.
-  const LIVE_KEYS = ["syncOffset", "position", "linePositions", "size", "stylePreset", "styleCustom", "karaokeStyle", "dubEnabled", "dubVoice", "dubGeminiVoice", "ttsProvider", "dubMultiVoice", "dubDuckLevel", "dubPace", "debugHud", "tipsAhead", "tmdbKey"];
+  const LIVE_KEYS = ["syncOffset", "bigLine", "position", "linePositions", "size", "stylePreset", "styleCustom", "karaokeStyle", "dubEnabled", "dubVoice", "dubGeminiVoice", "ttsProvider", "dubMultiVoice", "dubDuckLevel", "dubPace", "debugHud", "tipsAhead", "tmdbKey"];
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
     const keys = Object.keys(changes);

@@ -12,7 +12,7 @@ const LIVE_ALIAS = window.SV_LIVE_ALIAS || {};
 // Coerce a code to one Gemini's live model accepts, or null if it can't voice it.
 const normLiveCode = (code) => (LIVE_CODES.has(code) ? code : (LIVE_CODES.has(LIVE_ALIAS[code]) ? LIVE_ALIAS[code] : null));
 
-const DEFAULTS = { enabled: true, translateOn: true, targets: ["en"], showOriginal: true, hideNative: true, karaokeHl: true, karaokeStyle: "classic", storyBoard: true, tipsAhead: "1", learnLang: "", apiKey: "", translationProvider: "openai", claudeModel: "claude-sonnet-5-5", anthropicKey: "", cliBridgeOk: false, cliBridgeInfo: "", keepNames: true, keepTerms: "", position: "bottom", size: "md", stylePreset: "classic", styleCustom: {}, syncOffset: 0, dubEnabled: false, ttsProvider: "openai", geminiKey: "", tmdbKey: "", shotDelay: 0, dubVoice: "marin", dubGeminiVoice: "Kore", dubMultiVoice: false, dubDuckLevel: 0.12, dubPace: 1, liveModel: "gemini-3.5-live-translate-preview", liveSync: "auto", audioDeviceId: "", liveTarget: "", debugHud: false, uiTheme: "light" };
+const DEFAULTS = { enabled: true, translateOn: true, targets: ["en"], showOriginal: true, bigLine: "orig", hideNative: true, karaokeHl: true, karaokeStyle: "classic", storyBoard: true, tipsAhead: "1", learnLang: "", apiKey: "", translationProvider: "openai", claudeModel: "claude-sonnet-5-5", anthropicKey: "", cliBridgeOk: false, cliBridgeInfo: "", keepNames: true, keepTerms: "", position: "bottom", size: "md", stylePreset: "classic", styleCustom: {}, syncOffset: 0, dubEnabled: false, ttsProvider: "openai", geminiKey: "", tmdbKey: "", shotDelay: 0, dubVoice: "marin", dubGeminiVoice: "Kore", dubMultiVoice: false, dubDuckLevel: 0.12, dubPace: 1, liveModel: "gemini-3.5-live-translate-preview", liveSync: "auto", audioDeviceId: "", liveTarget: "", debugHud: false, uiTheme: "light" };
 const el = (id) => document.getElementById(id);
 // Promise wrapper for chrome.runtime.sendMessage — same shape as learn.js's
 // helper, used by the word-game wiring below (async/await reads cleaner than
@@ -489,6 +489,7 @@ function renderMode() {
   const prov = el("translationProvider").value;
   const payer = prov === "claude-cli" ? "your Claude subscription (Claude Code on this Mac)" : prov === "claude" ? "your Claude API key" : "your OpenAI key";
   el("modeTransSub").textContent = lang + " on the video";
+  renderBigLine(lang);
   el("modeOrigSub").textContent = "no " + lang + " on the video";
   el("subModeHint").textContent =
     mode === "off" ? "SubVibe subtitles are off. Live Translate (Dub tab) still works on its own."
@@ -504,7 +505,18 @@ function setMode(mode) {
   renderMode();
 }
 [...el("subMode").children].forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
-el("showOriginal").addEventListener("change", () => saveSetting({ showOriginal: el("showOriginal").checked }));
+el("showOriginal").addEventListener("change", () => { saveSetting({ showOriginal: el("showOriginal").checked }); renderBigLine(); });
+// Bigger line: with both lines on, which one is the main (big) line.
+function renderBigLine(lang) {
+  const row = el("bigLineRow"); if (!row) return;
+  lang = lang || (langMeta((state.targets && state.targets[0]) || "en") || [])[1] || "Translation";
+  row.hidden = !el("showOriginal").checked || currentMode() !== "translate";
+  el("bigTrName").textContent = lang;
+  [...row.querySelectorAll(".segopt")].forEach((b) => b.classList.toggle("on", b.dataset.big === (state.bigLine === "tr" ? "tr" : "orig")));
+}
+document.querySelectorAll("#bigLineRow .segopt").forEach((b) => b.addEventListener("click", () => {
+  state.bigLine = b.dataset.big; persist({ bigLine: state.bigLine }); renderBigLine();
+}));
 el("hideNative").addEventListener("change", () => persist({ hideNative: el("hideNative").checked }));
 el("karaokeHl").addEventListener("change", () => persist({ karaokeHl: el("karaokeHl").checked }));
 el("storyBoard").addEventListener("change", () => { state.storyBoard = el("storyBoard").checked; persist({ storyBoard: state.storyBoard }); renderMode(); });
@@ -2187,6 +2199,7 @@ async function load() {
   el("keepNames").checked = state.keepNames !== false;
   el("keepTerms").value = state.keepTerms || "";
   el("showOriginal").checked = state.showOriginal;
+  renderBigLine();
   el("hideNative").checked = state.hideNative;
   el("karaokeHl").checked = state.karaokeHl !== false;
   el("storyBoard").checked = state.storyBoard !== false;

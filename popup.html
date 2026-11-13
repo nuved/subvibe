@@ -833,6 +833,12 @@
         <label for="showOriginal">Also show the original line</label>
         <span class="info" title="Dual subtitles — the original sits right above the translation">i</span>
       </div>
+      <div id="bigLineRow" hidden>
+        <div class="seg2" role="radiogroup" aria-label="Bigger line">
+          <button type="button" class="segopt" data-big="orig"><b>Spoken line big</b><small>read along, glance down for help</small></button>
+          <button type="button" class="segopt" data-big="tr"><b><span id="bigTrName">Translation</span> big</b><small>follow the story, spoken line small</small></button>
+        </div>
+      </div>
       <div class="row">
         <label class="switch"><input type="checkbox" id="karaokeHl" /><span class="slider"></span></label>
         <label for="karaokeHl">Highlight spoken words</label>
