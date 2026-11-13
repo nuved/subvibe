@@ -115,6 +115,14 @@
   font-weight: var(--cs-weight, 600);
 }
 
+/* Smart position over captions written into the picture (scene check in common.js):
+   the stack sits just above them, and the spoken line isn't shown twice. */
+#copilot-subs.copilot-lifted .copilot-subs__stack { padding-bottom: var(--sv-lift, 9%) !important; }
+#copilot-subs.copilot-burned-in .copilot-subs__line--orig { display: none !important; }
+#copilot-subs.copilot-burned-in .copilot-subs__line--orig ~ .copilot-subs__line {
+  font-size: var(--cs-font, clamp(16px, 2.4vw, 40px)); opacity: 1; font-weight: var(--cs-weight, 600); /* the only line left: full size */
+}
+
 /* Auto box (scene check in common.js): a look with no box of its own gets a soft
    dark backing while the picture under the words is bright or busy. */
 #copilot-subs .copilot-subs__line { transition: background-color 0.4s ease; }

@@ -76,7 +76,7 @@
       if (runStart < 0) return;
       const barred = end - runStart + 1 >= Math.max(3, lh * 0.04) && plain >= 2 && letters >= 2;
       const outlined = outl >= Math.max(4, lh * 0.05);
-      if (barred || outlined) found = { y: (runStart - top) / lh, kind: barred ? "bar" : "outlined" };
+      if (barred || outlined) found = { y: (runStart - top) / lh, yFrame: runStart / (data.length / 4 / w), kind: barred ? "bar" : "outlined" };
     };
     for (let y = from; y <= bot && !found; y++) {
       let hi = 0, lo = 0, edges = 0, prev = -1;

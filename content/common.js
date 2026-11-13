@@ -787,6 +787,7 @@
     linePositions = (settings.linePositions && typeof settings.linePositions === "object") ? settings.linePositions : {};
     const pos = settings.position || "bottom";
     autoPosEnabled = pos === "auto";
+    if (!autoPosEnabled) el.classList.remove("copilot-lifted", "copilot-burned-in"); // Smart's lift belongs to Smart only
     if (pos === "custom") {
       el.classList.add("copilot-pos-custom");
       layoutCustomLines();
@@ -850,7 +851,7 @@
   function updateAutoPosition() {
     const overlay = document.getElementById("copilot-subs");
     if (!overlay || !autoPosEnabled) return;
-    let want = sceneBurned ? "top" : "bottom"; // captions written into the picture's bottom (scene check below)
+    let want = "bottom";
     const rect = hideNativeOn ? null : nativeCaptionRect(); // hidden site captions are nothing to dodge
     if (rect) {
       const player = (adapter?.getPlayerContainer?.() || document.body).getBoundingClientRect();
@@ -860,6 +861,21 @@
     if (want !== autoSide && autoVotes >= 3) autoSide = want;
     overlay.classList.toggle("copilot-pos-top", autoSide === "top");
     overlay.classList.toggle("copilot-pos-bottom", autoSide !== "top");
+    // Captions written into the picture (scene check below): the lines sit just ABOVE
+    // them, not at the top of the video, and the spoken line is not shown twice —
+    // the video already prints it (operator 2026-11-13).
+    const lift = autoSide !== "top" && sceneBurned ? sceneLiftPx() : 0;
+    overlay.classList.toggle("copilot-lifted", lift > 0);
+    overlay.classList.toggle("copilot-burned-in", sceneBurned && !!overlay.querySelector(".copilot-subs__line:not(.copilot-subs__line--orig)"));
+    if (lift > 0) overlay.style.setProperty("--sv-lift", Math.round(lift) + "px");
+  }
+  function sceneLiftPx() {
+    const overlay = document.getElementById("copilot-subs");
+    const v = liveVideoEl(adapter && adapter.getVideoEl ? adapter.getVideoEl() : null);
+    if (!overlay || !v || sceneBurnedY == null) return 0;
+    const vr = v.getBoundingClientRect(), or = overlay.getBoundingClientRect();
+    if (!vr.height) return 0;
+    return Math.max(0, or.bottom - (vr.top + sceneBurnedY * vr.height) + vr.height * 0.025);
   }
 
   // ── Scene check (Smart position + auto box), operator 2026-11-13 ──────────────
@@ -876,7 +892,7 @@
   // (cross-origin without CORS) stops the check for good; a protected video reads
   // as black and changes nothing.
   let sceneCv = null, sceneBlind = false, sceneBurned = false, sceneBusy = false, lookBoxless = false;
-  let sceneText = "", sceneLast = null, sceneSteady = 0, sceneSkip = 0;
+  let sceneText = "", sceneLast = null, sceneSteady = 0, sceneSkip = 0, sceneBurnedY = null;
   const sceneVotes = { burned: 0, busy: 0 };
   function sceneVote(key, now, cur) {
     if (now === cur) { sceneVotes[key] = 0; return cur; }
@@ -884,7 +900,10 @@
   }
   function sceneTick() {
     const overlay = document.getElementById("copilot-subs");
-    if (!overlay || sceneBlind || !window.SV_STYLEFIT || (!autoPosEnabled && !lookBoxless) || document.hidden) return;
+    if (!overlay || sceneBlind || !window.SV_STYLEFIT || (!autoPosEnabled && !lookBoxless) || document.hidden) {
+      if (overlay && !autoPosEnabled) overlay.classList.remove("copilot-lifted", "copilot-burned-in");
+      return;
+    }
     const v = liveVideoEl(adapter && adapter.getVideoEl ? adapter.getVideoEl() : null);
     if (!v || v.paused || v.readyState < 2 || !v.videoWidth || !v.videoHeight) return;
     const text = [...overlay.querySelectorAll(".copilot-subs__line")].filter((l) => l.style.display !== "none").map((l) => l.textContent).join("|").trim();
@@ -905,6 +924,8 @@
     const same = sceneLast && Math.abs(m.bandL - sceneLast.bandL) < 0.03 && Math.abs(m.frameL - sceneLast.frameL) < 0.03 && Math.abs(m.busy - sceneLast.busy) < 0.015 && !!m.burned === !!sceneLast.burned;
     sceneSteady = same ? sceneSteady + 1 : 0; sceneLast = m;
     sceneBurned = sceneVote("burned", !!m.burned, sceneBurned);
+    // where the printed captions start; a move under 4% of the height is not worth a jump
+    if (m.burned && (sceneBurnedY == null || Math.abs(m.burned.yFrame - sceneBurnedY) > 0.04)) sceneBurnedY = m.burned.yFrame;
     sceneBusy = sceneVote("busy", sceneBusy ? (m.bandL > 0.5 || m.busy > 0.075) : (m.bandL > 0.58 || m.busy > 0.09), sceneBusy);
     overlay.classList.toggle("copilot-autobox", lookBoxless && sceneBusy);
     overlay.dataset.svScene = (sceneBurned ? "burned " : "") + (sceneBusy ? "busy " : "") + "steady=" + sceneSteady; // for the debug HUD and tests
