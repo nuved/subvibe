@@ -44,7 +44,7 @@ function run(args, stdin, timeoutMs) {
   return new Promise((resolve) => {
     let out = "", err = "", done = false;
     const finish = (r) => { if (!done) { done = true; clearTimeout(timer); resolve(r); } };
-    const child = spawn(CLAUDE_BIN, args, { stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" } });
+    const child = spawn(CLAUDE_BIN, args, { cwd: LOG_DIR, stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" } });
     const timer = setTimeout(() => { try { child.kill("SIGKILL"); } catch {} finish({ code: -1, out, err: "timed out after " + Math.round(timeoutMs / 1000) + "s" }); }, timeoutMs);
     child.stdout.on("data", (d) => (out += d));
     child.stderr.on("data", (d) => (err += d));
@@ -65,7 +65,12 @@ async function ping() {
 async function chat(msg) {
   const prompt = typeof msg.prompt === "string" ? msg.prompt : "";
   if (!prompt.trim()) return { ok: false, error: "empty prompt" };
-  const args = ["-p", "--output-format", "json", "--no-session-persistence", "--tools", ""];
+  // Lean on purpose (measured 2026-11-13): a plain `claude -p` loaded every MCP server's
+  // tool definitions and the user's settings and hooks: 98,445 input tokens for one
+  // subtitle line. No MCP and project-only settings (run from ~/.subvibe, which has
+  // none): 634 tokens, same answer. Login still comes from the keychain (no --bare).
+  const args = ["-p", "--output-format", "json", "--no-session-persistence", "--tools", "",
+    "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', "--setting-sources", "project"];
   if (typeof msg.system === "string" && msg.system.trim()) args.push("--system-prompt", msg.system);
   if (typeof msg.model === "string" && msg.model.trim()) args.push("--model", msg.model.trim());
   if (msg.schema && typeof msg.schema === "object") args.push("--json-schema", JSON.stringify(msg.schema));
