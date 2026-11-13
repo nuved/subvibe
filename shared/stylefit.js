@@ -55,7 +55,37 @@
     const frameL = fs / fn, frameStd = Math.sqrt(Math.max(0, fs2 / fn - frameL * frameL));
     let hue = Math.atan2(hy, hx) * 180 / Math.PI; if (hue < 0) hue += 360;
     const colour = sw / fn; // 0 = grey footage, ~0.5+ = strongly coloured
-    return { bandL, bandStd, busy, frameL, frameStd, hue, colour, portrait: h > w * 1.1 };
+    return { bandL, bandStd, busy, frameL, frameStd, hue, colour, portrait: h > w * 1.1, burned: burnedCaption(data, w, top, bot) };
+  }
+
+  // Captions written into the picture itself: a white (or black) bar with letters,
+  // low on the frame. Measured on a real YouTube lesson (2026-11-13) at 320 px:
+  // the bar's plain rows are ≥85% one extreme; its letter rows are ~40% that
+  // extreme with ≥10% of the other and dense sharp edges. A bar is a run of such
+  // rows (gaps of ≤3 rows allowed) ≥4% of the height in the bottom 35%, holding
+  // at least two plain rows and two letter rows. Needs ≥240 px of width to see letters.
+  function burnedCaption(data, w, top, bot) {
+    if (w < 240) return null;
+    const lh = bot - top + 1, from = top + Math.floor(lh * 0.65), x0 = Math.floor(w * 0.25), x1 = Math.ceil(w * 0.75), n = x1 - x0;
+    let runStart = -1, lastHit = -99, plain = 0, letters = 0, found = null;
+    const close = (end) => { if (runStart >= 0 && end - runStart + 1 >= Math.max(3, lh * 0.04) && plain >= 2 && letters >= 2) found = { y: (runStart - top) / lh }; };
+    for (let y = from; y <= bot && !found; y++) {
+      let hi = 0, lo = 0, edges = 0, prev = -1;
+      for (let x = x0; x < x1; x++) {
+        const i = (y * w + x) * 4, l = lum(data[i], data[i + 1], data[i + 2]);
+        if (l > 0.82) hi++; else if (l < 0.14) lo++;
+        if (prev >= 0 && Math.abs(l - prev) > 0.35) edges++;
+        prev = l;
+      }
+      const isPlain = Math.max(hi, lo) / n > 0.85;
+      const isLetters = Math.max(hi, lo) / n > 0.35 && Math.min(hi, lo) / n > 0.1 && edges / n > 0.2;
+      if (isPlain || isLetters) {
+        if (y - lastHit > 4) { close(lastHit); runStart = y; plain = 0; letters = 0; }
+        lastHit = y; if (isPlain) plain++; if (isLetters) letters++;
+      }
+    }
+    if (!found) close(lastHit);
+    return found;
   }
 
   const PRESET_NAME = { classic: "Classic", youtube: "YouTube", tiktok: "TikTok", cinema: "Cinema" };
@@ -76,13 +106,14 @@
     // A protected (DRM) video, or a black screen between scenes: nothing to read.
     if (m.frameL < 0.03 && m.frameStd < 0.02) return { protected: true, m };
     let preset, why;
-    if (m.portrait) { preset = "tiktok"; why = "an upright video: bold outlined words, like the apps it was made for"; }
+    if (m.burned) { preset = "classic"; why = "this video writes its own captions at the bottom, so yours go higher in a dark box that stays apart from them"; }
+    else if (m.portrait) { preset = "tiktok"; why = "an upright video: bold outlined words, like the apps it was made for"; }
     else if (m.bandL > 0.58) { preset = "classic"; why = "the bottom of the picture is bright, so a dark box keeps the words readable"; }
     else if (m.busy > 0.075 || m.bandStd > 0.2) { preset = "youtube"; why = "the picture under the words is busy, so a box per line cuts the clutter"; }
     else if (m.bandL < 0.32) { preset = "cinema"; why = "the bottom is dark and calm, so film-style text needs no box"; }
     else { preset = "classic"; why = "a mid-bright picture: a soft dark box is the safest read"; }
     const hl = pickHighlight(m);
-    return { preset, hl: hl.hl, presetName: PRESET_NAME[preset], hlName: HL_NAME[hl.hl], why, hlWhy: hl.why, m };
+    return { preset, hl: hl.hl, position: m.burned ? "top" : null, presetName: PRESET_NAME[preset], hlName: HL_NAME[hl.hl], why, hlWhy: hl.why, m };
   }
 
   g.SV_STYLEFIT = { measure, suggest };

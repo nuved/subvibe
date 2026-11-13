@@ -512,7 +512,7 @@ el("communityTips").addEventListener("change", () => { const on = el("communityT
 // Sync applies to a running session at once: the capture page hears LIVE_SYNC directly.
 el("liveSync").addEventListener("change", () => { const sync = el("liveSync").value; state.liveSync = sync; persist({ liveSync: sync }); chrome.runtime.sendMessage({ type: "LIVE_SYNC", sync }).catch(() => {}); });
 el("tipsAhead").addEventListener("change", () => persist({ tipsAhead: el("tipsAhead").value }));
-el("position").addEventListener("change", () => saveSetting({ position: el("position").value }));
+el("position").addEventListener("change", () => { saveSetting({ position: el("position").value }); paintFitPreview(); });
 el("keepNames").addEventListener("change", () => persist({ keepNames: el("keepNames").checked }));
 
 // ── size slider ───────────────────────────────────────────────────────────────
@@ -798,7 +798,22 @@ function updateStyleUI() {
 // popup itself), shows the style preview on the picture's own bottom band, and
 // names one preset + highlight that suit it (shared/stylefit.js). Nothing is
 // sent anywhere; the frame lives only in this popup.
-var fit = null, fitTried = false; // var: selectTab() at startup can call fitToVideo before this line runs
+var fit = null, fitTried = false, fitShot = null;
+// The preview strip is the slice of the picture where YOUR lines sit (bottom, top,
+// or where you dragged them), with the sample text at that height — so it shows
+// what will really be under the words, including a caption burned into the video.
+function paintFitPreview() {
+  if (!fitShot) return;
+  const pos = el("position").value, lp = state.linePositions || {};
+  const ys = Object.values(lp).map((p) => +p.y).filter((v) => v > 0 && v < 1);
+  const at = pos === "top" ? 0.12 : pos === "custom" && ys.length ? ys.reduce((a, b) => a + b, 0) / ys.length : 0.88;
+  const { img, sx, sy, sw, sh } = fitShot, band = 0.4;
+  const y0 = Math.max(0, Math.min(1 - band, at - band / 2));
+  const bw = 920, bh = Math.round(bw * (sh * band) / sw), c = document.createElement("canvas"); c.width = bw; c.height = bh;
+  c.getContext("2d").drawImage(img, sx, sy + sh * y0, sw, sh * band, 0, 0, bw, bh);
+  const pv = el("stylePrev"); pv.style.backgroundImage = "url(" + c.toDataURL("image/jpeg", 0.8) + ")"; pv.classList.add("onframe");
+  el("stylePrevText").style.top = (((at - y0) / band) * 100).toFixed(1) + "%";
+} // var: selectTab() at startup can call fitToVideo before this line runs
 function renderFit() {
   const box = el("styleFit"); if (!box) return;
   [...el("presetRow").children].forEach((b) => b.classList.toggle("fits", !!(fit && fit.preset && b.dataset.preset === fit.preset)));
@@ -821,6 +836,10 @@ function renderFit() {
   btn.addEventListener("click", () => {
     state.stylePreset = fit.preset; state.styleCustom = {}; state.karaokeStyle = fit.hl;
     persist({ stylePreset: fit.preset, styleCustom: {}, karaokeStyle: fit.hl });
+    // A caption burned in at the bottom: move ours up, unless they're already dragged clear of it.
+    if (fit.position && el("position").value !== "custom" && el("position").value !== fit.position) {
+      el("position").value = fit.position; saveSetting({ position: fit.position }); paintFitPreview();
+    }
     updateStyleUI();
   });
   box.append(why, btn);
@@ -844,17 +863,13 @@ async function fitToVideo() {
       if (w / h > ar) { const cw = h * ar; x += (w - cw) / 2; w = cw; } else { const ch = w / ar; y += (h - ch) / 2; h = ch; }
     }
     const sx = x * k, sy = y * k, sw = w * k, sh = h * k;
-    const AW = 160, AH = Math.max(8, Math.min(320, Math.round(AW * sh / sw)));
+    const AW = 320, AH = Math.max(8, Math.min(640, Math.round(AW * sh / sw))); // 320: letters of a burned-in caption stay sharp enough to see
     const a = document.createElement("canvas"); a.width = AW; a.height = AH;
     const actx = a.getContext("2d", { willReadFrequently: true }); actx.drawImage(img, sx, sy, sw, sh, 0, 0, AW, AH);
     fit = SV_STYLEFIT.suggest({ data: actx.getImageData(0, 0, AW, AH).data, w: AW, h: AH });
-    if (!fit.protected) {
-      // The preview strip: the bottom 40% of the picture, where subtitles sit.
-      const bw = 920, bh = Math.round(bw * (sh * 0.4) / sw), b = document.createElement("canvas"); b.width = bw; b.height = bh;
-      b.getContext("2d").drawImage(img, sx, sy + sh * 0.6, sw, sh * 0.4, 0, 0, bw, bh);
-      const pv = el("stylePrev"); pv.style.backgroundImage = "url(" + b.toDataURL("image/jpeg", 0.8) + ")"; pv.classList.add("onframe");
-    }
+    if (!fit.protected) { fitShot = { img, sx, sy, sw, sh }; paintFitPreview(); }
     renderFit();
+    const tile = el("presetRow").querySelector(".fits"); if (tile) tile.scrollIntoView({ block: "nearest", inline: "nearest" });
   } catch (e) { console.warn("[SubVibe] fits this video:", e); }
 }
 let colT;

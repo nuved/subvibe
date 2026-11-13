@@ -39,3 +39,14 @@ test("black bars baked into a wide film are not read as a busy bottom", () => {
   const s = F.suggest(frame(160, 90, (x, y) => (y < 12 || y > 77 ? [0, 0, 0] : y > 55 ? [18, 20, 26] : [110, 100, 90])));
   assert.equal(s.preset, "cinema");
 });
+test("a white caption bar burned into the bottom moves our lines up", () => {
+  // 320×180: a scene, and a white bar (rows 150–168) whose middle rows carry dark letter strokes.
+  const s = F.suggest(frame(320, 180, (x, y) => {
+    if (y >= 150 && y <= 168) return y >= 155 && y <= 163 && (x >> 2) % 3 === 0 ? [20, 20, 20] : [245, 245, 245];
+    return [120, 100, 90];
+  }));
+  assert.ok(s.m.burned); assert.equal(s.position, "top");
+});
+test("a plain bright floor is not a caption", () => {
+  assert.equal(F.suggest(frame(320, 180, (x, y) => (y > 120 ? [240, 240, 240] : [90, 90, 90]))).m.burned, null);
+});
