@@ -589,6 +589,11 @@ async function loadActivity() {
     stats.appendChild(statCard("Est. cost · today", "~" + fmtCost(costToday), "", "cost"));
   }
   stats.appendChild(statCard("Avg response", avgMs + " ms"));
+  // Prompt cache: the share of input tokens read back from Anthropic's cache
+  // (billed at ~10% on the API; on Claude Code it means less of the plan's limit).
+  let cR = 0, cW = 0, cIn = 0;
+  for (const c of shown) if (c.provider === "claude" || c.provider === "claude-cli") { cR += c.cacheR || 0; cW += c.cacheW || 0; cIn += c.inTok || 0; }
+  if (cR + cW + cIn > 0) stats.appendChild(statCard("Prompt cache hits", Math.round((cR / (cR + cW + cIn)) * 100) + "%", (cR).toLocaleString() + " of " + (cR + cW + cIn).toLocaleString() + " input tokens read from cache"));
 
   // One call = one row. In "By video" mode rows live inside a collapsible group
   // per clip (rows are built lazily on first expand); "All calls" renders a flat

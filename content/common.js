@@ -3433,6 +3433,13 @@
         // Dub Mode's own readiness counter (clips decoded and ready to play in
         // the next ~60s) — ADDS a field to the existing payload, never restructures it.
         const dub = window.__svDub && window.__svDub.readyAhead ? { dubReady: window.__svDub.readyAhead() } : {};
+        // How much of the whole video is already translated and cached (replays free),
+        // in 5% steps so the de-dupe in setBadge still holds.
+        if (tgs.length && cues.length && (!window.__svCovAt || performance.now() - window.__svCovAt > 3000)) {
+          window.__svCovAt = performance.now();
+          window.__svCov = Math.round((cues.filter((x) => tgs.every((g) => x.t[g])).length / cues.length) * 20) * 5;
+        }
+        if (window.__svCov != null) dub.covered = window.__svCov;
         if (!active) setBadge({ off: true, ...dub });
         else if (pending <= 0) setBadge({ free: true, ...dub });
         else setBadge({ count: done, state: behindMs < 3500 ? "miss" : "lag", ...dub });

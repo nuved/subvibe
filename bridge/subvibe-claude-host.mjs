@@ -82,7 +82,7 @@ async function chat(msg) {
   try { envelope = JSON.parse(r.out); } catch { log("chat FAIL non-JSON output"); return { ok: false, error: "claude returned non-JSON output: " + r.out.slice(0, 200) }; }
   const u = envelope.usage || {};
   const ran = envelope.modelUsage && typeof envelope.modelUsage === "object" ? Object.keys(envelope.modelUsage)[0] : "";
-  log("chat " + (envelope.is_error ? "ERROR " : "ok ") + "claude -p model=" + (ran || msg.model || "default") + " in=" + (u.input_tokens || 0) + " out=" + (u.output_tokens || 0) + " cache_w=" + (u.cache_creation_input_tokens || 0) + " ms=" + (Date.now() - t0) + " prompt_chars=" + prompt.length + (envelope.is_error ? " " + String(envelope.result || "").slice(0, 120) : ""));
+  log("chat " + (envelope.is_error ? "ERROR " : "ok ") + "claude -p model=" + (ran || msg.model || "default") + " in=" + (u.input_tokens || 0) + " out=" + (u.output_tokens || 0) + " cache_r=" + (u.cache_read_input_tokens || 0) + " cache_w=" + (u.cache_creation_input_tokens || 0) + " ms=" + (Date.now() - t0) + " prompt_chars=" + prompt.length + (envelope.is_error ? " " + String(envelope.result || "").slice(0, 120) : ""));
   return { ok: true, envelope };
 }
 

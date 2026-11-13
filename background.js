@@ -862,7 +862,25 @@ const STUDY_CALL_SECONDS = 150, STUDY_CONCURRENCY = 3;
 // the timeout that started all this.
 const FABLE_CALL_SECONDS = 300;
 const cliDegraded = new Map(); // cli model id → until (ms since epoch)
+// Every call is its own `claude -p` process. With no gate, "Explain all" plus
+// tips plus look-ahead ran 15 at once (bridge.log, 2026-11-13 20:35): each one
+// slowed to 45–73 s and the subtitle lines starved ("0 lines ready"). Now
+// subtitle lines ("hi") have 3 slots of their own and everything else (tips,
+// explain, study, simplify) shares 2, so lines never wait behind tips. Time spent
+// waiting for a slot doesn't count against a call's clock.
+const CLI_SLOTS = { hi: 3, lo: 2 };
+const cliRun = { hi: 0, lo: 0 }, cliQ = { hi: [], lo: [] };
+function cliAcquire(pri) {
+  if (cliRun[pri] < CLI_SLOTS[pri]) { cliRun[pri]++; return Promise.resolve(); }
+  return new Promise((res) => cliQ[pri].push(res));
+}
+function cliRelease(pri) { const next = cliQ[pri].shift(); if (next) next(); else cliRun[pri]--; }
 async function cliChat(system, user, schema, model, opts) {
+  const pri = opts && opts.priority === "hi" ? "hi" : "lo";
+  await cliAcquire(pri);
+  try { return await cliChatNow(system, user, schema, model, opts); } finally { cliRelease(pri); }
+}
+async function cliChatNow(system, user, schema, model, opts) {
   const want = SV_CLI.cliModel(model), fb = SV_CLI.cliModel(CLI_FALLBACK);
   let m = want;
   if (m !== fb && (cliDegraded.get(m) || 0) > Date.now()) m = fb;
@@ -888,7 +906,7 @@ async function cliChat(system, user, schema, model, opts) {
 }
 async function translateChunkCli(lines, source, target, _key, context, keepTerms, keepNames, model, kind) {
   const userPayload = context && context.length ? { count: lines.length, context, lines } : { count: lines.length, lines };
-  const r = await cliChat(systemPrompt(source, target, keepTerms, keepNames, kind), JSON.stringify(userPayload), TRANSLATE_SCHEMA, model);
+  const r = await cliChat(systemPrompt(source, target, keepTerms, keepNames, kind), JSON.stringify(userPayload), TRANSLATE_SCHEMA, model, { priority: "hi" }); // subtitle lines: never behind tips
   let parsed = r.parsed;
   if (!parsed) { try { parsed = SV_VOCAB.parseLooseJSON(r.content); } catch { throw new Error("the model returned malformed JSON"); } }
   const arr = parsed.t || parsed.translations || parsed.lines || [];
@@ -2907,7 +2925,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               // Dub Mode's readiness counter, appended (not restructuring the
               // existing subtitle look-ahead title) to the free/counting titles
               // whenever the content script sent it.
-              const dubSuffix = msg.dubReady != null ? ` · dub: ${msg.dubReady} clips buffered ahead` : "";
+              let dubSuffix = msg.dubReady != null ? ` · dub: ${msg.dubReady} clips buffered ahead` : "";
+              // The whole video's cached share, and the Claude Code queue when it's busy.
+              if (msg.covered != null) dubSuffix += `\n${msg.covered}% of this video translated and cached (replays free)`;
+              const busy = cliRun.hi + cliRun.lo, waiting = cliQ.hi.length + cliQ.lo.length;
+              if (busy || waiting) dubSuffix += `\nClaude Code: ${busy} running` + (waiting ? `, ${waiting} waiting (subtitle lines go first)` : "");
               if (msg.off) {
                 await chrome.action.setBadgeText({ tabId, text: "" });
                 await chrome.action.setTitle({ tabId, title: "SubVibe" });
