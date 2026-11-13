@@ -1147,7 +1147,7 @@
     // ~1.4M tokens/hour. With Claude, coalesce heard lines for a beat (4 lines
     // or 1.8s) and translate them as ONE batch; OpenAI keeps the instant
     // per-line path (prompt overhead is pennies there, latency wins).
-    const coalesce = settings.translationProvider === "claude";
+    const coalesce = /^claude/.test(settings.translationProvider || ""); // Claude API or Claude Code: both bill the prompt per call
     let sq = [], sqTimer = 0, sqBusy = false;
     async function flushStreamQ() {
       sqTimer = 0;
@@ -3619,8 +3619,16 @@
     // In-flight content is marked on the CUES (c.pend[tg]), not the groups:
     // buildGroups rebuilds group objects every 3s, so a group-level flag would
     // be wiped mid-call and the same lines re-sent (double billing).
-    let inFlight = 0;
+    // A JUMP (seek) starts a new generation: calls still translating the old spot
+    // keep running and their lines are kept, but they no longer hold the two slots,
+    // so the new spot starts at once instead of queueing behind up to a minute of
+    // stale work (operator: "0 lines ready" after a jump, 2026-11-13). The first
+    // batch after a jump is small (3 sentences) so the first lines arrive fast.
+    let inFlight = 0, pumpGen = 0, pumpLastT = null, firstAfterJump = true;
     const pump = setInterval(async () => {
+      { const lv0 = liveVideoEl(video), t0 = lv0 ? playheadMs(lv0) : null;
+        if (t0 != null && pumpLastT != null && Math.abs(t0 - pumpLastT) > 20000) { pumpGen++; inFlight = 0; firstAfterJump = true; }
+        if (t0 != null) pumpLastT = t0; }
       if (inFlight >= 2) return;
       const lv = liveVideoEl(video);
       // Pre-translate the buffered-ahead window while PLAYING — and also while PAUSED
@@ -3644,7 +3652,9 @@
         // Claude batches take several times longer than gpt-4o-mini — give the
         // pump a longer runway (~2.5 min) so slower calls land well before the
         // playhead and batches fill up instead of trickling out one line at a time.
-        const claudeT = settings.translationProvider === "claude";
+        // Claude Code ("claude-cli") is slower still per call (4-60 s through claude -p,
+        // bridge.log 2026-11-13) and was getting the OpenAI rules: one sentence per call.
+        const claudeT = /^claude/.test(settings.translationProvider || "");
         const MAX_AHEAD_CUES = claudeT ? 80 : 24;
         let i0 = 0;
         while (i0 < cues.length && cues[i0].startMs < t - 4000) i0++;
@@ -3656,7 +3666,7 @@
           if (!g || !g.closed || g.t[tg] || gseen.has(g)) continue;
           if (g.cues.some((cc) => cc.pend && cc.pend[tg])) continue; // already in flight
           gseen.add(g); groups.push(g);
-          if (groups.length >= 12) break;
+          if (groups.length >= (firstAfterJump ? 3 : 12)) break;
         }
         if (!groups.length) continue;
         // A lone group re-bills the full prompt for one line. LIVE: give a second
@@ -3669,11 +3679,12 @@
           else if (groups[0].cues[0].startMs - t > 30000) continue;
         }
         for (const g of groups) for (const cc of g.cues) (cc.pend ||= {})[tg] = 1;
-        inFlight++;
+        inFlight++; firstAfterJump = false;
+        const myGen = pumpGen;
         let released = false;
         const release = () => {
           if (released) return;
-          released = true; inFlight--;
+          released = true; if (myGen === pumpGen) inFlight--; // a call from before a jump gave its slot back already
           for (const g of groups) for (const cc of g.cues) if (cc.pend) delete cc.pend[tg];
         };
         // Last-resort zombie-slot reclaim ONLY. A LEGITIMATE call can run minutes:
