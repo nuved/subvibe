@@ -63,11 +63,11 @@
   // Custom font choices ("Customize" in the popup). System stacks cost nothing;
   // "rounded" leads with bundled Baloo 2 so it looks the same on every OS.
   const FONT_STACKS = {
-    sans: { label: "Sans (default)", css: SANS, fonts: [] },
-    rounded: { label: "Rounded", css: ROUNDED, fonts: ["baloo2"] },
-    serif: { label: "Serif", css: 'Georgia, "Times New Roman", serif', fonts: [] },
-    mono: { label: "Mono", css: "ui-monospace, Menlo, Consolas, monospace", fonts: [] },
-    casual: { label: "Casual", css: '"Comic Sans MS", "Chalkboard SE", "Comic Neue", cursive', fonts: [] },
+    sans: { label: "Vazirmatn · clean sans", css: SANS, fonts: [] },
+    rounded: { label: "Baloo 2 · rounded, bold", css: ROUNDED, fonts: ["baloo2"] },
+    serif: { label: "Georgia · serif", css: 'Georgia, "Times New Roman", serif', fonts: [] },
+    mono: { label: "Menlo · monospace", css: "ui-monospace, Menlo, Consolas, monospace", fonts: [] },
+    casual: { label: "Comic Sans · casual", css: '"Comic Sans MS", "Chalkboard SE", "Comic Neue", cursive', fonts: [] },
   };
 
   function hexToRgba(hex, alpha) {
@@ -119,9 +119,14 @@
     else if (c.edge === "outline") st.shadow = OUTLINE_HEAVY;
     else if (c.edge === "shadow") st.shadow = SHADOW_CLASSIC;
 
+    // A light box under the words (Pill, or a light custom background): neon glows
+    // vanish on it, so the overlay switches every highlight to its on-light ink.
+    const bgc = parseColor(st.bg);
+    const lightBg = !!(bgc && bgc.a >= 0.5 && (() => { const n = parseInt(bgc.hex.slice(1), 16); return (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255 > 0.6; })());
     return {
       pill: !!preset.pill,
       banner: !!preset.banner,
+      lightBg,
       fonts,
       vars: {
         "--cs-font-family": st.fontFamily,
@@ -141,12 +146,15 @@
   // Karaoke highlight styles (karaokeStyle setting). The LOOK lives in
   // styles/overlay.css (.copilot-hl-* on .sung); this map only feeds the
   // popup's swatch row — label + the css that paints the "Abc" tile.
+  // cssLight: the same colour as ink for a light box (must match the
+  // .copilot-bg-light rules in styles/overlay.css).
   const HL_STYLES = {
-    classic: { label: "Classic gold", css: "color:#FFB35C" },
-    "neon-cyan": { label: "Neon cyan", css: "color:#7df9ff;text-shadow:0 0 6px rgba(0,229,255,.9)" },
-    "neon-magenta": { label: "Neon magenta", css: "color:#ff5ce1;text-shadow:0 0 6px rgba(255,0,200,.9)" },
-    ember: { label: "Ember", css: "color:#ff9d4d;text-shadow:0 0 5px rgba(255,94,0,.85)" },
-    aurora: { label: "Aurora", css: "background:linear-gradient(90deg,#4ade80,#22d3ee,#a78bfa,#f472b6);-webkit-background-clip:text;background-clip:text;color:transparent" },
+    classic: { label: "Classic gold", css: "color:#FFB35C", cssLight: "color:#b45f00;text-shadow:none" },
+    "neon-cyan": { label: "Neon cyan", css: "color:#7df9ff;text-shadow:0 0 6px rgba(0,229,255,.9)", cssLight: "color:#0077a8;text-shadow:none" },
+    "neon-magenta": { label: "Neon magenta", css: "color:#ff5ce1;text-shadow:0 0 6px rgba(255,0,200,.9)", cssLight: "color:#b0008a;text-shadow:none" },
+    ember: { label: "Ember", css: "color:#ff9d4d;text-shadow:0 0 5px rgba(255,94,0,.85)", cssLight: "color:#c2410c;text-shadow:none" },
+    aurora: { label: "Aurora", css: "background:linear-gradient(90deg,#4ade80,#22d3ee,#a78bfa,#f472b6);-webkit-background-clip:text;background-clip:text;color:transparent;text-shadow:none",
+      cssLight: "background:linear-gradient(90deg,#15803d,#0e7490,#6d28d9,#be185d);-webkit-background-clip:text;background-clip:text;color:transparent;text-shadow:none" },
   };
 
   window.SV_PRESETS = PRESETS;

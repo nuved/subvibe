@@ -235,6 +235,19 @@
   }
 }
 
+/* On a light box (Pill, or a light custom background) the glows above vanish
+   white-on-white (operator screenshot 2026-11-13): every highlight becomes a
+   dark ink of its own colour, no glow. Keep in step with HL_STYLES.cssLight. */
+#copilot-subs.copilot-bg-light.copilot-hl-classic .copilot-subs__w.sung { color: #b45f00; text-shadow: none; }
+#copilot-subs.copilot-bg-light.copilot-hl-neon-cyan .copilot-subs__w.sung { color: #0077a8; text-shadow: none; }
+#copilot-subs.copilot-bg-light.copilot-hl-neon-magenta .copilot-subs__w.sung { color: #b0008a; text-shadow: none; }
+#copilot-subs.copilot-bg-light.copilot-hl-ember .copilot-subs__w.sung { color: #c2410c; text-shadow: none; }
+@supports ((-webkit-background-clip: text) or (background-clip: text)) {
+  #copilot-subs.copilot-bg-light.copilot-hl-aurora .copilot-subs__w.sung {
+    background-image: linear-gradient(90deg, #15803d, #0e7490, #6d28d9, #be185d, #15803d); filter: none;
+  }
+}
+
 /* Learn-pool hint: a word from this clip's trainer pool carries a dotted
    underline in the original line (hover = meaning once enriched) — the
    trainer's hints, directly on the video. Gold is the default; a known CEFR

@@ -730,7 +730,7 @@ function buildPresetRow() {
     row.appendChild(b);
   }
   const fontSel = el("styleFont");
-  fontSel.innerHTML = '<option value="">Preset default</option>';
+  fontSel.innerHTML = '<option value="">The look\'s own</option>';
   for (const [k, f] of Object.entries(FONT_STACKS)) {
     const o = document.createElement("option");
     o.value = k;
@@ -746,10 +746,12 @@ function buildHlRow() {
     const b = document.createElement("button");
     b.dataset.hl = key;
     b.title = h.label + " karaoke highlight";
+    // The tile is drawn ON the current look (its box, font, outline) and repainted
+    // by updateStyleUI, so it shows exactly what the words will look like.
     const abc = document.createElement("span");
     abc.className = "abc";
-    abc.textContent = "Abc";
-    abc.style.cssText = "font-weight:800;" + h.css;
+    const ink = document.createElement("span"); ink.className = "hlink"; ink.textContent = "Abc";
+    abc.appendChild(ink);
     const name = document.createElement("span");
     name.className = "pname";
     name.textContent = h.label;
@@ -778,6 +780,19 @@ function updateStyleUI() {
   [...el("hlRow").children].forEach((b) => b.classList.toggle("on", b.dataset.hl === (state.karaokeStyle || "classic")));
   const c = state.styleCustom || {};
   const r = resolveStyle(state);
+  for (const b of el("hlRow").children) {
+    const h = HL_STYLES[b.dataset.hl], abc = b.querySelector(".abc"), ink = b.querySelector(".hlink");
+    if (!h || !abc || !ink) continue;
+    paintStyled(abc, r); abc.style.width = ""; // a tile, not a banner
+    ink.style.cssText = r.lightBg && h.cssLight ? h.cssLight : h.css;
+  }
+  // Name the font the look really uses, so "default" is never a guess.
+  const fam = resolveStyle({ stylePreset: state.stylePreset }).vars["--cs-font-family"] || "", known = Object.values(FONT_STACKS).find((f) => f.css === fam);
+  const lookFont = known ? known.label : (fam.split(",")[0] || "").replace(/["']/g, "").trim();
+  el("styleFont").options[0].textContent = "The look's own: " + lookFont;
+  // Say plainly that Customize changes sit ON TOP of the chosen look.
+  const nTweaks = Object.keys(c).length, lookName = (PRESETS[state.stylePreset] || PRESETS.classic).label;
+  el("customHint").textContent = nTweaks ? lookName + " + your " + nTweaks + " change" + (nTweaks > 1 ? "s" : "") : "change " + lookName + "'s font, color, box, outline";
   paintStyled(el("stylePrevText"), r);
   el("styleFont").value = c.font && FONT_STACKS[c.font] ? c.font : "";
   const col = window.SV_PARSE_COLOR(r.vars["--cs-color"]);

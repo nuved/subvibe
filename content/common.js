@@ -805,6 +805,7 @@
     if (style) {
       for (const k in style.vars) el.style.setProperty(k, style.vars[k]);
       el.classList.toggle("copilot-style-pill", style.pill);
+      el.classList.toggle("copilot-bg-light", !!style.lightBg); // highlights switch to their on-light ink
       el.classList.toggle("copilot-style-banner", style.banner);
       ensureFont(style.fonts);
     }

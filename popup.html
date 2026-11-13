@@ -789,7 +789,7 @@
         <span class="sizeval" id="sizeVal"></span>
       </div>
       <details class="customize">
-        <summary>Customize <span class="hint">font · color · background · outline</span></summary>
+        <summary>Customize <span class="hint" id="customHint">font · color · background · outline</span></summary>
         <div class="row">
           <span style="min-width:58px; color:var(--muted);">Font</span>
           <select id="styleFont" style="flex:1;"></select>
@@ -799,7 +799,7 @@
           <input type="color" id="styleColor" value="#ffffff" title="Text color" />
           <span style="color:var(--muted); margin-left:4px;">Edge</span>
           <select id="styleEdge" style="flex:1;" title="Outline / shadow around the letters">
-            <option value="">Preset default</option>
+            <option value="">The look's own</option>
             <option value="shadow">Soft shadow</option>
             <option value="outline">Outline</option>
             <option value="none">None</option>
@@ -811,7 +811,7 @@
           <input type="color" id="styleBgColor" value="#080a0e" title="Background color" />
           <input type="range" id="styleBgOpacity" min="0" max="100" step="1" style="flex:1;" title="Background opacity" />
         </div>
-        <div class="row"><button class="resetstyle" id="styleReset">↺ Reset tweaks to the preset</button></div>
+        <div class="row"><button class="resetstyle" id="styleReset">↺ Back to the look as designed</button></div>
       </details>
       <div class="row" style="margin-top:10px;">
         <span style="min-width:58px; color:var(--muted);">Position</span>
