@@ -64,11 +64,20 @@
   // extreme with ≥10% of the other and dense sharp edges. A bar is a run of such
   // rows (gaps of ≤3 rows allowed) ≥4% of the height in the bottom 35%, holding
   // at least two plain rows and two letter rows. Needs ≥240 px of width to see letters.
+  // Second kind (operator screenshot 2026-11-13, an English podcast): big white
+  // letters with a black outline straight on the picture, no bar. Its rows are
+  // 15-57% white, 14-35% black and 24-38% sharp edges; a run of ≥4 such rows
+  // (≥5% of the height) counts. Both kinds are looked for from 55% of the height.
   function burnedCaption(data, w, top, bot) {
     if (w < 240) return null;
-    const lh = bot - top + 1, from = top + Math.floor(lh * 0.65), x0 = Math.floor(w * 0.25), x1 = Math.ceil(w * 0.75), n = x1 - x0;
-    let runStart = -1, lastHit = -99, plain = 0, letters = 0, found = null;
-    const close = (end) => { if (runStart >= 0 && end - runStart + 1 >= Math.max(3, lh * 0.04) && plain >= 2 && letters >= 2) found = { y: (runStart - top) / lh }; };
+    const lh = bot - top + 1, from = top + Math.floor(lh * 0.55), x0 = Math.floor(w * 0.25), x1 = Math.ceil(w * 0.75), n = x1 - x0;
+    let runStart = -1, lastHit = -99, plain = 0, letters = 0, outl = 0, found = null;
+    const close = (end) => {
+      if (runStart < 0) return;
+      const barred = end - runStart + 1 >= Math.max(3, lh * 0.04) && plain >= 2 && letters >= 2;
+      const outlined = outl >= Math.max(4, lh * 0.05);
+      if (barred || outlined) found = { y: (runStart - top) / lh, kind: barred ? "bar" : "outlined" };
+    };
     for (let y = from; y <= bot && !found; y++) {
       let hi = 0, lo = 0, edges = 0, prev = -1;
       for (let x = x0; x < x1; x++) {
@@ -79,9 +88,10 @@
       }
       const isPlain = Math.max(hi, lo) / n > 0.85;
       const isLetters = Math.max(hi, lo) / n > 0.35 && Math.min(hi, lo) / n > 0.1 && edges / n > 0.2;
-      if (isPlain || isLetters) {
-        if (y - lastHit > 4) { close(lastHit); runStart = y; plain = 0; letters = 0; }
-        lastHit = y; if (isPlain) plain++; if (isLetters) letters++;
+      const isOutlined = hi / n > 0.12 && lo / n > 0.08 && edges / n > 0.2; // white letters in a black edge
+      if (isPlain || isLetters || isOutlined) {
+        if (y - lastHit > 4) { close(lastHit); runStart = y; plain = 0; letters = 0; outl = 0; }
+        lastHit = y; if (isPlain) plain++; if (isLetters) letters++; if (isOutlined) outl++;
       }
     }
     if (!found) close(lastHit);

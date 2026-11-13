@@ -50,3 +50,17 @@ test("a white caption bar burned into the bottom moves our lines up", () => {
 test("a plain bright floor is not a caption", () => {
   assert.equal(F.suggest(frame(320, 180, (x, y) => (y > 120 ? [240, 240, 240] : [90, 90, 90]))).m.burned, null);
 });
+
+test("big outlined captions written on the picture (no bar) are seen", () => {
+  // A mid-grey scene; rows 62-70% carry white strokes in black edges, like a podcast's
+  // burned-in words (operator screenshot 2026-11-13: 15-57% white, 14-35% black per row).
+  const s = F.suggest(frame(320, 180, (x, y) => {
+    if (y >= 112 && y < 126) { const k = x % 7; return k === 0 || k === 3 ? [10, 10, 10] : k === 1 || k === 2 ? [250, 250, 250] : [110, 105, 100]; }
+    return [110, 105, 100];
+  }));
+  assert.ok(s.m.burned, "outlined captions found"); assert.equal(s.m.burned.kind, "outlined"); assert.equal(s.position, "top");
+});
+test("white bars with no black edge (an audio waveform) are not captions", () => {
+  const s = F.suggest(frame(320, 180, (x, y) => (y >= 112 && y < 126 && x % 5 < 2 ? [250, 250, 250] : [90, 90, 95])));
+  assert.equal(s.m.burned, null);
+});
