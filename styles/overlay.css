@@ -308,11 +308,15 @@
 #copilot-subs .copilot-subs__hint {
   position: absolute; display: none; pointer-events: auto; cursor: pointer; z-index: 6;
   width: 26px; height: 26px; padding: 0; border: 0; border-radius: 50%;
-  background: #C93F2B; color: #fff; font: 800 15px/26px -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
-  text-align: center; opacity: 0.92; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35), 0 0 0 2px rgba(255, 255, 255, 0.85);
-  transition: opacity 0.15s, transform 0.12s;
+  /* a quiet glass chip like the player's own buttons; coral only when you reach for it */
+  background: rgba(16, 16, 20, 0.55); color: #fff; font: 700 14px/26px -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  text-align: center; opacity: 0.9; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35);
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  transition: opacity 0.3s, transform 0.12s, background 0.15s;
 }
-#copilot-subs .copilot-subs__hint:hover { opacity: 1; transform: scale(1.08); }
+#copilot-subs .copilot-subs__hint:hover { opacity: 1; transform: scale(1.08); background: #C93F2B; }
+#copilot-subs .copilot-subs__hint.sv-idle { opacity: 0; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) { #copilot-subs .copilot-subs__hint { transition: none; } }
 
 /* Line-explain card: a coral band with the sentence, then Translation, a
    Grammar box, the Words grid, and the actions row (Tips sheet · close). */

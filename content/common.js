@@ -1850,6 +1850,16 @@
     let hintBtn = overlay.querySelector(".copilot-subs__hint");
     if (!hintBtn) { hintBtn = document.createElement("button"); hintBtn.type = "button"; hintBtn.className = "copilot-subs__hint"; hintBtn.textContent = "?"; hintBtn.title = "Explain this line — translation, grammar, key words"; overlay.appendChild(hintBtn); }
     hintBtn.onclick = (e) => { e.stopPropagation(); openLineCard(els.__orig); };
+    // The ﹖ behaves like the player's own controls: there while the mouse moves
+    // over the video or it's paused, gone ~2.5 s into quiet playback (operator 2026-11-13).
+    if (!window.__svHintActivity) {
+      window.__svHintActivity = true; window.__svHintAt = 0;
+      document.addEventListener("mousemove", (e) => {
+        const ov = document.getElementById("copilot-subs"); if (!ov) return;
+        const r = ov.getBoundingClientRect();
+        if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) window.__svHintAt = performance.now();
+      }, { passive: true, capture: true });
+    }
 
     const positionWtip = (w) => {
       const or = overlay.getBoundingClientRect(), wr = w.getBoundingClientRect();
@@ -3391,6 +3401,7 @@
           const tx = ol.querySelector(".copilot-subs__text");
           const or = overlay.getBoundingClientRect(), lr = (tx && tx.getBoundingClientRect().width > 0 ? tx : ol).getBoundingClientRect();
           hintBtn.style.display = "block";
+          hintBtn.classList.toggle("sv-idle", !!(video && !video.paused) && performance.now() - (window.__svHintAt || 0) > 2500 && !hintBtn.matches(":hover"));
           hintBtn.style.left = Math.round(Math.min(lr.right - or.left + 6, or.width - 30)) + "px";
           hintBtn.style.top = Math.round(lr.top - or.top) + "px";
         } else hintBtn.style.display = "none";
