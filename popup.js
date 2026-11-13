@@ -797,6 +797,9 @@ function updateStyleUI() {
     if (!h || !abc || !ink) continue;
     paintStyled(abc, r); abc.style.width = ""; // a tile, not a banner
     ink.style.cssText = r.lightBg && h.cssLight ? h.cssLight : h.css;
+    // as on the video: a glow keeps the look's edge under it
+    const glow = !r.lightBg && (h.css.match(/text-shadow:([^;]+)/) || [])[1], edge = r.vars["--cs-shadow"];
+    if (glow && glow.trim() !== "none" && edge && edge !== "none") ink.style.textShadow = edge + ", " + glow;
   }
   // Name the font the look really uses, so "default" is never a guess.
   const fam = resolveStyle({ stylePreset: state.stylePreset }).vars["--cs-font-family"] || "", known = Object.values(FONT_STACKS).find((f) => f.css === fam);

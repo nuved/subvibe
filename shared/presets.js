@@ -136,6 +136,8 @@
         "--cs-radius": st.radius,
         "--cs-pad": st.pad,
         "--cs-shadow": st.shadow,
+        // The look's edge, for highlights to keep under their glow ("none" can't be listed with other shadows)
+        "--cs-edge": st.shadow && st.shadow !== "none" ? st.shadow : "0 0 0 transparent",
         "--cs-lh": st.lh,
         "--cs-maxwidth": st.maxWidth,
         "--cs-hl": st.hl,
