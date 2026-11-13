@@ -1004,7 +1004,7 @@ async function renderEnrichBar() {
   if (!todo.length) { bar.hidden = true; return; }
   const s = await chrome.storage.local.get(["translationProvider", "claudeModel"]);
   const provider = s.translationProvider === "claude" ? "claude" : "openai";
-  const model = provider === "claude" ? (s.claudeModel || "claude-sonnet-5") : "gpt-4o-mini";
+  const model = provider === "claude" ? (s.claudeModel || "claude-sonnet-5-5") : "gpt-4o-mini";
   // ~35 tokens per word+sentence in, ~45 out, ~260-token system prompt per batch of 50.
   const n = todo.length;
   const usd = SV_PRICING.estCost({ provider, model, inTok: n * 35 + Math.ceil(n / 50) * 260, outTok: n * 45 });

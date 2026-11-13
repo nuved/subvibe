@@ -24,8 +24,10 @@ const ANTHROPIC_VERSION = "2023-06-01";
 // The Claude model is user-selectable (popup → storage key `claudeModel`).
 // Resolve through an allowlist so corrupted/stale storage can never put an
 // unknown model id on the wire — unknown values fall back to Sonnet 5.
-const CLAUDE_MODELS = ["claude-sonnet-5", "claude-haiku-4-5", "claude-opus-5", "claude-opus-5-5", "claude-fable-5-1"];
-const resolveClaudeModel = (v) => (CLAUDE_MODELS.includes(v) ? v : CLAUDE_MODELS[0]);
+const CLAUDE_MODELS = ["claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5", "claude-fable-5-2"];
+// Settings saved before the 5.5 picker carry the older ids: each moves to its family's newest.
+const CLAUDE_MODEL_UPGRADES = { "claude-sonnet-5": "claude-sonnet-5-5", "claude-haiku-4-5": "claude-haiku-5-5", "claude-opus-5": "claude-opus-5-5", "claude-fable-5-1": "claude-fable-5-2" };
+const resolveClaudeModel = (v) => { v = CLAUDE_MODEL_UPGRADES[v] || v; return CLAUDE_MODELS.includes(v) ? v : CLAUDE_MODELS[0]; };
 // max_tokens is REQUIRED on /v1/messages. 16k, not 8k: a 60-cue batch answers
 // with FOUR arrays (t + the condensed dub "d" ≈ two full Persian renditions),
 // and Persian is token-expensive — 8k truncated long music batches, which fell
@@ -852,7 +854,7 @@ function cliSend(msg) {
 // When a model stops answering (an outage on one model, as Opus had on 2026-09-03), a
 // call waits 75 s at most, the model is marked degraded for 10 minutes, and the call —
 // and every call meanwhile — goes to Sonnet instead. Nothing stalls for 3 minutes a batch.
-const CLI_FALLBACK = "claude-sonnet-5", CLI_DEGRADED_MS = 10 * 60 * 1000, CLI_CALL_SECONDS = 75;
+const CLI_FALLBACK = "claude-sonnet-5-5", CLI_DEGRADED_MS = 10 * 60 * 1000, CLI_CALL_SECONDS = 75;
 // A study call reads a whole chunk and writes a card per word, so it is the
 // slowest call SubVibe makes: it gets its own clock, and two run at once.
 const STUDY_CALL_SECONDS = 150, STUDY_CONCURRENCY = 3;

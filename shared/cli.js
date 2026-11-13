@@ -7,8 +7,10 @@
   const HOST = "com.subvibe.claude";
   // Popup model picker → what `claude --model` accepts. The CLI takes full ids
   // and the short aliases; full ids keep the pinned generation.
-  const MODELS = { "claude-sonnet-5": "claude-sonnet-5", "claude-haiku-4-5": "claude-haiku-4-5", "claude-opus-5": "claude-opus-5", "claude-opus-5-5": "claude-opus-5-5", "claude-fable-5-1": "claude-fable-5-1" };
-  const cliModel = (m) => MODELS[m] || MODELS["claude-sonnet-5"];
+  // Older ids (saved before the 5.5 picker) run on their family's newest model.
+  const MODELS = { "claude-sonnet-5-5": "claude-sonnet-5-5", "claude-haiku-5-5": "claude-haiku-5-5", "claude-opus-5-5": "claude-opus-5-5", "claude-fable-5-2": "claude-fable-5-2",
+    "claude-sonnet-5": "claude-sonnet-5-5", "claude-haiku-4-5": "claude-haiku-5-5", "claude-opus-5": "claude-opus-5-5", "claude-fable-5-1": "claude-fable-5-2" };
+  const cliModel = (m) => MODELS[m] || MODELS["claude-sonnet-5-5"];
 
   // A bridge reply → { content: string (JSON text), parsed: object|null, usage }.
   // Throws with a message the popup/Activity can show.

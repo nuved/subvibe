@@ -12,7 +12,7 @@ const LIVE_ALIAS = window.SV_LIVE_ALIAS || {};
 // Coerce a code to one Gemini's live model accepts, or null if it can't voice it.
 const normLiveCode = (code) => (LIVE_CODES.has(code) ? code : (LIVE_CODES.has(LIVE_ALIAS[code]) ? LIVE_ALIAS[code] : null));
 
-const DEFAULTS = { enabled: true, translateOn: true, targets: ["en"], showOriginal: true, hideNative: true, karaokeHl: true, karaokeStyle: "classic", storyBoard: true, tipsAhead: "1", learnLang: "", apiKey: "", translationProvider: "openai", claudeModel: "claude-sonnet-5", anthropicKey: "", cliBridgeOk: false, cliBridgeInfo: "", keepNames: true, keepTerms: "", position: "bottom", size: "md", stylePreset: "classic", styleCustom: {}, syncOffset: 0, dubEnabled: false, ttsProvider: "openai", geminiKey: "", tmdbKey: "", shotDelay: 0, dubVoice: "marin", dubGeminiVoice: "Kore", dubMultiVoice: false, dubDuckLevel: 0.12, dubPace: 1, liveModel: "gemini-3.5-live-translate-preview", liveSync: "auto", audioDeviceId: "", liveTarget: "", debugHud: false, uiTheme: "light" };
+const DEFAULTS = { enabled: true, translateOn: true, targets: ["en"], showOriginal: true, hideNative: true, karaokeHl: true, karaokeStyle: "classic", storyBoard: true, tipsAhead: "1", learnLang: "", apiKey: "", translationProvider: "openai", claudeModel: "claude-sonnet-5-5", anthropicKey: "", cliBridgeOk: false, cliBridgeInfo: "", keepNames: true, keepTerms: "", position: "bottom", size: "md", stylePreset: "classic", styleCustom: {}, syncOffset: 0, dubEnabled: false, ttsProvider: "openai", geminiKey: "", tmdbKey: "", shotDelay: 0, dubVoice: "marin", dubGeminiVoice: "Kore", dubMultiVoice: false, dubDuckLevel: 0.12, dubPace: 1, liveModel: "gemini-3.5-live-translate-preview", liveSync: "auto", audioDeviceId: "", liveTarget: "", debugHud: false, uiTheme: "light" };
 const el = (id) => document.getElementById(id);
 // Promise wrapper for chrome.runtime.sendMessage — same shape as learn.js's
 // helper, used by the word-game wiring below (async/await reads cleaner than
@@ -438,6 +438,9 @@ el("translationProvider").addEventListener("change", () => {
 });
 
 // ── Claude model picker: always visible; dim+inert unless the engine is Claude ──
+// Ids saved before the 5.5 picker light their family's newest button (background.js upgrades them the same way).
+const CLAUDE_MODEL_UPGRADES = { "claude-sonnet-5": "claude-sonnet-5-5", "claude-haiku-4-5": "claude-haiku-5-5", "claude-opus-5": "claude-opus-5-5", "claude-fable-5-1": "claude-fable-5-2" };
+const claudeModelNow = () => CLAUDE_MODEL_UPGRADES[state.claudeModel] || state.claudeModel || "claude-sonnet-5-5";
 function updateClaudeModelUI() {
   const isClaude = el("translationProvider").value === "claude" || el("translationProvider").value === "claude-cli";
   const row = el("claudeModelRow");
@@ -445,7 +448,7 @@ function updateClaudeModelUI() {
   // `inert` (not pointer-events): keyboard focus must not reach a dimmed
   // control — a prior review caught Tab+Enter activating a pointer-blocked one.
   if (isClaude) row.removeAttribute("inert"); else row.setAttribute("inert", "");
-  for (const b of row.querySelectorAll(".segopt")) b.classList.toggle("on", b.dataset.model === (state.claudeModel || "claude-sonnet-5"));
+  for (const b of row.querySelectorAll(".segopt")) b.classList.toggle("on", b.dataset.model === claudeModelNow());
 }
 for (const b of document.querySelectorAll("#claudeModelRow .segopt")) {
   b.addEventListener("click", () => { state.claudeModel = b.dataset.model; persist({ claudeModel: state.claudeModel }); updateClaudeModelUI(); });
@@ -1553,7 +1556,7 @@ function renderLearnWords() {
       const prov = state.translationProvider === "claude" ? "claude" : state.translationProvider === "claude-cli" ? "claude-cli" : "openai";
       const usd = window.SV_PRICING.estCost({
         provider: prov,
-        model: prov === "openai" ? "gpt-4o-mini" : (state.claudeModel || "claude-sonnet-5"),
+        model: prov === "openai" ? "gpt-4o-mini" : claudeModelNow(),
         inTok: nW * 35 + batches * 260, outTok: nW * 45,
       });
       enrich.hidden = false;
@@ -2223,3 +2226,53 @@ buildHlRow();
 load();
 initFolds();
 initTabs();
+
+// Styled tooltips. Every title= in the popup shows in one .svtip bubble that
+// stays inside the 460px window (the OS tooltip got clipped at the left edge).
+// The title moves to data-svtip only while the bubble is up, so screen readers
+// and code that reads .title still see it. The "?" dots also open on click/tap
+// and keyboard focus.
+(function initTips() {
+  const tip = document.createElement("div");
+  tip.className = "svtip"; tip.setAttribute("role", "tooltip"); tip.id = "svtip";
+  document.body.appendChild(tip);
+  let cur = null, timer = 0;
+  for (const d of document.querySelectorAll(".info")) {
+    d.tabIndex = 0; d.setAttribute("role", "button");
+    if (!d.getAttribute("aria-label")) d.setAttribute("aria-label", "More about this: " + (d.title || ""));
+  }
+  const hide = () => {
+    clearTimeout(timer);
+    if (cur) { if (cur.dataset.svtip != null && !cur.hasAttribute("title")) cur.title = cur.dataset.svtip; delete cur.dataset.svtip; cur.classList.remove("tipon"); cur.removeAttribute("aria-describedby"); }
+    cur = null; tip.classList.remove("on");
+  };
+  const show = (t, now) => {
+    if (cur === t) return;
+    hide();
+    const text = t.getAttribute("title");
+    if (!text) return;
+    cur = t; t.dataset.svtip = text; t.removeAttribute("title"); t.setAttribute("aria-describedby", "svtip");
+    if (t.classList.contains("info")) t.classList.add("tipon");
+    const place = () => {
+      if (cur !== t) return;
+      tip.textContent = text;
+      tip.style.left = "0px"; tip.style.top = "0px";
+      const r = t.getBoundingClientRect(), b = tip.getBoundingClientRect(), W = Math.min(document.documentElement.clientWidth, document.body.getBoundingClientRect().right), H = window.innerHeight, pad = 8;
+      let x = r.left + r.width / 2 - b.width / 2;
+      x = Math.max(pad, Math.min(x, W - b.width - pad));
+      let y = r.bottom + 8;
+      if (y + b.height > H - pad) y = Math.max(pad, r.top - b.height - 8);
+      tip.style.left = x + "px"; tip.style.top = y + "px";
+      tip.classList.add("on");
+    };
+    timer = setTimeout(place, now ? 0 : 350);
+  };
+  const owner = (n) => (n && n.closest ? n.closest("[title], [data-svtip]") : null);
+  document.addEventListener("mouseover", (e) => { const t = owner(e.target); if (t && t !== cur) show(t, t.classList.contains("info")); else if (!t && cur) hide(); });
+  document.addEventListener("focusin", (e) => { const t = e.target; if (t.classList && t.classList.contains("info")) show(t, true); });
+  document.addEventListener("focusout", (e) => { if (e.target === cur) hide(); });
+  document.addEventListener("click", (e) => { const t = e.target.closest && e.target.closest(".info"); if (t) { e.preventDefault(); if (cur === t && tip.classList.contains("on")) hide(); else show(t, true); } }, true);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && cur) hide(); });
+  document.addEventListener("scroll", hide, true);
+  window.addEventListener("blur", hide);
+})();

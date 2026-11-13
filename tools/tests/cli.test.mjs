@@ -40,9 +40,11 @@ test("connectError maps Chrome's native-messaging failures to the install hint",
 });
 
 test("cliModel maps the picker to CLI model ids and falls back to Sonnet", () => {
-  assert.equal(C.cliModel("claude-haiku-4-5"), "claude-haiku-4-5");
-  assert.equal(C.cliModel("claude-opus-5"), "claude-opus-5");
+  assert.equal(C.cliModel("claude-haiku-4-5"), "claude-haiku-5-5");
+  assert.equal(C.cliModel("claude-fable-5-1"), "claude-fable-5-2");
+  assert.equal(C.cliModel("claude-sonnet-5-5"), "claude-sonnet-5-5");
+  assert.equal(C.cliModel("claude-opus-5"), "claude-opus-5-5");
   assert.equal(C.cliModel("claude-opus-5-5"), "claude-opus-5-5");
-  assert.equal(C.cliModel("gpt-4o-mini"), "claude-sonnet-5");
+  assert.equal(C.cliModel("gpt-4o-mini"), "claude-sonnet-5-5");
   assert.equal(C.HOST, "com.subvibe.claude");
 });
