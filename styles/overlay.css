@@ -186,11 +186,12 @@
 /* Text size is set by JS (sizeOverlay) via --cs-font, scaled to the video height
    so it tracks the player — not the browser window — across all sites. */
 
-/* Persian / Arabic text uses Vazirmatn */
+/* Persian / Arabic text: its own font choice (Customize → Persian font, RTL_FONTS in
+   shared/presets.js); Vazirmatn by default. The Latin Font list has no Persian letters. */
 #copilot-subs .copilot-subs__line[dir="rtl"] {
-  font-family: "Vazirmatn", "Vazir", Tahoma, sans-serif;
+  font-family: var(--cs-rtl-font, "Vazirmatn", "Vazir", Tahoma, sans-serif);
   font-weight: 700; /* Vazirmatn Bold, injected with an absolute URL from JS */
-  line-height: 1.5;
+  line-height: var(--cs-rtl-lh, 1.5);
 }
 
 /* Opt-in button shown only when a video has no captions (clickable). */

@@ -75,6 +75,17 @@
     casual: { label: "Comic Sans · casual", css: '"Comic Sans MS", "Chalkboard SE", "Comic Neue", cursive', fonts: [] },
   };
 
+  // Fonts for right-to-left lines (Persian, Arabic, Urdu). The Font list above is
+  // Latin-only (Georgia, Menlo… have no Persian letters), so RTL lines get their own
+  // choice, each a font that HAS the letters: bundled Vazirmatn, then system fonts
+  // (macOS name first, Windows next) falling back to Vazirmatn.
+  const RTL_FONTS = {
+    vazirmatn: { label: "Vazirmatn · clean, modern", css: '"Vazirmatn", "Vazir", Tahoma, sans-serif', lh: "1.5" },
+    naskh: { label: "Naskh · like a printed book", css: '"Geeza Pro", "Noto Naskh Arabic", "Times New Roman", "Vazirmatn", serif', lh: "1.55" },
+    nastaliq: { label: "Nastaliq · Persian calligraphy", css: '"Noto Nastaliq Urdu", "IranNastaliq", "Urdu Typesetting", "Vazirmatn", serif', lh: "2.1" },
+    tahoma: { label: "Tahoma · plain", css: 'Tahoma, "Segoe UI", "Vazirmatn", sans-serif', lh: "1.5" },
+  };
+
   function hexToRgba(hex, alpha) {
     const m = /^#?([0-9a-f]{6})$/i.exec(hex || "");
     if (!m) return null;
@@ -146,6 +157,8 @@
         "--cs-lh": st.lh,
         "--cs-maxwidth": st.maxWidth,
         "--cs-hl": st.hl,
+        "--cs-rtl-font": (RTL_FONTS[c.rtlFont] || RTL_FONTS.vazirmatn).css,
+        "--cs-rtl-lh": (RTL_FONTS[c.rtlFont] || RTL_FONTS.vazirmatn).lh,
       },
     };
   }
@@ -167,6 +180,7 @@
   window.SV_PRESETS = PRESETS;
   window.SV_HL_STYLES = HL_STYLES;
   window.SV_FONT_STACKS = FONT_STACKS;
+  window.SV_RTL_FONTS = RTL_FONTS;
   window.SV_RESOLVE_STYLE = resolveStyle;
   window.SV_PARSE_COLOR = parseColor;
 })();

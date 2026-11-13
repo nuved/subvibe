@@ -701,6 +701,7 @@ el("dubGenAll").addEventListener("click", async () => {
 // ── style preset + custom tweaks (GLOBAL — taste follows the user, not the video) ──
 const PRESETS = window.SV_PRESETS;
 const FONT_STACKS = window.SV_FONT_STACKS;
+const RTL_LANGS = ["fa", "ar", "ur", "ps", "ckb", "sd", "ug"]; // scripts Vazirmatn and the RTL fonts cover (not Hebrew)
 const resolveStyle = window.SV_RESOLVE_STYLE;
 
 function paintStyled(elm, r) {
@@ -748,6 +749,10 @@ function buildPresetRow() {
     o.value = k;
     o.textContent = f.label;
     fontSel.appendChild(o);
+  }
+  const rtlSel = el("styleRtlFont");
+  for (const [k, f] of Object.entries(window.SV_RTL_FONTS || {})) {
+    const o = document.createElement("option"); o.value = k; o.textContent = f.label; rtlSel.appendChild(o);
   }
 }
 const HL_STYLES = window.SV_HL_STYLES;
@@ -810,6 +815,14 @@ function updateStyleUI() {
   el("customHint").textContent = nTweaks ? lookName + " + your " + nTweaks + " change" + (nTweaks > 1 ? "s" : "") : "change " + lookName + "'s font, color, box, outline";
   paintStyled(el("stylePrevText"), r);
   el("styleFont").value = c.font && FONT_STACKS[c.font] ? c.font : "";
+  // A right-to-left translation gets its own font row: the Latin fonts above have no Persian letters.
+  const rtlTg = (state.targets || []).find((t) => RTL_LANGS.includes(String(t).split("-")[0]));
+  el("styleRtlFontRow").hidden = !rtlTg;
+  if (rtlTg) {
+    el("styleRtlFontName").textContent = ((langMeta(rtlTg) || [])[1] || "Persian");
+    el("styleRtlFont").value = c.rtlFont && (window.SV_RTL_FONTS || {})[c.rtlFont] ? c.rtlFont : "vazirmatn";
+    el("styleFont").previousElementSibling.textContent = "Latin";
+  } else el("styleFont").previousElementSibling.textContent = "Font";
   const col = window.SV_PARSE_COLOR(r.vars["--cs-color"]);
   el("styleColor").value = col ? col.hex : "#ffffff";
   el("styleEdge").value = c.edge || "";
@@ -911,6 +924,7 @@ let bgT;
 el("styleBgColor").addEventListener("input", () => { clearTimeout(bgT); bgT = setTimeout(() => setCustom({ bg: true, bgColor: el("styleBgColor").value }), 120); });
 el("styleBgOpacity").addEventListener("input", () => { clearTimeout(bgT); bgT = setTimeout(() => setCustom({ bg: true, bgOpacity: +el("styleBgOpacity").value / 100 }), 120); });
 el("styleFont").addEventListener("change", () => setCustom({ font: el("styleFont").value }));
+el("styleRtlFont").addEventListener("change", () => setCustom({ rtlFont: el("styleRtlFont").value === "vazirmatn" ? "" : el("styleRtlFont").value }));
 el("styleReset").addEventListener("click", () => { state.styleCustom = {}; persist({ styleCustom: {} }); updateStyleUI(); });
 
 // ── Live Translate (experimental) ─────────────────────────────────────────────
