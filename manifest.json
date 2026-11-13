@@ -100,6 +100,7 @@
         "shared/quotes.js",
         "shared/cues.js",
         "shared/dossier.js",
+        "shared/stylefit.js",
         "content/common.js"
       ],
       "css": [
@@ -122,6 +123,7 @@
         "shared/quotes.js",
         "shared/cues.js",
         "shared/dossier.js",
+        "shared/stylefit.js",
         "content/common.js"
       ],
       "css": [
@@ -144,6 +146,7 @@
         "shared/quotes.js",
         "shared/cues.js",
         "shared/dossier.js",
+        "shared/stylefit.js",
         "content/common.js"
       ],
       "css": [
@@ -166,6 +169,7 @@
         "shared/quotes.js",
         "shared/cues.js",
         "shared/dossier.js",
+        "shared/stylefit.js",
         "content/common.js"
       ],
       "css": [
@@ -189,6 +193,7 @@
         "shared/quotes.js",
         "shared/cues.js",
         "shared/dossier.js",
+        "shared/stylefit.js",
         "content/common.js"
       ],
       "css": [
@@ -211,6 +216,7 @@
         "shared/quotes.js",
         "shared/cues.js",
         "shared/dossier.js",
+        "shared/stylefit.js",
         "content/common.js"
       ],
       "css": [
@@ -236,6 +242,7 @@
         "shared/quotes.js",
         "shared/cues.js",
         "shared/dossier.js",
+        "shared/stylefit.js",
         "content/common.js"
       ],
       "css": [
@@ -258,6 +265,7 @@
         "shared/quotes.js",
         "shared/cues.js",
         "shared/dossier.js",
+        "shared/stylefit.js",
         "content/common.js"
       ],
       "css": [

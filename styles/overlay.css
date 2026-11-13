@@ -115,6 +115,11 @@
   font-weight: var(--cs-weight, 600);
 }
 
+/* Auto box (scene check in common.js): a look with no box of its own gets a soft
+   dark backing while the picture under the words is bright or busy. */
+#copilot-subs .copilot-subs__line { transition: background-color 0.4s ease; }
+#copilot-subs.copilot-autobox .copilot-subs__line { background: rgba(8, 10, 14, 0.58); border-radius: 7px; }
+
 /* Draggable: only the text pills are grab handles (the rest of the overlay stays
    click-through), so the user can drop the subtitles anywhere on the video. */
 #copilot-subs .copilot-subs__line { pointer-events: auto; cursor: grab; touch-action: none; }

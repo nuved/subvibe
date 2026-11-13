@@ -12,7 +12,7 @@ const LIVE_ALIAS = window.SV_LIVE_ALIAS || {};
 // Coerce a code to one Gemini's live model accepts, or null if it can't voice it.
 const normLiveCode = (code) => (LIVE_CODES.has(code) ? code : (LIVE_CODES.has(LIVE_ALIAS[code]) ? LIVE_ALIAS[code] : null));
 
-const DEFAULTS = { enabled: true, translateOn: true, targets: ["en"], showOriginal: true, bigLine: "orig", hideNative: true, karaokeHl: true, karaokeStyle: "classic", storyBoard: true, tipsAhead: "1", learnLang: "", apiKey: "", translationProvider: "openai", claudeModel: "claude-sonnet-5-5", anthropicKey: "", cliBridgeOk: false, cliBridgeInfo: "", keepNames: true, keepTerms: "", position: "bottom", size: "md", stylePreset: "classic", styleCustom: {}, syncOffset: 0, dubEnabled: false, ttsProvider: "openai", geminiKey: "", tmdbKey: "", shotDelay: 0, dubVoice: "marin", dubGeminiVoice: "Kore", dubMultiVoice: false, dubDuckLevel: 0.12, dubPace: 1, liveModel: "gemini-3.5-live-translate-preview", liveSync: "auto", audioDeviceId: "", liveTarget: "", debugHud: false, uiTheme: "light" };
+const DEFAULTS = { enabled: true, translateOn: true, targets: ["en"], showOriginal: true, bigLine: "orig", hideNative: true, karaokeHl: true, karaokeStyle: "classic", storyBoard: true, tipsAhead: "1", learnLang: "", apiKey: "", translationProvider: "openai", claudeModel: "claude-sonnet-5-5", anthropicKey: "", cliBridgeOk: false, cliBridgeInfo: "", keepNames: true, keepTerms: "", position: "auto", size: "md", stylePreset: "classic", styleCustom: {}, syncOffset: 0, dubEnabled: false, ttsProvider: "openai", geminiKey: "", tmdbKey: "", shotDelay: 0, dubVoice: "marin", dubGeminiVoice: "Kore", dubMultiVoice: false, dubDuckLevel: 0.12, dubPace: 1, liveModel: "gemini-3.5-live-translate-preview", liveSync: "auto", audioDeviceId: "", liveTarget: "", debugHud: false, uiTheme: "light" };
 const el = (id) => document.getElementById(id);
 // Promise wrapper for chrome.runtime.sendMessage — same shape as learn.js's
 // helper, used by the word-game wiring below (async/await reads cleaner than
@@ -207,7 +207,6 @@ function selectTab(name) {
   for (const b of el("tabBar").children) b.classList.toggle("on", b.dataset.tab === name);
   el("gearBtn").classList.toggle("on", name === "keys");
   for (const p of document.querySelectorAll(".pane")) p.hidden = p.dataset.pane !== name;
-  if (name === "style") fitToVideo();
   // Deck render: on Learn-pane show, refresh from the vocab store — but never
   // while a round is live (arcade is hidden then; a mid-flight VOCAB_LIST
   // refetch would just be wasted work, and tab pills stay usable mid-round).
@@ -524,7 +523,7 @@ el("communityTips").addEventListener("change", () => { const on = el("communityT
 // Sync applies to a running session at once: the capture page hears LIVE_SYNC directly.
 el("liveSync").addEventListener("change", () => { const sync = el("liveSync").value; state.liveSync = sync; persist({ liveSync: sync }); chrome.runtime.sendMessage({ type: "LIVE_SYNC", sync }).catch(() => {}); });
 el("tipsAhead").addEventListener("change", () => persist({ tipsAhead: el("tipsAhead").value }));
-el("position").addEventListener("change", () => { saveSetting({ position: el("position").value }); paintFitPreview(); });
+el("position").addEventListener("change", () => { saveSetting({ position: el("position").value }); });
 el("keepNames").addEventListener("change", () => persist({ keepNames: el("keepNames").checked }));
 
 // ── size slider ───────────────────────────────────────────────────────────────
@@ -833,89 +832,8 @@ function updateStyleUI() {
   el("styleBgColor").value = bg ? bg.hex : "#080a0e";
   el("styleBgOpacity").value = Math.round((bg ? bg.a : 0.78) * 100);
   el("styleBgColor").disabled = el("styleBgOpacity").disabled = !bg;
-  renderFit();
 }
 
-// ── Fits this video ───────────────────────────────────────────────────────────
-// Opening the Style tab screenshots the playing video (activeTab, granted by the
-// popup itself), shows the style preview on the picture's own bottom band, and
-// names one preset + highlight that suit it (shared/stylefit.js). Nothing is
-// sent anywhere; the frame lives only in this popup.
-var fit = null, fitTried = false, fitShot = null;
-// The preview strip is the slice of the picture where YOUR lines sit (bottom, top,
-// or where you dragged them), with the sample text at that height — so it shows
-// what will really be under the words, including a caption burned into the video.
-function paintFitPreview() {
-  if (!fitShot) return;
-  const pos = el("position").value, lp = state.linePositions || {};
-  const ys = Object.values(lp).map((p) => +p.y).filter((v) => v > 0 && v < 1);
-  const at = pos === "top" ? 0.12 : pos === "custom" && ys.length ? ys.reduce((a, b) => a + b, 0) / ys.length : 0.88;
-  const { img, sx, sy, sw, sh } = fitShot, band = 0.4;
-  const y0 = Math.max(0, Math.min(1 - band, at - band / 2));
-  const bw = 920, bh = Math.max(8, Math.min(920, Math.round(bw * (sh * band) / sw))), c = document.createElement("canvas"); c.width = bw; c.height = bh;
-  c.getContext("2d").drawImage(img, sx, sy + sh * y0, sw, sh * band, 0, 0, bw, bh);
-  const pv = el("stylePrev"); pv.style.backgroundImage = "url(" + c.toDataURL("image/jpeg", 0.8) + ")"; pv.classList.add("onframe");
-  el("stylePrevText").style.top = (((at - y0) / band) * 100).toFixed(1) + "%";
-} // var: selectTab() at startup can call fitToVideo before this line runs
-function renderFit() {
-  const box = el("styleFit"); if (!box) return;
-  [...el("presetRow").children].forEach((b) => b.classList.toggle("fits", !!(fit && fit.preset && b.dataset.preset === fit.preset)));
-  if (!fit) { box.hidden = true; return; }
-  box.hidden = false; box.textContent = "";
-  if (fit.protected) {
-    box.className = "fit quiet";
-    box.textContent = "This video's picture is protected (or black right now), so SubVibe can't read it to suggest a style.";
-    return;
-  }
-  box.className = "fit";
-  const inUse = state.stylePreset === fit.preset && (state.karaokeStyle || "classic") === fit.hl && !Object.keys(state.styleCustom || {}).length;
-  const why = document.createElement("div"); why.className = "fitwhy";
-  const head = document.createElement("div"); head.innerHTML = "<b>Fits this video:</b> ";
-  head.append(fit.presetName + " with " + fit.hlName);
-  const sm = document.createElement("small"); sm.textContent = fit.why.charAt(0).toUpperCase() + fit.why.slice(1) + "; " + fit.hlWhy + ".";
-  why.append(head, sm);
-  const btn = document.createElement("button"); btn.type = "button";
-  btn.textContent = inUse ? "✓ In use" : "Use it"; btn.disabled = inUse;
-  btn.addEventListener("click", () => {
-    state.stylePreset = fit.preset; state.styleCustom = {}; state.karaokeStyle = fit.hl;
-    persist({ stylePreset: fit.preset, styleCustom: {}, karaokeStyle: fit.hl });
-    // A caption burned in at the bottom: move ours up, unless they're already dragged clear of it.
-    if (fit.position && el("position").value !== "custom" && el("position").value !== fit.position) {
-      el("position").value = fit.position; saveSetting({ position: fit.position }); paintFitPreview();
-    }
-    updateStyleUI();
-  });
-  box.append(why, btn);
-}
-async function fitToVideo() {
-  if (fitTried || !window.SV_STYLEFIT) return; fitTried = true;
-  try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab) return;
-    const info = await chrome.tabs.sendMessage(tab.id, { type: "SV_VIDEO_RECT", hide: true }).catch(() => null);
-    if (!info || !info.ok) return; // no SubVibe video on this page: the Style tab stays as it was
-    await new Promise((r) => setTimeout(r, 90)); // let the page paint without our lines
-    const shot = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "jpeg", quality: 82 }).catch(() => null);
-    if (!shot) return;
-    const img = new Image(); img.src = shot; await img.decode();
-    const k = img.naturalWidth / (info.vpw || img.naturalWidth); // CSS px → screenshot px (covers zoom and dpr)
-    let { x, y, w, h } = info.rect;
-    // The picture inside the element (letterbox/pillarbox bars are not the video).
-    if (info.vw && info.vh) {
-      const ar = info.vw / info.vh;
-      if (w / h > ar) { const cw = h * ar; x += (w - cw) / 2; w = cw; } else { const ch = w / ar; y += (h - ch) / 2; h = ch; }
-    }
-    const sx = x * k, sy = y * k, sw = w * k, sh = h * k;
-    if (sw < 40 || sh < 40) return; // too small (or a page lying about its video's shape) to read
-    const AW = 320, AH = Math.max(8, Math.min(640, Math.round(AW * sh / sw))); // 320: letters of a burned-in caption stay sharp enough to see
-    const a = document.createElement("canvas"); a.width = AW; a.height = AH;
-    const actx = a.getContext("2d", { willReadFrequently: true }); actx.drawImage(img, sx, sy, sw, sh, 0, 0, AW, AH);
-    fit = SV_STYLEFIT.suggest({ data: actx.getImageData(0, 0, AW, AH).data, w: AW, h: AH });
-    if (!fit.protected) { fitShot = { img, sx, sy, sw, sh }; paintFitPreview(); }
-    renderFit();
-    const tile = el("presetRow").querySelector(".fits"); if (tile) tile.scrollIntoView({ block: "nearest", inline: "nearest" });
-  } catch (e) { console.warn("[SubVibe] fits this video:", e); }
-}
 let colT;
 el("styleColor").addEventListener("input", () => { clearTimeout(colT); colT = setTimeout(() => setCustom({ color: el("styleColor").value }), 120); });
 el("styleEdge").addEventListener("change", () => setCustom({ edge: el("styleEdge").value }));

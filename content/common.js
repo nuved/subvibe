@@ -26,7 +26,7 @@
                          // means there's always a line to show even before a key is added
     hideNative: true,    // hide the site's own captions to avoid duplicates by default
                          // (SubVibe re-renders the same line, so the native one is redundant)
-    position: "bottom",  // bottom | top | auto | custom (user-dragged)
+    position: "auto",    // bottom | top | auto ("Smart": dodges captions on the site and in the picture) | custom (user-dragged)
     linePositions: {},   // custom mode: slot key ("__orig"|lang) → {x,y} fraction (per-segment)
     size: "md",          // fraction of video height (e.g. 0.03) — legacy "sm|md|lg|xl" names still accepted
     stylePreset: "classic", // named look from shared/presets.js: classic | youtube | tiktok | pill | snapchat | cinema | minimal
@@ -809,6 +809,9 @@
       el.classList.toggle("copilot-style-pill", style.pill);
       el.classList.toggle("copilot-bg-light", !!style.lightBg); // highlights switch to their on-light ink
       el.classList.toggle("copilot-style-banner", style.banner);
+      const bgc = window.SV_PARSE_COLOR ? window.SV_PARSE_COLOR(style.vars["--cs-bg"]) : null;
+      lookBoxless = !bgc || bgc.a < 0.3; // no box of its own: the scene check may lend one
+      if (!lookBoxless) el.classList.remove("copilot-autobox");
       ensureFont(style.fonts);
     }
     // Karaoke highlight style: one overlay class drives the .sung look
@@ -847,7 +850,7 @@
   function updateAutoPosition() {
     const overlay = document.getElementById("copilot-subs");
     if (!overlay || !autoPosEnabled) return;
-    let want = "bottom";
+    let want = sceneBurned ? "top" : "bottom"; // captions written into the picture's bottom (scene check below)
     const rect = hideNativeOn ? null : nativeCaptionRect(); // hidden site captions are nothing to dodge
     if (rect) {
       const player = (adapter?.getPlayerContainer?.() || document.body).getBoundingClientRect();
@@ -857,6 +860,55 @@
     if (want !== autoSide && autoVotes >= 3) autoSide = want;
     overlay.classList.toggle("copilot-pos-top", autoSide === "top");
     overlay.classList.toggle("copilot-pos-bottom", autoSide !== "top");
+  }
+
+  // ── Scene check (Smart position + auto box), operator 2026-11-13 ──────────────
+  // About once a second while the video plays, read a 320-px copy of the current
+  // frame — the video element only, never our own lines — with shared/stylefit.js:
+  //  · captions written into the picture's bottom → Smart moves the lines up;
+  //  · a bright or busy bottom under a look with no box (TikTok, Cinema, Minimal)
+  //    → a soft dark backing behind the words, gone again when the scene calms.
+  // A flip needs 2 agreeing reads, a flip back 3, so a cut never makes it hop.
+  // Only while a line is on screen (no words, nothing to place), and a steady
+  // picture (a talking head at a whiteboard) is read every 4 s instead of every
+  // second; a new line or a changed picture reads again at once.
+  // Local pixels only: nothing leaves the page. A video the page may not read
+  // (cross-origin without CORS) stops the check for good; a protected video reads
+  // as black and changes nothing.
+  let sceneCv = null, sceneBlind = false, sceneBurned = false, sceneBusy = false, lookBoxless = false;
+  let sceneText = "", sceneLast = null, sceneSteady = 0, sceneSkip = 0;
+  const sceneVotes = { burned: 0, busy: 0 };
+  function sceneVote(key, now, cur) {
+    if (now === cur) { sceneVotes[key] = 0; return cur; }
+    return ++sceneVotes[key] >= (now ? 2 : 3) ? (sceneVotes[key] = 0, now) : cur;
+  }
+  function sceneTick() {
+    const overlay = document.getElementById("copilot-subs");
+    if (!overlay || sceneBlind || !window.SV_STYLEFIT || (!autoPosEnabled && !lookBoxless) || document.hidden) return;
+    const v = liveVideoEl(adapter && adapter.getVideoEl ? adapter.getVideoEl() : null);
+    if (!v || v.paused || v.readyState < 2 || !v.videoWidth || !v.videoHeight) return;
+    const text = [...overlay.querySelectorAll(".copilot-subs__line")].filter((l) => l.style.display !== "none").map((l) => l.textContent).join("|").trim();
+    if (!text) return; // no words on screen: nothing to place
+    const newLine = text !== sceneText; sceneText = text;
+    if (!newLine && sceneSteady >= 3 && ++sceneSkip < 4) return; // steady picture: every 4th second
+    sceneSkip = 0;
+    const W = 320, H = Math.max(8, Math.min(640, Math.round(W * v.videoHeight / v.videoWidth)));
+    if (!sceneCv) sceneCv = document.createElement("canvas");
+    if (sceneCv.width !== W || sceneCv.height !== H) { sceneCv.width = W; sceneCv.height = H; }
+    let data;
+    try {
+      const ctx = sceneCv.getContext("2d", { willReadFrequently: true });
+      ctx.drawImage(v, 0, 0, W, H); data = ctx.getImageData(0, 0, W, H).data;
+    } catch { sceneBlind = true; return; }
+    const m = window.SV_STYLEFIT.measure({ data, w: W, h: H });
+    if (m.frameL < 0.03 && m.frameStd < 0.02) return; // protected or a black frame: keep what we have
+    const same = sceneLast && Math.abs(m.bandL - sceneLast.bandL) < 0.03 && Math.abs(m.frameL - sceneLast.frameL) < 0.03 && Math.abs(m.busy - sceneLast.busy) < 0.015 && !!m.burned === !!sceneLast.burned;
+    sceneSteady = same ? sceneSteady + 1 : 0; sceneLast = m;
+    sceneBurned = sceneVote("burned", !!m.burned, sceneBurned);
+    sceneBusy = sceneVote("busy", sceneBusy ? (m.bandL > 0.5 || m.busy > 0.075) : (m.bandL > 0.58 || m.busy > 0.09), sceneBusy);
+    overlay.classList.toggle("copilot-autobox", lookBoxless && sceneBusy);
+    overlay.dataset.svScene = (sceneBurned ? "burned " : "") + (sceneBusy ? "busy " : "") + "steady=" + sceneSteady; // for the debug HUD and tests
+    if (autoPosEnabled) updateAutoPosition();
   }
 
   // Keep the overlay inside whatever element went fullscreen.
@@ -4075,23 +4127,12 @@
 
   document.addEventListener("fullscreenchange", onFullscreenChange);
   setInterval(() => { if (autoPosEnabled) updateAutoPosition(); }, 600);
+  setInterval(sceneTick, 1000);
   setInterval(() => { if (hideNativeOn) { injectShadowHide(); hideNativeTextTracks(); } }, 2000);
 
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (!msg) return;
     if (msg.type === "GET_CLIP") { sendResponse({ base: lastCacheBase || clipBaseId(), title: SV_TITLE.clean(document.title) }); return; } // popup → "this video" cache + per-clip settings
-    if (msg.type === "SV_VIDEO_RECT") { // popup → "fits this video": where the picture is, so it can crop a screenshot to it
-      let v = adapter?.getVideoEl?.() || null, best = 0;
-      if (!v) for (const c of document.querySelectorAll("video")) { const r = c.getBoundingClientRect(), a = r.width * r.height; if (a > best) { best = a; v = c; } }
-      if (!v) { sendResponse({ ok: false }); return; }
-      // The screenshot that follows should see the picture, not our own lines on it: hide them for a moment.
-      const ov = document.getElementById("copilot-subs");
-      if (msg.hide && ov) { ov.style.visibility = "hidden"; setTimeout(() => { ov.style.visibility = ""; }, 700); }
-      const r = v.getBoundingClientRect(), W = innerWidth, H = innerHeight;
-      const x = Math.max(0, r.left), y = Math.max(0, r.top), w = Math.min(W, r.right) - x, h = Math.min(H, r.bottom) - y;
-      sendResponse(w > 40 && h > 40 ? { ok: true, rect: { x, y, w, h }, vw: v.videoWidth || 0, vh: v.videoHeight || 0, dpr: devicePixelRatio || 1, vpw: W } : { ok: false });
-      return;
-    }
     if (msg.type === "SV_SEEK") {
       // Learn tab time chip → jump the video to where a word was said (shadowing).
       const v = adapter?.getVideoEl?.() || document.querySelector("video");
