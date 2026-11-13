@@ -316,6 +316,29 @@
   background: rgba(36, 31, 26, 0.06); color: #786D60; font-size: 16px; line-height: 1; cursor: pointer; }
 #copilot-subs .copilot-subs__wtip .wt-close:hover { background: rgba(36, 31, 26, 0.12); }
 
+/* Word card (hover bubble and click card), dark like the subtitle box and the
+   ﹖ chip it sits beside; text starts at the reading edge (dir auto per block)
+   instead of centring a mixed Persian/English paragraph (operator 2026-11-13).
+   The explain card (.wt-explain) keeps its own light look. */
+#copilot-subs .copilot-subs__wtip:not(.wt-explain) {
+  background: rgba(24, 21, 19, 0.96); color: #F3EDE4; border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 14px; padding: 11px 14px 12px; max-width: 360px; text-align: start;
+  box-shadow: 0 14px 34px -10px rgba(0, 0, 0, 0.7);
+}
+#copilot-subs .copilot-subs__wtip.pinned:not(.wt-explain) { border-color: rgba(255, 140, 110, 0.45); }
+#copilot-subs .copilot-subs__wtip:not(.wt-explain) .wt-top { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+#copilot-subs .copilot-subs__wtip:not(.wt-explain) .wt-word { font-size: 18px; font-weight: 700; color: #fff; background: none; padding: 0; margin: 0; }
+#copilot-subs .copilot-subs__wtip:not(.wt-explain) .wt-head { background: none; color: #9FD9CF; padding: 0; margin: 0; font-size: 12px; font-weight: 600; }
+#copilot-subs .copilot-subs__wtip:not(.wt-explain) .wt-mean { font-size: 15px; font-weight: 650; color: #FFE2B8; }
+#copilot-subs .copilot-subs__wtip:not(.wt-explain) .wt-phrase { color: rgba(243, 237, 228, 0.7); font-size: 12px; margin-top: 4px; }
+#copilot-subs .copilot-subs__wtip:not(.wt-explain) .wt-gram { color: rgba(243, 237, 228, 0.82); font-size: 12px; line-height: 1.6; margin-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12); padding-top: 8px; font-weight: 500; }
+#copilot-subs .copilot-subs__wtip:not(.wt-explain) .wt-actions { margin-top: 10px; }
+#copilot-subs .copilot-subs__wtip:not(.wt-explain) .wt-save { padding: 7px 12px; border-radius: 10px; font-size: 13px; }
+#copilot-subs .copilot-subs__wtip:not(.wt-explain) .wt-save:disabled { background: rgba(159, 217, 207, 0.16); color: #9FD9CF; }
+#copilot-subs .copilot-subs__wtip:not(.wt-explain) .wt-close { width: 30px; height: 30px; border-radius: 10px; background: rgba(255, 255, 255, 0.08); color: #F3EDE4; }
+#copilot-subs .copilot-subs__wtip:not(.wt-explain) .wt-close:hover { background: rgba(255, 255, 255, 0.16); }
+
 /* ﹖ "explain this line" button — floats on the overlay, tracked to the original
    line by the tick (position set in JS). */
 #copilot-subs .copilot-subs__hint {

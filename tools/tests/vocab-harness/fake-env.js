@@ -52,7 +52,7 @@
         else if (msg && msg.type === "CACHE_GET") r = { track: null };
         else if (msg && msg.type === "TRANSLATE") r = { lines: (msg.cues || []).map((s) => "EN·" + s) };
         else if (msg && msg.type === "VOCAB_ADD") { window.__vocabMsgs.push(msg); r = { ok: true, key: "de:x", card: {} }; }
-        else if (msg && msg.type === "VOCAB_WORD_ENRICH") { window.__enrichS = msg.s; r = { ok: true, e: { meaning: "خیابان", cefr: "A1", pos: "noun" }, g: "زمان حال ساده" }; }
+        else if (msg && msg.type === "VOCAB_WORD_ENRICH") { window.__enrichS = msg.s; r = { ok: true, e: { meaning: "خیابان", cefr: "A1", pos: "noun" }, g: window.__svGramList ? JSON.stringify(["این جمله زمان حال ساده است و «Der Hund» فاعل است."]) : "زمان حال ساده" }; }
         else if (msg && msg.type === "VOCAB_EXPLAIN") { window.__explainS = msg.s; r = { ok: true, tr: "این یک جملهٔ آزمایشی است.", g: "زمان حال ساده؛ فاعل، فعل و مفعول.", words: [{ w: "Hund", m: "سگ" }, { w: "Straße", m: "خیابان" }] }; }
         else if (msg && msg.type === "VOCAB_CLIP_WORDS") r = (NOPOOL || SPLIT || RUNAWAY) ? { words: [], reason: "other-lang", lang: "de" } : { enriched: true, lang: "de", title: "t", dim: ["die"], words: [
           { w: "Hund", n: 1, sentence: "", st: "", meaning: "سگ" },              // enriched → tooltip shows the meaning

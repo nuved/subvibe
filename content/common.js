@@ -1874,13 +1874,17 @@
       // the top) it goes to whichever side has more room, and is capped to that
       // room — the sentence band and the buttons stay, the middle scrolls.
       wtip.style.maxHeight = "";
-      const roomAbove = wr.top - or.top - 12, roomBelow = or.bottom - wr.bottom - 12;
+      // Vertically the card clears the whole subtitle line (a word on a wrapped
+      // line's second row used to put the card over the first row).
+      const lnEl = w.closest && w.closest(".copilot-subs__line"), lr = lnEl ? lnEl.getBoundingClientRect() : wr;
+      const vr = { top: Math.min(wr.top, lr.top), bottom: Math.max(wr.bottom, lr.bottom) };
+      const roomAbove = vr.top - or.top - 12, roomBelow = or.bottom - vr.bottom - 12;
       const h = wtip.offsetHeight;
       const below = h > roomAbove && roomBelow > roomAbove;
       wtip.classList.toggle("below", below);
       const room = Math.max(140, below ? roomBelow : roomAbove);
       if (h > room) wtip.style.maxHeight = Math.round(room) + "px";
-      wtip.style.top = Math.round((below ? wr.bottom : wr.top) - or.top) + "px";
+      wtip.style.top = Math.round((below ? vr.bottom : vr.top) - or.top) + "px";
     };
 
     // ── Pinned card controller (click) ───────────────────────────────────────
@@ -1917,16 +1921,19 @@
       title.dir = "auto";
       const showArt = content.art && vocabPoolLang === "de"; // der/die/das is German-only
       title.textContent = (showArt && content.lemma) ? `${content.art} ${content.lemma}` : (content.lemma || headword);
-      wtip.appendChild(title);
+      // Word and its facts on one line: "behavioral  adj · B2 · 10× in this video".
+      const top = document.createElement("div"); top.className = "wt-top";
+      top.appendChild(title);
+      wtip.appendChild(top);
       const bits = [];
       if (content.pos && content.pos !== "other") bits.push(content.pos);
       if (content.cefr && content.cefr !== "?") bits.push(content.cefr);
-      if (content.n) bits.push("×" + content.n); // frequency in this video
+      if (content.n > 1) bits.push(content.n + "× in this video"); // how often THIS video says it
       if (bits.length) {
-        const head = document.createElement("div");
+        const head = document.createElement("span");
         head.className = "wt-head";
         head.textContent = bits.join(" · ");
-        wtip.appendChild(head);
+        top.appendChild(head);
       }
       const mean = document.createElement("div");
       mean.className = "wt-mean";
@@ -1939,11 +1946,17 @@
         p.textContent = globalThis.SV_QUOTES ? SV_QUOTES.wrap(content.phrase, vocabPoolLang) : content.phrase;
         wtip.appendChild(p);
       }
-      if (content.gram) { // the sentence's grammar note, from the same call
+      // The sentence's grammar note, from the same call. It sometimes arrives as a
+      // list, or a list printed as text ('["…"]'): show its sentences, never the brackets.
+      let gram = content.gram;
+      if (typeof gram === "string" && /^\s*\[/.test(gram)) { try { const a = JSON.parse(gram); if (Array.isArray(a)) gram = a; } catch {} }
+      if (Array.isArray(gram)) gram = gram.filter((x) => typeof x === "string").join(" ");
+      gram = typeof gram === "string" ? gram.replace(/^\s*\[\s*"|"\s*\]\s*$/g, "").trim() : "";
+      if (gram) {
         const g = document.createElement("div");
         g.className = "wt-gram";
-        g.dir = fitDir(content.gram, "auto");
-        g.textContent = content.gram;
+        g.dir = fitDir(gram, "auto");
+        g.textContent = gram;
         wtip.appendChild(g);
       }
       const act = document.createElement("div");
@@ -3400,10 +3413,15 @@
         if (!(ol && ol.style.display !== "none" && ol.textContent)) ol = defs.map((d) => els[d.key]).find((el) => el && el.style.display !== "none" && el.textContent) || null;
         if (ol) {
           const tx = ol.querySelector(".copilot-subs__text");
-          const or = overlay.getBoundingClientRect(), lr = (tx && tx.getBoundingClientRect().width > 0 ? tx : ol).getBoundingClientRect();
+          const or = overlay.getBoundingClientRect(), tr = (tx && tx.getBoundingClientRect().width > 0 ? tx : ol).getBoundingClientRect();
+          // Beside the line's BOX (its background reaches past the text): right of it,
+          // or, with no room there, sitting on its top-right corner from above.
+          // It never lands on the words (operator screenshot 2026-11-13).
+          const bx = overlay.classList.contains("copilot-style-banner") ? tr : ol.getBoundingClientRect(), roomRight = or.right - bx.right; // a banner box spans the player: use the text
+          const lr = roomRight >= 34 ? { right: bx.right, top: tr.top } : { right: bx.right - 34, top: bx.top - 32 };
           hintBtn.style.display = "block";
           hintBtn.classList.toggle("sv-idle", !!(video && !video.paused) && performance.now() - (window.__svHintAt || 0) > 2500 && !hintBtn.matches(":hover"));
-          hintBtn.style.left = Math.round(Math.min(lr.right - or.left + 6, or.width - 30)) + "px";
+          hintBtn.style.left = Math.round(Math.max(0, Math.min(lr.right - or.left + 6, or.width - 30))) + "px";
           hintBtn.style.top = Math.round(lr.top - or.top) + "px";
         } else hintBtn.style.display = "none";
       }
